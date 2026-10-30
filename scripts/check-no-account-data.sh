@@ -120,51 +120,37 @@ fi
 
 # 5) No current holdings. The denylist never enters the repo, not even
 #    hashed: the ticker space is small enough to brute-force. It is the
-#    latest Flex position report per account in the daemon's own store,
-#    opened read-only, and a private copy cached outside the repo stands in
-#    when the store cannot be opened. With neither (CI, contributor machines)
-#    the check skips with a notice. A store that cannot be read and has no
-#    cache, or that holds statements but yields no ticker, fails instead:
-#    the owner's machine never skips silently.
+#    latest Flex position report per account, which the daemon writes to a
+#    private file outside the repo (internal/daemon/account_data_files.go).
+#    Nothing here opens daemon.db: an outside SQLite opener resets a live
+#    daemon's shared memory if the daemon's lock on it is lost, and the
+#    daemon crashed so on 2026-10-29. With neither store nor file (CI,
+#    contributor machines) the check skips with a notice. A store without
+#    the file, or a file that dates a report but names no ticker, fails
+#    instead: the owner's machine never skips silently.
 home=${HOME:-/nonexistent}
 state=${XDG_STATE_HOME:-$home/.local/state}/ibkr/daemon.db
 cache=${XDG_CACHE_HOME:-$home/.cache}/ibkr/holdings-denylist
+money=${XDG_CACHE_HOME:-$home/.cache}/ibkr/money-denylist
 ticker_re='[A-Z][A-Z0-9]*([.][A-Z0-9]+)?'
 tilde() { case $1 in "$home"/*) printf '~/%s' "${1#"$home"/}" ;; *) printf '%s' "$1" ;; esac; }
-# -init /dev/null: a personal ~/.sqliterc must not change the output format.
-store() { sqlite3 -init /dev/null -readonly -bail -cmd '.timeout 2000' "$state" "$1" 2>/dev/null; }
 held= asof= source= why= unreadable=
-if [ ! -e "$state" ]; then
-	why="no daemon store at $(tilde "$state")"
-elif ! command -v sqlite3 >/dev/null 2>&1; then
-	why="no sqlite3 to read the daemon store at $(tilde "$state")" unreadable=1
-elif ! flex=$(store 'SELECT count(*) FROM statement_files'); then
-	why="cannot read the daemon store at $(tilde "$state")" unreadable=1
-elif [ "$flex" -eq 0 ]; then
-	why="the daemon store holds no Flex statements"
-else
-	# Rows read day|symbol|underlying: an option contributes its underlying,
-	# and an IBKR class suffix ("BRK B") keeps its root.
-	out=$(store "WITH pos AS MATERIALIZED (SELECT account_key AS a, substr(json_extract(raw_json, '\$.ReportDate'), 1, 10) AS d,
-		json_extract(raw_json, '\$.Symbol') AS s, json_extract(raw_json, '\$.UnderlyingSymbol') AS u
-		FROM statement_records WHERE record_kind = 'position')
-		SELECT d, s, u FROM pos WHERE d = (SELECT max(d) FROM pos AS p WHERE p.a = pos.a)") || out=
-	asof=$(printf '%s\n' "$out" | cut -d'|' -f1 | sort -r | sed -n 1p)
-	held=$(printf '%s\n' "$out" | cut -d'|' -f2- | tr '|' '\n' | sed 's/ .*//' | grep -xE "$ticker_re" | sort -u || true)
-	if [ -n "$held" ]; then
-		source="the daemon store"
-		(umask 077 && mkdir -p "${cache%/*}" && printf '# as of %s\n%s\n' "$asof" "$held" >"$cache.$$" &&
-			mv -f "$cache.$$" "$cache") 2>/dev/null || rm -f "$cache.$$"
-	else
-		echo "check-no-account-data: the daemon store holds Flex statements but no ticker was read from its" >&2
-		echo "                       position report; fix the holdings query here rather than skip the check" >&2
-		status=1
-	fi
-fi
-if [ -z "$source" ] && [ -n "$why" ] && [ -f "$cache" ]; then
-	held=$(grep -xE "$ticker_re" "$cache" | sort -u || true)
+if [ -f "$cache" ]; then
 	asof=$(sed -n 's/^# as of //p' "$cache")
-	[ -z "$held" ] || source="the private cache ($why)"
+	held=$(grep -xE "$ticker_re" "$cache" | sort -u || true)
+	if [ -n "$held" ]; then
+		source="the daemon's holdings file"
+	elif [ -n "$asof" ]; then
+		echo "check-no-account-data: the daemon's holdings file dates a position report but names no ticker;" >&2
+		echo "                       fix internal/daemon/account_data_files.go rather than skip the check" >&2
+		status=1
+	else
+		why="the daemon holds no Flex position report"
+	fi
+elif [ -e "$state" ]; then
+	why="the daemon has not written $(tilde "$cache")" unreadable=1
+else
+	why="no daemon store at $(tilde "$state")"
 fi
 
 # Single letters, Canary's own market instruments (pkg/ibkr/symbols.go) and
@@ -211,20 +197,23 @@ if [ -n "$source" ]; then
 	echo "check-no-account-data: holdings checked against $source, positions as of ${asof:-unknown}"
 	[ "$skipped" -eq 0 ] || echo "check-no-account-data: $skipped held ticker(s) not checked: single letters, Canary instruments or vocabulary"
 elif [ -n "$unreadable" ]; then
-	echo "check-no-account-data: $why and no private cache at $(tilde "$cache");" >&2
+	echo "check-no-account-data: $why; start the daemon (canary restart), which writes it;" >&2
 	echo "                       a machine with a daemon store never skips the holdings check" >&2
 	status=1
 elif [ -n "$why" ]; then
-	echo "check-no-account-data: holdings check SKIPPED — no private holdings data ($why, no cache at $(tilde "$cache"));" >&2
+	echo "check-no-account-data: holdings check SKIPPED — no private holdings data ($why);" >&2
 	echo "                       expected on CI and contributor machines" >&2
 fi
 
 # 6) No money figures of the live book: the net liquidation value of each
 #    live account (its latest risk-capital document) and the cash balances
-#    the live proposal snapshot reports per currency, read from the daemon
-#    store like the holdings and kept nowhere else. Without a store (CI) the
-#    check is silent; a store it cannot read, or a live account without an
-#    NLV, fails it. A figure of four or more significant digits is matched
+#    the live proposal snapshot reports per currency, which the daemon
+#    writes to a private file beside the holdings one, as rows
+#    "nlv|VALUE|DAY" and "cash|VALUE|". Without a store (CI) the check is
+#    silent; a store whose daemon has not written the file yet skips it
+#    loudly until the next daemon start writes it; a file it cannot read,
+#    or a live account without an NLV, fails it. A figure of four or more
+#    significant digits is matched
 #    in whole units, grouped by ",", ".", "_" or not at all, cents optional.
 #    Authors round, and the book moves before they commit, so in files not
 #    yet on origin/main every multiple of 100 within 2% of a figure counts
@@ -232,21 +221,18 @@ fi
 #    only, so a market move never fails an unchanged tree. A spelling needs
 #    three significant digits, an ungrouped one five digits, and must stand
 #    as a whole number. Only path and line leave the script.
-if [ -e "$state" ]; then
-	if ! mout=$(store "WITH rc AS (SELECT json_extract(document_json, '\$.state.account_id') AS a,
-			json_extract(document_json, '\$.state.last_equity_as_of') AS t, json_extract(document_json, '\$.state.last_equity_base') AS v
-			FROM state_documents WHERE kind = 'risk_capital' AND json_extract(document_json, '\$.state.account_mode') = 'live')
-		SELECT 'nlv', coalesce(v, 'missing'), substr(t, 1, 10) FROM rc WHERE t = (SELECT max(t) FROM rc AS o WHERE o.a IS rc.a)
-		UNION ALL SELECT 'cash', j.value, NULL FROM state_documents AS d, json_each(d.document_json, '\$.cash_sweep.currencies') AS c,
-			json_each(c.value) AS j WHERE d.kind = 'trade_proposals_current' AND json_extract(d.document_json, '\$.account_mode') = 'live'
-			AND j.key IN ('cash', 'trade_date_cash', 'settled_cash')"); then
-		echo "check-no-account-data: cannot read money figures from the daemon store at $(tilde "$state"); the money check did not run" >&2
+if [ -f "$money" ] || [ -e "$state" ]; then
+	if [ ! -f "$money" ]; then
+		echo "check-no-account-data: money check SKIPPED — the daemon has not written $(tilde "$money") yet;" >&2
+		echo "                       start the daemon (canary restart), which writes it once it reaches the account" >&2
+	elif ! mout=$(cat "$money"); then
+		echo "check-no-account-data: cannot read money figures from $(tilde "$money"); the money check did not run" >&2
 		status=1
 	elif ! printf '%s\n' "$mout" | grep -q '^nlv|'; then
-		echo "check-no-account-data: money check SKIPPED — the daemon store holds no live net liquidation value" >&2
+		echo "check-no-account-data: money check SKIPPED — the daemon's money file holds no live net liquidation value" >&2
 	elif printf '%s\n' "$mout" | grep -q '^nlv|missing|'; then
-		echo "check-no-account-data: a live risk-capital document has no net liquidation value; fix the money query here" >&2
-		echo "                       rather than skip the check" >&2
+		echo "check-no-account-data: a live risk-capital document has no net liquidation value; fix" >&2
+		echo "                       internal/daemon/account_data_files.go rather than skip the check" >&2
 		status=1
 	else
 		# Whole units of every figure first ("all": the whole index), then
@@ -318,7 +304,7 @@ if [ -e "$state" ]; then
 			echo "                       the live book's NLV and cash balances must never be committed; use figures far from them" >&2
 			status=1
 		fi
-		echo "check-no-account-data: money figures checked against the daemon store, NLV as of $(printf '%s\n' "$mout" |
+		echo "check-no-account-data: money figures checked against the daemon's money file, NLV as of $(printf '%s\n' "$mout" |
 			awk -F'|' '$1 == "nlv" { print $3 }' | sort -r | sed -n 1p)"
 		printf '%s\n' "$mout" | grep -qE '^cash\|-?[0-9]' ||
 			echo "check-no-account-data: cash balances not checked: the live proposal snapshot reports none (sweep off or ledger unavailable)"

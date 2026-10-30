@@ -44,7 +44,6 @@ type options struct {
 	openItems        string
 	states           string
 	daemonMirror     string
-	holdingsStore    string
 	holdingsCache    string
 	maxSignals       int
 	commit           bool
@@ -223,8 +222,7 @@ func main() {
 	flag.DurationVar(&opts.staleAfter, "stale-after", 24*time.Hour, "flag log coverage unverified after this inactivity; zero disables")
 	flag.StringVar(&opts.daemonMirror, "daemon-mirror-status", "", "sync record of the mirror that copies -daemon-log from another machine; empty for a local log")
 	flag.DurationVar(&opts.mirrorStaleAfter, "mirror-stale-after", 20*time.Minute, "flag mirrored log coverage unverified when the last completed sync is older; zero disables")
-	flag.StringVar(&opts.holdingsStore, "holdings-store", filepath.Join(xdgDir("XDG_STATE_HOME", home, ".local", "state"), "ibkr", "daemon.db"), "daemon store read (read-only) for the current holdings a report must not name")
-	flag.StringVar(&opts.holdingsCache, "holdings-cache", filepath.Join(xdgDir("XDG_CACHE_HOME", home, ".cache"), "ibkr", "holdings-denylist"), "the account-data gate's private holdings cache, used when the store cannot be read")
+	flag.StringVar(&opts.holdingsCache, "holdings-cache", filepath.Join(xdgDir("XDG_CACHE_HOME", home, ".cache"), "ibkr", "holdings-denylist"), "the holdings file the daemon writes for the account-data gate: the current holdings a report must not name")
 	flag.DurationVar(&opts.engine.before, "incident-before", opts.engine.before, "attribute lines this long before an incident's first anchor to it")
 	flag.DurationVar(&opts.engine.after, "incident-after", opts.engine.after, "attribute lines this long after an incident's last anchor to it")
 	flag.DurationVar(&opts.engine.restartEdge, "restart-edge", opts.engine.restartEdge, "attribute lines this soon after a daemon start to the restart")
@@ -232,7 +230,7 @@ func main() {
 	flag.DurationVar(&opts.engine.longIncident, "incident-attention", opts.engine.longIncident, "an incident at least this long needs attention")
 	flag.IntVar(&opts.engine.standingDays, "standing-days", opts.engine.standingDays, "prior days a family must recur at an unchanged rate to read as standing")
 	flag.Parse()
-	held = loadHoldings(opts.holdingsStore, opts.holdingsCache)
+	held = loadHoldings(opts.holdingsCache)
 
 	result, err := run(opts, time.Now().UTC())
 	if err != nil {

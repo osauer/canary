@@ -390,8 +390,10 @@ type Server struct {
 	productionStateDatabase bool
 	disableMacroSources     bool
 	persistenceLock         *persistenceLock
-	authorityCloseOnce      sync.Once
-	authorityCloseErr       error
+	// accountData writes the account-data gate's files (account_data_files.go).
+	accountData        accountDataFiles
+	authorityCloseOnce sync.Once
+	authorityCloseErr  error
 
 	// cashSweepB is the cash sweep's read-only bond support: the bond
 	// directory and TreasuryDirect's bill list (bond_directory.go).
@@ -1611,6 +1613,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.startMarketTapeCollection(serverCtx)
 	s.startChainRecorder(serverCtx)
 	s.startDataHealthChecks(serverCtx)
+	s.startAccountDataFiles(serverCtx)
 	go s.runCoreStoreRecoveryLoop(serverCtx)
 	go s.runAccountPnLAuthorityLoop(serverCtx)
 	go s.runAccountIntradayLoop(serverCtx)

@@ -1205,9 +1205,9 @@ changelog-check: ## Verify CHANGELOG.md has no template or maintainer-process le
 # account IDs (U/DU + 6-9 digits) in every tracked file, including tests
 # and binary blobs, and on current holdings and the live book's net
 # liquidation value and cash balances named in tracked text (the money
-# check born of the 2026-10-05 leaks); those denylists are derived at run
-# time from the private daemon store, so CI and contributor machines skip
-# them.
+# check born of the 2026-10-05 leaks); those denylists are the private
+# files the daemon writes (internal/daemon/account_data_files.go), never
+# daemon.db itself, so CI and contributor machines skip them.
 account-data-check: ## No IBKR account data, holdings, money figures, or scratch pages in tracked files
 	@./scripts/check-no-account-data.sh
 	@./scripts/check-no-account-data_test.sh

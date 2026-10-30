@@ -2,31 +2,19 @@ package main
 
 import (
 	"bufio"
-	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 )
 
 // holdingsSource says where the current-holdings list came from, so a report
 // states whether contract names could be checked against it.
 const (
-	holdingsFromStore   = "store"
 	holdingsFromCache   = "cache"
 	holdingsUnavailable = "unavailable"
 )
-
-// holdingsQuery reads the latest Flex position report per account, as the
-// account-data gate does (scripts/check-no-account-data.sh, check 5): an
-// option contributes its underlying and a class suffix keeps its root.
-const holdingsQuery = `WITH pos AS (SELECT account_key AS a, substr(json_extract(raw_json, '$.ReportDate'), 1, 10) AS d,
-	json_extract(raw_json, '$.Symbol') AS s, json_extract(raw_json, '$.UnderlyingSymbol') AS u
-	FROM statement_records WHERE record_kind = 'position')
-	SELECT s, u FROM pos WHERE d = (SELECT max(d) FROM pos AS p WHERE p.a = pos.a)`
 
 // unmaskedTickers are single letters and Canary's own market instruments and
 // vocabulary, the gate's unchecked list: the product names them regardless
@@ -58,35 +46,17 @@ func (h holdings) available() bool { return h.source != holdingsUnavailable }
 // held is set once by main before classification; tests set it directly.
 var held = holdings{source: holdingsUnavailable}
 
-// loadHoldings reads the daemon store read-only and falls back to the gate's
-// private cache. Neither leaves the list unavailable.
-func loadHoldings(store, cache string) holdings {
-	if tickers, ok := storeHoldings(store); ok {
-		return newHoldings(holdingsFromStore, tickers)
-	}
+// loadHoldings reads the holdings file the daemon writes for the
+// account-data gate (internal/daemon/account_data_files.go): the latest Flex
+// position report per account. The monitor never opens daemon.db itself: an
+// outside SQLite opener resets a live daemon's shared memory if the daemon's
+// lock on it is lost (crash of 2026-10-29). Without the file the list is
+// unavailable.
+func loadHoldings(cache string) holdings {
 	if tickers, ok := cacheHoldings(cache); ok {
 		return newHoldings(holdingsFromCache, tickers)
 	}
 	return holdings{source: holdingsUnavailable}
-}
-
-func storeHoldings(path string) ([]string, bool) {
-	if _, err := os.Stat(path); err != nil {
-		return nil, false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "sqlite3", "-readonly", "-bail", "-cmd", ".timeout 2000", path, holdingsQuery).Output()
-	if err != nil {
-		return nil, false
-	}
-	var tickers []string
-	for line := range strings.Lines(string(out)) {
-		for field := range strings.SplitSeq(strings.TrimSpace(line), "|") {
-			tickers = append(tickers, field)
-		}
-	}
-	return tickers, len(tickers) > 0
 }
 
 func cacheHoldings(path string) ([]string, bool) {

@@ -17,6 +17,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Fixed
 
+- The daemon could crash with a bus error while another program read its database, as it did on 2026-10-29. The pre-commit account-data check and the log monitor now read private files the daemon writes beside its cache, `holdings-denylist` and `money-denylist`, and nothing but the daemon opens `daemon.db`. The daemon warns once, naming the process, if anything else opens it. Until the daemon restarts on this version, the money check reports itself skipped.
 - Buying a put that protects shares you hold is no longer refused as an option addition when the book's premium is over its budget. Such a put counts as a hedge as long as your long puts on the name cover no more shares than you hold.
 - A strategy or mandate line whose daily history IBKR refuses for want of a market data permission is no longer asked for every 15 minutes and after every reconnect or restart. Canary warns once, says to add the exchange's market data subscription at IBKR, and asks again once each trading session.
 - Futures that IBKR once refused for want of permission no longer stay refused after you enable them. The daily check can be turned down for another reason, such as its price; that answer no longer confirms the old refusal, so the index hedge's own preview asks IBKR again.

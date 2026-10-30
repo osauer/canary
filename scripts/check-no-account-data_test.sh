@@ -77,7 +77,7 @@ mkdir -p "$XDG_CACHE_HOME/ibkr"
 printf '%s\n' '# as of 2026-01-02' ZQXW QZ Q SPY > "$XDG_CACHE_HOME/ibkr/holdings-denylist"
 stage fixture.txt 'zqxw ZQXWV AZQXW ZQXW_2 qz QZX; Q and A; SPY puts'
 gate || fail "a non-token, lowercase, single-letter or instrument use was flagged"
-expect "holdings checked against the private cache (no daemon store at"
+expect "holdings checked against the daemon's holdings file, positions as of 2026-01-02"
 expect "2 held ticker(s) not checked"
 
 stage a.go 'Symbol: "ZQXW"'
@@ -178,37 +178,36 @@ for failed_command in rev-list show; do
 done
 repo="$index_repo"
 
-# The daemon store's latest Flex position report per account is the
-# denylist, adjusted option roots and their underlyings included; closed
-# positions and trades are not holdings.
-if ! command -v sqlite3 >/dev/null 2>&1; then
-	echo "check-no-account-data test: OK (daemon-store cases skipped: sqlite3 not installed)"
-	exit 0
-fi
+# The gate never opens daemon.db: only the daemon may, because an outside
+# SQLite opener resets a live daemon's shared memory if the daemon's lock on
+# it is lost. A sqlite3 first on PATH records any call.
 db="$XDG_STATE_HOME/ibkr/daemon.db"
 cache="$XDG_CACHE_HOME/ibkr/holdings-denylist"
-store() {
-	rm -f "$db"
-	mkdir -p "${db%/*}"
-	sqlite3 "$db" "CREATE TABLE statement_files (file_key TEXT);
-		CREATE TABLE statement_records (record_kind TEXT, account_key TEXT, raw_json TEXT);
-		CREATE TABLE state_documents (kind TEXT, document_json TEXT); $1"
-}
-pos() { printf "INSERT INTO statement_records VALUES ('%s', '%s', '%s');" "$1" "$2" "$3"; }
-store "INSERT INTO statement_files VALUES ('flex');
-	$(pos position a '{"Symbol":"ZQXOLD","ReportDate":"2026-01-01T00:00:00Z"}')
-	$(pos position a '{"Symbol":"ZQXNEW","ReportDate":"2026-02-02T00:00:00Z"}')
-	$(pos position a '{"Symbol":"ZQXOPT1 260918C00005000","UnderlyingSymbol":"ZQXOPT","ReportDate":"2026-02-02T00:00:00Z"}')
-	$(pos position b '{"Symbol":"ZQXB","ReportDate":"2026-01-15T00:00:00Z"}')
-	$(pos trade a '{"Symbol":"ZQXTRD","ReportDate":"2026-02-02T00:00:00Z"}')"
-rm -f "$cache"
+money="$XDG_CACHE_HOME/ibkr/money-denylist"
+mkdir -p "${db%/*}" "$test_root/sqlite-bin"
+printf 'not a database\n' >"$db"
+printf '#!/bin/sh\necho "$*" >>"%s"\nexit 1\n' "$test_root/sqlite-calls" >"$test_root/sqlite-bin/sqlite3"
+chmod +x "$test_root/sqlite-bin/sqlite3"
+export PATH="$test_root/sqlite-bin:$PATH"
+
+# A machine with a daemon store but no holdings file never skips; without
+# the money file the money check says so loudly until the daemon writes it.
+rm -f "$cache" "$money"
+stage fixture.txt 'safe fixture DU1234567'
+! gate || fail "a daemon store without the holdings file skipped the check"
+expect "the daemon has not written"
+expect "never skips the holdings check"
+expect "money check SKIPPED — the daemon has not written"
+
+# The daemon's holdings file is the latest Flex position report per account,
+# adjusted option roots and their underlyings included
+# (internal/daemon/account_data_files_test.go builds it).
+printf '%s\n' '# as of 2026-02-02' ZQXB ZQXNEW ZQXOPT ZQXOPT1 >"$cache"
 stage fixture.txt 'closed ZQXOLD, traded ZQXTRD'
-gate || fail "a closed position or a trade was treated as a current holding"
-expect "holdings checked against the daemon store, positions as of 2026-02-02"
-[ "$(grep -v '^#' "$cache" | tr '\n' ' ')" = "ZQXB ZQXNEW ZQXOPT ZQXOPT1 " ] || fail "cache does not hold the latest report per account"
-[ -n "$(find "$cache" -perm 600)" ] || fail "cache is not private (0600)"
+gate || fail "a ticker outside the holdings file was flagged"
+expect "holdings checked against the daemon's holdings file, positions as of 2026-02-02"
 stage fixture.txt 'close the ZQXOPT calls'
-! gate || fail "an option underlying in the latest report was accepted"
+! gate || fail "an option underlying in the holdings file was accepted"
 withheld ZQXOPT
 
 # A failed holdings grep fails the check rather than passing it.
@@ -219,28 +218,35 @@ stage fixture.txt 'safe fixture DU1234567'
 ! (cd "$repo" && PATH="$test_root/bin:$PATH" ./scripts/check-no-account-data.sh) >"$out" 2>&1 || fail "a failed holdings grep passed"
 expect "git grep failed"
 
-# Money figures from the daemon store: the latest live risk-capital NLV per
-# account and the live proposal snapshot's cash rows. The synthetic book:
-# NLV 618,034.27; cash 314,159.26 (settled 298,765.43), -271,828.18
-# (borrowed) and 7,153.86; two balances below four significant digits. A
-# paper book and an older document of the same account are not the live
-# book; a store without a live book says so.
-doc() { printf "INSERT INTO state_documents VALUES ('%s', '%s');" "$1" "$2"; }
-nlv() { printf '{"state":{"account_id":"%s","account_mode":"%s","last_equity_base":%s,"last_equity_as_of":"%s"}}' "$@"; }
-book="$(doc risk_capital "$(nlv A live 618034.27 2026-02-02T10:00:00Z)")
-	$(doc risk_capital "$(nlv A live 123987.65 2026-01-15T10:00:00Z)")
-	$(doc risk_capital "$(nlv P paper 864197.53 2026-02-02T10:00:00Z)")"
-cash='{"account_mode":"live","cash_sweep":{"currencies":[{"currency":"EUR","cash":314159.26,"settled_cash":298765.43},
-	{"currency":"USD","cash":-271828.18},{"currency":"GBP","cash":7153.86},{"currency":"CHF","cash":950.25},{"currency":"HKD","cash":40000}]}}'
-gap='{"account_mode":"live","cash_sweep":{"currencies":[{"currency":"EUR","state":"cash_unavailable"}]}}'
-no_nlv='{"state":{"account_id":"A","account_mode":"live","last_equity_as_of":"2026-02-02T10:00:00Z"}}'
-store "$(doc risk_capital "$(nlv P paper 864197.53 2026-02-02T10:00:00Z)")"
-stage fixture.txt 'safe fixture DU1234567'
-gate || fail "a store without a live book was rejected"
-expect "money check SKIPPED — the daemon store holds no live net liquidation value"
-store "$book $(doc trade_proposals_current "$cash")"
+# A dated report without a ticker means the daemon's file changed shape:
+# fail rather than skip. A daemon without a Flex position report has no
+# private holdings data.
+printf '%s\n' '# as of 2026-02-02' >"$cache"
+! gate || fail "a holdings file naming no ticker was accepted"
+expect "names no ticker"
+printf '%s\n' '# no Flex position report' >"$cache"
+gate || fail "a daemon without a Flex position report was rejected"
+expect "holdings check SKIPPED — no private holdings data (the daemon holds no Flex position report)"
+printf '%s\n' '# as of 2026-02-02' ZQXB ZQXNEW ZQXOPT ZQXOPT1 >"$cache"
+
+# Money figures from the daemon's money file: the live account's NLV and the
+# live proposal snapshot's cash rows (a paper book or an older document never
+# reaches it). The synthetic book: NLV 618,034.27; cash 314,159.26 (settled
+# 298,765.43), -271,828.18 (borrowed) and 7,153.86; two balances below four
+# significant digits.
+book='nlv|618034.27|2026-02-02'
+cash='cash|314159.26|
+cash|298765.43|
+cash|-271828.18|
+cash|7153.86|
+cash|950.25|
+cash|40000|'
+printf '%s\n' 'cash|314159.26|' >"$money"
+gate || fail "a money file without a live book was rejected"
+expect "money check SKIPPED — the daemon's money file holds no live net liquidation value"
+printf '%s\n%s\n' "$book" "$cash" >"$money"
 gate || fail "the live book was rejected on a clean tree"
-expect "money figures checked against the daemon store, NLV as of 2026-02-02"
+expect "money figures checked against the daemon's money file, NLV as of 2026-02-02"
 
 # Each row is staged alone; a flagged row fails without echoing a figure.
 # Without origin/main every file is unpublished, so rounded spellings
@@ -332,44 +338,25 @@ grep -qx 'check-no-account-data: CHANGELOG.md names a money figure of the live b
 git -C "$repo" checkout --quiet HEAD -- CHANGELOG.md
 
 # A failed money grep fails the check; a live account without an NLV means
-# the query no longer matches the store: fail rather than skip. A snapshot
-# without cash (sweep off, ledger catching up after a fill) leaves cash
-# unchecked and says so.
+# the daemon's file changed shape: fail rather than skip. A snapshot without
+# cash (sweep off, ledger catching up after a fill) leaves cash unchecked
+# and says so. A money file the gate cannot read fails it.
 ! (cd "$repo" && PATH="$test_root/bin:$PATH" ./scripts/check-no-account-data.sh) >"$out" 2>&1 || fail "a failed money grep passed"
 expect "git grep failed; the money check did not run"
-store "$(doc risk_capital "$no_nlv")"
+printf '%s\n' 'nlv|missing|2026-02-02' >"$money"
 ! gate || fail "a live book without a readable NLV was accepted"
-expect "fix the money query here"
-store "$book $(doc trade_proposals_current "$gap")"
+expect "has no net liquidation value"
+printf '%s\n' "$book" >"$money"
 gate || fail "a cash ledger gap failed the gate"
 expect "cash balances not checked"
-
-# An unreadable store falls back to the holdings cache; the money check has
-# no cache and fails, as does the holdings check without its cache.
-printf 'not a database\n' >"$db"
-! gate || fail "an unreadable store passed the money check"
-expect "holdings checked against the private cache (cannot read the daemon store at"
-expect "cannot read money figures from the daemon store"
-rm -f "$cache"
-! gate || fail "an unreadable store without a cache skipped the check"
-expect "never skips the holdings check"
-
-# Statements without a readable ticker mean the projection changed: fail,
-# even with a cache, rather than skip.
-printf '%s\n' '# as of 2026-01-02' ZQXW > "$cache"
-store "INSERT INTO statement_files VALUES ('flex'); $(pos position a '{"Ticker":"ZQXNEW","ReportDate":"2026-02-02T00:00:00Z"}')"
-! gate || fail "a store whose position report yields no ticker was accepted"
-expect "no ticker was read"
-
-# A store without Flex statements holds no private holdings data.
-rm -f "$cache"
-store ""
-gate || fail "a store without Flex statements was rejected"
-expect "holdings check SKIPPED — no private holdings data (the daemon store holds no Flex statements"
+chmod 000 "$money"
+! gate || fail "an unreadable money file passed the money check"
+expect "cannot read money figures"
+chmod 600 "$money"
 
 # Outgoing messages use the same live-money spellings and boundary rules
 # as unpublished files, including rounded figures. Only SHA and line escape.
-store "$book $(doc trade_proposals_current "$cash")"
+printf '%s\n%s\n' "$book" "$cash" >"$money"
 repo="$message_repo"
 git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
 message_commit 'Synthetic subject
@@ -383,6 +370,8 @@ git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
 message_commit 'An older 123,987, a paper 864,197 and digest a618034f are not live figures'
 gate || fail "message money matching diverged from the file boundary rules"
 repo="$index_repo"
+
+[ ! -e "$test_root/sqlite-calls" ] || { cat "$test_root/sqlite-calls" >"$out"; fail "the gate ran sqlite3 against the daemon store"; }
 
 # The canonical release and its internal entry must both run the privacy
 # gate before their first push; later CI is already past disclosure.

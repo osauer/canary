@@ -409,18 +409,17 @@ func TestDefinitionNoticeNamesItsContractButNeverAHolding(t *testing.T) {
 	}
 }
 
-// TestHoldingsFallBackToTheGateCache reads the account-data gate's private
-// cache when the daemon store is absent, and reports unavailable with
-// neither.
-func TestHoldingsFallBackToTheGateCache(t *testing.T) {
+// TestHoldingsComeFromTheDaemonsFile reads the holdings file the daemon
+// writes for the account-data gate, and reports unavailable without it.
+func TestHoldingsComeFromTheDaemonsFile(t *testing.T) {
 	dir := t.TempDir()
 	cache := filepath.Join(dir, "holdings-denylist")
 	writeTestFile(t, cache, "# as of 2026-09-29\nSYNTHQ\nsyntha\n")
-	got := loadHoldings(filepath.Join(dir, "missing.db"), cache)
+	got := loadHoldings(cache)
 	if got.source != holdingsFromCache || !got.tickers["SYNTHQ"] || !got.tickers["SYNTHA"] || got.mask("refresh SYNTHQ now") != "refresh [holding] now" {
 		t.Fatalf("cache holdings = %+v", got)
 	}
-	if got := loadHoldings(filepath.Join(dir, "missing.db"), filepath.Join(dir, "missing")); got.available() || got.mask("SYNTHQ") != "SYNTHQ" {
+	if got := loadHoldings(filepath.Join(dir, "missing")); got.available() || got.mask("SYNTHQ") != "SYNTHQ" {
 		t.Fatalf("no source = %+v, want unavailable", got)
 	}
 }

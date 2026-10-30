@@ -184,12 +184,13 @@ the daemon does, so cursor identity and rotated-tail recovery still apply.
 A "no security definition" (code 200) or "market data is not subscribed"
 (code 354) notice is about one contract, so the family's samples name the contract the connector tagged it with, `(OKE STK)`,
 or `(untagged)`. Reports never name a current holding: the monitor reads the
-account-data gate's holdings list (the latest Flex position report in the
-daemon store, opened read-only, else the gate's private cache at
-`~/.cache/ibkr/holdings-denylist`) and writes `[holding]` in its place, in
-contract labels and free text alike. The report's `holdings` field says which
-source was read; with neither it is `unavailable` and contract names are
-withheld as `[contract]`. The list is this machine's: a report on a mirrored
+account-data gate's holdings list (the latest Flex position report, which
+the daemon writes to `~/.cache/ibkr/holdings-denylist`) and writes
+`[holding]` in its place, in contract labels and free text alike. It never
+opens `daemon.db`: an outside SQLite opener resets a live daemon's shared
+memory if the daemon's lock on it is lost. The report's `holdings` field is
+`cache` when the list was read; without the file it is `unavailable` and
+contract names are withheld as `[contract]`. The list is this machine's: a report on a mirrored
 log from another machine masks this machine's holdings.
 
 Broker definition, entitlement and cancellation notices remain visible; the
