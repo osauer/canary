@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -125,8 +126,10 @@ func TestReduceHedgePlanRefusals(t *testing.T) {
 // room is refused there
 // (indexHedgeProjectedRiskRefusal). Each contract's 2,700 rise loss spends
 // room, so with room for three and a half more the plan sells three of the
-// five to neutral and says why; with SPY's gap cap already breached no sale
-// passes, and the plan says so instead of pricing one.
+// five to neutral and says why. With SPY's gap cap already breached the
+// hedge nets against SPY in the index gap (owner decision "1. A",
+// 2026-10-30 09:41 CET), so the plan sells all five to neutral and cures
+// the breach.
 func TestReduceHedgePlanStaysWithinWhatPlacementAdmits(t *testing.T) {
 	s := hedgeServer(t, mandateReductionStock("SPY", 9101, 3000, 50))
 	in, _ := s.reduceMandateInput(t.Context())
@@ -140,10 +143,17 @@ func TestReduceHedgePlanStaysWithinWhatPlacementAdmits(t *testing.T) {
 		t.Fatal("the planned sale would be refused at placement")
 	}
 
+	spy := mandateReductionStock("SPY", 9101, 3000, 50)
+	spy.Currency, spy.FXRate = "USD", new(0.9) // SPY is a broad index in USD only
+	s = hedgeServer(t, spy)
+	in, _ = s.reduceMandateInput(t.Context())
 	in.Capital.Room = 1
 	in.Policy.GapRoomPct = 10
+	if before := mandate.Evaluate(*in); !slices.Equal(before.Stresses.GapBreaches, []string{"SPY"}) {
+		t.Fatalf("fixture: breaches %v, want SPY's", before.Stresses.GapBreaches)
+	}
 	res = hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true})
-	if len(res.Legs) != 0 || len(res.Blockers) != 1 || res.Blockers[0].Code != "hedge_over_mandate_cap" || !strings.Contains(res.Blockers[0].Message, "gap cap for SPY") {
-		t.Fatalf("plan = %+v, want no leg and hedge_over_mandate_cap naming SPY", res)
+	if len(res.Blockers) > 0 || len(res.Legs) != 1 || res.Legs[0].ReduceQuantity != 5 {
+		t.Fatalf("plan = %d legs %+v, message %q; want SELL 5 to neutral curing SPY's breach", len(res.Legs), res.Blockers, res.Message)
 	}
 }

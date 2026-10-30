@@ -170,7 +170,13 @@ func renderMandate(env *Env, res rpc.MandateRiskResult) {
 			if shock <= 0 {
 				shock = v.Stresses.GapShockPct
 			}
-			gap := fmt.Sprintf("gap −%s %s", mandatePct(shock), mandateStressPnL(u.GapDownLossBase, ccy))
+			// A broad-index line moves with the others in one index gap
+			// and its row carries the group's net figures.
+			word := "gap"
+			if u.BroadIndex && v.Stresses != nil && v.Stresses.IndexGap != nil && len(v.Stresses.IndexGap.Members) > 1 {
+				word = "index gap"
+			}
+			gap := fmt.Sprintf("%s −%s %s", word, mandatePct(shock), mandateStressPnL(u.GapDownLossBase, ccy))
 			if u.GapUpLossBase != nil {
 				gap += fmt.Sprintf(", +%s %s", mandatePct(shock), mandateStressPnL(*u.GapUpLossBase, ccy))
 			}
@@ -206,6 +212,9 @@ func renderMandate(env *Env, res rpc.MandateRiskResult) {
 			breaches = strings.Join(s.GapBreaches, ", ")
 		}
 		riskReadLine(env, "  Gap cap per name", mandateAmount(s.GapCapBase, ccy), "breaches: "+breaches)
+		if g := s.IndexGap; g != nil && len(g.Members) > 1 {
+			riskReadLine(env, "  Index gap ±"+mandatePct(g.ShockPct)+" across", strings.Join(g.Members, ", "), mandateStressPnL(g.LossBase, ccy))
+		}
 		if v.Risk != nil {
 			riskReadLine(env, "  Currency share of the risk", mandatePct(v.Risk.FXContributionPct))
 		}

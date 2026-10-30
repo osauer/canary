@@ -465,6 +465,25 @@ type Stresses struct {
 	IndexRiseLossBase float64 `json:"index_rise_loss_base"`
 	// GapBreaches names the underlyings whose gap loss exceeds the cap.
 	GapBreaches []string `json:"gap_breaches,omitempty"`
+	// IndexGap is the one index gap every broad-index line takes together;
+	// nil when the book holds none.
+	IndexGap *IndexGapReport `json:"index_gap,omitempty"`
+}
+
+// IndexGapReport is the index gap stress (owner decision "1. A",
+// 2026-10-30 09:41 CET): the index gaps by ShockPct and every broad-index
+// line in Members moves with it by the full gap, in both directions, with
+// no beta scaling (owner decision 2026-10-30 09:58 CET), so a short
+// index future nets against the funds it hedges. The gap cap applies to the
+// group's net loss; a breach names the members that lose in the breaching
+// direction.
+type IndexGapReport struct {
+	Members      []string `json:"members"`
+	ShockPct     float64  `json:"shock_pct"`
+	DownLossBase float64  `json:"down_loss_base"`
+	UpLossBase   *float64 `json:"up_loss_base,omitempty"`
+	LossBase     float64  `json:"loss_base"`
+	Breach       bool     `json:"breach,omitempty"`
 }
 
 // Verdict is the daemon-owned result.
@@ -904,6 +923,13 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 	cap := GapCapBase(in.Policy, in.Capital)
 	stresses := &Stresses{GapShockPct: in.Policy.GapShockPct, IndexGapShockPct: in.Policy.GapShockPctFor(true), GapCapBase: cap, IndexShockPct: IndexShockPct}
 	betas := map[string]float64{}
+	// gapMoves is how far each underlying moves in its gap: a single name
+	// by its own gap, a broad index by the full index gap whatever its beta
+	// (owner decision 2026-10-30 09:58 CET: a fund closing hours before the
+	// US close measures a beta under 1 on daily closes without moving less
+	// in a real gap, and none moves further than the index).
+	gapMoves := map[string]float64{}
+	var index *IndexGapReport
 	for _, name := range order {
 		u := byUnderlying[name]
 		if name == IndexSymbol {
@@ -914,27 +940,67 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 		betas[name] = u.Beta
 		u.BroadIndex = broadIndexUnderlying(legs, name)
 		u.GapShockPct = in.Policy.GapShockPctFor(u.BroadIndex)
-		gap := u.GapShockPct / 100
-		u.GapDownLossBase = shockLoss(legs, fxNow, func(l Leg) float64 {
-			if l.Underlying == name {
-				return 1 - gap
+		u.GapCapBase = cap
+		gapMoves[name] = u.GapShockPct / 100
+		if u.BroadIndex {
+			if index == nil {
+				index = &IndexGapReport{ShockPct: u.GapShockPct}
+			}
+			index.Members = append(index.Members, name)
+		}
+	}
+	// gapLoss is the loss when the named underlyings gap together in one
+	// direction (sign −1 down, +1 up), every other line held.
+	gapLoss := func(names []string, sign float64) float64 {
+		return shockLoss(legs, fxNow, func(l Leg) float64 {
+			if slices.Contains(names, l.Underlying) {
+				return 1 + sign*gapMoves[l.Underlying]
 			}
 			return 1
 		})
+	}
+	// The index gap moves every broad-index line together by the full gap,
+	// so a short index future nets against the funds it hedges and the cap
+	// applies to the group's net loss (owner decisions "1. A", 2026-10-30
+	// 09:41 CET, and full gap with no beta, 09:58 CET).
+	if index != nil {
+		index.DownLossBase = gapLoss(index.Members, -1)
+		if slices.ContainsFunc(index.Members, func(name string) bool { return upsideLoser(legs, name) }) {
+			up := gapLoss(index.Members, 1)
+			index.UpLossBase = &up
+		}
+		index.LossBase = index.DownLossBase
+		if index.UpLossBase != nil && *index.UpLossBase > index.LossBase {
+			index.LossBase = *index.UpLossBase
+		}
+		index.Breach = index.LossBase > cap
+		stresses.IndexGap = index
+	}
+	for _, name := range order {
+		u := byUnderlying[name]
+		if u.BroadIndex {
+			// The member's row carries the group's net figures; a breach
+			// names the members that lose in the breaching direction.
+			u.GapDownLossBase, u.GapUpLossBase, u.GapLossBase = index.DownLossBase, index.UpLossBase, index.LossBase
+			sign := -1.0
+			if index.UpLossBase != nil && *index.UpLossBase > index.DownLossBase {
+				sign = 1
+			}
+			if index.Breach && gapLoss([]string{name}, sign) > 1e-9 {
+				u.GapBreach = true
+				stresses.GapBreaches = append(stresses.GapBreaches, name)
+			}
+			continue
+		}
+		u.GapDownLossBase = gapLoss([]string{name}, -1)
 		if upsideLoser(legs, name) {
-			up := shockLoss(legs, fxNow, func(l Leg) float64 {
-				if l.Underlying == name {
-					return 1 + gap
-				}
-				return 1
-			})
+			up := gapLoss([]string{name}, 1)
 			u.GapUpLossBase = &up
 		}
 		u.GapLossBase = u.GapDownLossBase
 		if u.GapUpLossBase != nil && *u.GapUpLossBase > u.GapLossBase {
 			u.GapLossBase = *u.GapUpLossBase
 		}
-		u.GapCapBase = cap
 		if u.GapLossBase > cap {
 			u.GapBreach = true
 			stresses.GapBreaches = append(stresses.GapBreaches, name)

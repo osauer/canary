@@ -238,16 +238,18 @@ const hedgeUnmeasured = "unmeasured"
 // hedgeSaleRefusal says why placement would refuse a sale of n hedge
 // contracts on the input book, the held book with the working hedge sales
 // (indexHedgeProjectedRiskRefusal's gap and loss-room rules), or "" when it
-// would not.
+// would not. A gap breach counts only when the sale adds or deepens it.
 func hedgeSaleRefusal(input mandate.Input, hedge mandate.Leg, n int) string {
 	hedge.Quantity = -float64(n)
+	before := mandate.Evaluate(input)
 	v := mandate.Evaluate(mandateInputWithLegs(input, []mandate.Leg{hedge}))
-	switch {
-	case v.Stresses == nil || v.Loss == nil || v.Status == mandate.StatusUnknown:
+	if v.Stresses == nil || v.Loss == nil || v.Status == mandate.StatusUnknown || before.Stresses == nil {
 		return hedgeUnmeasured
-	case len(v.Stresses.GapBreaches) > 0:
-		return "over the gap cap for " + strings.Join(v.Stresses.GapBreaches, ", ")
-	case v.Loss.TotalBase > v.Loss.RoomBase+mandateReductionEpsilon:
+	}
+	if u, added := mandateGapBreachAdded(&before, v); added {
+		return "over the gap cap for " + u.Underlying
+	}
+	if v.Loss.TotalBase > v.Loss.RoomBase+mandateReductionEpsilon {
 		return fmt.Sprintf("measuring %s of loss, above the loss room %s", mandateMoney(v.Loss.TotalBase, input.BaseCurrency), mandateMoney(v.Loss.RoomBase, input.BaseCurrency))
 	}
 	return ""

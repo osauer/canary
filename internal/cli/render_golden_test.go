@@ -292,6 +292,7 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "mandate_iv_fallback", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateIVFallback()}},
 		{name: "mandate_unknown_held", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateHeld()}},
 		{name: "mandate_no_room", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateNoRoom()}},
+		{name: "mandate_index_hedge", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateIndexHedge()}},
 		{name: "mandate_exposure", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateExposure()}},
 		{name: "mandate_inactive", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: rpc.MandateRiskResult{AsOf: goldenAt, Message: "the risk constitution carries no [mandate] table; the mandate budget is inactive", Gate: &rpc.MandateGateView{}}}},
 		{name: "core", argv: []string{"core"}, conn: goldenConn{rpc.MethodCoreTarget: goldenCore()}},
@@ -802,6 +803,22 @@ func goldenMandateNoRoom() rpc.MandateRiskResult {
 		v.Underlyings[i].GapCapBase, v.Underlyings[i].GapBreach = 0, true
 	}
 	res.Gate = &rpc.MandateGateView{RefusesAdditions: true, Reason: "the loss measure 20,750 EUR (premium at risk 0 EUR, stop loss 20,750 EUR) is over the mandate's loss room 0 EUR (the loss has reached the mandate's maximum, so no loss room is left); a gap in SYNA, SYNB would lose more than the gap cap 0 EUR"}
+	return res
+}
+
+// goldenMandateIndexHedge is the within verdict with SPY hedged by a
+// short Micro S&P future: the index gap moves both together, so each row
+// carries the group's net figures (owner decision "1. A", 2026-10-30 09:41
+// CET).
+func goldenMandateIndexHedge() rpc.MandateRiskResult {
+	res := goldenMandate(mandate.StatusWithin)
+	v := res.Verdict
+	up := -1950.0
+	v.Stresses.IndexGapShockPct = 12
+	v.Stresses.IndexGap = &mandate.IndexGapReport{Members: []string{"SPY", mandate.MicroSP500Future}, ShockPct: 12, DownLossBase: 1950, UpLossBase: &up, LossBase: 1950}
+	v.Underlyings = append(v.Underlyings,
+		mandate.UnderlyingReport{Underlying: "SPY", ValueBase: 160920, ContributionPct: 41.2, Beta: 1, BroadIndex: true, GapShockPct: 12, GapDownLossBase: 1950, GapUpLossBase: &up, GapLossBase: 1950, GapCapBase: 22940},
+		mandate.UnderlyingReport{Underlying: mandate.MicroSP500Future, ValueBase: 0, ContributionPct: -38.6, Beta: 1, BroadIndex: true, GapShockPct: 12, GapDownLossBase: 1950, GapUpLossBase: &up, GapLossBase: 1950, GapCapBase: 22940})
 	return res
 }
 

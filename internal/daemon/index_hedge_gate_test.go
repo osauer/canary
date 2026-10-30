@@ -30,7 +30,8 @@ func hedgeSale(qty int) rpc.OrderDraft {
 // A SELL of the index future is a reduction for the drawdown brake and the
 // mandate gate only when, on the kept book with the order, the 10% fall's
 // loss is lower and not below zero, the loss measure does not rise and
-// stays within the loss room, and no gap cap is breached (owner decision 2026-10-28 20:07 CET).
+// stays within the loss room, and no gap-cap breach is added or deepened (owner decision 2026-10-28 20:07 CET;
+// owner decision "1. A", 2026-10-30 09:41 CET).
 // 3,000 index shares lose 15,000 in the fall; a contract offsets 2,700.
 func TestIndexHedgeSaleIsAReductionOnlyTowardNeutral(t *testing.T) {
 	open := rpc.OrderPositionImpact{Before: 0, After: -5, Effect: rpc.OrderPositionEffectOpenShort}

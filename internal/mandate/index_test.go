@@ -117,3 +117,94 @@ func TestIBCFMovesWithTheIndexReturns(t *testing.T) {
 		t.Fatal("ReturnsSeries")
 	}
 }
+
+// The index gap moves every broad-index line together, each by the index
+// gap times its beta, and the gap cap applies to the group's net loss
+// (owner decision "1. A", 2026-10-30 09:41 CET): a short Micro S&P hedge
+// nets against the SPY it hedges, cures SPY's breach at neutral, adds none
+// of its own below neutral, and still breaches when it hedges past neutral.
+func TestIndexGapNetsTheHedgeAgainstTheIndex(t *testing.T) {
+	spy := func(shares float64) Leg {
+		return Leg{ID: "con:1", Symbol: IndexSymbol, Underlying: IndexSymbol, Kind: KindStock, Quantity: shares, Multiplier: 1, Currency: "USD", Spot: 600}
+	}
+	hedge := func(n float64) Leg {
+		return Leg{ID: "con:9", Symbol: "MESZ6", Underlying: MicroSP500Future, Kind: KindStock, Quantity: -n, Multiplier: 5, Currency: "USD", Spot: 6000}
+	}
+	syna := Leg{ID: "con:2", Symbol: "SYNA", Underlying: "SYNA", Kind: KindStock, Quantity: 380, Multiplier: 1, Currency: "USD", Spot: 100}
+	synb := Leg{ID: "con:3", Symbol: "SYNB", Underlying: "SYNB", Kind: KindStock, Quantity: 380, Multiplier: 1, Currency: "USD", Spot: 100}
+	breaches := func(legs ...Leg) ([]string, Verdict) {
+		t.Helper()
+		in := testInput(t, legs)
+		in.Policy.IndexGapShockPct = 12
+		v := Evaluate(in)
+		if v.Stresses == nil {
+			t.Fatalf("unknown: %v", v.Reasons)
+		}
+		if c := v.Stresses.GapCapBase; math.Abs(c-22977) > 1 {
+			t.Fatalf("gap cap %g, want ≈ 22,977", c)
+		}
+		return v.Stresses.GapBreaches, v
+	}
+
+	if got, _ := breaches(spy(400)); !slices.Equal(got, []string{IndexSymbol}) {
+		t.Fatalf("400 SPY: breaches %v, want [SPY]", got)
+	}
+	got, v := breaches(spy(400), hedge(8))
+	if len(got) != 0 {
+		t.Fatalf("400 SPY hedged to neutral with 8 MES: breaches %v, want none", got)
+	}
+	for _, u := range v.Underlyings {
+		if !u.BroadIndex || math.Abs(u.GapLossBase) > 1e-6 {
+			t.Fatalf("hedged index line %+v, want the group's net gap loss ≈ 0", u)
+		}
+	}
+	if g := v.Stresses.IndexGap; g == nil || !slices.Equal(g.Members, []string{IndexSymbol, MicroSP500Future}) || g.ShockPct != 12 || g.Breach {
+		t.Fatalf("index gap group %+v, want SPY and MES FUT at 12%% within the cap", g)
+	}
+
+	if got, _ := breaches(spy(298), syna, synb); len(got) != 0 {
+		t.Fatalf("298 SPY with SYNA, SYNB: breaches %v, want none", got)
+	}
+	for _, n := range []float64{6, 8} {
+		if got, _ := breaches(spy(298), syna, synb, hedge(n)); len(got) != 0 {
+			t.Fatalf("298 SPY short %g MES: breaches %v, want none below the over-hedge", n, got)
+		}
+	}
+	// 30 contracts are 900,000 USD short against 178,800 USD of SPY: past
+	// neutral, a 12% rise loses ≈ 77,900 EUR on the net short.
+	got, v = breaches(spy(298), syna, synb, hedge(30))
+	if !slices.Equal(got, []string{MicroSP500Future}) {
+		t.Fatalf("298 SPY over-hedged with 30 MES: breaches %v, want [MES FUT]", got)
+	}
+	want := (30*6000*5 - 298*600) * 0.9 * 0.12
+	if g := v.Stresses.IndexGap; g == nil || !g.Breach || g.UpLossBase == nil || math.Abs(*g.UpLossBase-want) > 1e-6 || math.Abs(g.LossBase-want) > 1e-6 {
+		t.Fatalf("over-hedged group %+v, want the net short's rise loss %.2f breaching", g, want)
+	}
+}
+
+// Every broad-index line moves by the full index gap whatever its beta
+// (owner decision 2026-10-30 09:58 CET): one with beta above 1 no further,
+// one with beta below 1 no less.
+func TestIndexGapMovesEveryLineByTheFullGap(t *testing.T) {
+	in := testInput(t, []Leg{
+		{ID: "con:1", Symbol: IndexSymbol, Underlying: IndexSymbol, Kind: KindStock, Quantity: 100, Multiplier: 1, Currency: "USD", Spot: 600},
+		{ID: "con:4", Symbol: "QQQ", Underlying: "QQQ", Kind: KindStock, Quantity: 100, Multiplier: 1, Currency: "USD", Spot: 500},
+		{ID: "con:5", Symbol: "IWM", Underlying: "IWM", Kind: KindStock, Quantity: 100, Multiplier: 1, Currency: "USD", Spot: 200},
+	})
+	drv := driverReturns(280, 7)
+	in.Series["QQQ"] = syntheticSeries("QQQ", 280, 0.22, 15, drv, 0.9)
+	in.Series["IWM"] = syntheticSeries("IWM", 280, 0.10, 16, drv, 0.3)
+	in.Policy.IndexGapShockPct = 12
+	v := Evaluate(in)
+	betas := map[string]float64{}
+	for _, u := range v.Underlyings {
+		betas[u.Underlying] = u.Beta
+	}
+	if betas["QQQ"] <= 1 || betas["IWM"] >= 1 {
+		t.Fatalf("fixture betas %v, want QQQ above 1 and IWM below", betas)
+	}
+	want := (100*600 + 100*500 + 100*200) * 0.9 * 0.12
+	if g := v.Stresses.IndexGap; g == nil || len(g.Members) != 3 || math.Abs(g.DownLossBase-want) > 1e-6 {
+		t.Fatalf("group %+v, want down loss %.2f at the full gap", g, want)
+	}
+}

@@ -68,16 +68,35 @@ Each item landed on local main with its own gate; the commits name them.
      priced as every reduce is. The portfolio sweep never selects a hedge.
 4. **Gate classification.** A SELL is a reduction only when the modeled
    index-fall loss decreases without crossing neutral, the loss measure
-   does not increase, and no gap cap is breached. Otherwise it remains a
-   risk addition and the normal mandate and drawdown gates apply. Counting
-   the hedge's rise loss does not authorize weakening this criterion.
-   The plan offers the largest sale up to neutral that placement admits
-   (no gap cap breached, the loss measure within the loss room) and names
-   what holds it lower; with a gap cap already breached it offers none
-   (`hedgeSaleRefusal`, 2026-10-29 12:45 CET). The gap stress keeps the
-   hedge's own key, so a hedge's gap up is measured with the S&P lines
-   held flat and the two never net; whether they should is the owner's
-   decision, open since 2026-10-29.
+   does not increase, and it adds or deepens no gap-cap breach. Otherwise
+   it remains a risk addition and the normal mandate and drawdown gates
+   apply. Counting the hedge's rise loss does not authorize weakening this
+   criterion. The plan offers the largest sale up to neutral that
+   placement admits (no gap-cap breach added or deepened, the loss measure
+   within the loss room) and names what holds it lower
+   (`hedgeSaleRefusal`, 2026-10-29 12:45 CET).
+6. **The index gap nets the hedge** (owner decision "1. A", 2026-10-30
+   09:41 CET). One index gap scenario moves every broad-index line
+   together, the hedge included: SPY, the other funds and indices on
+   `mandate.BroadIndexInstruments` and the Micro S&P future, each by the
+   full `index_gap_shock_pct`, down and up, with no beta scaling (owner
+   decision 2026-10-30 09:58 CET: a fund closing before the US close
+   measures a beta under 1 on daily closes without moving less in a real
+   gap, and scaling up by beta would tighten lines beyond today's stress). The gap cap
+   applies to the group's net loss (`verdict.stresses.index_gap`); each
+   broad-index row carries those net figures, and a breach names the
+   members that lose in the breaching direction. Single names and any
+   other underlying are stressed one by one as before. So a short hedge
+   lowers the index gap loss, can cure an index breach, and breaches on
+   its own only when it hedges past neutral. Placement
+   (`indexHedgeProjectedRiskRefusal`), the gate classification
+   (`indexHedgeReduces`), the plan (`hedgeSaleRefusal`) and the additions
+   gate (`mandateGapBreachAdded`) refuse a sale only when it adds or
+   deepens a breach, judging a broad-index line by its group. Every other
+   limit is unchanged: the 10% fall and rise, the per-name gap caps, the
+   order caps, the neutral cap and device confirmation. Not modelled: the
+   basis between SPY and the future (both move on SPY's returns), and a
+   fund's own tracking against the index.
 5. **Plan words for Desk.** The hedge plan and preview carry `roll_due`
    from ten days before a held contract's expiry and `hedge_not_needed`
    while the book without its held hedges reads within the mandate, each
