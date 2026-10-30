@@ -305,6 +305,16 @@ in the mandate like every other line: its gain or loss in the 10% fall and
 rise, and in the loss measure its loss in the adverse index shock
 (`index_hedge_base`), so a hedge spends loss room. Effective full stops use their contract-value distance instead.
 
+In the mandate's gap stress the future moves with SPY and every other broad
+index fund or index on the list: one index gap moves them all together,
+each by the full gap. The
+gap cap applies to their net loss, so a hedge lowers the index gap loss and
+can bring a breached index line back under its cap. It breaches only when
+it hedges past neutral. A sale is refused for the gap cap only when it adds
+a breach or makes one worse. `canary mandate` shows the group under
+Stresses as `Index gap ±12% across` with its lines and their net figure.
+The stress does not model the difference between SPY and the future.
+
 Without `--plan`, `--mode hedge` previews the sale and the leg carries a
 signed preview token; `--portfolio --submit --preview-token TOKEN`, or the
 device-confirmed basket in Desk, places exactly those terms. The sale is a

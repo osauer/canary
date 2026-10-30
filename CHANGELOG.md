@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.32.0 — Unreleased
+
+### Changed
+
+- The mandate's index gap now moves SPY, the other broad index funds and a Micro S&P hedge together, and the gap cap applies to their net loss. A hedge lowers the index gap loss and can cure a breached index line instead of adding a breach of its own; it breaches only when it hedges past neutral, and a sale is refused for the gap cap only when it adds or worsens a breach.
+
 ## v3.31.0 — 2026-10-30 09:03 CET
 
 ### What's new

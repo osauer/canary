@@ -931,6 +931,31 @@ func TestMandateGateRefusesAnAdditionThatBreachesAGapCap(t *testing.T) {
 
 // A breach the book already carries is never deepened by an addition, and
 // a gap-cap check never refuses an order that leaves the breach as it was.
+// A broad-index line is judged by the index gap group (owner decision
+// "1. A", 2026-10-30 09:41 CET): a new hedge line in a group whose standing
+// breach it lessens adds none; one that leaves the group losing more, or
+// breaches a group that fit before, does.
+func TestMandateGapBreachAddedJudgesTheIndexGroup(t *testing.T) {
+	verdict := func(loss float64, breach bool, rows ...string) mandate.Verdict {
+		v := mandate.Verdict{Stresses: &mandate.Stresses{GapCapBase: 20000, IndexGap: &mandate.IndexGapReport{Members: rows, LossBase: loss, Breach: breach}}}
+		for _, r := range rows {
+			v.Underlyings = append(v.Underlyings, mandate.UnderlyingReport{Underlying: r, BroadIndex: true, GapLossBase: loss, GapCapBase: 20000, GapBreach: breach})
+		}
+		return v
+	}
+	before := verdict(30000, true, "SPY")
+	if u, ok := mandateGapBreachAdded(&before, verdict(25000, true, "SPY", mandate.MicroSP500Future)); ok {
+		t.Fatalf("a hedge lessening the index breach added %+v", u)
+	}
+	if _, ok := mandateGapBreachAdded(&before, verdict(31000, true, "SPY", mandate.MicroSP500Future)); !ok {
+		t.Fatal("a deeper index breach was not reported")
+	}
+	fit := verdict(10000, false, "SPY")
+	if u, ok := mandateGapBreachAdded(&fit, verdict(21000, true, "SPY", mandate.MicroSP500Future)); !ok || u.Underlying != "SPY" {
+		t.Fatalf("an over-hedge breaching a fitting group: %+v %v", u, ok)
+	}
+}
+
 func TestMandateGapBreachAddedComparesWithTheStandingBook(t *testing.T) {
 	before := &mandate.Verdict{Underlyings: []mandate.UnderlyingReport{{Underlying: "SYNA", GapLossBase: 30000, GapCapBase: 20000, GapBreach: true}, {Underlying: "SYNB", GapLossBase: 1000, GapCapBase: 20000}}}
 	same := mandate.Verdict{Underlyings: []mandate.UnderlyingReport{{Underlying: "SYNA", GapLossBase: 30000, GapCapBase: 20000, GapBreach: true}, {Underlying: "SYNB", GapLossBase: 5000, GapCapBase: 20000}}}

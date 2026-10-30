@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/osauer/canary/v2/internal/mandate"
@@ -59,11 +60,28 @@ func TestIndexHedgeProjectedRiskCountsPendingSales(t *testing.T) {
 			t.Fatal("unknown capital admitted hedge")
 		}
 	})
+	// The index gap nets the hedge against SPY (owner decision "1. A",
+	// 2026-10-30 09:41 CET): a sale that lowers the standing SPY breach is
+	// admitted, though the book still breaches after it; one past neutral
+	// stays refused.
 	t.Run("gap cap", func(t *testing.T) {
-		in := input(0.5, 3000)
+		s := &Server{}
+		spy := mandateReductionStock("SPY", 9101, 3000, 50)
+		spy.Currency, spy.FXRate = "USD", new(0.9) // SPY is a broad index in USD only
+		keepMandateEvaluationAt(t, s, mandateReductionBook(spy), 0.5)
+		in, _, why := s.mandateCurrentInput()
+		if in == nil {
+			t.Fatal(why)
+		}
 		in.Policy.GapRoomPct = 1
-		if b := indexHedgeProjectedRiskRefusal(in, hedgeSale(1), nil); b == nil || b.Code != "index_hedge_gap" {
-			t.Fatalf("gap result %+v", b)
+		if v := mandate.Evaluate(*in); !slices.Equal(v.Stresses.GapBreaches, []string{"SPY"}) {
+			t.Fatalf("fixture: breaches %v, want SPY's", v.Stresses.GapBreaches)
+		}
+		if b := indexHedgeProjectedRiskRefusal(in, hedgeSale(1), nil); b != nil {
+			t.Fatalf("a hedge lowering the standing index breach was refused: %+v", b)
+		}
+		if b := indexHedgeProjectedRiskRefusal(in, hedgeSale(6), nil); b == nil || b.Code != "index_hedge_past_neutral" {
+			t.Fatalf("over-hedge result %+v", b)
 		}
 	})
 }

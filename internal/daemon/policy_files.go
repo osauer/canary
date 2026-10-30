@@ -1380,7 +1380,8 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 # Broad index funds and indices (the fixed list in the mandate package:
 # SPY, SPX, QQQ, IWM, DIA, IBCF and the UCITS S&P 500 and world funds) take
 # this gap instead; absent, they take gap_shock_pct. 12 is your decision of
-# 2026-10-14 (D4).
+# 2026-10-14 (D4). They take it together, with an index future hedge, and
+# the gap cap applies to their net loss.
 # index_gap_shock_pct = 12.0
 # What an option without its own implied volatility may do to the verdict.
 # Canary then prices it at the volatility its own mark implies; this table

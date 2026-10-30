@@ -765,7 +765,9 @@ func (s *Server) addPutCover(symbol string) *rpc.AddPutCover {
 // reduction only when the 10% index fall's loss is lower than without it
 // and not below zero (the hedge never turns the book into a bet on a
 // fall), the loss measure does not rise and stays within the loss room,
-// and no name's gap loss breaches the gap cap. Otherwise, or
+// and it adds or deepens no gap-cap breach: the index gap nets the hedge
+// against the funds it hedges, so a breach it lessens does not count
+// against it (owner decision "1. A", 2026-10-30 09:41 CET). Otherwise, or
 // when the book cannot be measured now, the normal gate applies.
 //
 // The hedge's loss in a 10% rise spends loss room (TM-04.12). A sale
@@ -787,7 +789,13 @@ func (s *Server) indexHedgeReduces(draft rpc.OrderDraft) bool {
 	fall := after.Stresses.IndexLossBase
 	return fall < before.Stresses.IndexLossBase-1e-9 && fall >= 0 &&
 		after.Loss.TotalBase <= before.Loss.TotalBase+1e-9 &&
-		after.Loss.TotalBase <= after.Loss.RoomBase+1e-9 && len(after.Stresses.GapBreaches) == 0
+		after.Loss.TotalBase <= after.Loss.RoomBase+1e-9 && !gapBreachAdded(&before, after)
+}
+
+// gapBreachAdded is mandateGapBreachAdded's yes or no.
+func gapBreachAdded(before *mandate.Verdict, with mandate.Verdict) bool {
+	_, added := mandateGapBreachAdded(before, with)
+	return added
 }
 
 // mandateBillBuy reports a BUY of a government bill (security type BILL).
@@ -1151,16 +1159,29 @@ func mandateLongOptionBound(draft rpc.OrderDraft, book mandate.Input, standing *
 
 // mandateGapBreachAdded finds the first underlying whose gap loss breaches
 // its cap with the order and did not before it, or breaches by more than it
-// did: an addition that creates or deepens a gap-cap breach.
+// did: an addition that creates or deepens a gap-cap breach. A broad-index
+// line is judged by the index gap group it moves with (owner decision
+// "1. A", 2026-10-30 09:41 CET): a hedge that leaves the group's standing
+// breach smaller adds none, though its own line is new.
 func mandateGapBreachAdded(before *mandate.Verdict, with mandate.Verdict) (mandate.UnderlyingReport, bool) {
 	prior := map[string]mandate.UnderlyingReport{}
+	var index *mandate.IndexGapReport
 	if before != nil {
 		for _, u := range before.Underlyings {
 			prior[u.Underlying] = u
 		}
+		if before.Stresses != nil {
+			index = before.Stresses.IndexGap
+		}
 	}
 	for _, u := range with.Underlyings {
 		if !u.GapBreach {
+			continue
+		}
+		if u.BroadIndex {
+			if index == nil || !index.Breach || u.GapLossBase > index.LossBase+1e-6 {
+				return u, true
+			}
 			continue
 		}
 		was, held := prior[u.Underlying]

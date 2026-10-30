@@ -54,8 +54,11 @@ func indexHedgeProjectedRiskRefusal(input *mandate.Input, draft rpc.OrderDraft, 
 	if after.Loss.TotalBase > after.Loss.RoomBase+mandateReductionEpsilon {
 		return refuse("index_hedge_over_loss_room", fmt.Sprintf("The held book with working hedge sales and this sale would measure %s of loss, above the mandate's loss room %s.", mandateMoney(after.Loss.TotalBase, input.BaseCurrency), mandateMoney(after.Loss.RoomBase, input.BaseCurrency)))
 	}
-	if len(after.Stresses.GapBreaches) > 0 {
-		return refuse("index_hedge_gap", "The held book with working hedge sales and this sale would breach the mandate's gap cap for "+strings.Join(after.Stresses.GapBreaches, ", ")+".")
+	// A breach the held book already carries is no reason to refuse a hedge
+	// that lessens it: the index gap nets the sale against the funds it
+	// hedges (owner decision "1. A", 2026-10-30 09:41 CET).
+	if u, added := mandateGapBreachAdded(&before, after); added {
+		return refuse("index_hedge_gap", "The held book with working hedge sales and this sale would breach the mandate's gap cap for "+u.Underlying+".")
 	}
 	return nil
 }
