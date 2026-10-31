@@ -2,6 +2,33 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.32.1 — 2026-10-31 09:03 CET
+
+### What's new
+
+Canary checks completed fills from other trading clients before granting
+protective-put coverage and records opening permission only when the
+preview’s position evidence stays valid. `canary status` now names Canary's
+overall health and puts the reason for attention first.
+
+### Fixed
+
+- Protective-put checks now catch completed share sales and put purchases from other trading clients, so old position data cannot grant too much coverage.
+- Opening-permission checks no longer mistake a closing preview for permission to add exposure when positions change or lag. Older replies cannot replace newer evidence; a later denial blocks opening or increasing orders before transmission.
+- Failed background history refreshes retain their full retry interval after the request finishes. Replies from a previous broker session cannot clear the current session’s stalled-history state.
+- History requests for options, unsupported security types or undated futures now return `bad_request` with an explanation.
+- NY Fed calendar reads follow the published previous-month link when the landing page advances before the current month ends.
+
+### Changed
+
+- `canary status` replaces the "IBKR Gateway" headline with "Canary" and "Next concern" with a "Reason" immediately below it. The colour legend describes overall status; existing diagnostic rows and warning colours remain.
+- Old phone-delivery reports begin with "Current delivery unknown" and keep their dated evidence. They no longer tell you to enable notifications based solely on an old report; current reports keep that instruction.
+- The execution row states the required Master API client ID without implying it is misconfigured merely because no other-client fill has arrived.
+- Updated the HTTP server dependency to HyperServe v2.2.2.
+
+Trading limits and explicit broker-confirmation requirements are unchanged.
+Standard binaries and all MCP tools remain read-only.
+
 ## v3.32.0 — 2026-10-30 18:52 CET
 
 ### What's new
