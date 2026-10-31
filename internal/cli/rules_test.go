@@ -148,6 +148,18 @@ func TestRulesTextFitsTheTerminalAndFoldsIdleRules(t *testing.T) {
 
 // A print the desk knew reads "reported on", never "no date published"; a
 // date the vendor pulled before the day says so.
+// An override whose date has passed is listed with its date so the owner
+// sets the next one or clears it; a current override is not.
+func TestEarningsOverridesElapsedListsThePinnedDate(t *testing.T) {
+	res := &rpc.RulesResult{Earnings: []rpc.EarningsInfo{
+		{Symbol: "SYNTHA", Source: "override", Status: rpc.EarningsStatusDate, Date: "2026-11-20"},
+		{Symbol: "SYNTHB", Source: "fetched", Status: rpc.EarningsStatusReported, ReportedOn: "2026-10-29", OverrideElapsed: "2026-10-29"},
+	}}
+	if got := earningsOverridesElapsed(res); len(got) != 1 || got[0] != "SYNTHB (2026-10-29)" {
+		t.Fatalf("elapsed overrides = %q", got)
+	}
+}
+
 func TestEarningsOutcomeLabelNamesAKeptPrint(t *testing.T) {
 	reported := rpc.EarningsInfo{Symbol: "SYNTH", Status: rpc.EarningsStatusReported, Reason: "reported", ReportedOn: "2026-10-29"}
 	if got := earningsOutcomeLabel(reported); got != "reported on 2026-10-29; next date not yet published" {

@@ -1155,6 +1155,14 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 		override, hasOverride := risk.EarningsInput{}, false
 		if raw, ok := overrides[sym]; ok {
 			override, hasOverride = parseEarningsOverride(raw, loc)
+			if hasOverride && earningsOverrideElapsed(override.Date, now.In(loc)) {
+				// A pin whose date has passed is a print that happened, not
+				// the next date. The name resolves from the providers as if
+				// no override were set, and the info discloses the elapsed
+				// pin so the owner sets the next date or clears it.
+				info.OverrideElapsed = override.Date.Format(time.DateOnly)
+				hasOverride = false
+			}
 		}
 		view, observed := earningsResolutionView{}, false
 		if s.earnings != nil {
@@ -1310,6 +1318,14 @@ func rulebookIndexUnderlyingSecurityType(symbol string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// earningsOverrideElapsed reports whether an override date is strictly before
+// the current ET day. The day itself is not elapsed: an amc print is still
+// ahead, and the window rules count it as one session inside the window.
+func earningsOverrideElapsed(date, nowET time.Time) bool {
+	today := time.Date(nowET.Year(), nowET.Month(), nowET.Day(), 0, 0, 0, 0, nowET.Location())
+	return date.Before(today)
 }
 
 // parseEarningsOverride accepts "YYYY-MM-DD" or "YYYY-MM-DDTamc"/"Tbmo".

@@ -611,6 +611,16 @@ contradiction:
     default like any new rule. An option buy on an offending name carries an
     advisory `rule_earnings_premium_freeze` preview warning. Rule 8 is
     unchanged. Baseline stays `rulebook-v5`.
+22. Amendment (2026-10-31, same cause): an earnings override past its date
+    reads elapsed, not Known. `parseEarningsOverride` accepted any date, so a
+    pin for a print that had happened kept the name `Known` with a negative
+    session distance, and rules 6-8 read it as a dated name. A pin strictly
+    before the current ET day is now treated as absent: the name resolves from
+    the providers (a kept print reads `reported`), `EarningsInfo.override_elapsed`
+    carries the pinned date, `canary rules` prints "Earnings override elapsed:
+    SYM (date)" with the two ways out (set the next date, or clear with
+    `=null`), and the brief says the same in its earnings row. The day itself
+    stays Known: an amc print is still ahead, one session inside the window.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical

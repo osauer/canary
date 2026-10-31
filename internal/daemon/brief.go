@@ -812,16 +812,23 @@ func briefEarningsOverrideHint(rules *rpc.RulesResult) string {
 	if rules == nil {
 		return ""
 	}
-	var symbols []string
+	var symbols, elapsed []string
 	for _, info := range rules.Earnings {
+		if info.OverrideElapsed != "" {
+			elapsed = append(elapsed, info.Symbol+" ("+info.OverrideElapsed+")")
+		}
 		if info.Status == rpc.EarningsStatusNoDatePublished {
 			symbols = append(symbols, info.Symbol)
 		}
 	}
-	if len(symbols) == 0 {
-		return ""
+	var parts []string
+	if len(symbols) > 0 {
+		parts = append(parts, fmt.Sprintf("no vendor has published a date for %s; when the issuer announces one, record it with the settings key features.rulebook.earnings_overrides", strings.Join(symbols, ", ")))
 	}
-	return fmt.Sprintf("no vendor has published a date for %s; when the issuer announces one, record it with the settings key features.rulebook.earnings_overrides", strings.Join(symbols, ", "))
+	if len(elapsed) > 0 {
+		parts = append(parts, fmt.Sprintf("the earnings override for %s has elapsed; set the next date or clear it with the settings key features.rulebook.earnings_overrides", strings.Join(elapsed, ", ")))
+	}
+	return strings.Join(parts, "; ")
 }
 
 func briefWSHEntitlementNotice(rules *rpc.RulesResult) string {
