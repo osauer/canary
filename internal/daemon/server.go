@@ -482,7 +482,10 @@ type Server struct {
 	// mandateHistoryFetchForTest replaces the broker history read and
 	// mandatePositionsForTest the positions read behind the mandate.
 	mandateHistoryFetchForTest func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error)
-	mandatePositionsForTest    func(context.Context) (*rpc.PositionsResult, error)
+	// mandateBreachForTest replaces the proposals snapshot as the source of
+	// the mandate reduction's state and open episode (mandate_episode.go).
+	mandateBreachForTest    func() (state, episode string)
+	mandatePositionsForTest func(context.Context) (*rpc.PositionsResult, error)
 	// replayHistoryFetchForTest replaces the broker history read behind the
 	// Edge replay (replay_history.go) and stands in for an online gateway.
 	replayHistoryFetchForTest func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)
@@ -505,6 +508,9 @@ type Server struct {
 	// mandateStatus is when the mandate verdict's status last changed
 	// (mandate_status.go).
 	mandateStatus mandateStatusClock
+	// mandateEpisode keeps the last breach episode the reduction opened, for
+	// the arming hold (desk_authority.go).
+	mandateEpisode mandateEpisodeClock
 	// flexFetch tracks the daily Flex statement ingestion for post-trade
 	// the broker; sanitized status only, never the token.
 	flexFetch flexFetchState
@@ -831,6 +837,7 @@ func (s *Server) installEarningsCache() {
 	if err := cache.setSecondaryProvider(earningsWSHProvider, s.fetchWSHEarningsProvider); err != nil {
 		s.logger.Warnf("earnings cache: install IBKR WSH provider: %v", err)
 	}
+	cache.setSecondaryEntitlementProbe(s.probeWSHEntitlement)
 	if err := cache.setIdentityFetcher(s.fetchEarningsIdentity); err != nil {
 		s.logger.Warnf("earnings cache: install broker identity reader: %v", err)
 	}

@@ -59,6 +59,10 @@ type DeskAuthorityControlParams struct {
 	AdaptivePriority   string `json:"adaptive_priority"`
 }
 
+// DeskAuthorityHeldByMandate is HeldBy while a breach of the mandate's loss
+// room, now or since full scope was confirmed, holds the mandate at protection.
+const DeskAuthorityHeldByMandate = "mandate_breach"
+
 // DeskAuthorityStatus reports persisted scope and effective controller authority.
 type DeskAuthorityStatus struct {
 	Terms            *DeskAuthorityTerms `json:"terms,omitempty"`
@@ -67,9 +71,11 @@ type DeskAuthorityStatus struct {
 	Running          bool                `json:"running"`
 	PreferencesHash  string              `json:"preferences_hash,omitempty"`
 	AdaptivePriority string              `json:"adaptive_priority,omitempty"`
-	// HeldBy names what holds a full mandate at protection: "drawdown_brake"
-	// from each brake engagement until the owner confirms full again on a
-	// device after the brake clears. Empty when nothing holds it.
+	// HeldBy names what holds a full mandate at protection:
+	// DeskAuthorityHeldByMandate from each breach of the mandate's loss room
+	// until the owner confirms full again on a device after the book is back
+	// within it (before 2026-10-31 "drawdown_brake", the [capital] ladder's
+	// brake). Empty when nothing holds it.
 	HeldBy      string    `json:"held_by,omitempty"`
 	ConfirmedAt time.Time `json:"confirmed_at,omitzero"`
 	Verified    string    `json:"verified,omitempty"`

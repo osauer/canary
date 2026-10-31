@@ -32,7 +32,7 @@ type DeskAuthorityControlParams = rpc.DeskAuthorityControlParams
 type DeskAuthorityStatus = rpc.DeskAuthorityStatus
 
 // DeskAuthority reads the mandate's effective state, including a hold by the
-// drawdown brake (HeldBy).
+// a breach of the mandate's loss room (HeldBy; before 2026-10-31 the drawdown brake).
 func (c *Client) DeskAuthority(ctx context.Context) (*DeskAuthorityStatus, error) {
 	var out DeskAuthorityStatus
 	if err := c.callPrivate(ctx, rpc.MethodDeskAuthorityStatus, nil, &out); err != nil {

@@ -106,6 +106,9 @@ func cashPolicyServer(t *testing.T, file string) (*Server, string, *corestore.St
 	m := newProtectionPolicyManager(path, false, 0, func() time.Time { return cashPolicyTestNow })
 	m.reload()
 	s := &Server{protectionPolicies: m, coreStore: core, now: func() time.Time { return cashPolicyTestNow }}
+	// A test server has no proposals engine; the arming hold then reads a
+	// mandate within its room (mandate_episode.go), as a live desk at rest.
+	s.mandateBreachForTest = func() (string, string) { return rpc.MandateReductionWithin, "" }
 	s.cashPolicyBookForTest = cashPolicyTestBook
 	return s, path, core
 }

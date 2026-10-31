@@ -24,10 +24,15 @@ type deskAuthorityRecord struct {
 	LastRequestID   string    `json:"last_request_id,omitempty"`
 	LastRequestHash string    `json:"last_request_hash,omitempty"`
 	ControlProcess  time.Time `json:"control_process,omitzero"`
-	// BrakeEpisode is the drawdown brake's engagement count when full scope
-	// was confirmed; a later engagement holds full at protection.
-	BrakeEpisode uint64                     `json:"brake_episode,omitempty"`
-	Confirmation rpc.CashPolicyConfirmation `json:"confirmation"`
+	// BrakeEpisode was the drawdown brake's engagement count when full scope
+	// was confirmed, before the hold read the mandate (B5, 2026-10-31); kept
+	// so older records still decode, written no more.
+	BrakeEpisode uint64 `json:"brake_episode,omitempty"`
+	// MandateEpisode is the last breach episode the mandate's reduction had
+	// opened when full scope was confirmed; a later breach holds full at
+	// protection until the owner confirms again (mandate_episode.go).
+	MandateEpisode string                     `json:"mandate_episode,omitempty"`
+	Confirmation   rpc.CashPolicyConfirmation `json:"confirmation"`
 	// RegisterDigest is the strategy register the owner armed under (every
 	// entry's rule, cited spec, sleeve, stage, scale and allocation,
 	// deskRegisterDigest): a register edit after it withdraws the mandate
@@ -74,28 +79,17 @@ func (s *Server) readDeskAuthority(ctx context.Context) (deskAuthorityRecord, er
 	if s.startedAt.IsZero() || !out.ControlProcess.Equal(s.startedAt) {
 		out.Running = false
 	}
-	// Each brake engagement holds full scope at protection until the owner
-	// confirms full again on a device after the brake clears (owner decision
-	// 2026-10-10 07:51 CEST). Protection and reductions keep running.
+	// Each breach of the mandate's loss room holds full scope at protection
+	// until the owner confirms full again on a device after the book is back
+	// within the room (owner decision 2026-10-10 07:51 CEST for the brake;
+	// since 2026-10-31 the hold reads the mandate, not the [capital] ladder,
+	// build B5). Protection and reductions keep running.
 	if out.Scope == "full" {
-		if episode, engaged, known := s.deskAuthorityBrake(out.Terms); !known || engaged || episode != out.BrakeEpisode {
-			out.Scope, out.HeldBy = "protect", "drawdown_brake"
+		if last, engaged, known := s.deskAuthorityHold(ctx); !known || engaged || last != out.MandateEpisode {
+			out.Scope, out.HeldBy = "protect", rpc.DeskAuthorityHeldByMandate
 		}
 	}
 	return out, nil
-}
-
-// deskAuthorityBrake reads the drawdown brake for the mandate's account.
-// known is false when the brake cannot be read; the caller then holds.
-func (s *Server) deskAuthorityBrake(terms *rpc.DeskAuthorityTerms) (episode uint64, engaged, known bool) {
-	if s.riskCapital == nil {
-		return 0, false, true
-	}
-	if terms == nil {
-		return 0, false, false
-	}
-	episode, engaged, err := s.riskCapital.BrakeEpisodeForScope(brokerStateScope{Account: terms.AccountID, Mode: terms.AccountMode})
-	return episode, engaged, err == nil
 }
 
 func validDeskAuthorityTerms(t rpc.DeskAuthorityTerms) bool {
@@ -155,9 +149,9 @@ func (s *Server) handleDeskAuthorityConfirm(ctx context.Context, req *rpc.Reques
 	if decodeDeskAuthority([]byte(in.Terms), &terms) != nil || !validDeskAuthorityTerms(terms) || in.Digest != cashPolicyDigest([]byte(in.Terms)) {
 		return rpc.DeskAuthorityStatus{}, errBadRequest("exact automatic authority terms are required")
 	}
-	episode, engaged, known := s.deskAuthorityBrake(&terms)
+	last, engaged, known := s.deskAuthorityHold(ctx)
 	if terms.MaximumScope == "full" && (engaged || !known) {
-		return rpc.DeskAuthorityStatus{}, errBadRequest("full automatic trading can be confirmed after the drawdown brake clears; protection can be armed now")
+		return rpc.DeskAuthorityStatus{}, errBadRequest("full automatic trading can be confirmed once the book is back within the mandate's loss room; protection can be armed now")
 	}
 	s.deskAuthorityMu.Lock()
 	defer s.deskAuthorityMu.Unlock()
@@ -196,7 +190,7 @@ func (s *Server) handleDeskAuthorityConfirm(ctx context.Context, req *rpc.Reques
 	if err != nil {
 		return rpc.DeskAuthorityStatus{}, err
 	}
-	next := deskAuthorityRecord{Terms: &terms, Scope: terms.MaximumScope, ConfirmedAt: s.orderNow(), Verified: verified, Confirmation: in.Confirmation, BrakeEpisode: episode,
+	next := deskAuthorityRecord{Terms: &terms, Scope: terms.MaximumScope, ConfirmedAt: s.orderNow(), Verified: verified, Confirmation: in.Confirmation, MandateEpisode: last,
 		RegisterDigest: s.deskRegisterDigest()}
 	// Confirmation does not resume execution. The reconciled controller must
 	// explicitly fence its current preferences before any subsequent dispatch.

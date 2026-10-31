@@ -298,6 +298,9 @@ func newOrderPreviewTestServerIn(t *testing.T, trading config.Trading, dir strin
 		gatewayAccountForTrading: func() string { return "DU1234567" },
 	}
 	installTestOrderLimits(srv, limits)
+	// No proposals engine here: the arming hold reads a mandate within its
+	// room (mandate_episode.go), as a live desk at rest.
+	srv.mandateBreachForTest = func() (string, string) { return rpc.MandateReductionWithin, "" }
 	return srv
 }
 
