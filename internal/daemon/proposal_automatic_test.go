@@ -516,12 +516,111 @@ func TestAutomaticDisappearedProposalIsSuperseded(t *testing.T) {
 	if rec := rig.record(prop.Key, revision); rec.State != rpc.TradeProposalAutomaticSuperseded || !strings.Contains(rec.Reason, "disappeared") {
 		t.Fatalf("record = %+v", rec)
 	}
-	// Coming back at the same revision starts a new window only if no
-	// record exists for it; the superseded one holds the key+revision.
-	rig.install(prop)
+	// Coming back unblocked at the same revision: the superseded record
+	// does not hold the key and revision; a fresh window starts now.
+	rig.advance(5 * time.Minute)
+	if again := rig.install(prop); again != revision {
+		t.Fatal("test expects the row to return at its earlier revision")
+	}
 	rig.cycle()
-	if rec := rig.record(prop.Key, revision); rec.State != rpc.TradeProposalAutomaticSuperseded {
-		t.Fatalf("record recreated over a superseded one: %+v", rec)
+	if rec := rig.record(prop.Key, revision); rec.State != rpc.TradeProposalAutomaticPending || !rec.SubmitAt.Equal(rig.now.Add(30*time.Minute)) {
+		t.Fatalf("record = %+v, want a fresh pending window", rec)
+	}
+	if n := rig.eventCount(prop.Key, revision, automaticEventCreated); n != 2 {
+		t.Fatalf("created events = %d, want 2", n)
+	}
+}
+
+// A revision that changes and changes back must leave the row with a live
+// record. On 2026-10-31 the reduction batch's revisions flipped and returned
+// three times; each return found the superseded record for that revision and
+// no new one was made, so the whole batch sat without a record.
+func TestAutomaticReturningRevisionGetsAFreshRecord(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticTrailingStopAuthority)
+	prop := rig.stopProposal()
+	first := rig.install(prop)
+	rig.cycle()
+	rig.notice(rig.record(prop.Key, first))
+	rig.advance(10 * time.Minute)
+	grown := prop
+	grown.Quantity = 60
+	second := rig.install(grown)
+	if second == first {
+		t.Fatal("test expects a new revision")
+	}
+	rig.cycle()
+	if rec := rig.record(prop.Key, first); rec.State != rpc.TradeProposalAutomaticSuperseded {
+		t.Fatalf("first record = %+v, want superseded", rec)
+	}
+	rig.advance(time.Minute)
+	if back := rig.install(prop); back != first {
+		t.Fatal("test expects the row to return at its first revision")
+	}
+	rig.cycle()
+	if rec := rig.record(prop.Key, second); rec.State != rpc.TradeProposalAutomaticSuperseded {
+		t.Fatalf("second record = %+v, want superseded", rec)
+	}
+	rec := rig.record(prop.Key, first)
+	if rec.State != rpc.TradeProposalAutomaticPending || !rec.SubmitAt.Equal(rig.now.Add(30*time.Minute)) || !rec.NoticedAt.IsZero() {
+		t.Fatalf("returned record = %+v, want a fresh pending window awaiting its notice", rec)
+	}
+	if a := rig.engine.Snapshot(false).Proposals[0].Automatic; a == nil || a.State != rpc.TradeProposalAutomaticPending {
+		t.Fatalf("served automatic = %+v, want pending", a)
+	}
+	if rig.server.autoTradeStatus().AutomaticPending != 1 {
+		t.Fatalf("status pending count = %d, want 1", rig.server.autoTradeStatus().AutomaticPending)
+	}
+	// A veto at the returned revision still holds: no record replaces it.
+	if _, err := rig.engine.Veto(context.Background(), rpc.TradeProposalVetoParams{Key: prop.Key, Revision: first, Origin: rpc.OrderOriginHumanTTY}); err != nil {
+		t.Fatalf("veto: %v", err)
+	}
+	rig.advance(time.Minute)
+	rig.cycle()
+	if rec := rig.record(prop.Key, first); rec.State != rpc.TradeProposalAutomaticVetoed {
+		t.Fatalf("vetoed record = %+v, want the veto kept", rec)
+	}
+}
+
+// A trailing stop carries its initial stop price and rests at the broker
+// before the open on a weekday, but a send while the currency market is
+// closed is refused for want of the exact-session FX quote and never retried
+// (2026-10-31, 15:14 CET on a Saturday). Its record waits for the currency
+// market's next open and keeps its window otherwise.
+func TestAutomaticTrailingStopWaitsForTheCurrencySession(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticTrailingStopAuthority)
+	// Saturday 26 September 2026, 14:00Z; the next US session opens Monday 13:30Z.
+	rig.now = time.Date(2026, 9, 26, 14, 0, 0, 0, time.UTC)
+	useQueueCalendar(rig.server)
+	prop := rig.stopProposal()
+	if proposalNeedsOpenSession(prop) {
+		t.Fatal("test expects a trailing stop that the preview rule would send outside the session")
+	}
+	revision := rig.install(prop)
+	rig.cycle()
+	rec := rig.record(prop.Key, revision)
+	fx, known := idealproSessionAt(rig.now)
+	if !known || fx.IsOpen || fx.NextOpen == nil {
+		t.Fatalf("test expects a closed currency market with a next open: %+v", fx)
+	}
+	if rec.State != rpc.TradeProposalAutomaticPending || !rec.SubmitAt.Equal(fx.NextOpen.UTC()) {
+		t.Fatalf("record = %+v, want pending, due at the currency market's open %s", rec, fx.NextOpen.UTC())
+	}
+	// The window closes on Saturday; nothing is attempted before that open.
+	rig.advance(time.Hour)
+	rig.cycle()
+	if rig.revalidations != 0 {
+		t.Fatal("a weekend send was attempted")
+	}
+	// A weekday record keeps its own window before the exchange opens.
+	rig.now = time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	grown := prop
+	grown.Quantity = 60
+	weekday := rig.install(grown)
+	rig.cycle()
+	if rec := rig.record(prop.Key, weekday); !rec.SubmitAt.Equal(rig.now.Add(30 * time.Minute)) {
+		t.Fatalf("weekday record = %+v, want its plain window", rec)
 	}
 }
 

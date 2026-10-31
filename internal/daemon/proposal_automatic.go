@@ -650,9 +650,15 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			if !policy.preAuthorised(bucket) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
 				continue
 			}
-			if _, exists := records[automaticRecordKey(prop.Key, prop.Revision)]; exists {
+			if existing, exists := records[automaticRecordKey(prop.Key, prop.Revision)]; exists && !automaticRecordReplaceable(*existing) {
 				// One record per key and revision: a veto, an outcome or a
-				// failure all hold until the revision changes.
+				// failure all hold until the revision changes. A superseded
+				// record does not: it ended because the row was gone, blocked
+				// or carried another revision, and the row is back unblocked
+				// at this one, so it gets a fresh record (its episode clock
+				// inherited below). Without this, a revision that changed
+				// and changed back left every row without a record
+				// (2026-10-31: the whole reduction batch, three times).
 				continue
 			}
 			rec := &automaticSubmissionRecord{
@@ -728,11 +734,19 @@ func (e *proposalEngine) automaticWillCreate(snap rpc.TradeProposalSnapshot, pol
 		if !policy.preAuthorised(e.automaticBucket(prop)) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
 			continue
 		}
-		if _, exists := e.automatic.get(prop.Key, prop.Revision); !exists {
+		if existing, exists := e.automatic.get(prop.Key, prop.Revision); !exists || automaticRecordReplaceable(existing) {
 			return true
 		}
 	}
 	return false
+}
+
+// automaticRecordReplaceable says whether a record for a key and revision
+// yields to a fresh one when its row is served unblocked at that revision
+// again: only a superseded record does. A veto, a submission, a failure and
+// a live record all hold the key and revision until the revision changes.
+func automaticRecordReplaceable(rec automaticSubmissionRecord) bool {
+	return rec.State == rpc.TradeProposalAutomaticSuperseded
 }
 
 func automaticCreatedReason(rec *automaticSubmissionRecord) string {
@@ -1064,8 +1078,11 @@ func automaticSettlingMachineOrigin(origin string) bool {
 // that long at due (queued-authorisation design). A row that can be placed
 // outside the session, or whose market has no calendar, keeps due.
 func (e *proposalEngine) automaticSessionDue(prop rpc.TradeProposal, due time.Time) time.Time {
-	if e == nil || e.server == nil || !proposalHasContract(prop) || !proposalNeedsOpenSession(prop) {
+	if e == nil || e.server == nil || !proposalHasContract(prop) {
 		return due
+	}
+	if !proposalNeedsOpenSession(prop) {
+		return automaticCurrencySessionDue(prop, due)
 	}
 	// A sweep bill waits for its own session, like a stock for its exchange.
 	market, session, hasMarket, ok := e.proposalSessionAt(prop, due, nil)
@@ -1082,6 +1099,28 @@ func (e *proposalEngine) automaticSessionDue(prop rpc.TradeProposal, due time.Ti
 		return session.NextOpen.Add(offset).UTC()
 	}
 	return due
+}
+
+// automaticCurrencySessionDue keeps a row that may be sent outside its
+// exchange's session (a trailing stop with its initial stop price) on its
+// own window on a weekday, when it rests at the broker before the open as
+// designed, and holds it while the currency market is closed: its preview
+// prices the notional off the exact-session FX quote, which the weekend has
+// none of, so the send would be refused and never retried (2026-10-31: the
+// two stock stops fell due at 15:14 CET on a Saturday and both failed).
+// A row in the base currency needs no quote, but waits the same few hours
+// rather than teaching the scheduler the account's base currency.
+func automaticCurrencySessionDue(prop rpc.TradeProposal, due time.Time) time.Time {
+	switch strings.ToUpper(strings.TrimSpace(proposalOrderPreviewParams(prop, prop.Quantity, 0).OrderType)) {
+	case rpc.OrderTypeTRAIL, rpc.OrderTypeTRAILLIMIT:
+	default:
+		return due
+	}
+	session, known := idealproSessionAt(due)
+	if !known || session.IsOpen || session.NextOpen == nil || !session.NextOpen.After(due) {
+		return due
+	}
+	return session.NextOpen.UTC()
 }
 
 // rescheduleAutomatic moves a due record's submit time, or a deferred

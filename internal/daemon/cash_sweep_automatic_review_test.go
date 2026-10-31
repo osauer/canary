@@ -97,12 +97,22 @@ func TestCashSweepSourceOutageCannotManufactureANewEpisode(t *testing.T) {
 	if rig.record(row.Key, revision).State != rpc.TradeProposalAutomaticSuperseded {
 		t.Fatal("blocked source retained an actionable automatic record")
 	}
+	// The same order after source recovery keeps its revision; the
+	// superseded record, which sent nothing, yields to a fresh one with a
+	// full window and its own notice rather than leaving the sweep dead at
+	// this revision. Nothing is retried: the old window is not reused.
+	rig.advance(20 * time.Minute)
 	if restored := rig.install(row); restored != revision {
 		t.Fatal("same order after source recovery manufactured a new episode")
 	}
 	rig.engine.reconcileAutomatic(context.Background())
 	got := rig.record(row.Key, revision)
-	if got.State != rpc.TradeProposalAutomaticSuperseded || !got.CreatedAt.Equal(rec.CreatedAt) {
-		t.Fatal("source recovery reset a terminal record or retried an order")
+	if got.State != rpc.TradeProposalAutomaticPending || !got.CreatedAt.Equal(rig.now) || got.SubmitAt.Before(rig.now.Add(30*time.Minute)) || !got.NoticedAt.IsZero() || got.Quantity != rec.Quantity {
+		t.Fatalf("source recovery record = %+v, want a fresh pending window for the same quantity", got)
+	}
+	rig.advance(15 * time.Minute)
+	rig.cycle()
+	if rig.revalidations != 0 {
+		t.Fatal("source recovery reused the superseded window and attempted an order")
 	}
 }
