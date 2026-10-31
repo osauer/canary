@@ -93,6 +93,13 @@ const (
 	// liquidity as a share of NLV, watched and acted on as it falls. It never
 	// trims and drives no proposal bucket.
 	RuleMarginHeadroom = "margin_headroom"
+	// RuleEarningsPremiumFreeze is rule 20 (amendment 21): long option
+	// premium at risk on a held name inside the earnings window. Rule 8
+	// freezes only an issuer already at rule 1's watch level, so with a
+	// perfect date it read pass while premium on a held name was added
+	// two and three sessions before the 2026-10-29 print. Any premium at
+	// risk within earnings_freeze_sessions of the date acts.
+	RuleEarningsPremiumFreeze = "earnings_premium_freeze"
 )
 
 // RuleIDs lists every Rulebook rule in rulebook order.
@@ -103,7 +110,7 @@ func RuleIDs() []string {
 		RuleRedOnGreen, RuleWinnerTrim, RuleGreenDayAction, RuleHedgeIntegrity,
 		RuleExitDiscipline, RuleFXExposure, RuleNetExposure,
 		RuleDeltaSwing, RuleClusterStress, RuleLossBudget,
-		RuleMarginHeadroom,
+		RuleMarginHeadroom, RuleEarningsPremiumFreeze,
 	}
 }
 
@@ -439,7 +446,7 @@ type ruleContext struct {
 	issuersDone bool
 }
 
-// EvaluateRulebook computes all 19 rules. It never returns fewer than 19
+// EvaluateRulebook computes all 20 rules. It never returns fewer than 20
 func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 	ctx := newRuleContext(in, pol)
 	pol = ctx.pol
@@ -466,6 +473,7 @@ func EvaluateRulebook(in RuleInputs, pol RulebookPolicy) Evaluation {
 		ctx.clusterStress(),
 		ctx.lossBudget(),
 		ctx.marginHeadroom(),
+		ctx.earningsPremiumFreeze(),
 	}
 	rows[10] = ctx.greenDayAction(rows)
 	for i := range rows {
@@ -1518,6 +1526,118 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 	default:
 		row.Status = RuleStatusPass
 		row.Evidence = fmt.Sprintf("No position on an issuer at or above rule 1's watch level is within %d trading sessions of earnings.", freeze)
+	}
+	return row
+}
+
+// earningsPremiumFreeze: rule 20 — any long option premium at risk on a
+// held name inside the earnings window acts, whatever the issuer's size.
+// Only names carrying premium are assessed, so a stock-only name is rule
+// 8's; the exemptions and the unknown handling are rule 8's own, and a name
+// whose date is unknown, stale, withdrawn or past (reported, next date not
+// published) keeps the row from passing while it carries premium.
+func (c *ruleContext) earningsPremiumFreeze() RuleRow {
+	row := RuleRow{ID: RuleEarningsPremiumFreeze, Number: 20, Title: "Premium at risk near earnings", Unit: "sessions"}
+	if g := c.portfolioGate(row.ID, row.Number, row.Title); g != nil {
+		return *g
+	}
+	freeze := c.pol.EarningsFreezeSessions
+	row.Threshold = new(float64(freeze))
+	var offenders, unknowns, exempt []RuleOffender
+	assessed, withPremium := 0, 0
+	terminalExempt, brokerExempt, secTypeExempt := 0, 0, 0
+	for _, n := range c.in.Names {
+		premium, legs, measured := 0.0, 0, true
+		for _, l := range n.Legs {
+			if l.Quantity <= 0 {
+				continue
+			}
+			legs++
+			atRisk, _, ok, _ := PremiumAtRiskLeg(l)
+			if !ok {
+				// The premium is there; only its size is unknown. The name is
+				// assessed and the figure disclosed as a lower bound.
+				measured = false
+				continue
+			}
+			premium += atRisk
+		}
+		if legs == 0 {
+			continue
+		}
+		withPremium++
+		if _, terminal := c.terminalEarningsFor(n.Symbol); terminal {
+			exempt = append(exempt, terminalEarningsExemption(n.Symbol))
+			terminalExempt++
+			continue
+		}
+		if _, nonissuer := c.brokerNonIssuerEarningsFor(n); nonissuer {
+			exempt = append(exempt, brokerNonIssuerEarningsExemption(n.Symbol))
+			brokerExempt++
+			continue
+		}
+		if _, nonissuer := c.nonIssuerSecurityEarningsFor(n.Symbol); nonissuer {
+			exempt = append(exempt, nonIssuerSecurityEarningsExemption(n.Symbol))
+			secTypeExempt++
+			continue
+		}
+		if _, unresolved := c.unresolvedTerminalEarningsFor(n.Symbol); unresolved {
+			unknowns = append(unknowns, unresolvedTerminalEarningsOffender(n.Symbol))
+			continue
+		}
+		if _, unresolved := c.unresolvedBrokerEarningsFor(n); unresolved {
+			unknowns = append(unknowns, unresolvedBrokerEarningsOffender(n.Symbol))
+			continue
+		}
+		e, ok := c.earningsFor(n.Symbol)
+		if !ok {
+			unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, ImpactBase: premium,
+				Note: "premium at risk with earnings date " + earningsGapWord(e)})
+			continue
+		}
+		if e.SessionsUntil == nil {
+			unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, ImpactBase: premium, Note: "session distance uncomputable"})
+			continue
+		}
+		assessed++
+		if *e.SessionsUntil < 0 || *e.SessionsUntil > freeze {
+			continue
+		}
+		size := fmt.Sprintf("%.1f%% of NLV", round1(pct(premium, c.nlv)))
+		if !measured {
+			size = "at least " + size + ", a leg unmeasured"
+		}
+		offenders = append(offenders, RuleOffender{Symbol: n.Symbol, Observed: float64(*e.SessionsUntil), ImpactBase: premium,
+			Note: fmt.Sprintf("%s with %s of premium at risk, earnings %s%s in %d session(s)",
+				countNoun(legs, "long option position"), size, e.Date.Format("Jan 2"), estNote(e), *e.SessionsUntil)})
+	}
+	sortOffenders(offenders)
+	row.Exempt = exempt
+	for _, o := range offenders {
+		row.ImpactBase += o.ImpactBase
+	}
+	switch {
+	case len(offenders) > 0:
+		row.Status = RuleStatusAct
+		row.Offenders = append(offenders, unknowns...)
+		row.Evidence = fmt.Sprintf("%s %s premium at risk within %d trading sessions of earnings.",
+			countNoun(len(offenders), "held name"), agree(len(offenders), "carries", "carry"), freeze)
+	case len(unknowns) > 0:
+		row.Status = RuleStatusUnknown
+		row.Reason = "earnings_unknown"
+		row.Offenders = unknowns
+		row.Evidence = fmt.Sprintf("Canary needs a current earnings date for %d name(s) carrying premium at risk.", len(unknowns))
+	case withPremium == 0:
+		row.Status = RuleStatusNotEvaluated
+		row.Reason = RuleReasonNoLongOptions
+		row.Evidence = "No long option position is open, so no premium is at risk into earnings."
+	case assessed == 0 && len(exempt) > 0:
+		row.Status = RuleStatusNotEvaluated
+		row.Reason = earningsExemptionReason(terminalExempt, brokerExempt, secTypeExempt)
+		row.Evidence = fmt.Sprintf("Issuer earnings do not apply to %d contract(s).", len(exempt))
+	default:
+		row.Status = RuleStatusPass
+		row.Evidence = fmt.Sprintf("No held name carries premium at risk within %d trading sessions of earnings.", freeze)
 	}
 	return row
 }

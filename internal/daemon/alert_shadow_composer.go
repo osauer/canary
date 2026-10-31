@@ -139,6 +139,7 @@ var alertShadowCanonicalRulebookRows = [...]struct {
 	{risk.RuleClusterStress, 17},
 	{risk.RuleLossBudget, 18},
 	{risk.RuleMarginHeadroom, 19},
+	{risk.RuleEarningsPremiumFreeze, 20},
 }
 
 var alertShadowCanonicalRulebookHealth = [...]string{
@@ -2631,24 +2632,25 @@ func alertShadowMapRulebook(scope alertShadowBrokerScope, result rpc.RulesResult
 // rules (3, 4, 12 and 15 since amendment 17) also rest on the regime stage.
 // Rule 19 (amendment 18) reads the broker's account figures alone.
 var alertShadowRulebookHealthRelevance = map[string][]string{
-	risk.RuleSingleNameExposure: {"account", "positions"},
-	risk.RuleOptionLinePremium:  {"account", "positions"},
-	risk.RuleCashSellOnly:       {"account", "positions", "regime_stage"},
-	risk.RuleExtrinsicBudget:    {"account", "positions", "regime_stage"},
-	risk.RuleExpiryRunway:       {"account", "positions"},
-	risk.RuleCatalystCoverage:   {"account", "positions", "earnings"},
-	risk.RuleOverwriteEarnings:  {"account", "positions", "earnings"},
-	risk.RuleEarningsSizeFreeze: {"account", "positions", "earnings"},
-	risk.RuleRedOnGreen:         {"account", "positions", "tape"},
-	risk.RuleWinnerTrim:         {"account", "positions", "tape"},
-	risk.RuleHedgeIntegrity:     {"account", "positions", "regime_stage"},
-	risk.RuleExitDiscipline:     {"account", "positions"},
-	risk.RuleFXExposure:         {"account", "positions"},
-	risk.RuleNetExposure:        {"account", "positions", "regime_stage"},
-	risk.RuleDeltaSwing:         {"account", "positions"},
-	risk.RuleClusterStress:      {"account", "positions"},
-	risk.RuleLossBudget:         {"account", "positions"},
-	risk.RuleMarginHeadroom:     {"account"},
+	risk.RuleSingleNameExposure:    {"account", "positions"},
+	risk.RuleOptionLinePremium:     {"account", "positions"},
+	risk.RuleCashSellOnly:          {"account", "positions", "regime_stage"},
+	risk.RuleExtrinsicBudget:       {"account", "positions", "regime_stage"},
+	risk.RuleExpiryRunway:          {"account", "positions"},
+	risk.RuleCatalystCoverage:      {"account", "positions", "earnings"},
+	risk.RuleOverwriteEarnings:     {"account", "positions", "earnings"},
+	risk.RuleEarningsSizeFreeze:    {"account", "positions", "earnings"},
+	risk.RuleRedOnGreen:            {"account", "positions", "tape"},
+	risk.RuleWinnerTrim:            {"account", "positions", "tape"},
+	risk.RuleHedgeIntegrity:        {"account", "positions", "regime_stage"},
+	risk.RuleExitDiscipline:        {"account", "positions"},
+	risk.RuleFXExposure:            {"account", "positions"},
+	risk.RuleNetExposure:           {"account", "positions", "regime_stage"},
+	risk.RuleDeltaSwing:            {"account", "positions"},
+	risk.RuleClusterStress:         {"account", "positions"},
+	risk.RuleLossBudget:            {"account", "positions"},
+	risk.RuleMarginHeadroom:        {"account"},
+	risk.RuleEarningsPremiumFreeze: {"account", "positions", "earnings"},
 }
 
 func alertShadowCanonicalRulebookRow(id string) (int, bool) {
@@ -2700,6 +2702,8 @@ func alertRulebookPresentationCode(id string) rpc.AlertPresentationCode {
 		return rpc.AlertPresentationRulebookLossBudget
 	case risk.RuleMarginHeadroom:
 		return rpc.AlertPresentationRulebookMarginHeadroom
+	case risk.RuleEarningsPremiumFreeze:
+		return rpc.AlertPresentationRulebookEarningsPremium
 	default:
 		return ""
 	}
@@ -2708,6 +2712,13 @@ func alertRulebookPresentationCode(id string) rpc.AlertPresentationCode {
 func alertShadowRulebookSafeNotEvaluated(row risk.RuleRow, result rpc.RulesResult) bool {
 	switch row.ID {
 	case risk.RuleCatalystCoverage, risk.RuleOverwriteEarnings, risk.RuleEarningsSizeFreeze:
+		return alertShadowRulebookSafeEarningsNotEvaluated(row, result)
+	case risk.RuleEarningsPremiumFreeze:
+		// No long option open: no premium to carry into a print, and no
+		// offender a reason could hide. Otherwise the earnings exemptions.
+		if row.Reason == risk.RuleReasonNoLongOptions {
+			return len(row.Offenders) == 0 && len(row.Exempt) == 0
+		}
 		return alertShadowRulebookSafeEarningsNotEvaluated(row, result)
 	case risk.RuleRedOnGreen, risk.RuleWinnerTrim:
 		return row.Reason == risk.RuleReasonOffSession

@@ -114,7 +114,7 @@ type RulebookPolicy struct {
 	// ShortPutActNamePctNLV acts when a name's short puts spanning earnings together reach this assignment notional as a percent of NLV.
 	ShortPutActNamePctNLV float64 `toml:"short_put_act_name_pct_nlv" json:"short_put_act_name_pct_nlv"`
 
-	// EarningsFreezeSessions acts on an issuer already at rule 1's watch/act level when earnings are zero through this many US sessions away, inclusive. Missing applicable earnings or size evidence is unknown. Freeze is a finding, not an order prohibition.
+	// EarningsFreezeSessions is the pre-earnings window in US sessions, zero through this value inclusive. Rule 8 acts on an issuer already at rule 1's watch/act level inside it; rule 20 acts on any long option premium at risk on a held name inside it. Missing applicable earnings or size evidence is unknown. Freeze is a finding, not an order prohibition.
 	EarningsFreezeSessions int `toml:"earnings_freeze_sessions" json:"earnings_freeze_sessions"`
 
 	// RedOnGreenNameDropPct watches a stock-leg day change at or below this negative percent when SPY meets red_on_green_spy_up_pct. Missing stock-leg tape is not screened; absent SPY makes the row unknown. US session only.
@@ -190,6 +190,10 @@ func DefaultRulebookPolicy() RulebookPolicy {
 			RuleClusterStress:      RuleModeTrack,
 			RuleLossBudget:         RuleModeAlert,
 			RuleMarginHeadroom:     RuleModeAlert,
+			// Rule 20 alerts by default: the row exists so that premium added
+			// into a print is seen, which rule 8 in track mode never showed
+			// (a held name, 2026-10-29). Proposed 2026-10-31; the owner's file decides.
+			RuleEarningsPremiumFreeze: RuleModeAlert,
 		},
 		SingleNameWatchPct:   30,
 		SingleNameActPct:     40,

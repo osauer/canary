@@ -194,6 +194,19 @@ func limitCases() []limitCase {
 		}, status: RuleStatusAct, limit: f(3)},
 		{name: "unknown", rule: RuleEarningsSizeFreeze, mutate: name(limitsStock("AAA", 35000)), status: RuleStatusUnknown, limit: f(3)},
 
+		// 20 — premium at risk near earnings (amendment 21): one limit, the
+		// same 3 sessions as rule 8, on any long option premium.
+		{name: "no long option", rule: RuleEarningsPremiumFreeze, mutate: name(limitsStock("AAA", 35000)), status: RuleStatusNotEvaluated, limit: f(3)},
+		{name: "pass", rule: RuleEarningsPremiumFreeze, mutate: func(in *RuleInputs) {
+			in.Names = append(in.Names, optionName("AAA", limitsLongCall("AAA", 60, 1000)))
+			in.Earnings["AAA"] = known(10)
+		}, status: RuleStatusPass, limit: f(3)},
+		{name: "act", rule: RuleEarningsPremiumFreeze, mutate: func(in *RuleInputs) {
+			in.Names = append(in.Names, optionName("AAA", limitsLongCall("AAA", 60, 1000)))
+			in.Earnings["AAA"] = known(2)
+		}, status: RuleStatusAct, limit: f(3)},
+		{name: "unknown", rule: RuleEarningsPremiumFreeze, mutate: name(optionName("AAA", limitsLongCall("AAA", 60, 1000))), status: RuleStatusUnknown, limit: f(3)},
+
 		// 9 — holding falls while the market rises: one limit, -1.5.
 		{name: "tape not green", rule: RuleRedOnGreen, status: RuleStatusPass, limit: f(-1.5)},
 		{name: "pass", rule: RuleRedOnGreen, mutate: func(in *RuleInputs) { in.SPYDayChangePct = new(1.0) }, status: RuleStatusPass, limit: f(-1.5)},

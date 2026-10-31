@@ -17,7 +17,7 @@ fixes (rules 6/8 silent skips), regime-conditional thresholds for rules
 short-put coverage, rule 1 provable lower bounds, new rules 13
 (exit_discipline) and 14 (fx_exposure), stock-leg underlying join.
 
-A daily, mechanical 19-rule checklist evaluated daemon-side against the live
+A daily, mechanical 20-rule checklist evaluated daemon-side against the live
 book. It is surfaced through CLI, MCP, the Canary SPA, daily-brief deltas,
 history, source-neutral alerts, and non-blocking order-preview causes. The
 initial heuristic set came from a discretionary-trader review on 2026-07-06;
@@ -71,7 +71,7 @@ authorize or block a broker write.
 - Existing behavior: stress signals already cover margin cushion, gross/net
   exposure, and single-name exposure; proposals already run theta_hygiene
   and risk_reduction buckets. The rulebook does not replace these; it
-  presents a fixed 19-rule daily contract on top of the same aggregation.
+  presents a fixed 20-rule daily contract on top of the same aggregation.
 
 ## Which verdict wins when
 
@@ -594,13 +594,30 @@ contradiction:
     or before today is never withdrawn, because the vendor rolling over on
     the day is the print happening. Nasdaq stays the primary; the WSH feed
     remains an optional second source.
+21. Amendment (2026-10-31, same cause): rule 20, premium at risk near
+    earnings. Rule 8 is a size freeze: it acts only on an issuer already at
+    rule 1's watch level (30% of NLV worst-case loss) and is tracked, so with
+    a perfect date every earnings rule read pass for a held name while
+    premium was added two and three sessions before the print. Rule 20 acts
+    when a held name carries any long option premium at risk within
+    `earnings_freeze_sessions` of its date (the window is rule 8's key; no
+    new threshold). Only names with premium are assessed; the exemptions are
+    rule 8's; a name with premium whose date is unknown, stale, withdrawn or
+    reported with no next date keeps the row `unknown`, never `pass`
+    (property test `TestEarningsPremiumFreezeNeverPassesOnAStaleOrWithdrawnDate`).
+    No long option open is `not_evaluated` (`no_long_options`). Default mode
+    `alert`, proposed by the build on 2026-10-31; the owner's file decides,
+    and the upgrade writes `modes.earnings_premium_freeze` into it at the
+    default like any new rule. An option buy on an offending name carries an
+    advisory `rule_earnings_premium_freeze` preview warning. Rule 8 is
+    unchanged. Baseline stays `rulebook-v5`.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical
 threshold in the compiled model; a value in the owner's file is approved by
 being written there.
 
-## The 19 rules
+## The 20 rules
 
 Inputs available today unless marked otherwise. "Exposure" for a name =
 stock shares×spot + Σ(option delta×100×contracts×spot), from
@@ -633,6 +650,7 @@ regime-conditionality notes).
 | 17 | `cluster_stress` | loss when every issuer of a declared cluster falls 30% together / NLV; never acts | watch ≥ 15% | track |
 | 18 | `loss_budget` | one issuer's worst-case loss / effective risk capital; never acts | watch ≥ 100% | alert |
 | 19 | `margin_headroom` | broker-reported excess liquidity / NLV, the worse of current and look-ahead when both are reported; reads downward, equality passes; never trims (amendment 18); warns every buy and every sale that opens or adds to a short at watch or act (amendment 19) | watch < 30%; act < 15% | alert |
+| 20 | `earnings_premium_freeze` | any long option premium at risk on a held name ≤ `earnings_freeze_sessions` US sessions from its earnings date, whatever the issuer's size (amendment 21); unknown, stale, withdrawn or past dates keep the row from passing while premium is held; warns option buys on the name | ≤3 sessions; acts | alert |
 
 Row status enum: `pass | info | watch | act | unknown | not_evaluated`.
 `info` renders neutral; it exists so rule 11 never inflates severity. The
@@ -832,7 +850,7 @@ pending/unavailable/stale and cannot clear a Rulebook alert episode. A download
 whose end marker arrived before its rows accounted for the stream's gross
 position value is still unprimed (see the protocol doc's portfolio receipt). This is
 the acceptance criterion for the property test below. Alert recovery also
-requires the exact 19 rule IDs with their canonical numbers and exactly those
+requires the exact 20 rule IDs with their canonical numbers and exactly those
 five health sources. Missing, extra, duplicate, or unknown rows stay
 uncovered. On rules 6-8, `not_evaluated` is a trusted negative only when every
 exempt symbol has matching current typed authority in the same result:

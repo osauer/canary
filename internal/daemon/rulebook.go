@@ -1889,6 +1889,9 @@ func rulebookPreviewWarnings(res *rpc.RulesResult, draft rpc.OrderDraft, positio
 	if r, ok := breached(risk.RuleEarningsSizeFreeze); ok && offends(r) {
 		out = append(out, warn(r, fmt.Sprintf("%s is oversized inside its pre-earnings freeze window; adding is the opposite of at-size.", sym)))
 	}
+	if r, ok := breached(risk.RuleEarningsPremiumFreeze); ok && isBuy && isOption && offends(r) {
+		out = append(out, warn(r, fmt.Sprintf("%s carries option premium at risk inside the pre-earnings window or without a current earnings date; this buy adds premium into the print.", sym)))
+	}
 	// Averaging down is the one behavior that resets rule 13's loss fence —
 	if r, ok := breached(risk.RuleExitDiscipline); ok && isBuy && isOption {
 		draftDesc := fmt.Sprintf("%s %s %s %s", sym,

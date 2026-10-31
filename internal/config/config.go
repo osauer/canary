@@ -148,7 +148,7 @@ type Rulebook struct {
 	// PolicyFile points to the owner's Rulebook policy TOML (thresholds and rule modes); default ~/.config/ibkr/policies/rulebook-policy.toml. An absent file runs the compiled baseline.
 	PolicyFile string `toml:"policy_file"`
 	// TerminalEvidenceFile points to an optional JSON document of reviewed,
-	// exact-contract terminal/non-reporting issuer evidence for rules 6-8. An
+	// exact-contract terminal/non-reporting issuer evidence for rules 6-8 and 20. An
 	// empty path leaves the retained daemon.db authority unchanged.
 	TerminalEvidenceFile string `toml:"terminal_evidence_file"`
 }

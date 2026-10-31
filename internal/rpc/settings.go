@@ -345,7 +345,7 @@ func SettingsKeys() []SettingsKeySpec {
 		},
 		{
 			Key: "features.rulebook.earnings_overrides", Kind: SettingsKindDateMap, Class: SettingsClassOwner,
-			Doc: "Manual SYMBOL → YYYY-MM-DD (optional Tamc/Tbmo suffix) earnings pins, authoritative over fetched dates for rules 6-8; patches merge per symbol.",
+			Doc: "Manual SYMBOL → YYYY-MM-DD (optional Tamc/Tbmo suffix) earnings pins, authoritative over fetched dates for rules 6-8 and 20; patches merge per symbol.",
 		},
 		{
 			Key: "trading.freeze", Kind: SettingsKindBool, Class: SettingsClassSafety,

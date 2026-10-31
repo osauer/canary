@@ -244,7 +244,7 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 			writeRuleLines(out, "", "  ", "Issuer earnings not applicable by security type: "+strings.Join(byType, ", ")+".", width)
 		}
 		if len(unresolved) > 0 {
-			writeRuleLines(out, "", "  ", fmt.Sprintf("Earnings unresolved: %s — set an authoritative override with `canary settings set features.rulebook.earnings_overrides.<SYM>=YYYY-MM-DD` if needed (rules 6-8 stay unknown, never pass).",
+			writeRuleLines(out, "", "  ", fmt.Sprintf("Earnings unresolved: %s — set an authoritative override with `canary settings set features.rulebook.earnings_overrides.<SYM>=YYYY-MM-DD` if needed (rules 6-8 and 20 stay unknown, never pass).",
 				strings.Join(unresolved, ", ")), width)
 		}
 		if wshEntitlementNotice(res) {

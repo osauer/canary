@@ -173,7 +173,7 @@ The advisory trading rulebook is enabled by default. Disabling
 `features.rulebook.enabled` hides the SPA card, empties `rules.snapshot`, and
 stops advisory `rule_*` preview warnings; it cannot affect broker-write gating
 in either direction. `features.rulebook.earnings_overrides` is authoritative
-over fetched earnings dates for rules 6-8. Override patches merge per symbol:
+over fetched earnings dates for rules 6-8 and 20. Override patches merge per symbol:
 a null symbol value clears that symbol, null on the whole map clears all, and
 unmentioned symbols survive.
 

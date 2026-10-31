@@ -269,7 +269,7 @@ func (s *earningsTerminalStore) importStatus() rpc.TerminalEvidenceStatus {
 	if s.revision > 0 && (len(s.byConID) > 0 || !s.reviewedAt.IsZero()) {
 		out.Message = fmt.Sprintf("the startup import was not applied; committed revision %d (%d contract(s)) stays in force. Fix the file and restart the daemon to import it", s.revision, len(s.byConID))
 	} else {
-		out.Message = "the startup import was not applied and no terminal evidence was committed before, so none is in force: rules 6-8 assess every holding normally. Fix the file and restart the daemon to import it"
+		out.Message = "the startup import was not applied and no terminal evidence was committed before, so none is in force: rules 6-8 and 20 assess every holding normally. Fix the file and restart the daemon to import it"
 	}
 	return out
 }

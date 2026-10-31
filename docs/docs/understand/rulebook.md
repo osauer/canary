@@ -1,6 +1,6 @@
 # The rulebook
 
-`canary rules` evaluates nineteen discipline checks against the book you are
+`canary rules` evaluates twenty discipline checks against the book you are
 holding, using limits you can set, and reports which are breached. Nothing it produces reaches the
 broker.
 
@@ -9,7 +9,7 @@ design document is the semantic authority for every threshold and edge case,
 and stays in the repository. [Sensors](sensors.md#rulebook) covers the same
 component as a measurement: authority, freshness, and evidence reuse.
 
-## The nineteen rules
+## The twenty rules
 
 | # | Rule | What it measures | Default mode |
 |---|---|---|---|
@@ -32,6 +32,7 @@ component as a measurement: authority, freshness, and evidence reuse.
 | 17 | Cluster falling together | Every issuer in a cluster you declare falls 30% together, each netted like rule 1. Watch when the cluster loses 15% of NLV; it never acts. Not evaluated until you declare a cluster. | Track |
 | 18 | Issuer loss against risk capital | One issuer's worst-case loss against the constitution's effective risk capital. Watch at 100% of it; it never acts. Unknown, never a pass, until the constitution carries the numbers. | Alert |
 | 19 | Margin headroom | The broker's excess liquidity as a share of NLV: the room left before a margin call. When the broker also reports its look-ahead excess liquidity (after the next margin cycle), the lower of the two counts, and the evidence says which governed. It reads downward: watch below 30%, act below 15%, and a reading exactly at a level passes it. The evidence adds the maintenance and initial margin when the broker reports them. Unknown, never a pass, without the excess liquidity or NLV. It never trims and drives no proposal; at watch or act an order preview warns every buy and every sale that opens or adds to a short position. | Alert |
+| 20 | Premium at risk near earnings | Any long option premium at risk on a held name within three trading sessions of its earnings date, whatever the issuer's size. A name with premium whose date is unknown, stale, withdrawn, or already past with no next date published keeps this row unknown, never pass. | Alert |
 
 `alert` rules can create alert episodes, `track` rules remain visible without
 creating alerts, and `off` rules are not evaluated. Rules 16 to 18 only watch:
@@ -216,7 +217,7 @@ returns the ranking and input health alongside the rows.
 
 ## What a clean run means
 
-It means nineteen specific checks did not fire on the book as the daemon last
+It means twenty specific checks did not fire on the book as the daemon last
 saw it. That is all.
 
 A clean rulebook run is not permission to trade and carries no submit

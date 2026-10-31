@@ -89,6 +89,7 @@ const (
 	AlertPresentationRulebookCatalystCoverage           = risk.AlertPresentationRulebookCatalystCoverage
 	AlertPresentationRulebookOverwriteEarnings          = risk.AlertPresentationRulebookOverwriteEarnings
 	AlertPresentationRulebookEarningsSizeFreeze         = risk.AlertPresentationRulebookEarningsSizeFreeze
+	AlertPresentationRulebookEarningsPremium            = risk.AlertPresentationRulebookEarningsPremium
 	AlertPresentationRulebookRedOnGreen                 = risk.AlertPresentationRulebookRedOnGreen
 	AlertPresentationRulebookWinnerTrim                 = risk.AlertPresentationRulebookWinnerTrim
 	AlertPresentationRulebookGreenDayAction             = risk.AlertPresentationRulebookGreenDayAction

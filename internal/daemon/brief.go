@@ -930,7 +930,7 @@ func briefUnknownEarningsRules(rules *rpc.RulesResult) []string {
 	if rules == nil {
 		return nil
 	}
-	governing := map[string]bool{"catalyst_coverage": true, "earnings_size_freeze": true, "overwrite_earnings": true}
+	governing := map[string]bool{"catalyst_coverage": true, "earnings_size_freeze": true, "overwrite_earnings": true, "earnings_premium_freeze": true}
 	var unknown []string
 	for _, row := range rules.Rules {
 		if governing[row.ID] && row.Status == risk.RuleStatusUnknown {

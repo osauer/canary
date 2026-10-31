@@ -13,7 +13,7 @@ func TestRuleIDsMatchEvaluationAndBaselineModes(t *testing.T) {
 	for _, r := range ev.Rows {
 		got = append(got, r.ID)
 	}
-	if !slices.Equal(got, RuleIDs()) || len(got) != 19 {
+	if !slices.Equal(got, RuleIDs()) || len(got) != 20 {
 		t.Fatalf("rows %v, want %v", got, RuleIDs())
 	}
 	for _, id := range RuleIDs() {

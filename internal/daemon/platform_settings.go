@@ -1046,7 +1046,7 @@ func (s *Server) platformSettingsSnapshot(observed *platformSettingsObserved) rp
 				Enabled: rpc.SettingsBool{Value: rulebookEnabled, Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime},
 				EarningsOverrides: rpc.SettingsStringMap{Value: data.Features.Rulebook.EarningsOverrides,
 					Access: rpc.SettingsAccessWrite, Source: rpc.SettingsSourceRuntime,
-					Reason: "SYMBOL to YYYY-MM-DD (optional Tamc/Tbmo); authoritative over fetched earnings for rules 6-8"},
+					Reason: "SYMBOL to YYYY-MM-DD (optional Tamc/Tbmo); authoritative over fetched earnings for rules 6-8 and 20"},
 			},
 		},
 		Trading: rpc.PlatformTradingSettings{
