@@ -757,9 +757,6 @@ func briefMarketEventRows(events *rpc.MarketEventsResult, rules *rpc.RulesResult
 			if notice := briefWSHEntitlementNotice(rules); notice != "" {
 				state.Detail += "; " + notice
 			}
-			if hint := briefEarningsOverrideHint(rules); hint != "" {
-				state.Detail += "; " + hint
-			}
 		}
 		rows = append(rows, rpc.BriefMarketEventRow{BriefRowState: state, Kind: kind, Count: len(syms), Symbols: syms})
 	}
@@ -802,33 +799,6 @@ func briefEarningsEvidenceInfo(rules *rpc.RulesResult) string {
 		}
 	}
 	return ""
-}
-
-// briefEarningsOverrideHint names the one operator action that resolves a
-// vendor-side date gap: no provider can supply a date the issuer has not
-// announced, so the row says what to do when it lands instead of reading as
-// an unactionable fault.
-func briefEarningsOverrideHint(rules *rpc.RulesResult) string {
-	if rules == nil {
-		return ""
-	}
-	var symbols, elapsed []string
-	for _, info := range rules.Earnings {
-		if info.OverrideElapsed != "" {
-			elapsed = append(elapsed, info.Symbol+" ("+info.OverrideElapsed+")")
-		}
-		if info.Status == rpc.EarningsStatusNoDatePublished {
-			symbols = append(symbols, info.Symbol)
-		}
-	}
-	var parts []string
-	if len(symbols) > 0 {
-		parts = append(parts, fmt.Sprintf("no vendor has published a date for %s; when the issuer announces one, record it with the settings key features.rulebook.earnings_overrides", strings.Join(symbols, ", ")))
-	}
-	if len(elapsed) > 0 {
-		parts = append(parts, fmt.Sprintf("the earnings override for %s has elapsed; set the next date or clear it with the settings key features.rulebook.earnings_overrides", strings.Join(elapsed, ", ")))
-	}
-	return strings.Join(parts, "; ")
 }
 
 func briefWSHEntitlementNotice(rules *rpc.RulesResult) string {

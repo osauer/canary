@@ -144,17 +144,28 @@ func TestRulesEarningsSourceHealthQuietsUnentitledProvider(t *testing.T) {
 	}
 }
 
-func TestBriefEarningsOverrideHintNamesTheOperatorAction(t *testing.T) {
-	rules := &rpc.RulesResult{Earnings: []rpc.EarningsInfo{
-		{Symbol: "SYNTH", Status: rpc.EarningsStatusNoDatePublished},
-		{Symbol: "SPY", Status: rpc.EarningsStatusNotApplicable},
+// A trader never types an earnings date (owner, 2026-10-31 11:39 CET): the
+// brief's earnings row names no settings key, for a name with no published
+// date or one whose override has elapsed.
+func TestBriefEarningsRowAsksForNoHandTypedDate(t *testing.T) {
+	rules := &rpc.RulesResult{Enabled: true, Status: "ok", Earnings: []rpc.EarningsInfo{
+		{Symbol: "SYNTH", Source: "fetched", Status: rpc.EarningsStatusNoDatePublished, Reason: rpc.EarningsStatusNoDatePublished},
+		{Symbol: "SYNTHB", Source: "fetched", Status: rpc.EarningsStatusReported, Reason: "reported", ReportedOn: "2026-10-29", OverrideElapsed: "2026-10-29"},
+		{Symbol: "SPY", Source: "security_type", Status: rpc.EarningsStatusNotApplicable},
 	}}
-	hint := briefEarningsOverrideHint(rules)
-	if !strings.Contains(hint, "SYNTH") || !strings.Contains(hint, "features.rulebook.earnings_overrides") {
-		t.Fatalf("hint = %q", hint)
+	var detail string
+	for _, row := range briefMarketEventRows(&rpc.MarketEventsResult{}, rules, nil, true) {
+		if row.Kind == "earnings" {
+			detail = row.Detail
+		}
 	}
-	if briefEarningsOverrideHint(&rpc.RulesResult{}) != "" {
-		t.Fatal("hint must be empty without a no_date_published name")
+	if !strings.Contains(detail, "SYNTH") {
+		t.Fatalf("earnings row lost the unresolved name: %q", detail)
+	}
+	for _, reject := range []string{"earnings_overrides", "settings key", "override"} {
+		if strings.Contains(detail, reject) {
+			t.Fatalf("earnings row asks for a hand-typed date (%q): %q", reject, detail)
+		}
 	}
 }
 

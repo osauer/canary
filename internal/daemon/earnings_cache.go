@@ -279,7 +279,15 @@ type earningsCache struct {
 
 	secondaryProvider string
 	secondaryFetch    earningsProviderFetcher
-	identityFetch     earningsIdentityFetcher
+	// secondaryProbe checks, once for the account, whether it holds the
+	// secondary feed's subscription. secondaryAccess and secondaryCheckedAt
+	// keep the last verdict (guarded by mu); secondaryProbeMu lets one
+	// refresh check while the others wait for its answer.
+	secondaryProbe     earningsSecondaryProbe
+	secondaryAccess    earningsSecondaryAccess
+	secondaryCheckedAt time.Time
+	secondaryProbeMu   sync.Mutex
+	identityFetch      earningsIdentityFetcher
 	// authorityRetryNotBefore is an ephemeral publication-failure gate. It
 	authorityRetryNotBefore map[string]time.Time
 }
@@ -309,6 +317,73 @@ func newEarningsCacheMemory(logf, debugf func(string, ...any)) *earningsCache {
 		clock:                   time.Now,
 		fetchURL:                "https://api.nasdaq.com/api/analyst/%s/earnings-date",
 		authorityRetryNotBefore: map[string]time.Time{},
+	}
+}
+
+// earningsSecondaryAccess is the account-level verdict on the optional
+// secondary feed: whether this account holds the subscription it needs.
+type earningsSecondaryAccess string
+
+const (
+	earningsSecondaryUnknown     earningsSecondaryAccess = ""
+	earningsSecondaryEntitled    earningsSecondaryAccess = "entitled"
+	earningsSecondaryNotEntitled earningsSecondaryAccess = "not_entitled"
+)
+
+type earningsSecondaryProbe func(context.Context) earningsSecondaryAccess
+
+// setSecondaryEntitlementProbe installs the account check on the secondary
+// feed. Without one, the first per-name answer stands in for it.
+func (c *earningsCache) setSecondaryEntitlementProbe(probe earningsSecondaryProbe) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.secondaryProbe = probe
+}
+
+// secondaryAccessFor returns the account's verdict on the secondary feed and
+// when it was reached. A verdict holds for a day and an inconclusive check
+// for one contract-resolution retry; past that the probe runs once, while
+// concurrent refreshes wait for its answer, so a refresh of every held name
+// costs one metadata read.
+func (c *earningsCache) secondaryAccessFor(ctx context.Context) (earningsSecondaryAccess, time.Time) {
+	c.secondaryProbeMu.Lock()
+	defer c.secondaryProbeMu.Unlock()
+	c.mu.Lock()
+	probe, access, checkedAt, now := c.secondaryProbe, c.secondaryAccess, c.secondaryCheckedAt, c.clock()
+	c.mu.Unlock()
+	if earningsSecondaryAccessCurrent(access, checkedAt, now) {
+		return access, checkedAt
+	}
+	if probe == nil {
+		return earningsSecondaryUnknown, time.Time{}
+	}
+	access = probe(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.secondaryAccess, c.secondaryCheckedAt = access, c.clock()
+	return access, c.secondaryCheckedAt
+}
+
+func earningsSecondaryAccessCurrent(access earningsSecondaryAccess, checkedAt, now time.Time) bool {
+	if checkedAt.IsZero() || now.Before(checkedAt) {
+		return false
+	}
+	ttl := earningsNonRetryableFailureRetry
+	if access == earningsSecondaryUnknown {
+		ttl = earningsContractResolutionRetry
+	}
+	return now.Sub(checkedAt) < ttl
+}
+
+// noteSecondaryAnswerLocked lets a per-name answer settle the account
+// verdict: not entitled closes the feed for every name, and a provider
+// answer proves the subscription. Failures leave the verdict as it was.
+func (c *earningsCache) noteSecondaryAnswerLocked(attempt earningsProviderAttempt) {
+	switch {
+	case earningsProviderUnentitled(attempt.Status, attempt.LastFailure):
+		c.secondaryAccess, c.secondaryCheckedAt = earningsSecondaryNotEntitled, attempt.CompletedAt
+	case attempt.LastFailure == nil:
+		c.secondaryAccess, c.secondaryCheckedAt = earningsSecondaryEntitled, attempt.CompletedAt
 	}
 }
 
@@ -680,7 +755,18 @@ func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefres
 		case earningsNasdaqProvider:
 			result, err = c.fetchNasdaqProvider(ctx, sym)
 		case secondaryProvider:
+			if access, checkedAt := c.secondaryAccessFor(ctx); access == earningsSecondaryNotEntitled {
+				// The account holds no subscription, so no request leaves for
+				// this name. It records the account's verdict, which the
+				// resolution reads as a feed that does not exist.
+				result = transportFailureResult(rpc.SourceFailureNotEntitled, rpc.SourceFailureStageWSHMetadata, false, checkedAt)
+				break
+			}
 			result, err = secondaryFetch(ctx, sym)
+			completedAt := c.clock()
+			c.mu.Lock()
+			c.noteSecondaryAnswerLocked(normalizeEarningsAttempt(provider, sym, result, attemptedAt, completedAt))
+			c.mu.Unlock()
 		default:
 			result = transportFailureResult(rpc.SourceFailureInvalidPayload, rpc.SourceFailureStageAuthorityPersist, false, c.clock())
 			err = fmt.Errorf("unsupported earnings provider %q", provider)

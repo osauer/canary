@@ -31,6 +31,47 @@ var (
 	errEarningsIdentityRequestFailed = errors.New("IBKR earnings identity request failed")
 )
 
+// wshEntitlementClient is the account-level WSH check: one metadata read.
+type wshEntitlementClient interface {
+	ProbeWSHEntitlement(context.Context) error
+}
+
+// probeWSHEntitlement is the earnings cache's account check on the optional
+// WSH feed (owner, 2026-10-31 11:39 CET: WSH only with the subscription, and
+// not tried while it is absent).
+func (s *Server) probeWSHEntitlement(ctx context.Context) earningsSecondaryAccess {
+	if s == nil {
+		return earningsSecondaryUnknown
+	}
+	conn := s.gatewayConnector()
+	if conn == nil {
+		return earningsSecondaryUnknown
+	}
+	return probeWSHEntitlementFrom(ctx, conn)
+}
+
+// probeWSHEntitlementFrom maps the metadata answer: a missing subscription is
+// a definitive no, any answer is a yes, and everything else (no gateway, a
+// timeout, an old protocol) is inconclusive and leaves the per-name path.
+func probeWSHEntitlementFrom(ctx context.Context, client wshEntitlementClient) earningsSecondaryAccess {
+	if client == nil {
+		return earningsSecondaryUnknown
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, earningsFetchTimeout)
+	defer cancel()
+	err := client.ProbeWSHEntitlement(ctx)
+	if err == nil {
+		return earningsSecondaryEntitled
+	}
+	if wshErr, ok := errors.AsType[*ibkrlib.WSHError](err); ok && wshErr != nil && wshErr.Kind == ibkrlib.WSHErrorEntitlementRequired {
+		return earningsSecondaryNotEntitled
+	}
+	return earningsSecondaryUnknown
+}
+
 // fetchEarningsIdentity is an exact contract-details read, deliberately
 // independent from WSH metadata/event entitlement and provider backoff.
 func (s *Server) fetchEarningsIdentity(ctx context.Context, sym string, conID int) (earningsIdentityFetchResult, error) {

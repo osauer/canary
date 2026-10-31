@@ -244,12 +244,8 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 			writeRuleLines(out, "", "  ", "Issuer earnings not applicable by security type: "+strings.Join(byType, ", ")+".", width)
 		}
 		if len(unresolved) > 0 {
-			writeRuleLines(out, "", "  ", fmt.Sprintf("Earnings unresolved: %s — set an authoritative override with `canary settings set features.rulebook.earnings_overrides.<SYM>=YYYY-MM-DD` if needed (rules 6-8 and 20 stay unknown, never pass).",
+			writeRuleLines(out, "", "  ", fmt.Sprintf("Earnings unresolved: %s — rules 6-8 and 20 stay unknown, never pass.",
 				strings.Join(unresolved, ", ")), width)
-		}
-		if elapsed := earningsOverridesElapsed(res); len(elapsed) > 0 {
-			writeRuleLines(out, "", "  ", fmt.Sprintf("Earnings override elapsed: %s — the pinned date has passed, so the name reads from the providers; set the next date with `canary settings set features.rulebook.earnings_overrides.<SYM>=YYYY-MM-DD` or clear it with `=null`.",
-				strings.Join(elapsed, ", ")), width)
 		}
 		if wshEntitlementNotice(res) {
 			writeRuleLines(out, "", "  ", "Earnings source notice: the optional Wall Street Horizon earnings feed is unavailable because this account lacks the WSH research subscription. Nasdaq remains active; names without a usable date stay unknown, never pass.", width)
@@ -315,18 +311,6 @@ func writeRuleLinesTrail(out io.Writer, first, rest, text, trail string, width i
 // wshEntitlementNotice recognizes only the durable WSH entitlement result.
 // Other provider failures remain their own typed outcomes; adapters must not
 // infer account subscription state from an arbitrary failure or free text.
-// earningsOverridesElapsed lists the names whose manual override date has
-// passed, each with the pinned date, in the result's order.
-func earningsOverridesElapsed(res *rpc.RulesResult) []string {
-	var out []string
-	for _, e := range res.Earnings {
-		if e.OverrideElapsed != "" {
-			out = append(out, e.Symbol+" ("+e.OverrideElapsed+")")
-		}
-	}
-	return out
-}
-
 func wshEntitlementNotice(res *rpc.RulesResult) bool {
 	if res == nil {
 		return false

@@ -42,9 +42,6 @@ func TestAssembleEarningsReadsAKeptPrintAsReported(t *testing.T) {
 		t.Fatalf("a kept print is a definitive vendor answer, not a degraded source: %+v", health)
 	}
 	rules := &rpc.RulesResult{Earnings: infos}
-	if hint := briefEarningsOverrideHint(rules); hint != "" {
-		t.Fatalf("a reported name must not ask for an override: %q", hint)
-	}
 	unresolved := briefUnresolvedEarnings(rules)
 	if len(unresolved) != 1 || unresolved[0] != "SYNTH (reported on 2026-10-29; next date not yet published)" {
 		t.Fatalf("brief wording = %q", unresolved)

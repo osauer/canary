@@ -1982,8 +1982,8 @@ type EarningsInfo struct {
 	ReportedOn string `json:"reported_on,omitempty"`
 	// OverrideElapsed is the date of a manual override that has passed,
 	// YYYY-MM-DD. An elapsed pin is a print that happened, not the next date:
-	// the name is resolved from the providers as if no override were set, and
-	// this field asks the owner to set the next date or clear the pin.
+	// the name is resolved from the providers as if no override were set.
+	// It is disclosed here only; no product surface asks for a typed date.
 	OverrideElapsed string `json:"override_elapsed,omitempty"`
 	// ObservedAt is when the fetched value was last confirmed from the
 	// provider; zero for overrides and unknowns.

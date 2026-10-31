@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-10-31 11:40 CET
+Updated: 2026-10-31 11:55 CET
 Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, margin-headroom amendment 18, and one-definition-of-margin-headroom amendment 19, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -613,14 +613,27 @@ contradiction:
     unchanged. Baseline stays `rulebook-v5`.
 22. Amendment (2026-10-31, same cause): an earnings override past its date
     reads elapsed, not Known. `parseEarningsOverride` accepted any date, so a
-    pin for a print that had happened kept the name `Known` with a negative
-    session distance, and rules 6-8 read it as a dated name. A pin strictly
-    before the current ET day is now treated as absent: the name resolves from
-    the providers (a kept print reads `reported`), `EarningsInfo.override_elapsed`
-    carries the pinned date, `canary rules` prints "Earnings override elapsed:
-    SYM (date)" with the two ways out (set the next date, or clear with
-    `=null`), and the brief says the same in its earnings row. The day itself
-    stays Known: an amc print is still ahead, one session inside the window.
+    pin for a print that had happened kept the name `Known` with no session
+    distance, and rules 6-8 read it as a dated name. A pin strictly before
+    the current ET day is now treated as absent: the name resolves from the
+    providers (a kept print reads `reported`) and `EarningsInfo.override_elapsed`
+    carries the pinned date in the rules result. The day itself stays Known:
+    an amc print is still ahead, one session inside the window.
+23. Amendment (2026-10-31, owner 11:39 CET): no product surface asks for a
+    hand-typed earnings date, and WSH is consulted only with the
+    subscription. The trader never runs a settings command to set a date,
+    so `canary rules` and the brief drop the override instruction and the
+    elapsed-override line; an unresolved name reads its outcome and that the
+    earnings rules stay unknown, never pass. The override key stays for the
+    owner, documented in the settings reference. The optional WSH feed is
+    checked once for the account by one metadata read
+    (`Connector.ProbeWSHEntitlement`), at startup and then daily; an
+    inconclusive check (no gateway, a timeout) is retried after the
+    contract-resolution interval and leaves the per-name path as it was.
+    While the verdict is not entitled no symbol sends a WSH request and each
+    name records the account verdict, which the resolution already reads as
+    a feed that does not exist. A per-name not-entitled answer sets the same
+    account verdict. Nasdaq stays the primary.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical

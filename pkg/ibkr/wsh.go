@@ -118,6 +118,49 @@ func (c *Connector) ResolveWSHStockIdentity(ctx context.Context, symbol string, 
 	return c.resolveWSHStockIdentity(ctx, symbol, conID, boundedWSHResolveTimeout(ctx, 5*time.Second))
 }
 
+// ProbeWSHEntitlement reads WSH metadata once: the account-level proof that
+// this account holds the Wall Street Horizon subscription. It performs no
+// broker write and resolves no contract, so an account without the
+// subscription learns that from one request instead of one per symbol. A
+// metadata answer already held for the current broker session counts as
+// entitled. A missing subscription returns a WSHError of kind
+// WSHErrorEntitlementRequired.
+func (c *Connector) ProbeWSHEntitlement(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if c == nil {
+		return &WSHError{Kind: WSHErrorTransport, Operation: "acquire"}
+	}
+	if err := ctx.Err(); err != nil {
+		return newWSHContextError("acquire", err)
+	}
+	release, err := c.acquireWSH(ctx)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+	if conn == nil || !conn.IsConnected() {
+		return &WSHError{Kind: WSHErrorTransport, Operation: "metadata"}
+	}
+	if v := conn.ServerVersion(); v < minServerVerWSHEventFilters || v > maxClientVersion {
+		return &WSHError{Kind: WSHErrorUnsupportedProtocol, Operation: "metadata"}
+	}
+	now := time.Now().UTC()
+	if c.wshNow != nil {
+		now = c.wshNow().UTC()
+	}
+	if _, ready := c.wshMetadataEarningsTag(conn, now); ready {
+		return nil
+	}
+	_, err = c.refreshWSHMetadata(ctx, conn, now)
+	return err
+}
+
 // fetchWSHEarnings performs no broker write: it establishes daily WSH metadata
 // readiness for the current broker session, then issues a serialized event-
 // calendar read filtered to the broker-resolved event tag. IBKR permits only

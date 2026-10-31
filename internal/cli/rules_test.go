@@ -148,15 +148,26 @@ func TestRulesTextFitsTheTerminalAndFoldsIdleRules(t *testing.T) {
 
 // A print the desk knew reads "reported on", never "no date published"; a
 // date the vendor pulled before the day says so.
-// An override whose date has passed is listed with its date so the owner
-// sets the next one or clears it; a current override is not.
-func TestEarningsOverridesElapsedListsThePinnedDate(t *testing.T) {
-	res := &rpc.RulesResult{Earnings: []rpc.EarningsInfo{
-		{Symbol: "SYNTHA", Source: "override", Status: rpc.EarningsStatusDate, Date: "2026-11-20"},
-		{Symbol: "SYNTHB", Source: "fetched", Status: rpc.EarningsStatusReported, ReportedOn: "2026-10-29", OverrideElapsed: "2026-10-29"},
-	}}
-	if got := earningsOverridesElapsed(res); len(got) != 1 || got[0] != "SYNTHB (2026-10-29)" {
-		t.Fatalf("elapsed overrides = %q", got)
+// A trader never types an earnings date (owner, 2026-10-31 11:39 CET): the
+// unresolved line names each name's outcome and what it means for the rules,
+// and asks for no settings command, an elapsed override included.
+func TestRulesEarningsLinesAskForNoHandTypedDate(t *testing.T) {
+	res := &rpc.RulesResult{Enabled: true, Status: "ok", AsOf: time.Date(2026, 10, 31, 10, 0, 0, 0, time.UTC),
+		Earnings: []rpc.EarningsInfo{
+			{Symbol: "SYNTHA", Source: "fetched", Status: rpc.EarningsStatusNoDatePublished, Reason: rpc.EarningsStatusNoDatePublished},
+			{Symbol: "SYNTHB", Source: "fetched", Status: rpc.EarningsStatusReported, Reason: "reported", ReportedOn: "2026-10-29", OverrideElapsed: "2026-10-29"},
+		}}
+	var out bytes.Buffer
+	renderRulesText(&Env{Stdout: &out}, &out, res, false)
+	text := out.String()
+	if !strings.Contains(text, "Earnings unresolved: SYNTHA (no date published), SYNTHB (reported on 2026-10-29; next date not yet published)") ||
+		!strings.Contains(text, "rules 6-8 and 20 stay unknown, never pass") {
+		t.Fatalf("unresolved line missing:\n%s", text)
+	}
+	for _, reject := range []string{"canary settings", "earnings_overrides", "override"} {
+		if strings.Contains(text, reject) {
+			t.Fatalf("unexpected %q in:\n%s", reject, text)
+		}
 	}
 }
 

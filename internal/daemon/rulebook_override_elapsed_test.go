@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -14,9 +13,8 @@ import (
 
 // An earnings override whose date has passed is a print that happened, not
 // the next date: it no longer reads Known, the provider path is consulted,
-// and the name discloses the elapsed pin so the owner sets the next date or
-// clears it. The day itself stays Known: an amc print is still ahead, one
-// session inside the window.
+// and the name discloses the elapsed pin in the rules result. The day itself
+// stays Known: an amc print is still ahead, one session inside the window.
 func TestAssembleEarningsReadsAnElapsedOverrideAsElapsed(t *testing.T) {
 	berlin, _ := time.LoadLocation("Europe/Berlin")
 	now := time.Date(2026, 10, 30, 16, 37, 0, 0, berlin) // 2026-10-30 in ET as well
@@ -60,9 +58,5 @@ func TestAssembleEarningsReadsAnElapsedOverrideAsElapsed(t *testing.T) {
 	}
 	if info := byName["TODAY"]; info.Source != "override" || info.Date != "2026-10-30" || info.OverrideElapsed != "" {
 		t.Fatalf("today info = %+v", info)
-	}
-	hint := briefEarningsOverrideHint(&rpc.RulesResult{Earnings: infos})
-	if !strings.Contains(hint, "ELAPSED (2026-10-29)") || !strings.Contains(hint, "elapsed") || !strings.Contains(hint, "features.rulebook.earnings_overrides") {
-		t.Fatalf("brief hint = %q", hint)
 	}
 }
