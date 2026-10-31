@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.33.0 — Unreleased
+
+### Added
+
+- Canary keeps every earnings date a provider publishes as an event in its database, after the day and after the provider stops publishing it. A held name whose date has passed reads "reported on" that date in `canary rules` and the brief until the next date is published, instead of "no date published"; a date the vendor pulls before the day reads withdrawn. On 2026-10-29 two held names' prints had been known for weeks and were forgotten the day after.
+
 ## v3.32.1 — 2026-10-31 09:03 CET
 
 ### What's new

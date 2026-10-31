@@ -953,7 +953,14 @@ func briefUnresolvedEarnings(rules *rpc.RulesResult) []string {
 		if earnings.Date != "" && earnings.Source != "unknown" && (earnings.Status == "" || earnings.Status == rpc.EarningsStatusDate) {
 			continue
 		}
+		if earnings.Status == rpc.EarningsStatusReported && earnings.ReportedOn != "" {
+			unresolved = append(unresolved, strings.ToUpper(earnings.Symbol)+" (reported on "+earnings.ReportedOn+"; next date not yet published)")
+			continue
+		}
 		reason := nonEmptyString(earnings.Reason, nonEmptyString(earnings.Status, "not_observed"))
+		if reason == earningsReasonDateWithdrawn {
+			reason = "published date withdrawn before the day"
+		}
 		unresolved = append(unresolved, strings.ToUpper(earnings.Symbol)+" ("+strings.ReplaceAll(reason, "_", " ")+")")
 	}
 	slices.Sort(unresolved)

@@ -190,7 +190,9 @@ passing on incomplete arithmetic.
 Row outcomes are `pass`, `info`, `watch`, `act`, `unknown`, and
 `not_evaluated`. The last two differ. `unknown` means the rule applies but its
 inputs are not trustworthy: an unresolved earnings date, a missing delta, an
-absent currency report. `not_evaluated` means the rule does not apply right
+absent currency report. A name whose last earnings date has passed stays
+`unknown` until the next date is published, and its row says "last reported
+on" that date: a print Canary knew is kept, never forgotten. `not_evaluated` means the rule does not apply right
 now, as with the tape rules outside the US regular session, the hedge rule
 with no long book, the premium budget with no long option, or the earnings
 rules when every held name is a security

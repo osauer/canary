@@ -126,8 +126,12 @@ such as `scope_key` creates a namespace only when no foreign key joins it.
 | `statement_files` | `statement_metadata` | One current statement-file identity to zero or more current date/query-coverage records. |
 | `statement_file_versions` | `statement_metadata_versions` | One immutable file version to zero or more immutable date/query-coverage versions. |
 
-Six tables stand alone: `store_meta`, `schema_migrations`, `legacy_imports`,
-`state_documents`, `observations`, and `order_id_floors`. Other useful
+Seven tables stand alone: `store_meta`, `schema_migrations`, `legacy_imports`,
+`state_documents`, `observations`, `earnings_events`, and `order_id_floors`.
+`earnings_events` keeps every issuer earnings date a provider published
+(symbol, date, source, first and last seen, withdrawn at), upserted in place
+and never deleted, so a print the desk knew is still known after the day.
+Other useful
 relationships also remain application conventions:
 
 - state and an event or observation may commit together without storing a
@@ -278,6 +282,7 @@ tables the largest unbounded grower in `daemon.db`. Like migrations 4 to 6 it
 runs out of place: the upgrade backs up the source, compacts the candidate, and
 retires the large source backup only after a compact target backup and a
 receipt exist (owner instruction 2026-10-30 10:24 CET: "ok go for B1").
+Migration 10 adds the `earnings_events` table in place; it rewrites nothing.
 
 ### Backup and restore
 

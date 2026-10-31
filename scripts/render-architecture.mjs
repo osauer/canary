@@ -755,69 +755,70 @@ function sqliteDataModel() {
   ${dbTable({ x: 400, y: 156, width: 170, title: "legacy_imports", rows: [["PK", "scope/src/fp"], ["UQ", "scope/source"]], accent: C.slate })}
   ${dbTable({ x: 582, y: 156, width: 170, title: "state_documents", rows: [["PK", "scope/kind"], ["", "rev · JSON"], ["", "sha256"]], accent: C.green })}
   ${dbTable({ x: 764, y: 156, width: 170, title: "observations", rows: [["PK", "id"], ["", "source/kind"], ["", "payload/elig"]], accent: C.blue })}
+  ${dbTable({ x: 36, y: 262, width: 200, title: "earnings_events", rows: [["PK", "sym/date/src"], ["", "seen · withdrawn"]], accent: C.blue })}
 
-  <text x="36" y="326" class="layer">CANONICAL EVENT AND OPTIONAL SEARCH PROJECTIONS</text>
-  ${dbTable({ x: 36, y: 354, width: 270, title: "event_log", rows: [["PK", "event_seq"], ["UQ", "scope + event_key"], ["", "type · action · origin"], ["", "payload JSON · sha256"]], accent: C.slate })}
-  ${dbTable({ x: 350, y: 354, width: 270, title: "regime_decisions", rows: [["PK/FK", "event_seq"], ["", "stage · verdict"]], accent: C.slate })}
-  ${dbTable({ x: 654, y: 354, width: 270, title: "rule_transitions", rows: [["PK/FK", "event_seq"], ["", "rule · status"]], accent: C.slate })}
-  ${dbTable({ x: 350, y: 480, width: 270, title: "stress_transitions", rows: [["PK/FK", "event_seq"], ["", "action · health"]], accent: C.slate })}
-  ${dbTable({ x: 654, y: 480, width: 270, title: "capital_events", rows: [["PK/FK", "event_seq"], ["", "kind · amount"]], accent: C.slate })}
-  ${dbTable({ x: 350, y: 606, width: 270, title: "risk_policy_events", rows: [["PK/FK", "event_seq"], ["", "policy identity"]], accent: C.slate })}
-  ${dbTable({ x: 654, y: 606, width: 270, title: "proposal_outcomes", rows: [["PK/FK", "event_seq"], ["", "proposal · state"]], accent: C.slate })}
-  ${dbTable({ x: 350, y: 732, width: 270, title: "order_events", rows: [["PK/FK", "event_seq"], ["FK", "scope_key"]], accent: C.slate })}
-  ${dbTable({ x: 654, y: 732, width: 270, title: "regime_indicators", rows: [["PK", "decision + indicator"], ["FK", "decision_event_seq"], ["", "value · status"]], accent: C.slate })}
+  <text x="36" y="396" class="layer">CANONICAL EVENT AND OPTIONAL SEARCH PROJECTIONS</text>
+  ${dbTable({ x: 36, y: 424, width: 270, title: "event_log", rows: [["PK", "event_seq"], ["UQ", "scope + event_key"], ["", "type · action · origin"], ["", "payload JSON · sha256"]], accent: C.slate })}
+  ${dbTable({ x: 350, y: 424, width: 270, title: "regime_decisions", rows: [["PK/FK", "event_seq"], ["", "stage · verdict"]], accent: C.slate })}
+  ${dbTable({ x: 654, y: 424, width: 270, title: "rule_transitions", rows: [["PK/FK", "event_seq"], ["", "rule · status"]], accent: C.slate })}
+  ${dbTable({ x: 350, y: 550, width: 270, title: "stress_transitions", rows: [["PK/FK", "event_seq"], ["", "action · health"]], accent: C.slate })}
+  ${dbTable({ x: 654, y: 550, width: 270, title: "capital_events", rows: [["PK/FK", "event_seq"], ["", "kind · amount"]], accent: C.slate })}
+  ${dbTable({ x: 350, y: 676, width: 270, title: "risk_policy_events", rows: [["PK/FK", "event_seq"], ["", "policy identity"]], accent: C.slate })}
+  ${dbTable({ x: 654, y: 676, width: 270, title: "proposal_outcomes", rows: [["PK/FK", "event_seq"], ["", "proposal · state"]], accent: C.slate })}
+  ${dbTable({ x: 350, y: 802, width: 270, title: "order_events", rows: [["PK/FK", "event_seq"], ["FK", "scope_key"]], accent: C.slate })}
+  ${dbTable({ x: 654, y: 802, width: 270, title: "regime_indicators", rows: [["PK", "decision + indicator"], ["FK", "decision_event_seq"], ["", "value · status"]], accent: C.slate })}
 
-  ${erFK({ parent: "event_log", child: "regime_decisions", d: "M306 420H326V406H350", parentLabel: "1", childLabel: "0..1", parentX: 312, parentY: 410, childX: 330, childY: 398 })}
-  ${erFK({ parent: "event_log", child: "stress_transitions", d: "M306 420H326V532H350", childLabel: "0..1", childX: 330, childY: 524 })}
-  ${erFK({ parent: "event_log", child: "risk_policy_events", d: "M306 420H326V658H350", childLabel: "0..1", childX: 330, childY: 650 })}
-  ${erFK({ parent: "event_log", child: "order_events", d: "M306 420H326V770H350", childLabel: "0..1", childX: 330, childY: 762 })}
-  ${erFK({ parent: "event_log", child: "rule_transitions", d: "M171 354V336H940V406H924", childLabel: "0..1", childX: 878, childY: 398 })}
-  ${erFK({ parent: "event_log", child: "capital_events", d: "M171 354V336H940V532H924", childLabel: "0..1", childX: 878, childY: 524 })}
-  ${erFK({ parent: "event_log", child: "proposal_outcomes", d: "M171 354V336H940V658H924", childLabel: "0..1", childX: 878, childY: 650 })}
-  ${erFK({ parent: "regime_decisions", child: "regime_indicators", d: "M620 406H634V795H654", parentLabel: "1", childLabel: "0..*", parentX: 624, parentY: 426, childX: 602, childY: 788 })}
+  ${erFK({ parent: "event_log", child: "regime_decisions", d: "M306 490H326V476H350", parentLabel: "1", childLabel: "0..1", parentX: 312, parentY: 480, childX: 330, childY: 468 })}
+  ${erFK({ parent: "event_log", child: "stress_transitions", d: "M306 490H326V602H350", childLabel: "0..1", childX: 330, childY: 594 })}
+  ${erFK({ parent: "event_log", child: "risk_policy_events", d: "M306 490H326V728H350", childLabel: "0..1", childX: 330, childY: 720 })}
+  ${erFK({ parent: "event_log", child: "order_events", d: "M306 490H326V840H350", childLabel: "0..1", childX: 330, childY: 832 })}
+  ${erFK({ parent: "event_log", child: "rule_transitions", d: "M171 424V406H940V476H924", childLabel: "0..1", childX: 878, childY: 468 })}
+  ${erFK({ parent: "event_log", child: "capital_events", d: "M171 424V406H940V602H924", childLabel: "0..1", childX: 878, childY: 594 })}
+  ${erFK({ parent: "event_log", child: "proposal_outcomes", d: "M171 424V406H940V728H924", childLabel: "0..1", childX: 878, childY: 720 })}
+  ${erFK({ parent: "regime_decisions", child: "regime_indicators", d: "M620 476H634V865H654", parentLabel: "1", childLabel: "0..*", parentX: 624, parentY: 496, childX: 602, childY: 858 })}
 
-  <rect x="36" y="548" width="270" height="250" rx="14" fill="${C.blueSoft}" stroke="${C.blue}" stroke-dasharray="7 6"/>
-  <text x="56" y="578" class="boundary" style="fill:${C.blue}"><tspan x="56">APPLICATION CONVENTIONS</tspan><tspan x="56" dy="18">NOT FOREIGN KEYS</tspan></text>
-  <text x="56" y="634" class="er-note"><tspan x="56">• current state may commit</tspan><tspan x="56" dy="22">  beside an event or observation</tspan><tspan x="56" dy="32">• one projection family per event</tspan><tspan x="56" dy="22">  is a Go-writer rule</tspan><tspan x="56" dy="32">• shared scope names do not</tspan><tspan x="56" dy="22">  create a relationship</tspan></text>
+  <rect x="36" y="618" width="270" height="250" rx="14" fill="${C.blueSoft}" stroke="${C.blue}" stroke-dasharray="7 6"/>
+  <text x="56" y="648" class="boundary" style="fill:${C.blue}"><tspan x="56">APPLICATION CONVENTIONS</tspan><tspan x="56" dy="18">NOT FOREIGN KEYS</tspan></text>
+  <text x="56" y="704" class="er-note"><tspan x="56">• current state may commit</tspan><tspan x="56" dy="22">  beside an event or observation</tspan><tspan x="56" dy="32">• one projection family per event</tspan><tspan x="56" dy="22">  is a Go-writer rule</tspan><tspan x="56" dy="32">• shared scope names do not</tspan><tspan x="56" dy="22">  create a relationship</tspan></text>
 
-  <text x="350" y="886" class="layer">BROKER ROUTE AND IRREVERSIBLE SAFETY</text>
-  ${dbTable({ x: 36, y: 908, width: 270, title: "broker_scopes", rows: [["PK", "scope_key"], ["UQ", "binding_sha256"], ["", "endpoint · client · account"]], accent: C.greenDark })}
-  ${dbTable({ x: 350, y: 908, width: 270, title: "consumed_preview_tokens", rows: [["PK", "token_digest"], ["FK", "scope_key"]], accent: C.amber })}
-  ${dbTable({ x: 654, y: 908, width: 270, title: "order_id_floors", rows: [["PK", "floor_scope + scope"], ["", "floor never decreases"]], accent: C.amber })}
+  <text x="350" y="956" class="layer">BROKER ROUTE AND IRREVERSIBLE SAFETY</text>
+  ${dbTable({ x: 36, y: 978, width: 270, title: "broker_scopes", rows: [["PK", "scope_key"], ["UQ", "binding_sha256"], ["", "endpoint · client · account"]], accent: C.greenDark })}
+  ${dbTable({ x: 350, y: 978, width: 270, title: "consumed_preview_tokens", rows: [["PK", "token_digest"], ["FK", "scope_key"]], accent: C.amber })}
+  ${dbTable({ x: 654, y: 978, width: 270, title: "order_id_floors", rows: [["PK", "floor_scope + scope"], ["", "floor never decreases"]], accent: C.amber })}
 
-  ${erFK({ parent: "broker_scopes", child: "consumed_preview_tokens", d: "M306 960H350", parentLabel: "1", childLabel: "0..*", parentX: 312, parentY: 950, childX: 310, childY: 982 })}
-  ${erFK({ parent: "broker_scopes", child: "order_events", d: "M171 908V876H336V806H350", parentLabel: "1", childLabel: "0..*", parentX: 180, parentY: 896, childX: 304, childY: 818 })}
-  ${erSemantic("M654 984H638V1050H171V1034", "broker association enforced by code; no FK", 390, 1072)}
+  ${erFK({ parent: "broker_scopes", child: "consumed_preview_tokens", d: "M306 1030H350", parentLabel: "1", childLabel: "0..*", parentX: 312, parentY: 1020, childX: 310, childY: 1052 })}
+  ${erFK({ parent: "broker_scopes", child: "order_events", d: "M171 978V946H336V876H350", parentLabel: "1", childLabel: "0..*", parentX: 180, parentY: 966, childX: 304, childY: 888 })}
+  ${erSemantic("M654 1054H638V1120H171V1104", "broker association enforced by code; no FK", 390, 1142)}
 
-  <rect x="36" y="1100" width="888" height="642" rx="16" fill="${C.panel}" stroke="${C.greenLine}"/>
-  <text x="56" y="1132" class="layer">BROKER STATEMENTS · CURRENT VIEW AND IMMUTABLE RESTATEMENTS</text>
-  ${policyCard({ x: 56, y: 1152, width: 190, height: 128, iconName: "fileText", color: C.blue, title: "Original Flex XML", lines: ["broker evidence"], format: "outside SQLite" })}
-  ${dbTable({ x: 278, y: 1152, width: 280, title: "statement_files", rows: [["PK", "scope + file_key"], ["UQ", "+ current sha256"]], accent: C.green })}
-  ${dbTable({ x: 590, y: 1152, width: 314, title: "statement_equity_days", rows: [["PK", "equity_day_id"], ["UQ", "scope + account + day"], ["FK", "current file + sha256"]], accent: C.green })}
-  ${dbTable({ x: 278, y: 1300, width: 280, title: "statement_file_versions", rows: [["PK", "scope + file + sha256"], ["", "immutable file version"]], accent: C.slate })}
-  ${dbTable({ x: 590, y: 1300, width: 314, title: "statement_equity_day_versions", rows: [["PK", "equity_version_id"], ["FK", "file version + sha256"]], accent: C.slate })}
-  ${dbTable({ x: 278, y: 1448, width: 280, title: "statement_records", rows: [["PK", "record_id"], ["UQ", "scope + kind + key"], ["FK", "current file + sha256"]], accent: C.green })}
-  ${dbTable({ x: 590, y: 1448, width: 314, title: "statement_record_versions", rows: [["PK", "record_version_id"], ["UQ", "record + file version"], ["FK", "immutable file + sha256"]], accent: C.slate })}
-  ${dbTable({ x: 278, y: 1596, width: 280, title: "statement_metadata", rows: [["PK", "metadata_id"], ["UQ", "scope + period key"], ["FK", "current file + sha256"]], accent: C.green })}
-  ${dbTable({ x: 590, y: 1596, width: 314, title: "statement_metadata_versions", rows: [["PK", "metadata_version_id"], ["UQ", "period + file version"], ["FK", "immutable file + sha256"]], accent: C.slate })}
+  <rect x="36" y="1170" width="888" height="642" rx="16" fill="${C.panel}" stroke="${C.greenLine}"/>
+  <text x="56" y="1202" class="layer">BROKER STATEMENTS · CURRENT VIEW AND IMMUTABLE RESTATEMENTS</text>
+  ${policyCard({ x: 56, y: 1222, width: 190, height: 128, iconName: "fileText", color: C.blue, title: "Original Flex XML", lines: ["broker evidence"], format: "outside SQLite" })}
+  ${dbTable({ x: 278, y: 1222, width: 280, title: "statement_files", rows: [["PK", "scope + file_key"], ["UQ", "+ current sha256"]], accent: C.green })}
+  ${dbTable({ x: 590, y: 1222, width: 314, title: "statement_equity_days", rows: [["PK", "equity_day_id"], ["UQ", "scope + account + day"], ["FK", "current file + sha256"]], accent: C.green })}
+  ${dbTable({ x: 278, y: 1370, width: 280, title: "statement_file_versions", rows: [["PK", "scope + file + sha256"], ["", "immutable file version"]], accent: C.slate })}
+  ${dbTable({ x: 590, y: 1370, width: 314, title: "statement_equity_day_versions", rows: [["PK", "equity_version_id"], ["FK", "file version + sha256"]], accent: C.slate })}
+  ${dbTable({ x: 278, y: 1518, width: 280, title: "statement_records", rows: [["PK", "record_id"], ["UQ", "scope + kind + key"], ["FK", "current file + sha256"]], accent: C.green })}
+  ${dbTable({ x: 590, y: 1518, width: 314, title: "statement_record_versions", rows: [["PK", "record_version_id"], ["UQ", "record + file version"], ["FK", "immutable file + sha256"]], accent: C.slate })}
+  ${dbTable({ x: 278, y: 1666, width: 280, title: "statement_metadata", rows: [["PK", "metadata_id"], ["UQ", "scope + period key"], ["FK", "current file + sha256"]], accent: C.green })}
+  ${dbTable({ x: 590, y: 1666, width: 314, title: "statement_metadata_versions", rows: [["PK", "metadata_version_id"], ["UQ", "period + file version"], ["FK", "immutable file + sha256"]], accent: C.slate })}
 
-  ${erFK({ parent: "statement_files", child: "statement_equity_days", d: "M558 1204H590", parentLabel: "1", childLabel: "0..*", parentX: 562, parentY: 1194, childX: 558, childY: 1226 })}
-  ${erFK({ parent: "statement_file_versions", child: "statement_equity_day_versions", d: "M558 1352H590", parentLabel: "1", childLabel: "0..*", parentX: 562, parentY: 1342, childX: 558, childY: 1374 })}
-  ${erFK({ parent: "statement_files", child: "statement_records", d: "M278 1204H262V1500H278", childLabel: "0..*", childX: 266, childY: 1522 })}
-  ${erFK({ parent: "statement_file_versions", child: "statement_record_versions", d: "M558 1352H574V1500H590", childLabel: "0..*", childX: 558, childY: 1522 })}
-  ${erFK({ parent: "statement_files", child: "statement_metadata", d: "M278 1204H252V1648H278", childLabel: "0..*", childX: 256, childY: 1670 })}
-  ${erFK({ parent: "statement_file_versions", child: "statement_metadata_versions", d: "M558 1352H578V1648H590", childLabel: "0..*", childX: 562, childY: 1670 })}
-  ${erSemantic("M246 1216H272", "parsed from", 174, 1206)}
-  ${erSemantic("M246 1232H260V1352H272", "retained versions", 96, 1344)}
-  ${erSemantic("M418 1256V1294", "written together · no FK", 286, 1282)}
-  ${erSemantic("M747 1278V1294", "", 0, 0)}
+  ${erFK({ parent: "statement_files", child: "statement_equity_days", d: "M558 1274H590", parentLabel: "1", childLabel: "0..*", parentX: 562, parentY: 1264, childX: 558, childY: 1296 })}
+  ${erFK({ parent: "statement_file_versions", child: "statement_equity_day_versions", d: "M558 1422H590", parentLabel: "1", childLabel: "0..*", parentX: 562, parentY: 1412, childX: 558, childY: 1444 })}
+  ${erFK({ parent: "statement_files", child: "statement_records", d: "M278 1274H262V1570H278", childLabel: "0..*", childX: 266, childY: 1592 })}
+  ${erFK({ parent: "statement_file_versions", child: "statement_record_versions", d: "M558 1422H574V1570H590", childLabel: "0..*", childX: 558, childY: 1592 })}
+  ${erFK({ parent: "statement_files", child: "statement_metadata", d: "M278 1274H252V1718H278", childLabel: "0..*", childX: 256, childY: 1740 })}
+  ${erFK({ parent: "statement_file_versions", child: "statement_metadata_versions", d: "M558 1422H578V1718H590", childLabel: "0..*", childX: 562, childY: 1740 })}
+  ${erSemantic("M246 1286H272", "parsed from", 174, 1276)}
+  ${erSemantic("M246 1302H260V1422H272", "retained versions", 96, 1414)}
+  ${erSemantic("M418 1326V1364", "written together · no FK", 286, 1352)}
+  ${erSemantic("M747 1348V1364", "", 0, 0)}
 
-  <text x="924" y="1778" text-anchor="end" class="footnote">schema v${schema.version} · ${schema.tables.length} tables · inventory checked against internal/daemon/corestore/schema.go</text>
+  <text x="924" y="1848" text-anchor="end" class="footnote">schema v${schema.version} · ${schema.tables.length} tables · inventory checked against internal/daemon/corestore/schema.go</text>
   `;
 
   const svg = svgFrame({
     width: 960,
-    height: 1802,
+    height: 1872,
     title: "How daemon.db Tables Relate (Canary)",
     description: `A physical entity relationship diagram for SQLite schema version ${schema.version}. Solid lines represent declared foreign keys with cardinalities. Dashed lines identify application-level relationships that are not enforced by SQLite. Standalone state, observation, migration, import, and order-floor tables have no invented relationships.`,
     body,

@@ -791,7 +791,7 @@ func rulesEarningsSourceHealth(infos []rpc.EarningsInfo, now time.Time) (rpc.Sou
 	for _, info := range infos {
 		resolved := info.Status == rpc.EarningsStatusDate || info.Status == rpc.EarningsStatusTerminalNonReporting || info.Status == rpc.EarningsStatusNotApplicable
 		definitive := earningsSingleSourceDefinitive(info)
-		if info.Source == "unknown" || info.Stale || (!resolved && !((info.Status == rpc.EarningsStatusNoDatePublished || info.Status == rpc.EarningsStatusUnsupportedSecurity) && definitive)) {
+		if info.Source == "unknown" || info.Stale || (!resolved && !((info.Status == rpc.EarningsStatusNoDatePublished || info.Status == rpc.EarningsStatusReported || info.Status == rpc.EarningsStatusUnsupportedSecurity) && definitive)) {
 			status = rpc.SourceStatusDegraded
 			degraded = true
 			notes = append(notes, info.Symbol+": "+nonEmptyString(info.Reason, nonEmptyString(info.Status, "not_observed")))
@@ -850,7 +850,7 @@ func rulesEarningsSourceHealth(infos []rpc.EarningsInfo, now time.Time) (rpc.Sou
 
 // earningsSingleSourceDefinitive reports that the primary provider answered
 func earningsSingleSourceDefinitive(info rpc.EarningsInfo) bool {
-	if info.Status != rpc.EarningsStatusDate && info.Status != rpc.EarningsStatusNoDatePublished && info.Status != rpc.EarningsStatusUnsupportedSecurity {
+	if info.Status != rpc.EarningsStatusDate && info.Status != rpc.EarningsStatusNoDatePublished && info.Status != rpc.EarningsStatusReported && info.Status != rpc.EarningsStatusUnsupportedSecurity {
 		return false
 	}
 	seenNasdaq := false
@@ -1270,6 +1270,16 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 					info.ObservedAt = entry.ObservedAt
 					info.Stale = view.Stale
 				}
+			} else if view.Status == rpc.EarningsStatusReported {
+				// The print is a kept event; the next date is not published.
+				// Known stays false: the rules read unknown, naming the print.
+				e := risk.EarningsInput{Known: false, Source: "fetched", Reason: earningsReasonReported}
+				if d, err := time.ParseInLocation(time.DateOnly, view.ReportedOn, loc); err == nil {
+					e.ReportedOn = d
+				}
+				earnings[sym] = e
+				info.Source = "fetched"
+				info.ReportedOn = view.ReportedOn
 			} else {
 				earnings[sym] = risk.EarningsInput{Known: false, Source: "fetched", Reason: nonEmptyString(view.Reason, view.Status)}
 				if view.Status == rpc.EarningsStatusNoDatePublished || view.Status == rpc.EarningsStatusUnsupportedSecurity {

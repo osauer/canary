@@ -248,6 +248,11 @@ type EarningsInput struct {
 	TimeOfDay            string    // "amc" | "bmo" | "" (unspecified)
 	Estimated            bool
 	Stale                bool
+	// ReportedOn is the last published date that has passed when no next
+	// date is published (Reason reported): the print is a kept fact, so the
+	// rules name it instead of reading the gap as "not published". Known is
+	// false: a past print never stands in for the next date.
+	ReportedOn time.Time
 	// SessionsUntil is the number of US equity sessions from today (ET) to
 	SessionsUntil *int
 	// Source is the daemon's closed provenance vocabulary. verified_terminal
@@ -2143,6 +2148,9 @@ func earningsGapWord(e EarningsInput) string {
 	if e.Known && e.Stale {
 		return "stale (" + earningsReasonWords(e.Reason) + ")"
 	}
+	if !e.Known && !e.ReportedOn.IsZero() {
+		return "last reported on " + e.ReportedOn.Format("Jan 2") + ", next date not yet published"
+	}
 	if e.Reason != "" {
 		return earningsReasonWords(e.Reason)
 	}
@@ -2169,6 +2177,10 @@ func earningsReasonWords(reason string) string {
 		return "confirmed by only one provider"
 	case "date_elapsed":
 		return "elapsed without a newly published date"
+	case "date_withdrawn":
+		return "withdrawn by the provider before the day"
+	case "reported":
+		return "reported, next date not yet published"
 	default:
 		return "unknown"
 	}

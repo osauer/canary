@@ -92,7 +92,9 @@ func prepareStatementDedupCandidate(t *testing.T, path string) UpgradeResult {
 	if err != nil {
 		t.Fatalf("prepare v%d candidate: %v", statementVersionDedupMigrationVersion, err)
 	}
-	if result.Candidate.SchemaVersion != statementVersionDedupMigrationVersion || result.Candidate.Status != InspectionCurrent {
+	// The candidate lands on the current head, which may sit past the
+	// dedup migration.
+	if result.Candidate.SchemaVersion != len(currentMigrationPlan()) || result.Candidate.Status != InspectionCurrent {
 		t.Fatalf("candidate=%+v", result.Candidate)
 	}
 	return result

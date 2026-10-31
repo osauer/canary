@@ -73,6 +73,12 @@ const (
 	earningsReasonConflicting      = "conflicting_sources"
 	earningsReasonDateElapsed      = "date_elapsed"
 	earningsReasonBrokerNonIssuer  = "broker_nonissuer"
+	// earningsReasonReported marks a name whose last published date has
+	// passed and whose next one is not published yet: the print is a kept
+	// event, never "no date published". earningsReasonDateWithdrawn marks a
+	// future date the provider pulled before the day.
+	earningsReasonReported      = "reported"
+	earningsReasonDateWithdrawn = "date_withdrawn"
 )
 
 const (
@@ -204,12 +210,28 @@ type earningsPersistEnvelopeV3 struct {
 
 // earningsResolutionView is the cache's typed rulebook integration surface.
 type earningsResolutionView struct {
-	Status    string
-	Reason    string
-	Entry     earningsEntry
-	Stale     bool
-	Providers []rpc.EarningsProviderInfo
-	Identity  *rpc.EarningsIdentityInfo
+	Status string
+	Reason string
+	Entry  earningsEntry
+	Stale  bool
+	// ReportedOn is the last published date that has passed, YYYY-MM-DD,
+	// when Status is reported; Entry is then empty because no next date is
+	// published.
+	ReportedOn string
+	Providers  []rpc.EarningsProviderInfo
+	Identity   *rpc.EarningsIdentityInfo
+}
+
+// earningsEvent is one published date kept after the day (the daemon.db
+// earnings_events row), so a print the desk knew is never forgotten.
+type earningsEvent struct {
+	Date        string
+	Source      string
+	TimeOfDay   string
+	Estimated   bool
+	FirstSeen   time.Time
+	LastSeen    time.Time
+	WithdrawnAt *time.Time
 }
 
 type earningsProviderFetchResult struct {
@@ -237,8 +259,13 @@ type earningsRefreshTarget struct {
 }
 
 type earningsCache struct {
-	mu       sync.Mutex
-	symbols  map[string]earningsSymbolState
+	mu      sync.Mutex
+	symbols map[string]earningsSymbolState
+	// events keeps every date a provider published, per symbol, after the
+	// day and after the provider stops publishing it. It is read beside the
+	// provider resolution, never folded into it: the persisted resolution
+	// stays the exact cross-provider decision.
+	events   map[string][]earningsEvent
 	inflight map[string]bool
 	store    *earningsStore
 	client   *http.Client
@@ -274,6 +301,7 @@ func newEarningsCacheMemory(logf, debugf func(string, ...any)) *earningsCache {
 	}
 	return &earningsCache{
 		symbols:                 map[string]earningsSymbolState{},
+		events:                  map[string][]earningsEvent{},
 		inflight:                map[string]bool{},
 		client:                  &http.Client{Timeout: earningsFetchTimeout},
 		logf:                    logf,
@@ -329,7 +357,12 @@ func (c *earningsCache) UseCoreStore(store *corestore.Store) error {
 	if err != nil {
 		return err
 	}
+	events, err := c.store.loadEvents(context.Background())
+	if err != nil {
+		return err
+	}
 	c.symbols = loaded
+	c.events = events
 	c.inflight = map[string]bool{}
 	c.authorityRetryNotBefore = map[string]time.Time{}
 	return nil
@@ -399,9 +432,107 @@ func (c *earningsCache) resolutionWithIdentity(sym string, conID int, secType st
 	if resolved.Entry != nil {
 		view.Entry = *resolved.Entry
 	}
+	applyEarningsEvents(&view, c.events[sym], c.clock())
 	view.Providers = projectEarningsProviders(state.Providers)
 	view.Identity = projectEarningsIdentity(sym, identity, c.clock())
 	return view, true
+}
+
+// applyEarningsEvents reads the kept events over a provider resolution that
+// found no next date. The latest published date that has passed makes the
+// name reported on that date; failing that, a future date the provider pulled
+// makes the gap a withdrawal. Any other resolution stands: a next date, a
+// conflict, a broken feed or an unsupported security is the louder truth.
+func applyEarningsEvents(view *earningsResolutionView, events []earningsEvent, now time.Time) {
+	if view.Status != rpc.EarningsStatusNoDatePublished {
+		return
+	}
+	today := earningsCalendarDate(now)
+	var reported, withdrawn *earningsEvent
+	for i := range events {
+		ev := &events[i]
+		switch {
+		case ev.WithdrawnAt != nil:
+			if ev.Date > today && (withdrawn == nil || ev.Date > withdrawn.Date) {
+				withdrawn = ev
+			}
+		case ev.Date <= today:
+			if reported == nil || ev.Date > reported.Date {
+				reported = ev
+			}
+		}
+	}
+	switch {
+	case reported != nil:
+		view.Status, view.Reason, view.ReportedOn = rpc.EarningsStatusReported, earningsReasonReported, reported.Date
+	case withdrawn != nil:
+		view.Reason = earningsReasonDateWithdrawn
+	}
+}
+
+// earningsEventRecords derives the event changes one refresh implies: a
+// provider publishing a date confirms (or creates) that event and withdraws
+// any other open future date it published; a provider answering no date
+// withdraws its open future dates. A date on or before today is never
+// withdrawn: the vendor rolling over on the day is the print happening, not
+// the print being cancelled.
+func earningsEventRecords(sym string, completed []earningsCompletedProvider, events []earningsEvent, now time.Time) []corestore.EarningsEventRecord {
+	today := earningsCalendarDate(now)
+	var records []corestore.EarningsEventRecord
+	for _, item := range completed {
+		attempt := item.attempt
+		published := ""
+		switch {
+		case attempt.Status == rpc.EarningsStatusDate && attempt.Entry != nil:
+			published = attempt.Entry.Date
+			records = append(records, corestore.EarningsEventRecord{
+				Symbol: sym, Date: published, Source: item.provider,
+				TimeOfDay: attempt.Entry.TimeOfDay, Estimated: attempt.Entry.Estimated, At: attempt.CompletedAt,
+			})
+		case attempt.Status == rpc.EarningsStatusNoDatePublished:
+		default:
+			continue
+		}
+		for _, ev := range events {
+			if ev.Source != item.provider || ev.WithdrawnAt != nil || ev.Date == published || ev.Date <= today {
+				continue
+			}
+			records = append(records, corestore.EarningsEventRecord{Symbol: sym, Date: ev.Date, Source: item.provider, At: attempt.CompletedAt, Withdrawn: true})
+		}
+	}
+	return records
+}
+
+// applyEarningsEventRecords returns the symbol's events with the records
+// applied, in the store's order (date, then source).
+func applyEarningsEventRecords(events []earningsEvent, records []corestore.EarningsEventRecord) []earningsEvent {
+	out := append([]earningsEvent(nil), events...)
+	for _, r := range records {
+		index := -1
+		for i, ev := range out {
+			if ev.Date == r.Date && ev.Source == r.Source {
+				index = i
+				break
+			}
+		}
+		switch {
+		case r.Withdrawn && index >= 0 && out[index].WithdrawnAt == nil:
+			at := r.At
+			out[index].WithdrawnAt = &at
+		case r.Withdrawn:
+		case index >= 0:
+			out[index].TimeOfDay, out[index].Estimated, out[index].LastSeen, out[index].WithdrawnAt = r.TimeOfDay, r.Estimated, r.At, nil
+		default:
+			out = append(out, earningsEvent{Date: r.Date, Source: r.Source, TimeOfDay: r.TimeOfDay, Estimated: r.Estimated, FirstSeen: r.At, LastSeen: r.At})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Date != out[j].Date {
+			return out[i].Date < out[j].Date
+		}
+		return out[i].Source < out[j].Source
+	})
+	return out
 }
 
 func (c *earningsCache) kickRefreshTargets(ctx context.Context, targets []earningsRefreshTarget) {
@@ -621,6 +752,15 @@ func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefres
 		}
 	}
 	decisionAt := c.clock()
+	// The events are recorded first: a date the provider published is true
+	// whether or not the attempt commits, and recording it again is a no-op,
+	// so a failed attempt commit can be retried without losing the print.
+	records := earningsEventRecords(sym, completed, c.events[sym], decisionAt)
+	if err := c.store.recordEvents(context.WithoutCancel(ctx), records); err != nil {
+		c.logf("earnings event authority commit failed")
+		c.authorityRetryNotBefore[sym] = c.clock().Add(earningsAuthorityCommitRetry)
+		return
+	}
 	candidate, err := c.store.commitBound(context.WithoutCancel(ctx), observations, decisionAt,
 		func(authorityRevision int64, receipts []corestore.ObservationReceipt) (map[string]earningsSymbolState, error) {
 			if authorityRevision > 0 && len(receipts) != len(observations) {
@@ -689,6 +829,9 @@ func (c *earningsCache) refreshTarget(ctx context.Context, target earningsRefres
 	}
 	delete(c.authorityRetryNotBefore, sym)
 	c.symbols = candidate
+	if len(records) > 0 {
+		c.events[sym] = applyEarningsEventRecords(c.events[sym], records)
+	}
 }
 
 func normalizeEarningsAttempt(provider, symbol string, result earningsProviderFetchResult, attemptedAt, completedAt time.Time) earningsProviderAttempt {
@@ -1484,6 +1627,33 @@ func (s *earningsStore) useCoreStore(store *corestore.Store, now time.Time) (map
 	s.authority = store
 	s.revision = doc.Revision
 	return loaded, nil
+}
+
+// loadEvents reads the kept events by symbol from the authority; a cache
+// without one (tests, tools) keeps events in memory only.
+func (s *earningsStore) loadEvents(ctx context.Context) (map[string][]earningsEvent, error) {
+	out := map[string][]earningsEvent{}
+	if s == nil || s.authority == nil {
+		return out, nil
+	}
+	rows, err := s.authority.ListEarningsEvents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read earnings events: %w", err)
+	}
+	for _, row := range rows {
+		out[row.Symbol] = append(out[row.Symbol], earningsEvent{
+			Date: row.Date, Source: row.Source, TimeOfDay: row.TimeOfDay, Estimated: row.Estimated,
+			FirstSeen: row.FirstSeen, LastSeen: row.LastSeen, WithdrawnAt: cloneTimePointer(row.WithdrawnAt),
+		})
+	}
+	return out, nil
+}
+
+func (s *earningsStore) recordEvents(ctx context.Context, records []corestore.EarningsEventRecord) error {
+	if s == nil || s.authority == nil || len(records) == 0 {
+		return nil
+	}
+	return s.authority.RecordEarningsEvents(ctx, records)
 }
 
 func (s *earningsStore) commitBound(

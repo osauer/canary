@@ -1,6 +1,6 @@
 # Trading Rulebook
 
-Updated: 2026-09-30 21:33 CEST
+Updated: 2026-10-31 11:40 CET
 Status: implemented, advisory, and active as compiled baseline `rulebook-v5` with an owner policy file (amendments 11 and 12, 2026-09-23; reported-limit amendment 13, expiry-runway amendment 14, issuer-concentration amendment 15 and net-exposure amendment 16, 2026-09-26; premium-budget, sell-only, regime-banded net exposure and unhedged amendment 17, margin-headroom amendment 18, and one-definition-of-margin-headroom amendment 19, 2026-09-30). The
 initial 12-rule surface shipped in v1.15.0; the 14-rule contract (15 with amendment 11) folds
 in the July 2026 live-market, implementation-review, SQLite-authority, multi-provider
@@ -573,6 +573,27 @@ contradiction:
       headroom further."). A sale that closes or reduces stays exempt, as
       does a sale without a classified effect or of another security type.
       This replaces R2's "a sale never warns".
+20. Amendment (2026-10-31, after two held names' prints of 2026-10-29):
+    a learned earnings date is kept as an event. Nasdaq carried the date for
+    both names until the day, then answered its no-date text, and every look
+    after the print read "no date published" as if the print had never been
+    known: the provider resolution reuses a retained date only behind a
+    transport failure and rejects any date before today, so the state forgot
+    the event the moment it happened. Every date a provider publishes is now
+    an `earnings_events` row in daemon.db (symbol, date, source, first and
+    last seen, withdrawn at; migration 10), recorded before the attempt
+    commits and never deleted. The persisted resolution is unchanged; the
+    cache reads the events over a resolution that found no next date. The
+    latest published date that has passed makes the name `reported`
+    (`reported_on`), and the rules say "last reported on Oct 29, next date
+    not yet published": rules 6-8 stay `unknown` for want of a next date,
+    the earnings source is not degraded (a kept print is a definitive vendor
+    answer, as a no-date answer was), and the brief no longer asks for a
+    hand-typed override for that name. A future date the same provider later
+    pulls is withdrawn in place (`date_withdrawn`), never reported; a date on
+    or before today is never withdrawn, because the vendor rolling over on
+    the day is the print happening. Nasdaq stays the primary; the WSH feed
+    remains an optional second source.
 
 These decisions govern evidence handling, advisory enforcement, and surface
 placement. They do not establish that the operator approved every numerical

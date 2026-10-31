@@ -724,7 +724,34 @@ WHEN NEW.floor < OLD.floor BEGIN SELECT RAISE(ABORT, 'order id floor cannot decr
 		edgeStatementProjectionMigration(),
 		edgeStatementMetadataMigration(),
 		statementVersionDedupMigration(),
+		earningsEventsMigration(),
 	)
+}
+
+// earningsEventsMigration is migration 10: the issuer earnings dates the
+// providers published, kept after the day. The earnings state document
+// forgets a date once it elapses, so a print the desk had known for weeks
+// read "no date published" the day after (two held names, 2026-10-29). Rows are
+// upserted by (symbol, date, source) and withdrawn in place, never deleted.
+func earningsEventsMigration() migration {
+	return migration{
+		version: 10,
+		name:    "earnings_events",
+		statements: []string{
+			`CREATE TABLE earnings_events (
+  symbol TEXT NOT NULL,
+  event_date TEXT NOT NULL,
+  source TEXT NOT NULL,
+  time_of_day TEXT NOT NULL DEFAULT '',
+  estimated INTEGER NOT NULL DEFAULT 0 CHECK (estimated IN (0, 1)),
+  first_seen TEXT NOT NULL,
+  last_seen TEXT NOT NULL,
+  withdrawn_at TEXT,
+  PRIMARY KEY (symbol, event_date, source)
+) STRICT`,
+			`CREATE INDEX earnings_events_symbol_date ON earnings_events(symbol, event_date)`,
+		},
+	}
 }
 
 // migrationChecksum is the ledger identity of an applied migration: version,

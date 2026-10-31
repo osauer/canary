@@ -856,3 +856,29 @@ func TestExpiryRunwayTriggersAtOrWithinItsLimits(t *testing.T) {
 		}
 	}
 }
+
+// Rules 6-8 stay unknown after a print until the next date is published, and
+// their offender note names the print instead of "not published".
+func TestEarningsRulesNameAKeptPrintWhileUnknown(t *testing.T) {
+	in := healthyInputs()
+	in.Earnings["SYNTHA"] = EarningsInput{Source: "fetched", Reason: "reported", ReportedOn: etDate(2026, 7, 1)}
+	in.Earnings["SYNTHB"] = EarningsInput{Source: "fetched", Reason: "date_withdrawn"}
+	in.Earnings["SYNTHC"] = EarningsInput{Source: "fetched", Reason: "reported", ReportedOn: etDate(2026, 7, 2)}
+	ev := EvaluateRulebook(in, DefaultRulebookPolicy())
+	for _, id := range []string{RuleCatalystCoverage, RuleOverwriteEarnings, RuleEarningsSizeFreeze} {
+		row := rowByID(t, ev, id)
+		if row.Status != RuleStatusUnknown {
+			t.Fatalf("%s = %s after a print with no next date, want unknown", id, row.Status)
+		}
+		notes := ""
+		for _, o := range row.Offenders {
+			notes += o.Note + "\n"
+		}
+		if !strings.Contains(notes, "last reported on Jul 1, next date not yet published") || !strings.Contains(notes, "withdrawn by the provider before the day") {
+			t.Fatalf("%s offender notes = %q", id, notes)
+		}
+		if strings.Contains(notes, "not published by the provider") {
+			t.Fatalf("%s still reads a kept print as not published: %q", id, notes)
+		}
+	}
+}

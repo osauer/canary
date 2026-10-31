@@ -145,3 +145,19 @@ func TestRulesTextFitsTheTerminalAndFoldsIdleRules(t *testing.T) {
 		t.Errorf("--all must list a turned-off rule in full:\n%s", out.String())
 	}
 }
+
+// A print the desk knew reads "reported on", never "no date published"; a
+// date the vendor pulled before the day says so.
+func TestEarningsOutcomeLabelNamesAKeptPrint(t *testing.T) {
+	reported := rpc.EarningsInfo{Symbol: "SYNTH", Status: rpc.EarningsStatusReported, Reason: "reported", ReportedOn: "2026-10-29"}
+	if got := earningsOutcomeLabel(reported); got != "reported on 2026-10-29; next date not yet published" {
+		t.Fatalf("reported label = %q", got)
+	}
+	withdrawn := rpc.EarningsInfo{Symbol: "SYNTH", Status: rpc.EarningsStatusNoDatePublished, Reason: "date_withdrawn"}
+	if got := earningsOutcomeLabel(withdrawn); got != "published date withdrawn before the day" {
+		t.Fatalf("withdrawn label = %q", got)
+	}
+	if got := earningsOutcomeLabel(rpc.EarningsInfo{Status: rpc.EarningsStatusNoDatePublished, Reason: rpc.EarningsStatusNoDatePublished}); got != "no date published" {
+		t.Fatalf("no-date label = %q", got)
+	}
+}

@@ -11,8 +11,8 @@ import (
 func TestStatementRecordMigrationV6ToV7Candidate(t *testing.T) {
 	ctx := t.Context()
 	plan := currentMigrationPlan()
-	if len(plan) != 9 {
-		t.Fatalf("current schema version=%d want 9", len(plan))
+	if len(plan) < 7 {
+		t.Fatalf("current schema version=%d want at least 7", len(plan))
 	}
 	dir := privateTempDir(t)
 	sourcePath := filepath.Join(dir, "daemon-v6.db")
@@ -28,7 +28,7 @@ func TestStatementRecordMigrationV6ToV7Candidate(t *testing.T) {
 		t.Fatal("current store opened v6 authority without an explicit upgrade")
 	} else {
 		var upgrade *UpgradeRequiredError
-		if !errors.As(err, &upgrade) || upgrade.CurrentVersion != 6 || upgrade.TargetVersion != 9 {
+		if !errors.As(err, &upgrade) || upgrade.CurrentVersion != 6 || upgrade.TargetVersion != len(plan) {
 			t.Fatalf("open v6 error=%v", err)
 		}
 	}

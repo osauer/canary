@@ -1976,6 +1976,10 @@ type EarningsInfo struct {
 	// Reason is a stable aggregate explanation such as single_source or
 	// conflicting_sources; it never contains provider free text.
 	Reason string `json:"reason,omitempty"`
+	// ReportedOn is the last published date that has passed, YYYY-MM-DD,
+	// when Status is reported: the print is a kept event and the next date is
+	// not published yet. Date is then empty.
+	ReportedOn string `json:"reported_on,omitempty"`
 	// ObservedAt is when the fetched value was last confirmed from the
 	// provider; zero for overrides and unknowns.
 	ObservedAt time.Time              `json:"observed_at,omitzero"`
@@ -1989,6 +1993,7 @@ type EarningsInfo struct {
 const (
 	EarningsStatusDate                    = "date"
 	EarningsStatusNoDatePublished         = "no_date_published"
+	EarningsStatusReported                = "reported"
 	EarningsStatusUnsupportedSecurity     = "unsupported_security"
 	EarningsStatusFormatChange            = "format_change"
 	EarningsStatusTransportFailure        = "transport_failure"

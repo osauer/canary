@@ -231,11 +231,7 @@ func renderRulesText(env *Env, out io.Writer, res *rpc.RulesResult, all bool) {
 				continue
 			}
 			if e.Source == "unknown" || e.Status != "" && e.Status != rpc.EarningsStatusDate {
-				reason := e.Reason
-				if reason == "" {
-					reason = e.Status
-				}
-				unresolved = append(unresolved, fmt.Sprintf("%s (%s)", e.Symbol, earningsOutcomeLabel(reason)))
+				unresolved = append(unresolved, fmt.Sprintf("%s (%s)", e.Symbol, earningsOutcomeLabel(e)))
 			}
 		}
 		if len(terminal) > 0 {
@@ -333,10 +329,21 @@ func wshEntitlementNotice(res *rpc.RulesResult) bool {
 	return false
 }
 
-func earningsOutcomeLabel(reason string) string {
+func earningsOutcomeLabel(e rpc.EarningsInfo) string {
+	if e.Status == rpc.EarningsStatusReported && e.ReportedOn != "" {
+		return "reported on " + e.ReportedOn + "; next date not yet published"
+	}
+	reason := e.Reason
+	if reason == "" {
+		reason = e.Status
+	}
 	switch strings.TrimSpace(reason) {
 	case rpc.EarningsStatusNoDatePublished:
 		return "no date published"
+	case "date_withdrawn":
+		return "published date withdrawn before the day"
+	case "reported":
+		return "reported; next date not yet published"
 	case rpc.EarningsStatusUnsupportedSecurity:
 		return "unsupported security"
 	case rpc.EarningsStatusFormatChange:

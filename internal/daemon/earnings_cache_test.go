@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -130,5 +132,122 @@ func TestEarningsUnentitledProviderWarnsOncePerVerdict(t *testing.T) {
 			t.Fatalf("%s: stored attempt %+v lost its verdict", step.name, got)
 		}
 		now = now.Add(earningsNonRetryableFailureRetry + time.Hour)
+	}
+}
+
+// A learned date is an event the desk keeps. Nasdaq carried 2026-10-29 for
+// a held name until the day, then answered its no-date text on 2026-10-30, and every
+// later look read "no date published" as if the print had never been known
+// (analysis 2026-10-31). After the day the name reads reported on that date,
+// a later no-date answer never erases it, and a restart reads the event back
+// from daemon.db. A date the vendor pulls before the day is withdrawn, not
+// reported, and the row says so.
+func TestEarningsLearnedDateIsKeptAsAReportedEvent(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	answers := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		for sym, date := range answers {
+			if strings.Contains(r.URL.Path, "/"+sym+"/") {
+				fmt.Fprintf(w, `{"data":{"announcement":"Earnings announcement* for %s: %s"},"message":null,"status":{"rCode":200}}`, sym, date)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	answer := func(sym, date string) {
+		mu.Lock()
+		defer mu.Unlock()
+		answers[sym] = date
+	}
+
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	berlin, _ := time.LoadLocation("Europe/Berlin")
+	now := time.Date(2026, 10, 28, 16, 36, 0, 0, berlin)
+	open := func() *earningsCache {
+		cache := newEarningsCacheCold(t.TempDir(), nil, nil)
+		cache.fetchURL = srv.URL + "/api/analyst/%s/earnings-date"
+		cache.clock = func() time.Time { return now }
+		if err := cache.UseCoreStore(store); err != nil {
+			t.Fatal(err)
+		}
+		return cache
+	}
+	cache := open()
+
+	answer("SYNTH", "Oct 29, 2026")
+	answer("PULLD", "Nov 20, 2026")
+	cache.refreshTarget(t.Context(), earningsRefreshTarget{Symbol: "SYNTH"})
+	cache.refreshTarget(t.Context(), earningsRefreshTarget{Symbol: "PULLD"})
+	if view, ok := cache.resolution("SYNTH"); !ok || view.Status != rpc.EarningsStatusDate || view.Entry.Date != "2026-10-29" {
+		t.Fatalf("the day before the print: %+v", view)
+	}
+
+	// The day after: the vendor has rolled over to "no date" for the name
+	// that printed and pulled the future date of the other one.
+	now = time.Date(2026, 10, 30, 16, 36, 0, 0, berlin)
+	answer("SYNTH", "")
+	answer("PULLD", "")
+	cache.refreshTarget(t.Context(), earningsRefreshTarget{Symbol: "SYNTH"})
+	cache.refreshTarget(t.Context(), earningsRefreshTarget{Symbol: "PULLD"})
+	view, ok := cache.resolution("SYNTH")
+	if !ok || view.Status != rpc.EarningsStatusReported || view.Reason != earningsReasonReported || view.ReportedOn != "2026-10-29" {
+		t.Fatalf("the day after the print must read reported on 2026-10-29, got %+v", view)
+	}
+	if view.Entry.Date != "" {
+		t.Fatalf("a reported event is not a next date: %+v", view.Entry)
+	}
+	if view, ok := cache.resolution("PULLD"); !ok || view.Status != rpc.EarningsStatusNoDatePublished || view.Reason != earningsReasonDateWithdrawn {
+		t.Fatalf("a date pulled before the day reads withdrawn, got %+v", view)
+	}
+
+	// A week of no-date answers changes nothing: the event is kept.
+	for day := 1; day <= 7; day++ {
+		now = now.Add(24 * time.Hour)
+		cache.refreshTarget(t.Context(), earningsRefreshTarget{Symbol: "SYNTH"})
+	}
+	if view, ok := cache.resolution("SYNTH"); !ok || view.Status != rpc.EarningsStatusReported || view.ReportedOn != "2026-10-29" {
+		t.Fatalf("a later no-date answer erased the event: %+v", view)
+	}
+
+	// A restart reads the events back from the store.
+	restarted := open()
+	if view, ok := restarted.resolution("SYNTH"); !ok || view.Status != rpc.EarningsStatusReported || view.ReportedOn != "2026-10-29" {
+		t.Fatalf("after a restart: %+v", view)
+	}
+	events, err := store.ListEarningsEvents(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var synth, pulled *corestore.EarningsEvent
+	for i := range events {
+		switch events[i].Symbol {
+		case "SYNTH":
+			synth = &events[i]
+		case "PULLD":
+			pulled = &events[i]
+		}
+	}
+	if synth == nil || synth.Date != "2026-10-29" || synth.Source != earningsNasdaqProvider || synth.WithdrawnAt != nil ||
+		!synth.FirstSeen.Equal(time.Date(2026, 10, 28, 16, 36, 0, 0, berlin)) || !synth.LastSeen.Equal(synth.FirstSeen) {
+		t.Fatalf("stored event = %+v", synth)
+	}
+	if pulled == nil || pulled.Date != "2026-11-20" || pulled.WithdrawnAt == nil || !pulled.WithdrawnAt.Equal(time.Date(2026, 10, 30, 16, 36, 0, 0, berlin)) {
+		t.Fatalf("withdrawn event = %+v", pulled)
+	}
+
+	// The vendor publishes the next quarter: the name reads a date again.
+	now = now.Add(24 * time.Hour)
+	answer("SYNTH", "Jan 28, 2027")
+	restarted.refreshTarget(t.Context(), earningsRefreshTarget{Symbol: "SYNTH"})
+	if view, ok := restarted.resolution("SYNTH"); !ok || view.Status != rpc.EarningsStatusDate || view.Entry.Date != "2027-01-28" {
+		t.Fatalf("a newly published next date: %+v", view)
 	}
 }
