@@ -315,6 +315,19 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "strategies_list_unavailable", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[0].res}},
 		{name: "strategies_list_stale", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[4].res}},
 		{name: "status", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthReady(readyTrading), rpc.MethodAlertCandidates: goldenAlerts(3)}},
+		{name: "status_data_concern", argv: []string{"status"}, render: func(env *Env) {
+			res := rpc.HealthResult{
+				Verdict:       rpc.HealthVerdict{State: "ATTENTION", Reason: "New York Fed key releases: Prior data · refresh failed"},
+				DaemonVersion: "v0.0.0-golden", Account: "DU0000000", AccountMode: rpc.AccountModePaper,
+				Connected: true, GatewayHost: "127.0.0.1", GatewayPort: 4002, ClientID: 7, ServerVersion: 203,
+				DataType:     rpc.MarketDataLive,
+				Executions:   &rpc.ExecutionVisibilityHealth{ClientID: 7},
+				PushDelivery: &rpc.PushDeliveryStatus{ReceivedAt: goldenAt.Add(-24 * time.Hour), Proof: rpc.PushDeliveryProof{Mode: "watch_and_act", Dispatcher: "unavailable", DispatcherClass: "no_active_subscription"}},
+				DataHealth: &rpc.DataHealthResult{Summary: rpc.DataHealthSummary{Label: "1 source concern · 0 expected delays · 0 unknown coverage"},
+					Concerns: []rpc.DataHealthConcern{{SourceID: "macro:nyfed-calendar", Label: "New York Fed key releases: Prior data · refresh failed"}}},
+			}
+			renderStatusText(env, &res, nil)
+		}},
 		{name: "status_attention", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthAttention(), rpc.MethodAlertCandidates: goldenAlerts(2)}},
 		{name: "status_offline_no_gateway", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: statusOfflineCases()[0].res}, exit: 1},
 		{name: "status_offline_refused_pinned", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: statusOfflineCases()[1].res}, exit: 1},

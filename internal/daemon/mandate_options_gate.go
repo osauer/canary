@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -196,91 +197,88 @@ func (s *Server) prepareMandatePremium(ctx context.Context, draft rpc.OrderDraft
 		return nil, fmt.Errorf("premium positions are unavailable")
 	}
 	before := s.reduceFillBinding()
-	inventory, ok := s.journalOrderViewsForInventory()
-	if !ok {
+	if _, ok := s.journalOrderViewsForInventory(); !ok {
 		return nil, fmt.Errorf("premium fill evidence is unavailable")
 	}
-	// Include filled contracts absent from the cached positions as zero: their
-	// absence must agree with the request-correlated broker receipt too.
-	contracts := map[int]rpc.ContractParams{}
-	needsFill := func(c rpc.ContractParams, action string) bool {
-		return strings.EqualFold(c.SecType, "OPT") && strings.EqualFold(action, rpc.OrderActionBuy) ||
-			putCover && (strings.EqualFold(c.SecType, "STK") || strings.EqualFold(c.SecType, "ETF")) &&
-				normSym(c.Symbol) == normSym(draft.Contract.Symbol) && strings.EqualFold(action, rpc.OrderActionSell)
-	}
-	for i := range inventory.views {
-		view := &inventory.views[i]
-		if view.Filled <= 0 || !orderViewMatchesBrokerScope(*view, before.scope) {
+	// An external fill may disappear from open orders without entering our
+	// journal, before updatePortfolio reflects it. Compare the complete option
+	// book and this put's shares with a request-correlated positions receipt;
+	// checking only contracts with observed fill callbacks misses that race.
+	modeled := map[int]reduceHeldPosition{}
+	for _, leg := range input.Legs {
+		if leg.Kind != mandate.KindOption && !(putCover && leg.Kind == mandate.KindStock && normSym(leg.Underlying) == normSym(draft.Contract.Symbol)) {
 			continue
 		}
-		if strings.EqualFold(view.SecType, "BAG") {
-			legs := inventory.legsOf(view)
-			if len(legs) == 0 {
-				return nil, fmt.Errorf("filled combination premium legs are unknown")
-			}
-			for _, leg := range legs {
-				if needsFill(leg.Contract, leg.Action) {
-					if leg.Contract.ConID <= 0 {
-						return nil, fmt.Errorf("filled option identity is unknown")
-					}
-					contracts[leg.Contract.ConID] = leg.Contract
-				}
-			}
-		} else if needsFill(rpc.ContractParams{SecType: view.SecType, Symbol: view.Symbol}, view.Action) {
-			if view.ConID <= 0 {
-				return nil, fmt.Errorf("filled option identity is unknown")
-			}
-			contracts[view.ConID] = rpc.ContractParams{ConID: view.ConID, Symbol: view.Symbol, SecType: view.SecType, Currency: view.Currency}
+		id := mandateLegConID(leg.ID)
+		if id <= 0 || math.IsNaN(leg.Quantity) || math.IsInf(leg.Quantity, 0) {
+			return nil, fmt.Errorf("premium or protection position identity is unknown")
 		}
+		sec := "STK"
+		if leg.Kind == mandate.KindOption {
+			sec = "OPT"
+		}
+		row := modeled[id]
+		contract := rpc.ContractParams{ConID: id, Symbol: leg.Underlying, SecType: sec, Currency: leg.Currency}
+		if row.contract.ConID != 0 && row.contract != contract {
+			return nil, fmt.Errorf("premium or protection position identity conflicts")
+		}
+		row.contract = contract
+		row.quantity += leg.Quantity
+		modeled[id] = row
 	}
-	for _, order := range snapshot.Orders {
-		if order.WhatIf || order.Filled <= 0 || order.Account != "" && !strings.EqualFold(order.Account, snapshotScope.Account) {
-			continue
-		}
-		if strings.EqualFold(order.SecType, "BAG") {
-			matched := false
-			for _, view := range inventory.views {
-				if orderViewMatchesBrokerScope(view, snapshotScope) && openOrderSnapshotEventMatches(order, view) && view.OrderRef != "" && view.PreviewTokenID != "" && len(inventory.legsByRef[view.OrderRef]) > 0 {
-					matched = true
-					for _, leg := range inventory.legsByRef[view.OrderRef] {
-						if needsFill(leg.Contract, leg.Action) {
-							if leg.Contract.ConID <= 0 {
-								return nil, fmt.Errorf("filled option or share identity is unknown")
-							}
-							contracts[leg.Contract.ConID] = leg.Contract
-						}
-					}
-				}
-			}
-			if !matched {
-				return nil, fmt.Errorf("filled combination premium legs are unknown")
-			}
-		}
-		if needsFill(rpc.ContractParams{SecType: order.SecType, Symbol: order.Symbol}, order.Action) {
-			if order.ConID <= 0 {
-				return nil, fmt.Errorf("filled option identity is unknown")
-			}
-			contracts[order.ConID] = rpc.ContractParams{ConID: order.ConID, Symbol: order.Symbol, SecType: order.SecType, Currency: order.Currency}
-		}
-	}
-	held := make([]reduceHeldPosition, 0, len(contracts))
-	for conID, contract := range contracts {
-		quantity := 0.0
-		for _, leg := range input.Legs {
-			if leg.ID == mandateLegID(rpc.PositionView{ConID: conID}) {
-				quantity += leg.Quantity
-			}
-		}
-		held = append(held, reduceHeldPosition{contract: contract, quantity: quantity})
-	}
-	binding, err := s.ensureOrderFillCoherence(ctx, held, 0, rpc.OrderActionBuy)
+	receipt, err := s.orderFillPositionsReceipt(ctx, before, 0)
 	if err != nil {
 		return nil, err
 	}
-	if binding != before {
-		return nil, fmt.Errorf("option fill evidence changed during premium admission")
+	received := map[int]float64{}
+	for _, row := range receipt {
+		if row == nil {
+			continue
+		}
+		if strings.TrimSpace(row.Account) == "" && row.Position != 0 {
+			return nil, fmt.Errorf("premium positions receipt has unknown account scope")
+		}
+		if !strings.EqualFold(row.Account, before.scope.Account) {
+			continue
+		}
+		c := row.Contract
+		sec := strings.ToUpper(strings.TrimSpace(c.SecType))
+		if sec == rpc.SecTypeOption {
+			sec = "OPT"
+		} else if sec == rpc.SecTypeStock {
+			sec = "STK"
+		}
+		switch sec {
+		case "OPT", "STK", "ETF", "FUT", rpc.SecTypeFuture, "FOP", "CASH", "BOND", "BILL", "IND", "CFD":
+		default:
+			if row.Position != 0 {
+				return nil, fmt.Errorf("premium positions receipt has unknown security identity")
+			}
+		}
+		prior, known := modeled[c.ConID]
+		if !known && sec != "OPT" && !(putCover && normSym(c.Symbol) == normSym(draft.Contract.Symbol) && (sec == "STK" || sec == "ETF")) {
+			continue
+		}
+		if c.ConID <= 0 || math.IsNaN(row.Position) || math.IsInf(row.Position, 0) {
+			return nil, fmt.Errorf("premium positions receipt has unknown identity or quantity")
+		}
+		if _, duplicate := received[c.ConID]; duplicate {
+			return nil, fmt.Errorf("premium positions receipt has duplicate contracts")
+		}
+		if known && (!riskSecTypeConsistent(prior.contract.SecType, sec) || normSym(prior.contract.Symbol) != normSym(c.Symbol) || normCcy(prior.contract.Currency) != normCcy(c.Currency)) {
+			return nil, fmt.Errorf("premium positions receipt has conflicting contract identity")
+		}
+		received[c.ConID] = row.Position
+		if math.Abs(prior.quantity-row.Position) > 1e-9 {
+			return nil, fmt.Errorf("premium or protection holdings have not caught up with broker fills; wait for positions to agree")
+		}
 	}
-	return &binding, nil
+	for id, row := range modeled {
+		if math.Abs(received[id]-row.quantity) > 1e-9 {
+			return nil, fmt.Errorf("premium or protection holdings have not caught up with broker fills; wait for positions to agree")
+		}
+	}
+	return &before, nil
 }
 
 // mandatePendingPremium joins all-client working orders to local durable

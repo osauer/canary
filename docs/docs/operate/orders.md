@@ -1,6 +1,6 @@
 # Gated orders and the trading build
 
-Updated: 2026-10-30 18:16 CET
+Updated: 2026-10-31 08:33 CET
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
 It does preview: once `[trading].mode` is paper or live, `canary order preview`
@@ -98,6 +98,12 @@ other than permission no longer confirms a remembered refusal, so futures
 read unknown and the hedge's own preview asks IBKR again. All other risk and
 submission gates still apply.
 
+An accepted opening preview is recorded as permission evidence only if its account,
+connection and held-position evidence stay unchanged while the preview is evaluated. An older request cannot
+replace a newer result. A permission refusal learned before transmission also
+stops an opening or increasing order that was previewed earlier; reductions
+and closes retain their own broker and risk checks.
+
 ## Protective put purchases
 
 A put purchase can use the protective-put exemption only for shares still
@@ -107,6 +113,10 @@ pending stock purchase or put sale creates no capacity until its fill appears
 in the positions. An uncertain send still reserves capacity.
 
 The daemon checks these commitments at preview, admission and the final send.
+Before a preview or submission, it also requests a complete broker positions
+receipt and compares all option quantities and the covering shares with its
+measured book. A completed order from another client cannot release capacity
+merely by disappearing from the open-order list before positions reflect it.
 Missing or conflicting order and position evidence grants no exemption. A
 purchase beyond available cover must satisfy the ordinary addition gates;
 the exemption never changes the order caps or confirmation requirements.

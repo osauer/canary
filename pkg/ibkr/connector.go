@@ -8542,11 +8542,17 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 		c.logDebug("Skipping historical data request for %s: unresolved contract ID (exchange=%s primary=%s)", symbol, contract.Exchange, contract.PrimaryExch)
 		return nil, fmt.Errorf("contract ID unresolved for %s", symbol)
 	}
-	stallEpoch := options.session.epoch
+	stallSession := options.session
 	if !options.requireEpoch {
-		stallEpoch = c.conn.BrokerSessionEpoch()
+		c.mu.RLock()
+		conn := c.conn
+		c.mu.RUnlock()
+		if conn == nil {
+			return nil, ErrIBKRUnavailable
+		}
+		stallSession = HistoricalSessionBinding{connector: c, connection: conn, epoch: conn.BrokerSessionEpoch()}
 	}
-	if err := c.admitHistoricalRequest(stallEpoch, time.Now()); err != nil {
+	if err := c.admitHistoricalRequest(stallSession, time.Now()); err != nil {
 		return nil, err
 	}
 	var req *historicalRequest
@@ -8573,7 +8579,7 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 		if options.chartBarSize != "" {
 			barSize = options.chartBarSize
 		}
-		reqID, err = c.conn.requestHistoricalDataWithIDGuard(ctx, contract, options.endDateTime, duration, barSize, whatToShow, !options.chartOutsideRTH, false, formatDate, false, nil, register)
+		reqID, err = stallSession.connection.requestHistoricalDataWithIDGuard(ctx, contract, options.endDateTime, duration, barSize, whatToShow, !options.chartOutsideRTH, false, formatDate, false, nil, register)
 	}
 	if err != nil {
 		if registeredReqID != 0 {
@@ -8591,7 +8597,7 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 	select {
 	case res := <-req.result:
 		if historicalAnswered(res.err) {
-			c.noteHistoricalAnswer(stallEpoch, time.Now())
+			c.noteHistoricalAnswer(stallSession, time.Now())
 		}
 		if res.err != nil {
 			return nil, res.err
@@ -8603,7 +8609,7 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 		return nil, ctx.Err()
 	case <-timer.C:
 		c.cancelHistoricalDataBestEffortWithOptions(reqID, options)
-		c.noteHistoricalTimeout(stallEpoch, timeout, time.Now())
+		c.noteHistoricalTimeout(stallSession, timeout, time.Now())
 		timeoutErr := fmt.Errorf("historical data timeout for %s after %s: %w", symbol, timeout, context.DeadlineExceeded)
 		c.failHistoricalRequest(reqID, timeoutErr)
 		return nil, timeoutErr

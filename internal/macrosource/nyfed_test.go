@@ -11,11 +11,14 @@ import (
 )
 
 // nyfedPage builds a synthetic monthly calendar shaped like the New York Fed
-// page: a month heading, the Eastern-time statement, a NEXT MONTH link and one
-// dated cell per weekday. releases maps a day to the entry markup in its cell.
+// page: a month heading, the Eastern-time statement, adjacent-month links and
+// one dated cell per weekday. releases maps a day to its entry markup.
 func nyfedPage(month time.Time, releases map[int]string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, `<p>All releases all Eastern Time.</p><td class="ts-data-table-head"><div>%s</div></td>`, month.Format("January 2006"))
+	// The live previous-month link puts an arrow and a nonbreaking space
+	// before the label (witnessed 2026-10-31, November's landing page).
+	fmt.Fprintf(&b, `<a href="/research/calendars/i-%s.html"><img src="/arrow_left.gif" alt="Previous Month" border="0" />&nbsp;PREVIOUS MONTH</a>`, strings.ToLower(month.AddDate(0, -1, 0).Format("Jan06")))
 	fmt.Fprintf(&b, `<a href="/research/calendars/i-%s.html">NEXT MONTH</a>`, strings.ToLower(month.AddDate(0, 1, 0).Format("Jan06")))
 	b.WriteString(`<table class="research-table-1col greyborder">`)
 	for day := month; day.Month() == month.Month(); day = day.AddDate(0, 0, 1) {
@@ -234,6 +237,119 @@ func TestNYFedLaggedLandingNearMonthEndBoundsThreePublishedReads(t *testing.T) {
 	}
 }
 
+func TestNYFedAheadLandingUsesPublishedPreviousMonth(t *testing.T) {
+	for _, tc := range []struct {
+		name, now, landing string
+		combined           bool
+	}{
+		{"October rollover", "2026-10-30T19:00:00Z", "2026-11-01", true},
+		{"Eastern date before UTC month", "2026-11-01T00:30:00Z", "2026-11-01", true},
+		{"year rollover", "2027-01-01T02:00:00Z", "2027-01-01", true},
+		{"leap rollover", "2028-03-01T02:00:00Z", "2028-03-01", true},
+		{"early month needs current only", "2026-10-05T19:00:00Z", "2026-11-01", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now, err := time.Parse(time.RFC3339, tc.now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			landing, err := time.Parse(time.DateOnly, tc.landing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current := landing.AddDate(0, -1, 0)
+			spec := sourceSpec(t, "nyfed-calendar")
+			previousURL := "https://www.newyorkfed.org/research/calendars/i-" + strings.ToLower(current.Format("Jan06")) + ".html"
+			pages := map[string]string{}
+			for _, page := range []struct {
+				url   string
+				month time.Time
+			}{{spec.URL, landing}, {previousURL, current}} {
+				day := page.month
+				for day.Weekday() == time.Saturday || day.Weekday() == time.Sunday {
+					day = day.AddDate(0, 0, 1)
+				}
+				pages[page.url] = nyfedPage(page.month, map[int]string{day.Day(): nyfedAfterEntry + nyfedUnknownEntry})
+			}
+			client := NewClient()
+			var calls []string
+			client.HTTP.Transport = publicTransport(func(req *http.Request) (*http.Response, error) {
+				calls = append(calls, req.URL.String())
+				body, ok := pages[req.URL.String()]
+				if !ok || len(calls) > 2 {
+					t.Fatalf("unpublished or redundant calendar request: %s", req.URL)
+				}
+				if req.Header.Get("Cookie") != "" || req.Header.Get("Authorization") != "" {
+					t.Fatal("calendar request carried credentials")
+				}
+				return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+			})
+			batch, err := client.Fetch(t.Context(), spec, now, Batch{})
+			if err != nil {
+				t.Fatalf("advanced landing page hid the published current month: %v", err)
+			}
+			wantEnd, wantCount := current.AddDate(0, 1, -1).Format(time.DateOnly), 1
+			if tc.combined {
+				wantEnd, wantCount = landing.AddDate(0, 1, -1).Format(time.DateOnly), 2
+			}
+			if len(calls) != 2 || calls[0] != spec.URL || calls[1] != previousURL || batch.WindowStart != current.Format(time.DateOnly) || batch.WindowEnd != wantEnd || len(batch.Events) != wantCount || batch.SkippedItems != wantCount {
+				t.Fatalf("wrong coverage or request bound: calls=%v batch=%+v", calls, batch)
+			}
+			for i, event := range batch.Events {
+				wantURL := previousURL
+				if i == 1 {
+					wantURL = spec.URL
+				}
+				if event.SourceURL != wantURL || !event.RetrievedAt.Equal(now) {
+					t.Fatalf("published source receipt was lost: %+v", event)
+				}
+			}
+		})
+	}
+}
+
+func TestNYFedAheadLandingRejectsUnprovedPreviousMonth(t *testing.T) {
+	spec := sourceSpec(t, "nyfed-calendar")
+	now := time.Date(2026, 10, 30, 19, 0, 0, 0, time.UTC)
+	november := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	landing := nyfedFixture(november, 2)
+	previous := nyfedFixture(november.AddDate(0, -1, 0), 1)
+	previousPath := "/research/calendars/i-oct26.html"
+	for _, tc := range []struct {
+		name, landing, previous string
+		status, calls           int
+	}{
+		{"two months ahead", nyfedFixture(november.AddDate(0, 1, 0), 1), previous, 200, 1},
+		{"missing previous", strings.Replace(landing, "PREVIOUS MONTH", "ARCHIVE", 1), previous, 200, 1},
+		{"foreign previous", strings.Replace(landing, previousPath, "https://attacker.test/research/calendars/i-oct26.html", 1), previous, 200, 1},
+		{"nonconsecutive previous", strings.Replace(landing, previousPath, "/research/calendars/i-sep26.html", 1), previous, 200, 1},
+		{"duplicate previous", landing + `<a href="/research/calendars/i-oct26.html">PREVIOUS MONTH</a>`, previous, 200, 1},
+		{"failed previous read", landing, previous, 403, 2},
+		{"previous heading disagrees", landing, nyfedFixture(november.AddDate(0, -2, 0), 1), 200, 2},
+		{"previous weekday missing", landing, strings.Replace(previous, "<td><div>05<br/></div></td>", "", 1), 200, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := NewClient()
+			calls := 0
+			client.HTTP.Transport = publicTransport(func(req *http.Request) (*http.Response, error) {
+				calls++
+				body, status := tc.landing, 200
+				if req.URL.String() != spec.URL {
+					if req.URL.String() != "https://www.newyorkfed.org"+previousPath {
+						t.Fatalf("unproved calendar URL requested: %s", req.URL)
+					}
+					body, status = tc.previous, tc.status
+				}
+				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
+			})
+			batch, err := client.Fetch(t.Context(), spec, now, Batch{})
+			if err == nil || calls != tc.calls || len(batch.Events) != 0 || batch.WindowStart != "" {
+				t.Fatalf("unproved previous month acquired coverage: calls=%d batch=%+v err=%v", calls, batch, err)
+			}
+		})
+	}
+}
+
 // Synthetic release entries in the shapes the live calendar prints, including
 // its line breaks. The October 2026 page began printing some time labels
 // inside the link text, which rejected the whole backup calendar.
@@ -248,7 +364,7 @@ func nyfedInLinkEntry(title, label string) string {
 	return `<a href="https://www.newyorkfed.org/research/synthetic-indicators">` + title + "\n(" + label + `)</a><br/><br/>` + "\n"
 }
 
-// nyfedMonthSpec is the source identity fetchNYFedNext gives a chained page.
+// nyfedMonthSpec is the source identity given to a linked monthly page.
 func nyfedMonthSpec(t *testing.T, month time.Time) Spec {
 	spec := sourceSpec(t, "nyfed-calendar")
 	spec.URL = "https://www.newyorkfed.org/research/calendars/i-" + strings.ToLower(month.Format("Jan06")) + ".html"

@@ -1,6 +1,7 @@
 # canary status · COLUMNS=80 · colour off
 
-IBKR Gateway  OFFLINE
+Canary  OFFLINE
+Reason         Broker data connection unavailable
 
 Session        auto-detect via 127.0.0.1 (tls=false), client 15
 Market data    unavailable until connected
@@ -9,14 +10,14 @@ TWS            not connected
 Last attempt   no IBKR listener found on 127.0.0.1 ports [4001 4002 7496 7497]
                (probe timeout 200ms); no TWS / IB Gateway / IBKR Desktop process
                found — start one and Canary will reconnect automatically
-Next concern   Broker data connection unavailable
 
   Daemon log: /synthetic/state/ibkr/ibkr-daemon.log
-Colors         Amber = row needs attention; Gateway verdict is separate.
+Colors         Amber = row needs attention; headline = overall Canary status.
 
 # canary status · COLUMNS=80 · colour on, ESC written as \x1b
 
-IBKR Gateway  \x1b[31m\x1b[1mOFFLINE\x1b[0m\x1b[0m
+Canary  \x1b[31m\x1b[1mOFFLINE\x1b[0m\x1b[0m
+\x1b[2mReason        \x1b[0m \x1b[31mBroker data connection unavailable\x1b[0m
 
 \x1b[2mSession       \x1b[0m auto-detect via 127.0.0.1 (tls=false), client 15
 \x1b[2mMarket data   \x1b[0m \x1b[2munavailable until connected\x1b[0m
@@ -25,8 +26,7 @@ IBKR Gateway  \x1b[31m\x1b[1mOFFLINE\x1b[0m\x1b[0m
 \x1b[2mLast attempt  \x1b[0m no IBKR listener found on 127.0.0.1 ports [4001 4002 7496 7497]
                (probe timeout 200ms); no TWS / IB Gateway / IBKR Desktop process
                found — start one and Canary will reconnect automatically
-\x1b[2mNext concern  \x1b[0m \x1b[31mBroker data connection unavailable\x1b[0m
 
 \x1b[2m  Daemon log: /synthetic/state/ibkr/ibkr-daemon.log\x1b[0m
-\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; Gateway verdict is separate.\x1b[0m
+\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; headline = overall Canary status.\x1b[0m
 

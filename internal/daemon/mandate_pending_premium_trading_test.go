@@ -123,8 +123,11 @@ func TestMandatePendingPremiumNewTimestampDoesNotProveFilledQuantity(t *testing.
 			// absent from the mandate's input. The correlated broker receipt has it.
 			result, input, _, _ := s.mandateVerdicts.current()
 			result.Exposure.AsOf = s.orderNow()
-			s.reduceFillSnapshotForTest = func(context.Context, time.Duration) ([]*ibkr.RawPosition, error) {
-				return []*ibkr.RawPosition{{Account: s.currentBrokerStateScope().Account, Contract: ibkr.Contract{ConID: 9009}, Position: 5}}, nil
+			readPositions := s.reduceFillSnapshotForTest
+			s.reduceFillSnapshotForTest = func(ctx context.Context, timeout time.Duration) ([]*ibkr.RawPosition, error) {
+				receipt, err := readPositions(ctx, timeout)
+				return append(receipt, &ibkr.RawPosition{Account: s.currentBrokerStateScope().Account,
+					Contract: ibkr.Contract{ConID: 9009, Symbol: "SYNA", SecType: "OPT", Currency: "EUR", Right: "C", Multiplier: 100}, Position: 5}), err
 			}
 			_, err = s.placeOrder(t.Context(), rpc.OrderPlaceParams{PreviewToken: preview.PreviewToken})
 			if err == nil || sent != 0 {

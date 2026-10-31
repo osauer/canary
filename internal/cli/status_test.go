@@ -56,7 +56,7 @@ func TestRenderStatus_PreservesDaemonVerdictWithSeparateDiagnostics(t *testing.T
 	renderStatusText(env, res, nil)
 	got := stdout.String()
 	for _, want := range []string{
-		"IBKR Gateway  READY",
+		"Canary  READY",
 		"Data quality   gamma degraded",
 		"SPX excluded",
 		"regime stale",
@@ -65,8 +65,8 @@ func TestRenderStatus_PreservesDaemonVerdictWithSeparateDiagnostics(t *testing.T
 			t.Fatalf("status missing %q:\n%s", want, got)
 		}
 	}
-	if strings.Contains(got, "Next concern") {
-		t.Fatalf("data-quality-only status should not duplicate Next concern:\n%s", got)
+	if strings.Contains(got, "Reason") {
+		t.Fatalf("data-quality-only status should not duplicate Reason:\n%s", got)
 	}
 }
 

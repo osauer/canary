@@ -459,6 +459,13 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 			if err := s.mandateBudgetGateError(binding.riskDraft, current.Impact); err != nil {
 				return err
 			}
+			// A class denial can arrive after the reviewed preview or admission.
+			// Keep the existing reduction/close exception at the last send check.
+			if !isRiskReducing(current.Impact.Effect) {
+				if blocker := s.brokerPermissionBlocker(binding.riskDraft.Contract); blocker != nil {
+					return refusePreview(tradingBlockersError([]rpc.TradingBlocker{*blocker}), *blocker)
+				}
+			}
 		}
 		if binding.exerciseBound {
 			current, err := s.captureWireOrderPositionAuthority(binding, status, binding.exerciseDraft)

@@ -96,11 +96,11 @@ func TestBrokerPermissionEvidenceKeepsWhatItKnows(t *testing.T) {
 	}
 
 	opt := rpc.OrderDraft{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "OPT"}}
-	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "insufficient margin"})
+	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "insufficient margin"}, s.nowUTC())
 	if v := s.handleTradingStatus().BrokerPermissions; len(v) != 1 {
 		t.Fatalf("a margin refusal of a preview showed options: %+v", v)
 	}
-	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
+	s.noteBrokerPermissionPreview(t.Context(), s.currentBrokerStateScope(), opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted}, s.nowUTC())
 	v := s.handleTradingStatus().BrokerPermissions
 	if len(v) != 2 || v[1].Class != rpc.BrokerPermissionOptions || v[1].State != rpc.BrokerPermissionEnabled || v[1].Source != brokerPermissionSourcePreview {
 		t.Fatalf("options after an accepted preview = %+v", v)
@@ -219,15 +219,15 @@ func TestBrokerPermissionAcceptedCloseShowsNothing(t *testing.T) {
 	s := newTestServer(t)
 	scope := s.currentBrokerStateScope()
 	opt := rpc.OrderDraft{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "OPT"}}
-	s.noteBrokerPermissionPreview(t.Context(), scope, opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "No trading permissions"})
+	s.noteBrokerPermissionPreview(t.Context(), scope, opt, rpc.OrderPositionEffectOpen, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusRejected, Message: "No trading permissions"}, s.nowUTC())
 	for _, effect := range []string{rpc.OrderPositionEffectReduce, rpc.OrderPositionEffectClose} {
-		s.noteBrokerPermissionPreview(t.Context(), scope, opt, effect, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
+		s.noteBrokerPermissionPreview(t.Context(), scope, opt, effect, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted}, s.nowUTC())
 		if st := s.brokerPermissions.state(scope, rpc.BrokerPermissionOptions); st.State != rpc.BrokerPermissionNotEnabled {
 			t.Fatalf("an accepted %s showed options %s", effect, st.State)
 		}
 	}
 	fresh := newTestServer(t)
-	fresh.noteBrokerPermissionPreview(t.Context(), scope, opt, rpc.OrderPositionEffectClose, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted})
+	fresh.noteBrokerPermissionPreview(t.Context(), scope, opt, rpc.OrderPositionEffectClose, rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted}, fresh.nowUTC())
 	if v := fresh.handleTradingStatus().BrokerPermissions; len(v) != 1 {
 		t.Fatalf("an accepted close showed a class: %+v", v)
 	}

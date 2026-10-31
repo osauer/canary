@@ -32,29 +32,42 @@ const (
 // on this Mac's TWS ended only when TWS itself restarted.
 type historicalStall struct {
 	mu         sync.Mutex
-	epoch      uint64
+	session    HistoricalSessionBinding
 	unanswered int
 	firstSent  time.Time
 	since      time.Time // zero unless stalled
 	probeAt    time.Time
 }
 
-// resetForEpochLocked starts over on a new broker session: a reconnected
+// resetForSessionLocked starts over on a new broker session: a reconnected
 // Gateway earns fresh requests, and a stall still there is declared anew.
-func (s *historicalStall) resetForEpochLocked(epoch uint64) {
-	if s.epoch == epoch {
+func (s *historicalStall) resetForSessionLocked(session HistoricalSessionBinding) {
+	if s.session == session {
 		return
 	}
-	s.epoch, s.unanswered, s.firstSent, s.since, s.probeAt = epoch, 0, time.Time{}, time.Time{}, time.Time{}
+	s.session, s.unanswered, s.firstSent, s.since, s.probeAt = session, 0, time.Time{}, time.Time{}, time.Time{}
+}
+
+// A queued result can outlive teardown of the request that produced it.
+// Compare the exact connection as well as its socket epoch before publishing
+// that result into the current session's stall/admission state. Callers hold
+// historicalStall.mu, so an old completion cannot replace a newer verdict.
+func (c *Connector) historicalRequestSessionCurrent(session HistoricalSessionBinding) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return session.connector == c && session.connection != nil && c.conn == session.connection && session.connection.BrokerSessionEpoch() == session.epoch
 }
 
 // admitHistoricalRequest refuses history while stalled, except for one probe
 // per historicalStallProbeEvery.
-func (c *Connector) admitHistoricalRequest(epoch uint64, now time.Time) error {
+func (c *Connector) admitHistoricalRequest(session HistoricalSessionBinding, now time.Time) error {
 	s := &c.historicalStall
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.resetForEpochLocked(epoch)
+	if !c.historicalRequestSessionCurrent(session) {
+		return errHistorySessionEnded
+	}
+	s.resetForSessionLocked(session)
 	if s.since.IsZero() {
 		return nil
 	}
@@ -68,14 +81,18 @@ func (c *Connector) admitHistoricalRequest(epoch uint64, now time.Time) error {
 
 // noteHistoricalAnswer records any broker answer to a history request: bars,
 // an end marker, or a broker error such as a pacing refusal.
-func (c *Connector) noteHistoricalAnswer(epoch uint64, now time.Time) {
-	c.answers.noteAnswer(now)
+func (c *Connector) noteHistoricalAnswer(session HistoricalSessionBinding, now time.Time) {
 	s := &c.historicalStall
 	s.mu.Lock()
-	s.resetForEpochLocked(epoch)
+	if !c.historicalRequestSessionCurrent(session) {
+		s.mu.Unlock()
+		return
+	}
+	s.resetForSessionLocked(session)
 	since := s.since
 	s.unanswered, s.firstSent, s.since, s.probeAt = 0, time.Time{}, time.Time{}, time.Time{}
 	s.mu.Unlock()
+	c.answers.noteAnswer(now)
 	if !since.IsZero() {
 		c.logWarn("IBKR Gateway answers historical data requests again after %s", now.Sub(since).Round(time.Second))
 	}
@@ -83,14 +100,19 @@ func (c *Connector) noteHistoricalAnswer(epoch uint64, now time.Time) {
 
 // noteHistoricalTimeout records a sent history request that waited out its
 // budget without any answer.
-func (c *Connector) noteHistoricalTimeout(epoch uint64, waited time.Duration, now time.Time) {
-	c.answers.noteTimeout(now)
-	if waited < historicalStallMinWait {
-		return
-	}
+func (c *Connector) noteHistoricalTimeout(session HistoricalSessionBinding, waited time.Duration, now time.Time) {
 	s := &c.historicalStall
 	s.mu.Lock()
-	s.resetForEpochLocked(epoch)
+	if !c.historicalRequestSessionCurrent(session) {
+		s.mu.Unlock()
+		return
+	}
+	if waited < historicalStallMinWait {
+		s.mu.Unlock()
+		c.answers.noteTimeout(now)
+		return
+	}
+	s.resetForSessionLocked(session)
 	if s.unanswered == 0 {
 		s.firstSent = now.Add(-waited)
 	}
@@ -101,6 +123,7 @@ func (c *Connector) noteHistoricalTimeout(epoch uint64, waited time.Duration, no
 	}
 	count, span := s.unanswered, now.Sub(s.firstSent)
 	s.mu.Unlock()
+	c.answers.noteTimeout(now)
 	if declare {
 		c.logWarn("IBKR Gateway has answered none of the last %d historical data requests over %s; holding further history requests except one probe every %s until it answers, and serving recorded history meanwhile (restarting the Gateway has cleared this before)",
 			count, span.Round(time.Second), historicalStallProbeEvery)
@@ -113,17 +136,10 @@ func (c *Connector) HistoricalServiceStalled() (time.Time, bool) {
 	if c == nil {
 		return time.Time{}, false
 	}
-	c.mu.RLock()
-	conn := c.conn
-	c.mu.RUnlock()
-	if conn == nil {
-		return time.Time{}, false
-	}
-	epoch := conn.BrokerSessionEpoch()
 	s := &c.historicalStall
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.epoch != epoch || s.since.IsZero() {
+	if !c.historicalRequestSessionCurrent(s.session) || s.since.IsZero() {
 		return time.Time{}, false
 	}
 	return s.since, true

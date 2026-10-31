@@ -36,7 +36,7 @@ func marketHistoryIdentity(p rpc.MarketHistoryParams) (string, rpc.MarketHistory
 		return "", p, err
 	}
 	if isOptionQuoteContract(p.Contract) {
-		return "", p, errors.New("option history is not supplied")
+		return "", p, errBadRequest("option history is not supplied")
 	}
 	_, contract, _, err := normaliseStockQuoteContract(p.Contract)
 	if err != nil {
@@ -48,10 +48,10 @@ func marketHistoryIdentity(p rpc.MarketHistoryParams) (string, rpc.MarketHistory
 	switch contract.SecType {
 	case "STK", "IND", "CASH", "FUT":
 	default:
-		return "", p, errors.New("unsupported history security type")
+		return "", p, errBadRequest("unsupported history security type")
 	}
 	if contract.SecType == "FUT" && (contract.ConID <= 0 || contract.Expiry == "") {
-		return "", p, errors.New("history requires an exact dated futures contract")
+		return "", p, errBadRequest("history requires an exact dated futures contract")
 	}
 	p.Contract = contract
 	b, _ := json.Marshal(struct {

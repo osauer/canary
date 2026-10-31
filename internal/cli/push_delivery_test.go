@@ -59,8 +59,11 @@ func TestPushDeliveryLineNamesSilenceWitnessAndBlockers(t *testing.T) {
 
 	var stdout bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	if got := formatPushDeliveryValueIn(env, rpc.PushDeliveryStatus{Proof: witnessed, ReceivedAt: now.Add(-time.Hour)}, now, time.UTC); !strings.HasSuffix(got, "app host last reported 2026-09-25 17:00") {
+	if got := formatPushDeliveryValueIn(env, rpc.PushDeliveryStatus{Proof: witnessed, ReceivedAt: now.Add(-time.Hour)}, now, time.UTC); !strings.HasPrefix(got, "Current delivery unknown · app host last reported 2026-09-25 17:00 · last report:") {
 		t.Fatalf("stale report not named: %q", got)
+	}
+	if got := formatPushDeliveryValueIn(env, rpc.PushDeliveryStatus{Proof: failing, ReceivedAt: now.Add(-time.Hour)}, now, time.UTC); !strings.HasPrefix(got, "Current delivery unknown") || strings.Contains(got, "enable notifications") || !strings.Contains(got, "subscription expired 2026-09-25 17:59") || !strings.Contains(got, "No push subscription") {
+		t.Fatalf("old report must retain historical subscription evidence without a current setup instruction: %q", got)
 	}
 }
 

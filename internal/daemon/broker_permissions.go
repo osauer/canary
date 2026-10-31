@@ -159,6 +159,11 @@ func (p *brokerPermissionStore) observe(ctx context.Context, scope brokerStateSc
 	if p.records == nil {
 		p.records = map[string]brokerPermissionRecord{}
 	}
+	// A daily request may finish after a newer explicit preview. Its
+	// older evidence must not erase that preview's refusal or acceptance.
+	if prev, ok := p.records[key]; ok && rec.CheckedAt.Before(prev.CheckedAt) {
+		return nil
+	}
 	if prev, ok := p.records[key]; ok && rec.State == rpc.BrokerPermissionUnknown && prev.State != rpc.BrokerPermissionUnknown {
 		if prev.State != rpc.BrokerPermissionNotEnabled || w.Status != rpc.OrderWhatIfStatusRejected {
 			return nil
@@ -285,13 +290,68 @@ func (s *Server) brokerPermissionBlocker(contract rpc.ContractParams) *rpc.Tradi
 // accepted reduce or close shows nothing: IBKR lets an account close what it
 // holds in a class it may no longer open, so the acceptance cannot show the
 // class enabled.
-func (s *Server) noteBrokerPermissionPreview(ctx context.Context, scope brokerStateScope, draft rpc.OrderDraft, effect string, w rpc.OrderWhatIfResult) {
+func (s *Server) noteBrokerPermissionPreview(ctx context.Context, scope brokerStateScope, draft rpc.OrderDraft, effect string, w rpc.OrderWhatIfResult, at time.Time) {
 	if w.Status == rpc.OrderWhatIfStatusAccepted && (effect == rpc.OrderPositionEffectReduce || effect == rpc.OrderPositionEffectClose) {
 		return
 	}
-	if err := s.brokerPermissions.observe(ctx, scope, brokerPermissionClass(draft.Contract), brokerPermissionSourcePreview, w, s.nowUTC()); err != nil {
+	if err := s.brokerPermissions.observe(ctx, scope, brokerPermissionClass(draft.Contract), brokerPermissionSourcePreview, w, at); err != nil {
 		s.warnf("broker permissions: %v", err)
 	}
+}
+
+// An accepted opening preview is class evidence only while its reviewed
+// position still proves that direction opens. Unproven evidence leaves the
+// remembered class state unchanged; the order's own token and admission gates
+// remain authoritative. A rejection needs no opening-position inference.
+func (s *Server) noteBoundBrokerPermissionPreview(ctx context.Context, status rpc.TradingStatus, draft rpc.OrderDraft, position orderPositionAuthority, authority *orderPreviewBrokerAuthority, orders protectionOrderSnapshotBinding, w rpc.OrderWhatIfResult, at time.Time) {
+	if brokerPermissionClass(draft.Contract) == "" {
+		return
+	}
+	scope := brokerStateScope{Account: strings.TrimSpace(status.Account), Mode: accountModeForStatus(status.GatewayPort, status.Account)}
+	keep := func() error {
+		s.noteBrokerPermissionPreview(ctx, scope, draft, position.Impact.Effect, w, at)
+		return nil
+	}
+	if w.Status != rpc.OrderWhatIfStatusAccepted || isRiskReducing(position.Impact.Effect) {
+		_ = keep()
+		return
+	}
+	if authority != nil || s.reduceFillSnapshotForTest != nil {
+		if err := s.brokerPermissionPositionReceipt(ctx, orders, draft.Contract, position.Impact.Before); err != nil {
+			return
+		}
+	}
+	if authority != nil {
+		current, ok := authority.connector.CaptureBrokerEvidence()
+		if !ok || current.Session != authority.session || current.OrderLifecycleGeneration != orders.generation || current.PortfolioProjectionGeneration != position.Generation {
+			return
+		}
+		_, _ = s.withStableBrokerEvidence(daemonBrokerEvidenceBinding{
+			scope: scope, connector: authority.connector, connectorEpoch: authority.connectorEpoch, broker: current,
+		}, keep)
+		return
+	}
+	// An explicit test position reader has no physical broker frontier.
+	// Re-read that same account and direction to model the bound receipt.
+	current, err := s.capturePreviewOrderPositionAuthority(ctx, status, draft.Contract, draft.Action, draft.Quantity)
+	if err != nil || current.Generation != position.Generation || !sameOrderPositionImpact(current.Impact, position.Impact) || orders.generation != s.reduceFillBinding().generation {
+		return
+	}
+	_ = keep()
+}
+
+// Both daily and requested opening previews corroborate their stream quantity
+// with the existing request-correlated, exact-account positions receipt.
+func (s *Server) brokerPermissionPositionReceipt(ctx context.Context, binding protectionOrderSnapshotBinding, contract rpc.ContractParams, before float64) error {
+	receipt, err := s.orderFillPositionsReceipt(ctx, binding, int(orderPreviewDefaultWait.Milliseconds()))
+	if err != nil {
+		return err
+	}
+	quantity, err := exactRiskPositionQuantity(receipt, contract)
+	if err != nil || !cachedPositionsMatchBrokerScope(receipt, binding.scope) || math.IsNaN(quantity) || math.IsInf(quantity, 0) || quantity != before {
+		return fmt.Errorf("the held position has not caught up with the broker's positions receipt")
+	}
+	return nil
 }
 
 // startBrokerPermissionChecks runs the futures check at start and daily.
@@ -337,6 +397,20 @@ func (s *Server) checkBrokerPermissions(ctx context.Context, status rpc.TradingS
 		}
 		return false
 	}
+	authority, err := s.captureOrderPreviewBrokerAuthority()
+	if err != nil {
+		return unanswered(err.Error())
+	}
+	checkBinding := s.reduceFillBinding()
+	if !sameBrokerScope(scope, checkBinding.scope) {
+		return unanswered("the broker account or session changed before the permission check")
+	}
+	if authority != nil {
+		statusScope := brokerStateScope{Account: strings.TrimSpace(status.Account), Mode: accountModeForStatus(status.GatewayPort, status.Account)}
+		if authority.connector != checkBinding.connector || authority.connectorEpoch != checkBinding.connectorEpoch || authority.session != checkBinding.session || !sameBrokerScope(scope, statusScope) {
+			return unanswered("the broker account or session changed before the permission check")
+		}
+	}
 	contract, quote, err := s.reduceHedgeFuture(readCtx)
 	if err != nil || contract.ConID == 0 {
 		return unanswered(fmt.Sprintf("no Micro S&P contract read: %v", err))
@@ -345,25 +419,71 @@ func (s *Server) checkBrokerPermissions(ctx context.Context, status rpc.TradingS
 	// open, so with a short held the buy would show futures enabled
 	// whatever the permission. A sale adds to the short instead.
 	action, price := rpc.OrderActionBuy, brokerPermissionCheckPrice(hedgeQuotePrice(quote))
-	position, err := s.capturePreviewOrderPositionAuthority(readCtx, status, contract, action, 1)
+	var position orderPositionAuthority
+	if authority != nil {
+		position, err = s.captureBoundOrderPositionAuthority(readCtx, authority.connector, authority.session, status, contract, action, 1)
+	} else {
+		position, err = s.capturePreviewOrderPositionAuthority(readCtx, status, contract, action, 1)
+	}
 	if err != nil {
 		return unanswered(fmt.Sprintf("the held %s position could not be read: %v", contract.LocalSymbol, err))
+	}
+	// A completed fill can precede its streaming portfolio update. Require
+	// an exact-account, request-correlated quantity before choosing the
+	// opening direction; the existing lifecycle binding also fences a fill
+	// arriving during the receipt or the WhatIf. WhatIf callbacks themselves
+	// are excluded from that lifecycle frontier by Connector.
+	if authority != nil || s.reduceFillSnapshotForTest != nil {
+		if err := s.brokerPermissionPositionReceipt(readCtx, checkBinding, contract, position.Impact.Before); err != nil {
+			return unanswered(err.Error())
+		}
 	}
 	if isRiskReducing(position.Impact.Effect) {
 		action, price = rpc.OrderActionSell, brokerPermissionCheckSellPrice(hedgeQuotePrice(quote))
 	}
 	draft := rpc.OrderDraft{Action: action, Contract: contract, Quantity: 1, OrderType: rpc.OrderTypeLMT,
 		LimitPrice: price, TIF: rpc.OrderTIFDay, OrderRef: brokerPermissionCheckOrderRef}
-	w, err := s.fetchPreviewWhatIfBound(readCtx, status, draft, orderPreviewDefaultWait, nil)
+	w, err := s.fetchPreviewWhatIfBound(readCtx, status, draft, orderPreviewDefaultWait, authority)
 	if err != nil {
 		return unanswered(err.Error())
 	}
 	if w.Status != rpc.OrderWhatIfStatusAccepted && w.Status != rpc.OrderWhatIfStatusRejected {
 		return unanswered(nonEmptyString(w.Message, "the broker returned no preview"))
 	}
+	// The direction proves opening permission only while the account,
+	// socket and structural position receipt remain the ones it was chosen
+	// from. Publish under the existing evidence barrier, so a fill cannot
+	// turn the probe into a close between this validation and persistence.
+	if !s.reduceFillBindingCurrent(checkBinding) {
+		return unanswered("the broker account, session or orders changed during the permission check")
+	}
+	keep := func() error {
+		return s.brokerPermissions.observe(ctx, scope, class, brokerPermissionSourceCheck, w, now)
+	}
+	if authority != nil {
+		current, ok := authority.connector.CaptureBrokerEvidence()
+		if !ok || current.Session != authority.session || current.OrderLifecycleGeneration != checkBinding.generation || current.PortfolioProjectionGeneration != position.Generation {
+			return unanswered("the held position changed during the permission check")
+		}
+		kept, keepErr := s.withStableBrokerEvidence(daemonBrokerEvidenceBinding{
+			scope: scope, connector: authority.connector, connectorEpoch: authority.connectorEpoch, broker: current,
+		}, keep)
+		if !kept && keepErr == nil {
+			return unanswered("the broker account, session or held position changed during the permission check")
+		}
+		err = keepErr
+	} else {
+		// Only explicit in-process test seams can have no broker authority.
+		// Re-read their receipt in the same direction used for the first read.
+		current, readErr := s.capturePreviewOrderPositionAuthority(readCtx, status, contract, rpc.OrderActionBuy, 1)
+		if readErr != nil || current.Generation != position.Generation || !sameOrderPositionImpact(current.Impact, position.Impact) {
+			return unanswered("the held position changed during the permission check")
+		}
+		err = keep()
+	}
 	s.brokerPermissions.markChecked(scope, class, now)
 	s.infof("broker permissions: futures check %s: %s", w.Status, brokerPermissionDetail(nonEmptyString(w.Message, "no broker text")))
-	if err := s.brokerPermissions.observe(ctx, scope, class, brokerPermissionSourceCheck, w, now); err != nil {
+	if err != nil {
 		s.warnf("broker permissions: %v", err)
 	}
 	return true

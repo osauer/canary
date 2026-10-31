@@ -141,6 +141,12 @@ func (s *Server) refreshMarketHistoryInterest(ctx context.Context, key string, r
 	if err != nil && ctx.Err() != nil {
 		return
 	}
+	// Pacing and the request itself can consume the refresh window. Start
+	// the existing retry interval when that attempt finishes, not before it.
+	now = time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
 	verdict := marketHistoryVerdict(err)
 	s.marketData.mu.Lock()
 	// The series may have expired or been evicted during the read; it then

@@ -1,6 +1,6 @@
 # The paired app
 
-Updated: 2026-09-25 19:25 CEST
+Updated: 2026-10-31 08:33 CET
 
 Run `canary app` on the Mac to get Canary on your phone. That single process serves
 the progressive web app, handles pairing, streams live updates to paired devices
@@ -106,6 +106,9 @@ canary status
 The `Phone push` row says how long alert pushes have been silent, which device
 last reported a push displayed or opened, and what blocks delivery: alert intake
 refused, no subscription, an expired subscription, or notifications off.
+If the app host has not reported for more than fifteen minutes, the row leads
+with current delivery unknown and the last report time. Its historical evidence
+remains visible, but it cannot establish the phone's current notification setup.
 `canary status --json` carries the full record under `push_delivery`, and
 `canary app status` adds the last push sent. `/api/push/diagnostic` is
 local-Mac only and the remote relay refuses it.

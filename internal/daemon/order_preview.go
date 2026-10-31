@@ -424,6 +424,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}
 	// Position impact resolves before the size caps so sell-side apparent exits
 	// manual TWS order has not already consumed the apparent exit capacity.
+	permissionBinding := s.reduceFillBinding()
 	var positionAuthority orderPositionAuthority
 	if previewAuthority != nil {
 		positionAuthority, err = s.captureBoundOrderPositionAuthority(ctx, previewAuthority.connector, previewAuthority.session, status, contract, action, p.Quantity)
@@ -618,7 +619,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if mandateBlocker != nil {
 		return nil, refusePreview(errBadRequest(mandateBlocker.Message), *mandateBlocker)
 	}
-	permissionScope := brokerStateScope{Account: strings.TrimSpace(status.Account), Mode: accountModeForStatus(status.GatewayPort, status.Account)}
+	permissionAt := s.nowUTC()
 	var whatIf rpc.OrderWhatIfResult
 	if scope == rpc.OrderTokenScopeModify {
 		whatIf, err = s.fetchModifyPreviewWhatIfBound(ctx, status, replaceView, draft, timeout, previewAuthority)
@@ -636,7 +637,7 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	// an inconclusive answer keeps the denial and cannot mint a token.
 	// Modification previews supply the same permission evidence; an
 	// accepted reduce or close supplies none.
-	s.noteBrokerPermissionPreview(ctx, permissionScope, draft, position.Effect, whatIf)
+	s.noteBoundBrokerPermissionPreview(ctx, status, draft, positionAuthority, previewAuthority, permissionBinding, whatIf, permissionAt)
 	if b := s.brokerPermissionBlocker(contract); b != nil && position.Effect != rpc.OrderPositionEffectReduce && position.Effect != rpc.OrderPositionEffectClose {
 		return nil, refusePreview(errBadRequest(b.Message), *b)
 	}

@@ -18,8 +18,9 @@ import (
 // sized on the mandate's index stress of the whole book, every line counted,
 // locked hedges too: neutral is the book's own change in the fall, and a
 // hedge the owner keeps pays in it. Whole contracts, rounded toward less
-// hedge, so the book never ends short of the index. A plan only: no order
-// path carries a future yet.
+// hedge, so the book never ends short of the index. A plan carries no submit
+// authority; a separately requested preview and gated submit use the index
+// hedge's own futures path.
 
 // hedgeRollWindow skips a contract in its expiry week: the hedge is sold in
 // the next quarterly before the front one's last week begins.

@@ -29,9 +29,9 @@ func TestRenderStatusNamesAPortThatDropsConnections(t *testing.T) {
 	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, res, nil)
 	got := stdout.String()
 	for _, want := range []string{
-		"IBKR Gateway  OFFLINE",
+		"Canary  OFFLINE",
 		"port 4001 accepts connections and resets them before the API handshake (IB Gateway pid 17443)",
-		"Next concern   Broker API port accepts connections and drops them before the handshake",
+		"Reason   Broker API port accepts connections and drops them before the handshake",
 		"  " + hint,
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(got), " "), strings.Join(strings.Fields(want), " ")) {

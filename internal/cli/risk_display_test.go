@@ -104,14 +104,14 @@ func TestStatusExplainsPushAndEverySourceConcern(t *testing.T) {
 		PushDelivery: &rpc.PushDeliveryStatus{ReceivedAt: now, Proof: rpc.PushDeliveryProof{Mode: "watch_and_act", Dispatcher: "unavailable", DispatcherClass: "no_active_subscription"}},
 	}
 	renderStatusText(&Env{Stdout: &out}, &res, nil)
-	if !strings.Contains(out.String(), "Phone push     No push subscription;") || strings.Contains(out.String(), "Next concern") || strings.Count(out.String(), "Required sources are available") != 1 {
+	if !strings.Contains(out.String(), "Phone push     No push subscription;") || strings.Contains(out.String(), "Reason") || strings.Count(out.String(), "Required sources are available") != 1 {
 		t.Fatal("status hides push blocker or duplicates healthy verdict", out.String())
 	}
 	out.Reset()
 	res.Verdict = rpc.HealthVerdict{State: "ATTENTION", Reason: "Two sources missing"}
 	res.DataHealth.Concerns = []rpc.DataHealthConcern{{Label: "First source unavailable"}, {Label: "Second source unverified"}}
 	renderStatusText(&Env{Stdout: &out}, &res, nil)
-	for _, want := range []string{"First source unavailable", "Second source unverified", "Next concern"} {
+	for _, want := range []string{"First source unavailable", "Second source unverified", "Reason"} {
 		if !strings.Contains(out.String(), want) {
 			t.Fatal("lost status concern", want)
 		}

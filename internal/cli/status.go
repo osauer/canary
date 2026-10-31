@@ -71,7 +71,10 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	cliVersion := env.Version
 
 	fmt.Fprintln(out)
-	fmt.Fprintf(out, "IBKR Gateway  %s\n", env.statusBadge(apiStatusConcern(res.Verdict.State, res.Verdict.State)))
+	fmt.Fprintf(out, "Canary  %s\n", env.statusBadge(apiStatusConcern(res.Verdict.State, res.Verdict.State)))
+	if res.Verdict.Reason != "" && res.Verdict.State != "READY" {
+		statusHealthRow(env, out, "Reason", env.concernText(apiStatusConcern(res.Verdict.State, res.Verdict.Reason)))
+	}
 	fmt.Fprintln(out)
 
 	statusHealthRow(env, out, "Session", formatSessionValue(env, *res))
@@ -194,13 +197,10 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		statusHealthRow(env, out, "Data health", res.DataHealth.Summary.Label)
 		for _, concern := range res.DataHealth.Concerns {
 			if concern.Label != "" && res.Verdict.State != "READY" && (res.Verdict.Reason == concern.Label || strings.HasPrefix(res.Verdict.Reason, concern.Label+" · ")) {
-				continue // The daemon's primary concern is already printed below.
+				continue // The daemon's primary concern is already printed above.
 			}
 			statusHealthRow(env, out, "Source concern", env.yellow(sanitizeRunText(concern.Label)))
 		}
-	}
-	if res.Verdict.Reason != "" && res.Verdict.State != "READY" {
-		statusHealthRow(env, out, "Next concern", env.concernText(apiStatusConcern(res.Verdict.State, res.Verdict.Reason)))
 	}
 	if daemonVersionDrift(res.DaemonVersion, cliVersion) {
 		statusHealthRow(env, out, "Local client", fmt.Sprintf("CLI %s differs from daemon %s", cliVersion, res.DaemonVersion))
@@ -224,7 +224,7 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, env.dim("  Daemon log: "+dial.DisplayPath(dial.DefaultLogPath())))
 	}
-	statusHealthRow(env, out, "Colors", env.dim("Amber = row needs attention; Gateway verdict is separate."))
+	statusHealthRow(env, out, "Colors", env.dim("Amber = row needs attention; headline = overall Canary status."))
 	fmt.Fprintln(out)
 }
 
@@ -252,7 +252,7 @@ func formatExecutionVisibilityValue(env *Env, v rpc.ExecutionVisibilityHealth) s
 		}
 		return env.green(value)
 	}
-	return env.yellow(fmt.Sprintf("other-client fills not yet observed · check TWS Master API client ID is %d", v.ClientID))
+	return env.yellow(fmt.Sprintf("other-client fills not yet observed · required TWS Master API client ID: %d", v.ClientID))
 }
 
 // formatPortRejectionValue renders the port_rejecting phase as one fact:

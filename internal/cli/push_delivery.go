@@ -96,6 +96,7 @@ func formatPushDeliveryValue(env *Env, status rpc.PushDeliveryStatus, now time.T
 
 func formatPushDeliveryValueIn(env *Env, status rpc.PushDeliveryStatus, now time.Time, loc *time.Location) string {
 	line, ok := pushDeliveryLine(status.Proof, now, loc)
+	outdated := now.Sub(status.ReceivedAt) > pushReportStaleAfter
 	// Put the concrete blocker before the historical delivery proof. Keep the
 	// shared proof text intact for app status and detailed diagnostics.
 	if status.Proof.Mode != "none" && status.Proof.ActiveSubscriptions == 0 {
@@ -103,10 +104,17 @@ func formatPushDeliveryValueIn(env *Env, status rpc.PushDeliveryStatus, now time
 		if status.Proof.Dispatcher == "unavailable" && status.Proof.DispatcherClass == "no_active_subscription" {
 			line = strings.Replace(line, " · dispatcher unavailable (no_active_subscription)", "", 1)
 		}
-		line = "No push subscription; enable notifications on the phone · " + line
+		blocker := "No push subscription"
+		if !outdated {
+			blocker += "; enable notifications on the phone"
+		}
+		line = blocker + " · " + line
 	}
-	if age := now.Sub(status.ReceivedAt); age > pushReportStaleAfter {
-		line += " · app host last reported " + status.ReceivedAt.In(loc).Format("2006-01-02 15:04")
+	if outdated {
+		// An old app report proves historical delivery facts, not the phone's
+		// current setup. Preserve those facts without a present-tense action.
+		line = strings.ReplaceAll(line, "; enable notifications on the phone", "")
+		line = "Current delivery unknown · app host last reported " + status.ReceivedAt.In(loc).Format("2006-01-02 15:04") + " · last report: " + line
 		ok = false
 	}
 	if ok {

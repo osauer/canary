@@ -40,8 +40,11 @@ func TestPostreleasePartialOptionBuyModify(t *testing.T) {
 			s.orderPreviewWhatIf = func(context.Context, rpc.OrderDraft) (rpc.OrderWhatIfResult, error) {
 				return rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted, Available: true}, nil
 			}
-			s.reduceFillSnapshotForTest = func(context.Context, time.Duration) ([]*ibkr.RawPosition, error) {
-				return []*ibkr.RawPosition{{Account: s.currentBrokerStateScope().Account, Contract: ibkr.Contract{ConID: 9009}, Position: 5}}, nil
+			readPositions := s.reduceFillSnapshotForTest
+			s.reduceFillSnapshotForTest = func(ctx context.Context, timeout time.Duration) ([]*ibkr.RawPosition, error) {
+				receipt, err := readPositions(ctx, timeout)
+				return append(receipt, &ibkr.RawPosition{Account: s.currentBrokerStateScope().Account,
+					Contract: ibkr.Contract{ConID: 9009, Symbol: "SYNA", SecType: "OPT", Currency: "EUR", Right: "C", Multiplier: 100}, Position: 5}), err
 			}
 			s.openOrderInventoryForTest = func(context.Context, bool) (ibkr.OpenOrderSnapshot, brokerStateScope, error) {
 				return ibkr.OpenOrderSnapshot{Complete: true, AsOf: s.orderNow(), Orders: []ibkr.OrderLifecycleEvent{{Type: ibkr.OrderLifecycleEventOpenOrder, OrderID: 1002, ClientID: 31, ClientIDPresent: true, Account: s.currentBrokerStateScope().Account, ConID: 9009, Symbol: "SYNA", SecType: "OPT", Currency: "EUR", Multiplier: 100, Action: "BUY", OrderType: "LMT", LimitPrice: 8, TotalQuantity: 10, Filled: 5, Remaining: 5, Status: "Submitted"}}}, s.currentBrokerStateScope(), nil

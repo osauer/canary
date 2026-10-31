@@ -27,6 +27,7 @@ var nyfedAnchor = regexp.MustCompile(`(?is)<a\b`)
 var nyfedAnchorEnd = regexp.MustCompile(`(?i)</a>`)
 var nyfedDay = regexp.MustCompile(`^([0-9]{2})(?:\s|$)`)
 var nyfedNext = regexp.MustCompile(`(?is)<a\b[^>]*href="(/research/calendars/i-[a-z]{3}[0-9]{2}\.html)"[^>]*>\s*NEXT MONTH`)
+var nyfedPrevious = regexp.MustCompile(`(?is)<a\b[^>]*href="(/research/calendars/i-[a-z]{3}[0-9]{2}\.html)"[^>]*>\s*(?:<img\b[^>]*>\s*)?(?:&nbsp;|\s)*PREVIOUS MONTH`)
 var nyfedMonthPath = regexp.MustCompile(`^/research/calendars/i-[a-z]{3}[0-9]{2}\.html$`)
 
 func calendarSourceURL(s Spec, raw string) bool {
@@ -137,9 +138,8 @@ func nyfedRelease(segment string) (title, label string, ok bool) {
 }
 
 func (c *Client) fetchNYFed(ctx context.Context, spec Spec, now time.Time) (Batch, error) {
-	// Read only consecutive next-month links published by the calendar. The
-	// landing page may still name last month at rollover; its published successor
-	// can establish the current month without guessing an archive URL.
+	// The landing page can lead or lag the current month at rollover. Follow
+	// only its published adjacent-month link, never a guessed archive URL.
 	res, err := c.read(ctx, spec.URL, Batch{})
 	if err != nil {
 		return Batch{}, err
@@ -152,21 +152,29 @@ func (c *Client) fetchNYFed(ctx context.Context, spec Spec, now time.Time) (Batc
 	loc, _ := time.LoadLocation(spec.Timezone)
 	today := now.In(loc).Format(time.DateOnly)
 	first, _ := time.Parse(time.DateOnly, batch.WindowStart)
-	if today < batch.WindowStart || today >= first.AddDate(0, 2, 0).Format(time.DateOnly) {
+	if today < first.AddDate(0, -1, 0).Format(time.DateOnly) || today >= first.AddDate(0, 2, 0).Format(time.DateOnly) {
 		return Batch{}, errors.New("calendar source: New York Fed calendar does not cover the current date")
 	}
-	if today > batch.WindowEnd {
-		batch, raw, err = c.fetchNYFedNext(ctx, spec, batch, raw, now)
-		if err != nil {
-			return Batch{}, err
-		}
+	var more Batch
+	if today < batch.WindowStart {
+		// Retain the already validated next month if the seven-day window
+		// crosses into it. This path needs at most two public reads.
+		more = batch
+		batch, raw, err = c.fetchNYFedAdjacent(ctx, spec, batch, raw, now, -1)
+	} else if today > batch.WindowEnd {
+		batch, raw, err = c.fetchNYFedAdjacent(ctx, spec, batch, raw, now, 1)
+	}
+	if err != nil {
+		return Batch{}, err
 	}
 	if now.In(loc).AddDate(0, 0, 7).Format(time.DateOnly) <= batch.WindowEnd {
 		return batch, nil
 	}
-	more, _, err := c.fetchNYFedNext(ctx, spec, batch, raw, now)
-	if err != nil {
-		return Batch{}, err
+	if more.WindowStart == "" {
+		more, _, err = c.fetchNYFedAdjacent(ctx, spec, batch, raw, now, 1)
+		if err != nil {
+			return Batch{}, err
+		}
 	}
 	batch.Events = append(batch.Events, more.Events...)
 	batch.WindowEnd = more.WindowEnd
@@ -177,17 +185,21 @@ func (c *Client) fetchNYFed(ctx context.Context, spec Spec, now time.Time) (Batc
 	return batch, nil
 }
 
-func (c *Client) fetchNYFedNext(ctx context.Context, spec Spec, prior Batch, raw []byte, now time.Time) (Batch, []byte, error) {
-	links := nyfedNext.FindAllStringSubmatch(string(raw), -1)
-	if len(links) != 1 {
-		return Batch{}, nil, errors.New("calendar source: New York Fed next-month calendar link unavailable")
+func (c *Client) fetchNYFedAdjacent(ctx context.Context, spec Spec, prior Batch, raw []byte, now time.Time, monthOffset int) (Batch, []byte, error) {
+	pattern, direction := nyfedNext, "next-month"
+	if monthOffset < 0 {
+		pattern, direction = nyfedPrevious, "previous-month"
 	}
-	end, _ := time.Parse(time.DateOnly, prior.WindowEnd)
-	nextMonth := end.AddDate(0, 0, 1)
+	links := pattern.FindAllStringSubmatch(string(raw), -1)
+	if len(links) != 1 {
+		return Batch{}, nil, errors.New("calendar source: New York Fed " + direction + " calendar link unavailable")
+	}
+	first, _ := time.Parse(time.DateOnly, prior.WindowStart)
+	month := first.AddDate(0, monthOffset, 0)
 	// Check the link's month before requesting it, then verify the response
 	// heading as well. An allowed host alone cannot establish provenance.
-	if links[0][1] != "/research/calendars/i-"+strings.ToLower(nextMonth.Format("Jan06"))+".html" {
-		return Batch{}, nil, errors.New("calendar source: New York Fed next-month link is not consecutive")
+	if links[0][1] != "/research/calendars/i-"+strings.ToLower(month.Format("Jan06"))+".html" {
+		return Batch{}, nil, errors.New("calendar source: New York Fed " + direction + " link is not consecutive")
 	}
 	next := spec
 	next.URL = "https://www.newyorkfed.org" + links[0][1]
@@ -200,8 +212,8 @@ func (c *Client) fetchNYFedNext(ctx context.Context, spec Spec, prior Batch, raw
 	if err != nil {
 		return Batch{}, nil, err
 	}
-	if more.WindowStart != nextMonth.Format(time.DateOnly) {
-		return Batch{}, nil, errors.New("calendar source: New York Fed next-month calendar is not consecutive")
+	if more.WindowStart != month.Format(time.DateOnly) {
+		return Batch{}, nil, errors.New("calendar source: New York Fed " + direction + " calendar is not consecutive")
 	}
 	return more, raw, nil
 }

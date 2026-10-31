@@ -1,6 +1,7 @@
 # canary status · COLUMNS=80 · colour off
 
-IBKR Gateway  OFFLINE
+Canary  OFFLINE
+Reason         Broker data connection unavailable
 
 Session        auto-detect via 127.0.0.1:4002 (tls=false, configured), client 15
 Market data    unavailable until connected
@@ -11,14 +12,14 @@ Last attempt   127.0.0.1:4002 refused the connection; IB Gateway is running (pid
                opens once its login has completed), or it listens on a
                non-default Socket port (Configure → Settings → API → Settings;
                pin it in ~/.config/ibkr/config.toml under [gateway])
-Next concern   Broker data connection unavailable
 
   Daemon log: /synthetic/state/ibkr/ibkr-daemon.log
-Colors         Amber = row needs attention; Gateway verdict is separate.
+Colors         Amber = row needs attention; headline = overall Canary status.
 
 # canary status · COLUMNS=80 · colour on, ESC written as \x1b
 
-IBKR Gateway  \x1b[31m\x1b[1mOFFLINE\x1b[0m\x1b[0m
+Canary  \x1b[31m\x1b[1mOFFLINE\x1b[0m\x1b[0m
+\x1b[2mReason        \x1b[0m \x1b[31mBroker data connection unavailable\x1b[0m
 
 \x1b[2mSession       \x1b[0m auto-detect via 127.0.0.1:4002 (tls=false, configured), client 15
 \x1b[2mMarket data   \x1b[0m \x1b[2munavailable until connected\x1b[0m
@@ -29,8 +30,7 @@ IBKR Gateway  \x1b[31m\x1b[1mOFFLINE\x1b[0m\x1b[0m
                opens once its login has completed), or it listens on a
                non-default Socket port (Configure → Settings → API → Settings;
                pin it in ~/.config/ibkr/config.toml under [gateway])
-\x1b[2mNext concern  \x1b[0m \x1b[31mBroker data connection unavailable\x1b[0m
 
 \x1b[2m  Daemon log: /synthetic/state/ibkr/ibkr-daemon.log\x1b[0m
-\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; Gateway verdict is separate.\x1b[0m
+\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; headline = overall Canary status.\x1b[0m
 

@@ -1,0 +1,34 @@
+# canary status · COLUMNS=80 · colour off
+
+Canary  ATTENTION
+Reason         New York Fed key releases: Prior data · refresh failed
+
+Session        DU0000000 (PAPER) via 127.0.0.1:4002 (tls=false), client 7
+Market data    Live
+Daemon         v0.0.0-golden, just started
+TWS            API server 203
+Executions     other-client fills not yet observed · required TWS Master API
+               client ID: 7
+Phone push     Current delivery unknown · app host last reported 2026-09-04
+               14:00 · last report: No push subscription · no alert push
+               accepted on record · never witnessed on a device
+Data health    1 source concern · 0 expected delays · 0 unknown coverage
+Colors         Amber = row needs attention; headline = overall Canary status.
+
+# canary status · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary  \x1b[33m\x1b[1mATTENTION\x1b[0m\x1b[0m
+\x1b[2mReason        \x1b[0m \x1b[33mNew York Fed key releases: Prior data · refresh failed\x1b[0m
+
+\x1b[2mSession       \x1b[0m DU0000000 (\x1b[1mPAPER\x1b[0m) via 127.0.0.1:4002 (tls=false), client 7
+\x1b[2mMarket data   \x1b[0m Live
+\x1b[2mDaemon        \x1b[0m v0.0.0-golden, just started
+\x1b[2mTWS           \x1b[0m API server 203
+\x1b[2mExecutions    \x1b[0m \x1b[33mother-client fills not yet observed · required TWS Master API
+               client ID: 7\x1b[0m
+\x1b[2mPhone push    \x1b[0m \x1b[33mCurrent delivery unknown · app host last reported 2026-09-04
+               14:00 · last report: No push subscription · no alert push
+               accepted on record · never witnessed on a device\x1b[0m
+\x1b[2mData health   \x1b[0m 1 source concern · 0 expected delays · 0 unknown coverage
+\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; headline = overall Canary status.\x1b[0m
+

@@ -45,6 +45,25 @@ func mandateTestServer(t *testing.T, c *risk.Constitution) (*Server, *riskCapita
 	srv.openOrderInventoryForTest = func(context.Context, bool) (ibkr.OpenOrderSnapshot, brokerStateScope, error) {
 		return ibkr.OpenOrderSnapshot{Complete: true, AsOf: srv.orderNow()}, srv.currentBrokerStateScope(), nil
 	}
+	// The broker's independent receipt agrees with the fixture book unless a
+	// test overrides it to exercise fills, missing scope or other drift.
+	srv.reduceFillSnapshotForTest = func(ctx context.Context, _ time.Duration) ([]*ibkr.RawPosition, error) {
+		if srv.mandatePositionsForTest == nil {
+			return nil, errors.New("fixture positions unavailable")
+		}
+		positions, err := srv.mandatePositionsForTest(ctx)
+		if err != nil || positions == nil {
+			return nil, err
+		}
+		var receipt []*ibkr.RawPosition
+		for _, rows := range [][]rpc.PositionView{positions.Stocks, positions.Options} {
+			for _, row := range rows {
+				receipt = append(receipt, &ibkr.RawPosition{Account: srv.currentBrokerStateScope().Account,
+					Contract: ibkr.Contract{ConID: row.ConID, Symbol: row.Symbol, SecType: positionWireSecType(row.SecType), Currency: row.Currency, Right: row.Right, Multiplier: row.Multiplier}, Position: row.Quantity})
+			}
+		}
+		return receipt, nil
+	}
 	st.now = srv.now
 	srv.riskPolicies.active = c
 	st.Observe(300000, mandateTestNow.Add(-2*time.Minute), c, testLiveObserveScope, true)

@@ -67,9 +67,9 @@ func TestRenderStatusOfflineShowsTheDaemonsCauseAndNextStep(t *testing.T) {
 				t.Fatalf("daemon cause printed %d times, want once:\n%s", n, stdout.String())
 			}
 			for _, want := range []string{
-				"IBKR Gateway OFFLINE",
+				"Canary OFFLINE",
 				"Last attempt " + cause,
-				"Next concern " + tc.res.Verdict.Reason,
+				"Reason " + tc.res.Verdict.Reason,
 				"Daemon log:",
 			} {
 				if !strings.Contains(got, want) {
@@ -95,7 +95,7 @@ func TestRenderStatusHandshakeInFlightPrefersTheDaemonsVerdict(t *testing.T) {
 	var stdout bytes.Buffer
 	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, &res, nil)
 	got := normalizedText(stdout.String())
-	for _, want := range []string{"IBKR Gateway STARTING", "handshake in progress", "Last attempt " + normalizedText(watchdog), "Handshake did not complete within 25s.", "Daemon log:"} {
+	for _, want := range []string{"Canary STARTING", "handshake in progress", "Last attempt " + normalizedText(watchdog), "Handshake did not complete within 25s.", "Daemon log:"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("status missing %q:\n%s", want, stdout.String())
 		}

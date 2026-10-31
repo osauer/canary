@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-10-05 22:20 CEST
+Updated: 2026-10-31 08:33 CET
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -11,7 +11,7 @@ canary status
 canary brief
 ```
 
-`canary status` answers one question before anything else matters: which broker session am I attached to. It exits 1 when the gateway is not connected, so it also works as a guard in a script.
+`canary status` shows Canary's overall health and the reason for any concern before the broker-session details. A calendar or data-source problem can require attention while the gateway remains connected. Amber rows retain their own concerns, including execution visibility and phone delivery; they do not all determine the headline. The command exits 1 when the gateway is not connected, so it also works as a connection guard in a script; exit 0 does not mean every source is healthy. `--json` carries the daemon's full verdict and evidence.
 
 `canary brief` opens with assessment completeness and the served portfolio-risk
 reading. **Needs review** keeps reported findings visible even when other inputs
@@ -40,7 +40,7 @@ Behind the prose the row vocabulary is unchanged, and it is what the composition
 
 Coverage and risk findings can coexist: an attention row may also contain unknown
 checks. Disabled or inapplicable rules are not missing evidence. Full per-row
-reasons remain in `--details`; `canary status` diagnoses runtime connectivity.
+reasons remain in `--details`; `canary status` diagnoses runtime and source health.
 [Sensors](../understand/sensors.md) explains freshness and source cadence.
 
 An older daemon without the overview retains the previous full render.
@@ -82,6 +82,8 @@ Failed primary reads remain visible. The independent
 [New York Fed calendar](https://www.newyorkfed.org/research/calendars/nationalecon_cal.html)
 supplies key-release backup with its own source identity and published month
 bounds, including the next published month when the coming week crosses month end.
+If its landing page advances early or lags behind, Canary follows the published
+adjacent-month link to establish coverage for today's date in New York.
 Its numeric 01–12 time labels omit a meridiem and remain `source_label`;
 they do not become invented overnight instants. A time label may follow a
 release link or close its text; an entry in neither layout is skipped and
@@ -98,7 +100,15 @@ These fields describe the current observed failure streak; an older retained
 record without those fields cannot establish when a failure first began.
 `canary data health` reports the typed cause of the latest failed read with its
 time, and the number of failed reads since the streak began. A successful read
-clears the streak.
+clears that calendar's failure streak.
+
+IBKR history health retains each timeout concern for five minutes. A later
+successful request does not erase it: that success may cover a different series.
+After the concern expires, a still-current success can restore the source to
+current without another request. This source-level warning does not establish
+a Gateway outage or the suitability of any individual chart; each chart carries
+its own coverage evidence. Failed background chart refreshes retain their retry
+interval after the request finishes, including time spent waiting for pacing.
 
 A stale Regime snapshot labels readings as recorded context; a retained green
 band is not a current rating. The default view keeps thresholds and long source
