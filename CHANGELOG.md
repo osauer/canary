@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.33.0 — Unreleased
+
+### Added
+
+- The Go client exposes `VetoProposal` (`trade_proposals.veto`), so Desk's
+  console and companion can stop a pre-authorised submission on the owner's
+  act; it stays outside the MCP catalogue (Desk build B2, 2026-10-31).
+
 ## v3.32.1 — 2026-10-31 09:03 CET
 
 ### What's new
