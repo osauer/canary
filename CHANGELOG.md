@@ -6,12 +6,17 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Added
 
+- A history read IBKR refuses for want of a market data permission is read again in delayed mode, where IBKR serves the exchange's bars to an account without its subscription; the strategy evaluator sizes a Xetra-listed line on its delayed closes (owner, 2026-10-31: no Xetra subscription). A line IBKR serves neither live nor delayed still holds its entry, named.
 - An earnings override whose date has passed no longer reads as a known date with a negative distance. The name resolves from the providers as if no override were set, `canary rules` and the brief name the elapsed pin, and the owner sets the next date or clears it. An override for today stays in force.
 - Rule 20, "Premium at risk near earnings", acts when a held name carries any long option premium at risk within `earnings_freeze_sessions` of its earnings date, whatever the issuer's size; rule 8 kept freezing only issuers already at rule 1's watch level. The row stays unknown, never pass, while a name with premium has no current date. It alerts by default; the upgrade writes `modes.earnings_premium_freeze` into the owner's policy file at that default. An option buy on such a name carries an advisory preview warning.
 - Canary keeps every earnings date a provider publishes as an event in its database, after the day and after the provider stops publishing it. A held name whose date has passed reads "reported on" that date in `canary rules` and the brief until the next date is published, instead of "no date published"; a date the vendor pulls before the day reads withdrawn. On 2026-10-29 two held names' prints had been known for weeks and were forgotten the day after.
 - The Go client exposes `VetoProposal` (`trade_proposals.veto`), so Desk's
   console and companion can stop a pre-authorised submission on the owner's
   act; it stays outside the MCP catalogue (Desk build B2, 2026-10-31).
+
+### Changed
+
+- The hold on Fully armed reads the mandate: each breach episode of the mandate's loss room holds full automatic scope at protection (`held_by: "mandate_breach"`) until the owner confirms full again on a device once the book is back within the room, and confirming full is refused while an episode is open. The `[capital]` ladder's drawdown brake no longer gates arming; it still blocks hand orders that add risk (owner, 2026-10-31: one loss ladder, build B5).
 
 ## v3.32.1 — 2026-10-31 09:03 CET
 

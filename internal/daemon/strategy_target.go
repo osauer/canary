@@ -602,7 +602,7 @@ func (s *Server) evaluateStrategyTarget(ctx context.Context, now time.Time, r re
 		if ev.ReadError, ev.ReadErrorAt = s.mandateSeriesFailure(bindMandateHistoryNeed(need).Key); ev.ReadError != "" {
 			refused = fmt.Sprintf("the last read of %s failed at %s UTC: %s", contract.label(), ev.ReadErrorAt.UTC().Format(time.DateTime), ev.ReadError)
 			if _, ok := s.mandateHistoryRefusalFor(ctx, bindMandateHistoryNeed(need).Key); ok {
-				refused += "; add the exchange's market data subscription at IBKR, and Canary reads it at the next trading session"
+				refused += "; IBKR serves neither live nor delayed bars for it without the exchange's market data subscription; add it at IBKR, and Canary reads it at the next trading session"
 			}
 		}
 		res.Evidence = ev

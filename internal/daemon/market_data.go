@@ -176,6 +176,9 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 			return ibkrlib.ChartSeries{}, s.gatewayUnavailableError()
 		}
 		series, err := c.FetchChartBars(ctx, contract, days, interval, timeout)
+		if ibkrlib.HistoricalNotEntitled(err) && c.HistoricalSessionCurrent(binding) {
+			series, err = s.fetchChartBarsDelayed(ctx, c, contract, days, interval, timeout, err)
+		}
 		if !c.HistoricalSessionCurrent(binding) {
 			// The read was cut by a lost broker session: a symptom of the
 			// gateway incident, which logGatewayDependency joins.
@@ -184,6 +187,38 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 		s.observeHistorySource(len(series.Bars) > 0, err, c, binding)
 		return series, err
 	})
+}
+
+// chartReader is the connector as the delayed history retry uses it.
+type chartReader interface {
+	FetchChartBars(ctx context.Context, contract ibkrlib.Contract, days int, interval string, timeout time.Duration) (ibkrlib.ChartSeries, error)
+	BeginDelayedHistoricalData(ctx context.Context) (func(), error)
+}
+
+// fetchChartBarsDelayed repeats a history read IBKR refused for want of a
+// market data permission in delayed mode, where IBKR serves the exchange's
+// bars to an account without its subscription (owner, 2026-10-31: no Xetra
+// subscription; the trend fund's line and sizing read its delayed closes).
+// When the delayed read is refused too, the original refusal is returned, so
+// the entitlement handling of every caller stands; another failure of the
+// delayed read is its own.
+func (s *Server) fetchChartBarsDelayed(ctx context.Context, c chartReader, contract ibkrlib.Contract, days int, interval string, timeout time.Duration, refused error) (ibkrlib.ChartSeries, error) {
+	release, err := c.BeginDelayedHistoricalData(ctx)
+	if err != nil {
+		return ibkrlib.ChartSeries{}, refused
+	}
+	defer release()
+	series, err := c.FetchChartBars(ctx, contract, days, interval, timeout)
+	switch {
+	case ibkrlib.HistoricalNotEntitled(err):
+		return ibkrlib.ChartSeries{}, refused
+	case err != nil:
+		return ibkrlib.ChartSeries{}, err
+	}
+	if s != nil && s.logger != nil {
+		s.logger.Infof("history %s %s: IBKR has no live market data permission for it; %d delayed bars read instead", contract.Symbol, contract.Exchange, len(series.Bars))
+	}
+	return series, nil
 }
 
 // fetchMarketHistory composes acquisition and selection around the broker reader;

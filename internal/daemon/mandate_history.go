@@ -595,7 +595,7 @@ func (s *Server) noteMandateHistoryRefusal(ctx context.Context, need mandateHist
 		s.logger.Infof("mandate history %s: still no market data permission at IBKR (%v); asked again at the next trading session", need.Key, err)
 		return
 	}
-	s.logger.Warnf("mandate history %s: IBKR has no market data permission for it (%v); the verdict reads unknown. Add the exchange's market data subscription at IBKR; Canary asks once each trading session and stops warning", need.Key, err)
+	s.logger.Warnf("mandate history %s: IBKR serves neither live nor delayed bars for it (%v); the verdict reads unknown. Add the exchange's market data subscription at IBKR; Canary asks once each trading session and stops warning", need.Key, err)
 }
 
 // mandateHistoryRefusalFor returns the standing permission refusal of the

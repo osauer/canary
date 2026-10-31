@@ -2665,35 +2665,9 @@ func (c *Connector) BeginDelayedMarketDataFallback(ctx context.Context, symbol s
 		return nil, fmt.Errorf("market-data fallback symbol is required")
 	}
 
-	if err := c.lockMarketDataMode(ctx); err != nil {
+	conn, release, err := c.beginDelayedMarketDataMode(ctx)
+	if err != nil {
 		return nil, err
-	}
-	c.mu.RLock()
-	conn := c.conn
-	ready := c.ready
-	c.mu.RUnlock()
-	if !ready || conn == nil || !conn.IsConnected() {
-		c.marketDataModeMu.Unlock()
-		return nil, fmt.Errorf("IBKR connection not available")
-	}
-	if err := conn.SetMarketDataType(3); err != nil {
-		c.marketDataModeMu.Unlock()
-		return nil, fmt.Errorf("request delayed market data: %w", err)
-	}
-
-	var once sync.Once
-	release := func() {
-		once.Do(func() {
-			c.mu.RLock()
-			current := c.conn
-			c.mu.RUnlock()
-			if current == conn {
-				if err := conn.restoreFrozenMarketDataTypeUnlessCompeting(); err != nil {
-					connectorLogger.Warnf("%s: Failed to restore frozen-aware market data after delayed fallback: %v", c.name, err)
-				}
-			}
-			c.marketDataModeMu.Unlock()
-		})
 	}
 
 	// Code 354 is a verdict on the rejected request, not on the delayed
@@ -2731,6 +2705,62 @@ func (c *Connector) BeginDelayedMarketDataFallback(ctx context.Context, symbol s
 		return nil, fmt.Errorf("IBKR connection changed during delayed market-data fallback")
 	}
 	return release, nil
+}
+
+// beginDelayedMarketDataMode switches the connection to IBKR delayed mode
+// (type 3) for subsequent requests and holds the mode lock until release,
+// which restores the frozen-aware default unless a competing live session
+// has since been reported. The connection it switched is returned so the
+// caller can notice a reconnect under the lease.
+func (c *Connector) beginDelayedMarketDataMode(ctx context.Context) (*Connection, func(), error) {
+	if err := c.lockMarketDataMode(ctx); err != nil {
+		return nil, nil, err
+	}
+	c.mu.RLock()
+	conn := c.conn
+	ready := c.ready
+	c.mu.RUnlock()
+	if !ready || conn == nil || !conn.IsConnected() {
+		c.marketDataModeMu.Unlock()
+		return nil, nil, fmt.Errorf("IBKR connection not available")
+	}
+	if err := conn.SetMarketDataType(3); err != nil {
+		c.marketDataModeMu.Unlock()
+		return nil, nil, fmt.Errorf("request delayed market data: %w", err)
+	}
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			c.mu.RLock()
+			current := c.conn
+			c.mu.RUnlock()
+			if current == conn {
+				if err := conn.restoreFrozenMarketDataTypeUnlessCompeting(); err != nil {
+					connectorLogger.Warnf("%s: Failed to restore frozen-aware market data after delayed fallback: %v", c.name, err)
+				}
+			}
+			c.marketDataModeMu.Unlock()
+		})
+	}
+	return conn, release, nil
+}
+
+// BeginDelayedHistoricalData puts the connection in IBKR delayed mode for a
+// history read the broker refused for want of a market data permission: in
+// delayed mode IBKR serves an exchange's bars to an account without its
+// subscription, and a daily close is the same bar twenty minutes later. The
+// caller reads under the lease and releases it; no quote subscription is
+// touched (owner, 2026-10-31: no Xetra subscription, the trend fund's line
+// reads delayed).
+func (c *Connector) BeginDelayedHistoricalData(ctx context.Context) (func(), error) {
+	if c == nil {
+		return nil, fmt.Errorf("IBKR connector not available")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_, release, err := c.beginDelayedMarketDataMode(ctx)
+	return release, err
 }
 
 func (c *Connector) lockMarketDataMode(ctx context.Context) error {
