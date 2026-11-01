@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
@@ -31,6 +34,35 @@ func runLocks(ctx context.Context, env *Env, args []string) int {
 	var out rpc.HoldingLocks
 	method, params := rpc.MethodHoldingLocksList, any(nil)
 	switch op {
+	case "automatic-list":
+		if fs.NArg() != 1 || !*jsonOut || *conID != 0 || *revision != -1 || *id != "" {
+			return fail(env, "usage: canary locks automatic-list --json")
+		}
+		params = rpc.HoldingLocksListRequest{AutomaticOnly: true}
+	case "automatic-update":
+		if fs.NArg() != 1 || env.Stdin == nil || !*jsonOut {
+			return fail(env, "usage: canary locks automatic-update --json < request.json")
+		}
+		raw, err := io.ReadAll(io.LimitReader(env.Stdin, 32769))
+		if err != nil || len(raw) > 32768 {
+			return fail(env, "locks: automatic update must be at most 32 KiB")
+		}
+		var in struct {
+			Automatic        *rpc.AutomaticLocksUpdate `json:"automatic"`
+			ExpectedRevision *int64                    `json:"expected_revision"`
+			RequestID        string                    `json:"request_id"`
+		}
+		d := json.NewDecoder(bytes.NewReader(raw))
+		d.DisallowUnknownFields()
+		if d.Decode(&in) != nil || d.Decode(new(any)) != io.EOF || in.Automatic == nil || in.ExpectedRevision == nil {
+			return fail(env, "locks: invalid automatic update")
+		}
+		if err := rpc.ValidateWatchlistMutation(*in.ExpectedRevision, in.RequestID); err != nil {
+			return fail(env, "locks: %v", err)
+		}
+		*revision, *id = *in.ExpectedRevision, in.RequestID
+		// Preserve required-field presence for the daemon's strict decoder.
+		method, params = rpc.MethodHoldingLocksReplace, json.RawMessage(raw)
 	case "list":
 		if fs.NArg() > 1 || *conID != 0 || *revision != -1 || *id != "" {
 			return fail(env, "usage: canary locks list [--json]")
@@ -65,7 +97,7 @@ func runLocks(ctx context.Context, env *Env, args []string) int {
 		}
 		method, params = rpc.MethodHoldingLocksReplace, rpc.HoldingLocksReplaceRequest{Locks: next, ExpectedRevision: *revision, RequestID: *id}
 	default:
-		return fail(env, "usage: canary locks list|lock|unlock [--json]")
+		return fail(env, "usage: canary locks list|lock|unlock [--json]; automatic-list|automatic-update --json")
 	}
 	if err := env.Conn.Call(ctx, method, params, &out); err != nil {
 		var rpcErr *rpc.Error
@@ -74,7 +106,7 @@ func runLocks(ctx context.Context, env *Env, args []string) int {
 				Error *rpc.Error `json:"error"`
 			}{rpcErr})
 		}
-		if op != "list" {
+		if op != "list" && op != "automatic-list" {
 			return fail(env, "locks: %v; retry unchanged terms with expected_revision=%d request_id=%s", err, *revision, *id)
 		}
 		return fail(env, "locks: %v", err)

@@ -625,7 +625,7 @@ func (e *proposalEngine) refresh(ctx context.Context, show bool) (rpc.TradePropo
 		proposals[i].Rank = i + 1
 		proposals[i].Revision = revision
 		if proposals[i].Bucket != rpc.TradeProposalBucketCashSweep {
-			proposals[i].Revision = proposalRowRevision(policyStatus.EffectiveFingerprint, sources, scope, proposals[i])
+			proposals[i].Revision = e.rowRevision(policyStatus.EffectiveFingerprint, sources, scope, proposals[i], previous)
 		}
 	}
 	// One actionable row per exact contract and side, carrying every reason
@@ -3819,6 +3819,39 @@ func proposalRowRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSource
 	return projection.hash()
 }
 
+func (e *proposalEngine) rowRevision(policy rpc.Fingerprint, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, p rpc.TradeProposal, previous rpc.TradeProposalSnapshot) string {
+	revision := proposalRowRevision(policy, sources, scope, p)
+	if e == nil || p.Bucket != rpc.TradeProposalBucketMandateReduction || p.Mandate == nil {
+		return revision
+	}
+	// Upgrading the revision format is not a new order. Keep the existing
+	// record's identity until the saved proposal proves its holding changed.
+	// Without that baseline, keep the old outcome rather than infer a fill.
+	legacy := newProposalRevisionProjection(policy, sources, scope)
+	legacy.Row = slices.DeleteFunc(proposalRevisionTerms(p), func(term string) bool {
+		return strings.HasPrefix(term, "mandate-position:")
+	})
+	legacyRevision := legacy.hash()
+	record, exists := e.automatic.get(p.Key, legacyRevision)
+	if !exists || automaticRecordReplaceable(record) {
+		return revision
+	}
+	// An intent or ambiguous failed attempt still needs broker/journal
+	// reconciliation; a changed holding alone cannot settle its outcome.
+	if record.State == rpc.TradeProposalAutomaticSubmitting || record.State == rpc.TradeProposalAutomaticFailed &&
+		(!record.SubmittingAt.IsZero() || !record.SubmittedAt.IsZero() || record.PreviewTokenID != "" || record.OrderRef != "") {
+		return legacyRevision
+	}
+	if sameBrokerScope(brokerStateScope{Account: previous.AccountID, Mode: previous.AccountMode}, scope) {
+		if prior, ok := servedProposal(previous, p.Key); ok {
+			if prior.Revision != legacyRevision || prior.PositionQuantity != p.PositionQuantity {
+				return revision
+			}
+		}
+	}
+	return legacyRevision
+}
+
 // proposalRevisionTerms are the lines a row contributes to a revision: its
 // key, size and effect, plus the bindings a bucket needs beyond those.
 func proposalRevisionTerms(p rpc.TradeProposal) []string {
@@ -3851,11 +3884,17 @@ func proposalRevisionTerms(p rpc.TradeProposal) []string {
 		raw, _ := json.Marshal(binding)
 		terms = append(terms, "cash-sweep-material-v1:"+string(raw))
 	}
-	if p.Bucket == rpc.TradeProposalBucketMandateReduction && p.Mandate != nil && p.Mandate.Session != "" {
-		// A mandate row is one session's order: the next session's row is a
-		// new revision, so a DAY order that expired unfilled (its record
-		// terminal) never strands the batch.
-		terms = append(terms, "mandate-session:"+p.Mandate.Session)
+	if p.Bucket == rpc.TradeProposalBucketMandateReduction && p.Mandate != nil {
+		// A capped fill leaves a new installment even when its order size
+		// and the portfolio's exposure buckets stay the same. Bind the
+		// exact remaining holding, which the generator confirms against a
+		// fresh verdict before sizing. Plan or mark drift without a holding
+		// change must not retry an already submitted order.
+		terms = append(terms, "mandate-position:"+strconv.FormatFloat(p.PositionQuantity, 'g', -1, 64))
+		if p.Mandate.Session != "" {
+			// A new session also renews a DAY order that expired unfilled.
+			terms = append(terms, "mandate-session:"+p.Mandate.Session)
+		}
 	}
 	if p.Bucket == rpc.TradeProposalBucketCoreRebalance && p.Core != nil && p.Core.Session != "" {
 		// A core row is one session's order too: a DAY order that expired

@@ -820,13 +820,17 @@ func TestMandateCycleQuantityKeptOrderNamesItsOwnSize(t *testing.T) {
 	if qty, waits = mandateCycleQuantity(c, in, "EUR"); qty != 150 || waits != "" {
 		t.Fatalf("whole cut: %d %q", qty, waits)
 	}
-	// The row carries the clause: never an empty parenthesis.
+	// The row distinguishes the kept order from the full planned cut, and
+	// explains why the currently offered quantity remains below that plan.
 	engine := &proposalEngine{}
 	kept := &mandateCut{id: mandateLegID(row), leg: mandate.Leg{ID: mandateLegID(row), Kind: mandate.KindOption, Quantity: 150}, row: row, full: 150, step: 1, units: 150, prevUnits: 150, prevQty: 94, rank: 1, phase: rpc.MandatePhasePremium}
 	fixture := mandateReductionFixture(t, mandateReductionBook(row), 1.3, 1e9, 2)
 	qty, waits = mandateCycleQuantity(kept, fixture, "EUR")
 	p := engine.mandateReductionRow(defaultProtectionPolicy(), rpc.ProtectionPolicyStatus{}, rpc.TradeProposalSourceFingerprints{}, mandateTestNow, fixture, &rpc.TradeProposalMandateStatus{}, mandateBatch{cuts: []*mandateCut{kept}}, kept, qty, waits, "EUR")
-	if strings.Contains(p.Reason, "; )") || !strings.Contains(p.Reason, "the batch asks for 150; this order is kept at 94") {
-		t.Fatalf("row reason: %s", p.Reason)
+	if p.Quantity != 94 || p.Mandate == nil || p.Mandate.Units != 150 || !strings.Contains(p.Reason, "kept at 94") ||
+		!slices.ContainsFunc(p.Details, func(detail string) bool {
+			return strings.Contains(detail, "planned cut") && strings.Contains(detail, "150 planned contracts")
+		}) {
+		t.Fatalf("kept order and full plan were not explained separately: quantity=%d mandate=%+v reason=%s details=%q", p.Quantity, p.Mandate, p.Reason, p.Details)
 	}
 }

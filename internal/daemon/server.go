@@ -3164,7 +3164,7 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 	case rpc.MethodOpportunitiesIgnore:
 		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesIgnore(req), nil })
 	case rpc.MethodHoldingLocksList:
-		s.unary(req, enc, func() (any, error) { return s.handleHoldingLocksList(ctx) })
+		s.unary(req, enc, func() (any, error) { return s.handleHoldingLocksList(ctx, req) })
 	case rpc.MethodHoldingLocksReplace:
 		s.unary(req, enc, func() (any, error) { return s.handleHoldingLocksReplace(ctx, req) })
 	case rpc.MethodWatchlistList:

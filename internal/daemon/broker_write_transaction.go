@@ -347,6 +347,9 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 		leaseMu.Unlock()
 	}
 	guard := func() error {
+		if blockers := s.automaticWireLockBlockers(context.Background(), binding, cancel); len(blockers) > 0 {
+			return tradingBlockersError(blockers)
+		}
 		if binding.deskAuthority != nil {
 			leaseMu.Lock()
 			if releaseAuthority != nil {

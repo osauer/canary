@@ -401,6 +401,9 @@ type TradeProposalAutomatic struct {
 	Bucket    string    `json:"bucket,omitempty"`
 	State     string    `json:"state,omitempty"`
 	CreatedAt time.Time `json:"created_at,omitzero"`
+	// NoticeID identifies this veto clock, surviving routine re-sizing and
+	// session deferral but changing when a new full window is required.
+	NoticeID string `json:"notice_id,omitempty"`
 	// SubmitAt is when the daemon submits unless vetoed first; it equals the
 	// creation time when the drawdown brake latch skipped the window.
 	SubmitAt    time.Time `json:"submit_at,omitzero"`

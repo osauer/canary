@@ -368,6 +368,17 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   (New York) of the verdict it was sized on, so a DAY order that expired
   unfilled (its record terminal for that revision) is proposed afresh, with
   a fresh window, the next session instead of stranding the batch.
+  Revision binding also includes the exact remaining holding: a capped fill
+  can therefore create the next installment even while the portfolio's coarse
+  exposure fingerprint and the next order's size stay unchanged. Upgrading an
+  existing record preserves its identity until the saved holding proves a
+  change; a missing baseline or unresolved submission cannot establish a fill.
+- **Temporary refusal before staging.** A known temporary quote, session or
+  evidence refusal that occurs before submission intent is staged keeps the
+  record and veto clock, with the existing one-minute retry floor. Every retry
+  revalidates. Unknown or possibly transmitted outcomes stay fenced. A legacy
+  failed record is renewed only for a specific pre-preview refusal with no
+  submission markers; renewal starts a new notice and a full veto window.
 - **Hold.** A verdict that is `unknown`, older than five minutes, or
   measured on another book than the one held (a fill, a hand trade:
   `book_changed`) sizes nothing. Standing rows are served held

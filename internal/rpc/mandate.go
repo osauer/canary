@@ -176,7 +176,7 @@ type MandateReductionView struct {
 	State  string `json:"state"`
 	Reason string `json:"reason,omitempty"`
 	// Rows is the batch; Pending the rows the daemon will place after their
-	// window (pre-authorised, with a record waiting); VetoUntil the latest
+	// window (pre-authorised, with a record waiting); VetoUntil the earliest
 	// window end among them.
 	Rows          int       `json:"rows"`
 	Pending       int       `json:"pending,omitempty"`
@@ -208,6 +208,7 @@ type MandateReductionOrder struct {
 	// submitting, submitted, vetoed, superseded or failed), empty when no
 	// record exists; SubmitAt is when its veto window ends.
 	Automatic string    `json:"automatic,omitempty"`
+	NoticeID  string    `json:"notice_id,omitempty"`
 	SubmitAt  time.Time `json:"submit_at,omitzero"`
 	// Held says the row waits for a fresh verdict; Blocked names the first
 	// blocker when the row cannot be sent right now.

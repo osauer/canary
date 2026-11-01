@@ -19,8 +19,10 @@ const stateKindHoldingLocks = "holding_locks"
 const holdingLocksReceiptType = "holding_locks_saved"
 
 type holdingLocksDocument struct {
-	Version int               `json:"version"`
-	Locks   []rpc.HoldingLock `json:"locks"`
+	AutomaticLocks            []rpc.AutomaticLock `json:"automatic_locks,omitempty"`
+	AutomaticLocksInitialized bool                `json:"automatic_locks_initialized,omitempty"`
+	Version                   int                 `json:"version"`
+	Locks                     []rpc.HoldingLock   `json:"locks"`
 }
 
 type holdingLocksReceipt struct {
@@ -40,13 +42,21 @@ func decodeHoldingLocksReplace(req *rpc.Request) (rpc.HoldingLocksReplaceRequest
 		return in, errBadRequest("holding locks request exceeds 32 KiB")
 	}
 	var wire struct {
-		Locks            []rpc.HoldingLock `json:"locks"`
-		ExpectedRevision *int64            `json:"expected_revision"`
-		RequestID        string            `json:"request_id"`
+		Automatic        *rpc.AutomaticLocksUpdate `json:"automatic,omitempty"`
+		Locks            []rpc.HoldingLock         `json:"locks"`
+		ExpectedRevision *int64                    `json:"expected_revision"`
+		RequestID        string                    `json:"request_id"`
 	}
 	err := decodeStrictPlatformSettingsJSON(req.Params, &wire)
-	if err == nil {
+	if err == nil && wire.Automatic == nil {
 		in.Locks, err = rpc.NormalizeHoldingLocks(wire.Locks)
+	}
+	if err == nil && wire.Automatic != nil {
+		in.Automatic = wire.Automatic
+		if wire.Locks != nil {
+			return in, errBadRequest("change either the keep list or automatic locks")
+		}
+		err = validateAutomaticLocksUpdate(in.Automatic)
 	}
 	if err != nil || wire.ExpectedRevision == nil {
 		return in, errBadRequest("invalid holding locks request: locks, expected_revision and request_id required")
@@ -60,9 +70,21 @@ func decodeHoldingLocksReplace(req *rpc.Request) (rpc.HoldingLocksReplaceRequest
 
 // handleHoldingLocksList serves the keep list with each lock resolved
 // against the current book: the contracts it covers now, and whether there
-// is any. The book is read on a best-effort basis; without it the locks are
-// served with Held unknown.
-func (s *Server) handleHoldingLocksList(ctx context.Context) (*rpc.HoldingLocks, error) {
+// is any. The automatic-only view reads accepted state without consulting
+// the book. Otherwise the book is read on a best-effort basis; without it
+// the keep list is served with Held unknown.
+func (s *Server) handleHoldingLocksList(ctx context.Context, req *rpc.Request) (*rpc.HoldingLocks, error) {
+	var in rpc.HoldingLocksListRequest
+	if len(req.Params) > 32768 || len(req.Params) > 0 && decodeStrictPlatformSettingsJSON(req.Params, &in) != nil {
+		return nil, errBadRequest("invalid holding locks list request")
+	}
+	if in.AutomaticOnly {
+		out, err := s.automaticLocks(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return &out, nil
+	}
 	out, err := s.acceptHoldingLocks(ctx, "", 0, false)
 	if err != nil {
 		return nil, err
@@ -132,6 +154,11 @@ func (s *Server) acceptHoldingLocks(ctx context.Context, requestID string, saved
 				return fmt.Errorf("invalid holding locks: %w", err)
 			}
 			out.Locks, out.Revision = normalized, doc.Revision
+			out.AutomaticLocks, err = rpc.NormalizeAutomaticLocks(data.AutomaticLocks)
+			if err != nil {
+				return fmt.Errorf("invalid automatic locks: %w", err)
+			}
+			out.AutomaticLocksInitialized = data.AutomaticLocksInitialized
 		}
 		if savedRevision > out.Revision {
 			return fmt.Errorf("holding locks receipt exceeds accepted state")
@@ -159,7 +186,11 @@ func (s *Server) handleHoldingLocksReplace(ctx context.Context, req *rpc.Request
 	if s.coreStore == nil || !s.coreStore.Health().Ready {
 		return nil, fmt.Errorf("holding locks durability unavailable")
 	}
-	rawRequest, _ := json.Marshal(in)
+	digestRequest := in
+	if digestRequest.Automatic != nil {
+		digestRequest.ExpectedRevision = 0
+	}
+	rawRequest, _ := json.Marshal(digestRequest)
 	digest := sha256.Sum256(rawRequest)
 	requestDigest := hex.EncodeToString(digest[:])
 	idHash := sha256.Sum256([]byte(in.RequestID))
@@ -173,7 +204,11 @@ func (s *Server) handleHoldingLocksReplace(ctx context.Context, req *rpc.Request
 		if event.Type != holdingLocksReceiptType || event.Action != coreEventActionUpdate || decodeStrictPlatformSettingsJSON(event.PayloadJSON, &receipt) != nil || receipt.Version != 1 || receipt.SavedRevision < 1 {
 			return nil, fmt.Errorf("invalid holding locks receipt")
 		}
-		canonical, _ := json.Marshal(receipt.Request)
+		verifiedRequest := receipt.Request
+		if verifiedRequest.Automatic != nil {
+			verifiedRequest.ExpectedRevision = 0
+		}
+		canonical, _ := json.Marshal(verifiedRequest)
 		verified := sha256.Sum256(canonical)
 		if hex.EncodeToString(verified[:]) != receipt.RequestDigest {
 			return nil, fmt.Errorf("holding locks receipt digest mismatch")
@@ -185,7 +220,9 @@ func (s *Server) handleHoldingLocksReplace(ctx context.Context, req *rpc.Request
 		if err != nil {
 			return nil, err
 		}
-		s.decorateHoldingLocks(ctx, out)
+		if in.Automatic == nil {
+			s.decorateHoldingLocks(ctx, out)
+		}
 		return out, nil
 	}
 	current, err := s.acceptHoldingLocks(ctx, "", 0, false)
@@ -193,9 +230,21 @@ func (s *Server) handleHoldingLocksReplace(ctx context.Context, req *rpc.Request
 		return nil, err
 	}
 	if in.ExpectedRevision != current.Revision {
+		if in.Automatic != nil && in.Automatic.Action == "initialize" && current.AutomaticLocksInitialized {
+			return current, nil
+		}
 		return nil, holdingLocksConflict()
 	}
-	changed := current.Revision == 0 || !sameHoldingLocks(current.Locks, in.Locks)
+	nextLocks := in.Locks
+	nextAutomatic, initialized := current.AutomaticLocks, current.AutomaticLocksInitialized
+	if in.Automatic != nil {
+		nextLocks = current.Locks
+		nextAutomatic, initialized, err = applyAutomaticLocksUpdate(current, *in.Automatic)
+		if err != nil {
+			return nil, errBadRequest(err.Error())
+		}
+	}
+	changed := current.Revision == 0 || !sameHoldingLocks(current.Locks, nextLocks) || !slices.Equal(current.AutomaticLocks, nextAutomatic) || current.AutomaticLocksInitialized != initialized
 	revision := current.Revision
 	if changed {
 		revision++
@@ -204,7 +253,7 @@ func (s *Server) handleHoldingLocksReplace(ctx context.Context, req *rpc.Request
 	input := corestore.EventInput{ScopeKey: daemonStateScope, EventKey: eventKey, Type: holdingLocksReceiptType, Action: coreEventActionUpdate, Origin: rpc.OrderOriginAgent, OccurredAt: s.orderNow().UTC(), PayloadJSON: rawReceipt}
 	cas := corestore.StateDocumentCAS{ScopeKey: daemonStateScope, Kind: stateKindHoldingLocks, ExpectedRevision: current.Revision}
 	if changed {
-		cas.JSON, _ = json.Marshal(holdingLocksDocument{Version: 1, Locks: in.Locks})
+		cas.JSON, _ = json.Marshal(holdingLocksDocument{Version: 1, Locks: nextLocks, AutomaticLocks: nextAutomatic, AutomaticLocksInitialized: initialized})
 		_, _, err = s.coreStore.CompareAndSwapStateDocumentWithEvents(ctx, cas, []corestore.EventInput{input})
 	} else {
 		_, err = s.coreStore.AppendEventsAtStateRevision(ctx, cas, []corestore.EventInput{input})
@@ -219,6 +268,8 @@ func (s *Server) handleHoldingLocksReplace(ctx context.Context, req *rpc.Request
 	if err != nil {
 		return nil, err
 	}
-	s.decorateHoldingLocks(ctx, out)
+	if in.Automatic == nil {
+		s.decorateHoldingLocks(ctx, out)
+	}
 	return out, nil
 }

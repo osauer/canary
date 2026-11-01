@@ -36,7 +36,7 @@ func (s *Server) protectiveStopGuardWrite(ctx context.Context, step protectiveSt
 		return errors.New("the step no longer applies to current evidence")
 	}
 	view := step.View
-	s.protectiveStopGuardGrant.Store(&protectiveStopGuardWriteGrant{Kind: step.Kind, OrderRef: view.OrderRef, ReservedOrderID: view.ReservedOrderID, Quantity: step.Target, Trail: cloneTrailSpec(view.Trail), Filled: view.Filled, Position: step.Position})
+	s.protectiveStopGuardGrant.Store(&protectiveStopGuardWriteGrant{Kind: step.Kind, OrderRef: view.OrderRef, ReservedOrderID: view.ReservedOrderID, Quantity: step.Target, Trail: cloneTrailSpec(view.Trail), Filled: view.Filled, Position: step.Position, Remaining: step.Remaining})
 	defer s.protectiveStopGuardGrant.Store(nil)
 	switch step.Kind {
 	case protectiveStopGuardCancel:

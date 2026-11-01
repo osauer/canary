@@ -136,6 +136,20 @@ func TestDeskExecutionBindingCarriesTheFenceToTheWire(t *testing.T) {
 	if err != nil || !auth.Allowed || binding.deskAuthority == nil || *binding.deskAuthority != fence {
 		t.Fatalf("with a grant: allowed %v err %v fence %+v", auth.Allowed, err, binding.deskAuthority)
 	}
+	// The final wire check also requires the order's independently verified
+	// contract and risk authority, as a real placeOrder call supplies them.
+	prop := rig.stopProposal()
+	preview, err := s.previewOrder(t.Context(), proposalOrderPreviewParams(prop, prop.Quantity, 0))
+	if err != nil || preview == nil || !preview.SubmitEligible {
+		t.Fatalf("preview: %+v err %v", preview, err)
+	}
+	payload, err := s.verifyPreviewTokenForPlace(preview.PreviewToken)
+	if err != nil {
+		t.Fatalf("verify preview token: %v", err)
+	}
+	if err := s.bindPreviewOrderRiskAuthority(t.Context(), &binding, auth.Status, payload, payload.Draft); err != nil {
+		t.Fatalf("bind preview risk authority: %v", err)
+	}
 	guard, release := s.brokerWireGuard(binding, auth.Status, false)
 	defer release()
 	if err := guard(); err != nil {

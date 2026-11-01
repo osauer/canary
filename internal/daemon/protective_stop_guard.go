@@ -82,7 +82,10 @@ func (st protectiveStopGuardStep) key() string {
 // changing right now and how. It exists only while the guard holds
 // brokerWriteMu.
 type protectiveStopGuardWriteGrant struct {
-	Position        float64
+	Position float64
+	// Remaining is the exact working quantity in the fresh broker inventory
+	// replanned under brokerWriteMu, before this modification.
+	Remaining       float64
 	Kind            string
 	OrderRef        string
 	ReservedOrderID int

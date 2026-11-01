@@ -252,6 +252,8 @@ Guard `local`. CLI only, with no MCP tool: owner keep list for bulk and automati
 ```text
 canary locks list [--json]
 canary locks lock|unlock SYMBOL [--con-id ID] [--role hedge|core] [--expected-revision N] [--request-id ID] [--json]
+canary locks automatic-list --json
+canary locks automatic-update --json < request.json
 ```
 
 **Subcommands**

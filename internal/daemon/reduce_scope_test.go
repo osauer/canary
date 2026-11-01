@@ -172,7 +172,7 @@ func replaceHoldingLocks(t *testing.T, s *Server, locks []rpc.HoldingLock, rev i
 
 func TestHoldingLocksPersistReplayAndFence(t *testing.T) {
 	s, _, _ := watchlistServer(t)
-	empty, err := s.handleHoldingLocksList(t.Context())
+	empty, err := s.handleHoldingLocksList(t.Context(), &rpc.Request{})
 	if err != nil || empty.Revision != 0 || len(empty.Locks) != 0 || empty.Locks == nil {
 		t.Fatal(empty, err)
 	}

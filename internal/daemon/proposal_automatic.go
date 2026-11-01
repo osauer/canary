@@ -29,13 +29,15 @@ import (
 // record per proposal key and revision carries the notice, the veto window
 // and the outcome. A record is created only for an unblocked proposal, is
 // superseded the moment that proposal blocks, disappears or changes revision,
-// submits exactly once, and never retries on its own — with one exception:
-// a submission refused by trading.freeze alone, having sent nothing, is
-// deferred and resubmitted once the freeze lifts while its revision is
-// current. The settling rule holds a due submission, without restarting its
-// veto window, while an order placed outside Canary's gate after the record
-// was created, or modified since, is still working at the broker. The broker
-// write goes through the ordinary proposal submit path with the
+// submits exactly once, and never retries a possibly transmitted order.
+// Transient refusals before submission intent was staged keep their record
+// and veto clock for a paced, fully revalidated retry. A submission refused
+// by trading.freeze alone, having sent nothing, is deferred until the freeze
+// lifts while its revision is current. The settling rule holds a due
+// submission, without restarting its veto window, while an order placed
+// outside Canary's gate after the record was created, or modified since, is
+// still working at the broker. The broker write goes through the ordinary
+// proposal submit path with the
 // daemon-preauthorised origin, so every existing gate still decides.
 
 const (
@@ -57,14 +59,17 @@ const (
 	// automaticEventRescheduled journals a due time moved to the open plus
 	// the opening offset.
 	automaticEventRescheduled = "rescheduled"
+	// automaticEventRetryScheduled records a transient refusal before the
+	// submission boundary; it retains the owner's notice and veto clock.
+	automaticEventRetryScheduled = "retry_scheduled"
 
 	// automaticSubmitTimeout bounds the quote/WhatIf wait of one automatic
 	// submission, the same default the CLI uses.
 	automaticSubmitTimeout = 5 * time.Second
 
-	// automaticDeferRetry is the earliest a deferred record is resubmitted
-	// after its freeze refusal; the scheduler also waits for the freeze to be
-	// lifted, so a long freeze costs no refused attempts.
+	// automaticDeferRetry bounds retries after an unsent transient refusal.
+	// A freeze-deferred record also waits for the freeze to be lifted, so a
+	// long freeze costs no refused attempts.
 	automaticDeferRetry = time.Minute
 
 	// automaticSettlingReadTimeout bounds one settling-rule read of the
@@ -123,10 +128,14 @@ type automaticSubmissionRecord struct {
 	PreviewTokenID string `json:"preview_token_id,omitempty"`
 	OrderRef       string `json:"order_ref,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// FailureFinal distinguishes a current terminal decision, made from all
+	// typed blockers, from legacy failures that retained only the first
+	// blocker's text. A hard refusal must never become a legacy retry.
+	FailureFinal bool `json:"failure_final,omitempty"`
 	// Origin records who vetoed (human-tty or human-paired-device).
 	Origin string `json:"origin,omitempty"`
-	// DeferredAt is the first freeze refusal; ResubmitAt the earliest
-	// resubmission once the freeze is lifted.
+	// DeferredAt is the first freeze refusal; ResubmitAt is the earliest
+	// retry after a freeze or a transient refusal before submission staging.
 	DeferredAt time.Time `json:"deferred_at,omitzero"`
 	ResubmitAt time.Time `json:"resubmit_at,omitzero"`
 	// HeldAt and HoldReason record the settling rule holding a due record;
@@ -176,7 +185,7 @@ func (r automaticSubmissionRecord) waiting() bool {
 func (r automaticSubmissionRecord) due(now time.Time, frozen bool) bool {
 	switch {
 	case r.pending():
-		return !now.Before(r.SubmitAt) && (!r.NoticedAt.IsZero() || r.LatchSkippedWindow)
+		return !now.Before(r.SubmitAt) && !now.Before(r.ResubmitAt) && (!r.NoticedAt.IsZero() || r.LatchSkippedWindow)
 	case r.deferred():
 		return !frozen && !now.Before(r.ResubmitAt)
 	default:
@@ -195,7 +204,7 @@ func (r automaticSubmissionRecord) terminal() bool {
 
 func (r automaticSubmissionRecord) view(preAuthorised bool, now time.Time) *rpc.TradeProposalAutomatic {
 	out := &rpc.TradeProposalAutomatic{
-		PreAuthorised: preAuthorised, Bucket: r.Bucket, State: r.State,
+		PreAuthorised: preAuthorised, Bucket: r.Bucket, State: r.State, NoticeID: automaticRecordNoticeID(r),
 		CreatedAt: r.CreatedAt, SubmitAt: r.SubmitAt, NoticedAt: r.NoticedAt, VetoedAt: r.VetoedAt,
 		SubmittedAt: r.SubmittedAt, OrderReference: r.OrderRef, Reason: r.Reason,
 		LatchSkippedWindow: r.LatchSkippedWindow, VetoWindow: r.VetoWindow,
@@ -448,6 +457,9 @@ func (e *proposalEngine) automaticBucket(p rpc.TradeProposal) string {
 	if len(e.budgetHoldingLockBlockers(context.Background(), p)) > 0 {
 		return ""
 	}
+	if len(e.automaticLockBlockers(context.Background(), p)) > 0 {
+		return ""
+	}
 	if bucket == "" || bucket == preAuthorisedBucketMandateReduction || !e.coreLine(p) {
 		return bucket
 	}
@@ -612,7 +624,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 				continue
 			}
 			prop, ok := present[rec.Key]
-			lockBlockers := e.budgetHoldingLockBlockers(ctx, prop)
+			lockBlockers := append(e.budgetHoldingLockBlockers(ctx, prop), e.automaticLockBlockers(ctx, prop)...)
 			reason := ""
 			switch {
 			case !ok:
@@ -650,10 +662,13 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			if !policy.preAuthorised(bucket) || !proposalUnblocked(snap, prop) || queued[prop.Key] {
 				continue
 			}
-			if existing, exists := records[automaticRecordKey(prop.Key, prop.Revision)]; exists && !automaticRecordReplaceable(*existing) {
+			existing, exists := records[automaticRecordKey(prop.Key, prop.Revision)]
+			recovering := exists && automaticRecoverableFailure(*existing)
+			if exists && !automaticRecordReplaceable(*existing) {
 				// One record per key and revision: a veto, an outcome or a
-				// failure all hold until the revision changes. A superseded
-				// record does not: it ended because the row was gone, blocked
+				// failure with possible broker contact hold until the revision
+				// changes. A superseded record does not: it ended because the
+				// row was gone, blocked
 				// or carried another revision, and the row is back unblocked
 				// at this one, so it gets a fresh record (its episode clock
 				// inherited below). Without this, a revision that changed
@@ -672,7 +687,10 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			// stop: the governor and the mandate's forced reduction mark their
 			// rows NeverSkipVeto and they wait the full window even under the
 			// latched brake.
-			if latched && !prop.NeverSkipVeto {
+			// Restoring a formerly terminal, provably unsent failure is a new
+			// veto opportunity. It always receives a new notice and full
+			// window, including when the drawdown brake is now latched.
+			if latched && !prop.NeverSkipVeto && !recovering {
 				rec.LatchSkippedWindow = true
 				rec.SubmitAt = now
 			}
@@ -688,7 +706,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 					if prior.State == rpc.TradeProposalAutomaticVetoed {
 						continue
 					}
-					if prior.State == rpc.TradeProposalAutomaticSuperseded && prior.Reason == automaticEpisodeResizedReason &&
+					if !recovering && prior.State == rpc.TradeProposalAutomaticSuperseded && prior.Reason == automaticEpisodeResizedReason &&
 						prop.Quantity <= prior.clockQuantity()+max(1, prop.Mandate.Lot) {
 						rec.CreatedAt, rec.SubmitAt, rec.NoticedAt = prior.CreatedAt, prior.SubmitAt, prior.NoticedAt
 						rec.SettlingBaseline, rec.SettlingBaselineKnown = slices.Clone(prior.SettlingBaseline), prior.SettlingBaselineKnown
@@ -743,10 +761,38 @@ func (e *proposalEngine) automaticWillCreate(snap rpc.TradeProposalSnapshot, pol
 
 // automaticRecordReplaceable says whether a record for a key and revision
 // yields to a fresh one when its row is served unblocked at that revision
-// again: only a superseded record does. A veto, a submission, a failure and
-// a live record all hold the key and revision until the revision changes.
+// again: a superseded record or a legacy failure proven to precede preview
+// staging does. Vetoes, submissions and potentially transmitted failures
+// retain their key and revision; no new broker identity is minted for them.
 func automaticRecordReplaceable(rec automaticSubmissionRecord) bool {
-	return rec.State == rpc.TradeProposalAutomaticSuperseded
+	return rec.State == rpc.TradeProposalAutomaticSuperseded || automaticRecoverableFailure(rec)
+}
+
+// automaticRecoverableFailure recognises failures older binaries made
+// terminal before preview could complete. Before any place call the daemon
+// persisted SubmittingAt and PreviewTokenID; either marker, any order
+// reference, or any submitted/vetoed fact fences recovery. Legacy records
+// retain only the first blocker as Reason, so accept only explicit preview
+// stage codes emitted as a single refusal, never a generic error or an
+// inferred absence from the broker journal. Reconciliation still requires
+// the same current, unblocked, pre-authorised row and creates a fresh window.
+func automaticRecoverableFailure(rec automaticSubmissionRecord) bool {
+	if rec.State != rpc.TradeProposalAutomaticFailed || rec.FailureFinal || rec.ResolvedAt.IsZero() || !rec.SubmittingAt.IsZero() ||
+		!rec.SubmittedAt.IsZero() || !rec.VetoedAt.IsZero() || rec.PreviewTokenID != "" || rec.OrderRef != "" {
+		return false
+	}
+	code, _, _ := strings.Cut(rec.Reason, ": ")
+	return automaticTransientPreviewCode(code)
+}
+
+func automaticTransientPreviewCode(code string) bool {
+	switch code {
+	case previewMarketClosedCode, previewQuoteStaleCode, previewQuoteNotLiveCode, previewQuoteNotTwoSidedCode,
+		previewQuoteUnavailableCode, previewBrokerSessionChangedCode, previewContractUnresolvedCode,
+		previewPositionUnavailableCode, previewNotionalUnavailableCode, previewWhatIfFailedCode, previewTokenUnavailableCode:
+		return true
+	}
+	return false
 }
 
 func automaticCreatedReason(rec *automaticSubmissionRecord) string {
@@ -1229,8 +1275,9 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 	s.brokerWriteMu.Lock()
 	defer s.brokerWriteMu.Unlock()
 	current, ok := e.automatic.get(rec.Key, rec.Revision)
-	if !ok || !current.waiting() {
-		// A veto landed between the list and the lock.
+	if !ok || !current.waiting() || e.clock().Before(current.ResubmitAt) {
+		// A veto or another tick's retry floor landed between the list and
+		// the lock. The retry floor is authoritative inside the write lock.
 		return
 	}
 	now := e.clock()
@@ -1268,7 +1315,7 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 		return nil
 	}})
 	finish := e.clock()
-	deferred, held := false, false
+	deferred, held, retry := false, false, false
 	outcomeErr := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 		r, ok := records[automaticRecordKey(rec.Key, rec.Revision)]
 		if !ok || r.terminal() {
@@ -1312,9 +1359,21 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 			r.PreviewTokenID = ""
 			r.Reason = "trading.freeze refused the submission before anything was sent; it resubmits once the freeze is lifted while this proposal revision is current"
 			return []automaticSubmissionEvent{{At: finish, Type: automaticEventDeferred, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, ResubmitAt: r.ResubmitAt, Reason: r.Reason}}
+		case !staged && automaticTransientRefusal(res, err, placeErr):
+			// e.submit returned before beforePlace persisted an intent, so
+			// no broker place call was possible. Preserve this record and
+			// the owner's elapsed veto window, while pacing fresh quote,
+			// broker, policy and quantity revalidation on the next attempt.
+			retry = true
+			r.State = rpc.TradeProposalAutomaticPending
+			r.ResolvedAt = time.Time{}
+			r.ResubmitAt = finish.Add(automaticDeferRetry)
+			r.Reason = automaticOutcomeReason(res, err)
+			return []automaticSubmissionEvent{{At: finish, Type: automaticEventRetryScheduled, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, SubmitAt: r.SubmitAt, ResubmitAt: r.ResubmitAt, Reason: r.Reason}}
 		default:
 			r.ResolvedAt = finish
 			r.State = rpc.TradeProposalAutomaticFailed
+			r.FailureFinal = true
 			r.Reason = automaticOutcomeReason(res, err)
 			if staged && r.OrderRef == "" && res.OrderRef != "" {
 				r.OrderRef = res.OrderRef
@@ -1332,9 +1391,36 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 		s.infof("pre-authorised protection: %s bucket %s deferred by trading.freeze; resubmits once it is lifted", rec.Key, rec.Bucket)
 	case held:
 		s.infof("pre-authorised protection: %s bucket %s held until a fresh mandate verdict confirms its sizing", rec.Key, rec.Bucket)
+	case retry:
+		s.infof("pre-authorised protection: %s bucket %s waits for fresh evidence before retrying: %s", rec.Key, rec.Bucket, automaticOutcomeReason(res, err))
 	default:
 		s.warnf("pre-authorised protection: %s bucket %s not submitted: %s", rec.Key, rec.Bucket, automaticOutcomeReason(res, err))
 	}
+}
+
+// automaticTransientRefusal only classifies pre-staging refusals. Every
+// blocker must be a known temporary evidence/session condition; a hard or
+// unknown blocker wins. Unclassified errors and all place-path outcomes stay
+// terminal even when a caller suspects that nothing was transmitted.
+func automaticTransientRefusal(res rpc.TradeProposalSubmitResult, err, placeErr error) bool {
+	if res.Accepted || err != nil || placeErr != nil || len(res.Blockers) == 0 {
+		return false
+	}
+	for _, blocker := range res.Blockers {
+		code := blocker.Code
+		if automaticTransientPreviewCode(code) || slices.Contains(readinessBrokerCodes, code) ||
+			slices.Contains(readinessSessionCodes, code) || slices.Contains(readinessQuoteCodes, code) ||
+			slices.Contains(readinessSpreadCodes, code) || slices.Contains(readinessHaltCodes, code) || slices.Contains(readinessDueCodes, code) {
+			continue
+		}
+		switch code {
+		case "proposal_refresh_failed", "order_journal_unavailable", "journal_authority_unavailable",
+			reductionOrderUnavailableCode, "protective_order_evidence_unavailable":
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // automaticFrozenRefusal reports whether an automatic submission was refused
@@ -1371,6 +1457,9 @@ func (e *proposalEngine) automaticSubmitBlockers(prop rpc.TradeProposal) []rpc.T
 	// submitAutomatic holds brokerWriteMu here, the same lock used when
 	// acknowledging a keep-list change, so a notice cannot outlive a lock.
 	if blockers := e.budgetHoldingLockBlockers(context.Background(), prop); len(blockers) > 0 {
+		return blockers
+	}
+	if blockers := e.automaticLockBlockers(context.Background(), prop); len(blockers) > 0 {
 		return blockers
 	}
 	grant := e.server.automaticGrant.Load()
@@ -1458,6 +1547,7 @@ func (e *proposalEngine) recoverAutomaticAfterRestart(ctx context.Context) {
 			}
 			state, orderRef, reason := automaticRestartOutcome(events, r.PreviewTokenID)
 			r.State, r.Reason, r.ResolvedAt = state, reason, now
+			r.FailureFinal = state == rpc.TradeProposalAutomaticFailed
 			if orderRef != "" {
 				r.OrderRef = orderRef
 			}

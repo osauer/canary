@@ -352,12 +352,16 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 	}
 	st.ProjectedLossBase, st.ProjectedRiskAnnualBase = new(batch.lossAfter), new(batch.riskAfter)
 	var out []rpc.TradeProposal
+	partialOrders := 0
 	for _, c := range batch.cuts {
 		qty, waits := mandateCycleQuantity(c, in, st.BaseCurrency)
 		st.Plan = append(st.Plan, rpc.TradeProposalMandatePlanOrder{Rank: c.rank, Contract: budgetDisplayContract(c.row), Action: mandateAction(c.row),
 			Units: c.units, Quantity: qty, Waits: waits, Phase: c.phase, LossBase: c.loss, LossCutBase: c.lossCut, ContributionPct: c.contribution, RiskCutAnnualBase: c.riskCut, Sleeve: c.sleeve})
 		if qty <= 0 {
 			continue
+		}
+		if qty < c.units {
+			partialOrders++
 		}
 		p := e.mandateReductionRow(policy, status, sources, now, in, st, batch, c, qty, waits, ccy)
 		if c.row.Stale && strings.EqualFold(positionWireSecType(c.row.SecType), "OPT") {
@@ -369,17 +373,20 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 	}
 	st.Rows = len(out)
 	st.State = rpc.MandateReductionReducing
-	st.Reason = fmt.Sprintf("%s; %d %s sized to take the loss measure to %s", mandateBreachSentence(v, batch.budget, ccy), len(batch.cuts), pluralNoun(len(batch.cuts), "cut"), mandateMoney(batch.lossAfter, ccy))
+	st.Reason = fmt.Sprintf("%s; the full plan of %d %s is sized to take the loss measure to %s if all planned units fill", mandateBreachSentence(v, batch.budget, ccy), len(batch.cuts), pluralNoun(len(batch.cuts), "cut"), mandateMoney(batch.lossAfter, ccy))
 	switch {
 	case batch.reached && v.Status == mandate.StatusWithin && stopOver:
 		st.Reason += fmt.Sprintf(", the sleeve's risk to its stop target %s", mandateMoney(v.OwnerStop.TargetUseBase, ccy))
 	case batch.reached:
 		st.Reason += fmt.Sprintf(", inside the %s target", mandateMoney(batch.target, ccy))
 	default:
-		st.Reason += fmt.Sprintf("; the batch does not reach the %s target, nothing reduces further", mandateMoney(batch.target, ccy))
+		st.Reason += fmt.Sprintf("; even the full plan does not reach the %s target, with no further eligible cut on this verdict", mandateMoney(batch.target, ccy))
 		if len(covered) > 0 {
 			st.Reason += "; a covered position needs your hand: " + strings.Join(covered, "; ")
 		}
+	}
+	if partialOrders > 0 {
+		st.Reason += fmt.Sprintf("; this cycle offers %d %s, including %d partial %s; after fills, a fresh verdict measures the remaining cuts", len(out), pluralNoun(len(out), "order"), partialOrders, pluralNoun(partialOrders, "installment"))
 	}
 	return out, st
 }
@@ -1373,7 +1380,10 @@ func mandateOrderLimit(row rpc.PositionView, base string, maxOrderNotional, capB
 	}
 	if capBase > 0 {
 		if rate, ok := positionBaseRate(row, base); ok && rate > 0 {
-			if byCap := int(math.Floor(capBase / (unit * rate))); limit == 0 || byCap < limit {
+			// A positive cap may admit zero whole units. Keep it binding;
+			// only an absent cap yields to the other limit before the
+			// existing one-unit exit exception is applied below.
+			if byCap := int(math.Floor(capBase / (unit * rate))); maxOrderNotional <= 0 || byCap < limit {
 				limit = byCap
 			}
 		}
@@ -1437,7 +1447,7 @@ func (e *proposalEngine) mandateReductionRow(policy protectionPolicy, status rpc
 	risk := fmt.Sprintf("the loss measure %s is %s of the mandate's loss room %s (%s)", mandateMoney(batch.lossBefore, ccy), mandatePctOfRoom(v), mandateMoney(batch.budget, ccy), v.Status)
 	order := fmt.Sprintf("%s %d of %d %s", verb, qty, c.full, unit)
 	if qty < c.units {
-		order += fmt.Sprintf(" now (the batch asks for %d; %s)", c.units, waits)
+		order += fmt.Sprintf(" now (the full plan asks for %d; %s)", c.units, waits)
 	}
 	var why string
 	switch {
@@ -1462,15 +1472,15 @@ func (e *proposalEngine) mandateReductionRow(policy protectionPolicy, status rpc
 	default:
 		why = fmt.Sprintf("the largest premium at risk left, %s in %s (%s of the loss measure)", c.leg.Underlying, mandateSleeveName(c.sleeve), mandateMoney(c.loss, ccy))
 	}
-	reason := fmt.Sprintf("%s; %s: %s; the batch takes the loss measure to %s", risk, why, order, mandateMoney(batch.lossAfter, ccy))
+	reason := fmt.Sprintf("%s; %s: %s; the full plan projects the loss measure to %s if all planned units fill", risk, why, order, mandateMoney(batch.lossAfter, ccy))
 	if batch.reached {
 		reason += fmt.Sprintf(", inside the %s target", mandateMoney(batch.target, ccy))
 	} else {
 		reason += fmt.Sprintf(", short of the %s target", mandateMoney(batch.target, ccy))
 	}
 	details := []string{
-		fmt.Sprintf("loss measure %s · loss room %s · target %s (%.0f%% of the room, so the next verdict reads within)", mandateMoney(batch.lossBefore, ccy), mandateMoney(batch.budget, ccy), mandateMoney(batch.target, ccy), mandateReductionTargetFactor*100),
-		fmt.Sprintf("order %d of %d in the batch, sent in this order; this cut takes %s off the loss measure and %s a year off the volatility", c.rank, len(batch.cuts), mandateMoney(c.lossCut, ccy), mandateMoney(c.riskCut, ccy)),
+		fmt.Sprintf("loss measure %s · loss room %s · target %s (%.0f%% of the room, the full plan's sizing objective)", mandateMoney(batch.lossBefore, ccy), mandateMoney(batch.budget, ccy), mandateMoney(batch.target, ccy), mandateReductionTargetFactor*100),
+		fmt.Sprintf("planned cut %d of %d, acted on in this order; if all %d planned %s fill, this cut takes %s off the loss measure and %s a year off the volatility", c.rank, len(batch.cuts), c.units, unit, mandateMoney(c.lossCut, ccy), mandateMoney(c.riskCut, ccy)),
 		fmt.Sprintf("volatility %s a year against the sizing budget %s, the 1-day swing beside the loss measure", mandateMoney(batch.riskBefore, ccy), mandateMoney(v.Capital.BudgetAnnualSD, ccy)),
 	}
 	if c.phase != rpc.MandatePhasePremium && c.phase != rpc.MandatePhaseStop {
@@ -1482,13 +1492,13 @@ func (e *proposalEngine) mandateReductionRow(policy protectionPolicy, status rpc
 	}
 	details = append(details, fmt.Sprintf("sized on the %s verdict of %s (%s), afresh at every verdict", v.Status, mandateClock(v.AsOf), st.VerdictFingerprint))
 	if qty < c.units {
-		details = append(details, "this cycle: "+waits)
+		details = append(details, fmt.Sprintf("current order: %d of %d planned %s; %s; after it fills, a fresh verdict measures the remaining cut from the resulting holding", qty, c.units, unit, waits))
 	}
 	if effect == rpc.OrderPositionEffectClose {
 		details = append(details, "full close: the target leaves nothing of this line to keep")
 	}
 	if !batch.reached {
-		note := "the batch does not reach the target: nothing else reduces further"
+		note := "even if the full plan fills, its projection does not reach the target; there is no further eligible cut on this verdict"
 		if len(batch.leftOut) > 0 {
 			note += " (left out: " + strings.Join(batch.leftOut, "; ") + ")"
 		}
@@ -1591,13 +1601,18 @@ func (s *Server) mandateReductionView() *rpc.MandateReductionView {
 		}
 		if a := p.Automatic; a != nil {
 			order.Automatic = a.State
+			order.NoticeID = a.NoticeID
 			switch a.State {
-			case rpc.TradeProposalAutomaticPending, rpc.TradeProposalAutomaticDeferred, rpc.TradeProposalAutomaticSubmitting:
+			case rpc.TradeProposalAutomaticPending, rpc.TradeProposalAutomaticDeferred:
 				order.SubmitAt = a.SubmitAt
 				view.Pending++
-				if a.SubmitAt.After(view.VetoUntil) {
+				if !a.SubmitAt.IsZero() && (view.VetoUntil.IsZero() || a.SubmitAt.Before(view.VetoUntil)) {
 					view.VetoUntil = a.SubmitAt
 				}
+			case rpc.TradeProposalAutomaticSubmitting:
+				// The elapsed window remains visible on this row, but an
+				// in-flight order can no longer be vetoed or announced as pending.
+				order.SubmitAt = a.SubmitAt
 			}
 		}
 		view.Orders = append(view.Orders, order)

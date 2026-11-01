@@ -45,13 +45,21 @@ type HoldingLock struct {
 
 // HoldingLocks is the accepted keep list and an optional mutation receipt.
 type HoldingLocks struct {
-	Version       int           `json:"version"`
-	Revision      int64         `json:"revision"`
-	Locks         []HoldingLock `json:"locks"`
-	AsOf          time.Time     `json:"as_of"`
-	RequestID     string        `json:"request_id,omitempty"`
-	SavedRevision int64         `json:"saved_revision,omitempty"`
-	Replay        bool          `json:"replay,omitempty"`
+	AutomaticLocks            []AutomaticLock `json:"automatic_locks,omitempty"`
+	AutomaticLocksInitialized bool            `json:"automatic_locks_initialized"`
+	Version                   int             `json:"version"`
+	Revision                  int64           `json:"revision"`
+	Locks                     []HoldingLock   `json:"locks"`
+	AsOf                      time.Time       `json:"as_of"`
+	RequestID                 string          `json:"request_id,omitempty"`
+	SavedRevision             int64           `json:"saved_revision,omitempty"`
+	Replay                    bool            `json:"replay,omitempty"`
+}
+
+// HoldingLocksListRequest selects the automatic exclusions without reading
+// the broker book to resolve the keep list.
+type HoldingLocksListRequest struct {
+	AutomaticOnly bool `json:"automatic_only,omitempty"`
 }
 
 // Match returns the lock covering a contract: the one naming its underlying,
@@ -131,9 +139,10 @@ func (r ResolvedHoldingLocks) Role(conID int) string {
 
 // HoldingLocksReplaceRequest replaces the keep list under a revision fence.
 type HoldingLocksReplaceRequest struct {
-	Locks            []HoldingLock `json:"locks"`
-	ExpectedRevision int64         `json:"expected_revision"`
-	RequestID        string        `json:"request_id"`
+	Automatic        *AutomaticLocksUpdate `json:"automatic,omitempty"`
+	Locks            []HoldingLock         `json:"locks"`
+	ExpectedRevision int64                 `json:"expected_revision"`
+	RequestID        string                `json:"request_id"`
 }
 
 // NormalizeHoldingLocks orders the list by name, folds the entries of one
