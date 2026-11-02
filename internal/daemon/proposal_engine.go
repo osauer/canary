@@ -3452,6 +3452,25 @@ func sanitizeProposalPreviewForProposal(in *rpc.OrderPreviewResult, prop rpc.Tra
 }
 
 func (e *proposalEngine) installSnapshot(snap rpc.TradeProposalSnapshot, show bool, extraEvents ...proposalEvent) error {
+	if e.server != nil && proposalSnapshotPersistable(snap) && proposalAuthoritySnapshotValid(snap) {
+		// The producer records every breach, even while no Desk reader is
+		// running. Keep the latch and publication ordered with authority reads:
+		// a failed receipt cannot publish a newer within view and forget a hold.
+		e.server.mandateEpisode.mu.Lock()
+		defer e.server.mandateEpisode.mu.Unlock()
+		e.mu.Lock()
+		previous := rpc.CloneMandateStatus(e.snapshot.MandateReduction)
+		e.mu.Unlock()
+		for _, status := range []*rpc.TradeProposalMandateStatus{previous, snap.MandateReduction} {
+			episode := ""
+			if status != nil {
+				episode = status.Episode
+			}
+			if _, err := e.server.lastMandateEpisodeLocked(context.Background(), episode, snap.AsOf); err != nil {
+				return fmt.Errorf("persist proposal mandate hold: %w", err)
+			}
+		}
+	}
 	e.mu.Lock()
 	prevRevision := e.snapshot.Revision
 	prevMarkDate := e.snapshot.AsOf.Format(time.DateOnly)

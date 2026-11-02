@@ -291,6 +291,10 @@ const (
 	// MethodTradeProposalsVeto stops a pending pre-authorised submission for
 	// one proposal key. Human-terminal and paired-device origins only.
 	MethodTradeProposalsVeto = "trade_proposals.veto"
+	// MethodTradeProposalsVetoWindow applies the same veto with a required
+	// notice identity and deadline. Older daemons must refuse the method,
+	// never silently discard notification authority fields.
+	MethodTradeProposalsVetoWindow = "trade_proposals.veto_window"
 	// MethodTradeProposalsRequestStop asks the proposal engine to generate a
 	// protective trailing-stop proposal for one named position now. It is a
 	// generation verb: the result flows into the ordinary preview/submit gates.
@@ -429,11 +433,17 @@ type TradeProposalAutomatic struct {
 // TradeProposalVetoParams stops the pending automatic submission for one
 // proposal key. Origin must be a human origin; agent and missing origins are
 // refused. The veto holds for the key until its revision changes.
+// NoticeID and VetoUntil are optional together: notification requests bind to
+// that stored window and must reach the atomic mutation before the deadline.
+// A batch's earliest deadline may precede this row's own SubmitAt. An exact
+// retry of an already-persisted veto acknowledges it without another mutation.
 type TradeProposalVetoParams struct {
-	Key      string `json:"key"`
-	Revision string `json:"revision,omitempty"`
-	Reason   string `json:"reason,omitempty"`
-	Origin   string `json:"origin,omitempty"`
+	Key       string    `json:"key"`
+	Revision  string    `json:"revision,omitempty"`
+	Reason    string    `json:"reason,omitempty"`
+	Origin    string    `json:"origin,omitempty"`
+	NoticeID  string    `json:"notice_id,omitempty"`
+	VetoUntil time.Time `json:"veto_until,omitzero"`
 }
 
 // TradeProposalVetoResult reports whether the veto took effect and the

@@ -15,7 +15,11 @@ import (
 // row holds for the rest of its breach episode.
 
 // TradeProposalVetoParams names the row (key and, optionally, revision), the
-// reason and the origin of the owner's act.
+// reason and the origin of the owner's act. Notification actions also supply
+// NoticeID and VetoUntil together; the daemon checks both against the stored
+// window immediately before changing it. Omitting both retains the fresh
+// console/terminal veto behavior. Notification requests use a distinct method
+// so an older daemon refuses them instead of ignoring their conditions.
 type TradeProposalVetoParams = rpc.TradeProposalVetoParams
 
 // TradeProposalVetoResult is the daemon's answer: whether it accepted, the
@@ -35,7 +39,11 @@ const OriginPairedDevice = rpc.OrderOriginPairedDevice
 // method error is returned as an error.
 func (c *Client) VetoProposal(ctx context.Context, in TradeProposalVetoParams) (*TradeProposalVetoResult, error) {
 	var out TradeProposalVetoResult
-	if err := c.callPrivate(ctx, rpc.MethodTradeProposalsVeto, in, &out); err != nil {
+	method := rpc.MethodTradeProposalsVeto
+	if in.NoticeID != "" || !in.VetoUntil.IsZero() {
+		method = rpc.MethodTradeProposalsVetoWindow
+	}
+	if err := c.callPrivate(ctx, method, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

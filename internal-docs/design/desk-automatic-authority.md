@@ -56,10 +56,13 @@ verdicts; it ends when the loss measure is back within the loss room) holds
 a full mandate at protection (status `held_by: "mandate_breach"`); the hold
 outlasts the episode's end until the owner confirms full again on a device
 in Desk. While an episode is open, or the verdict cannot be measured,
-confirming full is refused; protection can be armed. The hold is derived at
-read: the last episode the reduction opened, kept in a daemon state
-document across restarts, against the episode recorded at confirmation, so
-no event hook can miss a breach. The controller sees the lower scope and
+confirming full is refused; protection can be armed. The proposal producer
+records each breach in a daemon state document before publishing its snapshot.
+Authority reads compare that durable episode with the episode recorded at
+confirmation. A failed receipt prevents publication and holds authority
+unconfirmed until persistence succeeds, including after the current episode
+ends. The receipt and snapshot are ordered with authority reads, so a breach
+while Desk is offline remains held after a restart (2026-11-02 09:20 CET). The controller sees the lower scope and
 `authority_changed` at the wire for entries; protection and reductions keep
 running. Manual trading follows the `[capital]` ladder's brake alone.
 

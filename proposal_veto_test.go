@@ -5,11 +5,49 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2"
 	"github.com/osauer/canary/v2/canarytest"
 )
+
+func TestVetoProposalForwardsTheNotificationWindow(t *testing.T) {
+	want := canary.TradeProposalVetoParams{Key: "mandate_reduction:AAA", Revision: "7",
+		Origin: canary.OriginPairedDevice, NoticeID: "synthetic-window-identity",
+		VetoUntil: time.Date(2026, 9, 21, 14, 30, 0, 0, time.UTC)}
+	s := canarytest.Serve(t)
+	s.Handle("trade_proposals.veto_window", func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		var in canary.TradeProposalVetoParams
+		if err := json.Unmarshal(raw, &in); err != nil || in.Key != want.Key || in.Revision != want.Revision ||
+			in.Origin != want.Origin || in.NoticeID != want.NoticeID || !in.VetoUntil.Equal(want.VetoUntil) {
+			t.Fatalf("notification authority was lost in the daemon request: %s", raw)
+		}
+		return json.Marshal(canary.TradeProposalVetoResult{Accepted: false, Key: in.Key, Revision: in.Revision, Message: "window ended"})
+	})
+	c := canary.New(canary.Options{SocketPath: s.SocketPath()})
+	result, err := c.VetoProposal(t.Context(), want)
+	if err != nil || result.Accepted || result.Message != "window ended" {
+		t.Fatalf("conditional veto refusal was lost: %+v %v", result, err)
+	}
+}
+
+func TestVetoProposalNeverDowngradesNotificationAuthorityForAnOlderDaemon(t *testing.T) {
+	s := canarytest.Serve(t)
+	var legacyCalls atomic.Int32
+	s.Handle("trade_proposals.veto", func(_ context.Context, raw json.RawMessage) (json.RawMessage, error) {
+		legacyCalls.Add(1)
+		return json.Marshal(canary.TradeProposalVetoResult{Accepted: true})
+	})
+	c := canary.New(canary.Options{SocketPath: s.SocketPath()})
+	result, err := c.VetoProposal(t.Context(), canary.TradeProposalVetoParams{Key: "mandate_reduction:AAA",
+		Origin: canary.OriginPairedDevice, NoticeID: "synthetic-window-identity",
+		VetoUntil: time.Date(2026, 9, 21, 14, 30, 0, 0, time.UTC)})
+	if result != nil || err == nil || legacyCalls.Load() != 0 {
+		t.Fatalf("notification authority was silently dropped or retried through the legacy method: result=%+v err=%v legacy=%d", result, err, legacyCalls.Load())
+	}
+}
 
 // The veto reaches the daemon by name with the row, reason and origin, keeps
 // the daemon's refusal typed, and never appears in the MCP catalogue.
@@ -37,7 +75,7 @@ func TestVetoProposalCallsTheDaemonAndStaysOutOfTheCatalogue(t *testing.T) {
 	}
 	for _, tool := range canary.Tools() {
 		for _, method := range tool.Methods {
-			if method == "trade_proposals.veto" {
+			if method == "trade_proposals.veto" || method == "trade_proposals.veto_window" {
 				t.Fatalf("MCP tool %s reaches the veto", tool.Name)
 			}
 		}

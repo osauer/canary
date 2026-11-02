@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -36,6 +37,9 @@ type mandateEpisodeClock struct {
 	loaded   bool
 	revision int64
 	doc      mandateEpisodeDocV1
+	// pending is a breach observed before its durable receipt completed.
+	// A later within reading must finish that receipt before clearing a hold.
+	pending mandateEpisodeDocV1
 }
 
 // mandateBreach reads the reduction's state and open episode from the
@@ -56,57 +60,52 @@ func (s *Server) mandateBreach() (state, episode string, ok bool) {
 	return st.State, st.Episode, true
 }
 
-// lastMandateEpisode records the episode now open, when there is one, and
-// returns the last episode that opened. Storage trouble is logged and never
-// changes the answer for this process.
-func (s *Server) lastMandateEpisode(ctx context.Context, open string, now time.Time) string {
+// lastMandateEpisodeLocked records the episode now open, when there is one,
+// and returns only the last durably recorded episode. The caller holds mu
+// through reading or replacing the proposals snapshot, so an older status
+// read cannot overwrite the receipt for a newer published breach.
+func (s *Server) lastMandateEpisodeLocked(ctx context.Context, open string, now time.Time) (string, error) {
 	clock := &s.mandateEpisode
-	clock.mu.Lock()
-	defer clock.mu.Unlock()
+	if open != "" && open != clock.doc.Episode {
+		clock.pending = mandateEpisodeDocV1{Version: mandateEpisodeDocVer, Episode: open, At: now.UTC()}
+	}
+	if s.coreStore == nil {
+		return "", errors.New("mandate episode authority is unavailable")
+	}
 	if !clock.loaded {
-		clock.loaded = true
-		if s.coreStore != nil {
-			doc, ok, err := s.coreStore.GetStateDocument(ctx, daemonStateScope, stateKindMandateEpisode)
-			switch {
-			case err != nil:
-				s.warnf("mandate episode clock unavailable: %v", err)
-			case ok:
-				var kept mandateEpisodeDocV1
-				if err := json.Unmarshal(doc.JSON, &kept); err != nil || kept.Version != mandateEpisodeDocVer {
-					s.warnf("mandate episode clock unreadable; starting it again")
-				} else {
-					clock.doc = kept
-				}
-				clock.revision = doc.Revision
-			}
-		}
-	}
-	if open == "" || open == clock.doc.Episode {
-		return clock.doc.Episode
-	}
-	clock.doc = mandateEpisodeDocV1{Version: mandateEpisodeDocVer, Episode: open, At: now.UTC()}
-	if s.coreStore != nil {
-		raw, err := json.Marshal(clock.doc)
-		if err == nil {
-			var saved corestore.StateDocument
-			saved, err = s.coreStore.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
-				ScopeKey: daemonStateScope, Kind: stateKindMandateEpisode, ExpectedRevision: clock.revision, JSON: raw,
-			})
-			if conflict, ok := errors.AsType[*corestore.RevisionConflictError](err); ok {
-				clock.revision = conflict.Actual
-				saved, err = s.coreStore.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
-					ScopeKey: daemonStateScope, Kind: stateKindMandateEpisode, ExpectedRevision: clock.revision, JSON: raw,
-				})
-			}
-			if err == nil {
-				clock.revision = saved.Revision
-			}
-		}
+		doc, ok, err := s.coreStore.GetStateDocument(ctx, daemonStateScope, stateKindMandateEpisode)
 		if err != nil {
-			s.warnf("mandate episode clock not persisted: %v", err)
+			return "", fmt.Errorf("read mandate episode clock: %w", err)
 		}
+		var kept mandateEpisodeDocV1
+		if ok {
+			if err := json.Unmarshal(doc.JSON, &kept); err != nil || kept.Version != mandateEpisodeDocVer || kept.Episode == "" || kept.At.IsZero() {
+				return "", errors.New("mandate episode clock is unreadable")
+			}
+		}
+		clock.doc, clock.revision, clock.loaded = kept, doc.Revision, true
 	}
-	return clock.doc.Episode
+	if clock.pending.Episode == "" || clock.pending.Episode == clock.doc.Episode {
+		clock.pending = mandateEpisodeDocV1{}
+		return clock.doc.Episode, nil
+	}
+	raw, err := json.Marshal(clock.pending)
+	if err != nil {
+		return clock.doc.Episode, err
+	}
+	saved, err := s.coreStore.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{
+		ScopeKey: daemonStateScope, Kind: stateKindMandateEpisode, ExpectedRevision: clock.revision, JSON: raw,
+	})
+	if err != nil {
+		if _, conflict := errors.AsType[*corestore.RevisionConflictError](err); conflict {
+			// Reload the durable document before retrying a conflicting write.
+			clock.loaded = false
+		}
+		return clock.doc.Episode, fmt.Errorf("persist mandate episode clock: %w", err)
+	}
+	clock.doc, clock.revision = clock.pending, saved.Revision
+	clock.pending = mandateEpisodeDocV1{}
+	return clock.doc.Episode, nil
 }
 
 // deskAuthorityHold reads what holds Fully armed: engaged while a breach
@@ -115,9 +114,15 @@ func (s *Server) lastMandateEpisode(ctx context.Context, open string, now time.T
 // not been measured yet, or there is no snapshot to read; the caller then
 // holds, as it did for an unreadable brake.
 func (s *Server) deskAuthorityHold(ctx context.Context) (last string, engaged, known bool) {
+	s.mandateEpisode.mu.Lock()
+	defer s.mandateEpisode.mu.Unlock()
 	state, open, ok := s.mandateBreach()
 	if !ok || state == rpc.MandateReductionUnknown || state == rpc.MandateReductionNoVerdict {
 		return "", false, false
 	}
-	return s.lastMandateEpisode(ctx, open, s.orderNow()), open != "", true
+	last, err := s.lastMandateEpisodeLocked(ctx, open, s.orderNow())
+	if err != nil {
+		s.warnf("mandate episode clock unavailable: %v", err)
+	}
+	return last, open != "", err == nil
 }

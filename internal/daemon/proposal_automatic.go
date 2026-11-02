@@ -1643,6 +1643,11 @@ func (e *proposalEngine) Veto(ctx context.Context, p rpc.TradeProposalVetoParams
 	if key == "" {
 		return rpc.TradeProposalVetoResult{}, errBadRequest("proposal key is required")
 	}
+	noticeID := strings.TrimSpace(p.NoticeID)
+	conditional := p.NoticeID != "" || !p.VetoUntil.IsZero()
+	if conditional && (noticeID == "" || p.VetoUntil.IsZero()) {
+		return rpc.TradeProposalVetoResult{}, errBadRequest("notice_id and veto_until must be supplied together")
+	}
 	if !e.automatic.attached() {
 		return rpc.TradeProposalVetoResult{Accepted: false, Key: key, Revision: revision, Message: "automatic submission records are unavailable", AsOf: now}, nil
 	}
@@ -1661,6 +1666,7 @@ func (e *proposalEngine) Veto(ctx context.Context, p rpc.TradeProposalVetoParams
 	policy, policyOK := e.automaticPolicy()
 	var result rpc.TradeProposalVetoResult
 	err := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
+		now = e.clock()
 		// Find the record: the exact revision when given, otherwise the
 		// live one for the key (pending, deferred or submitting first, then
 		// the served revision).
@@ -1680,6 +1686,20 @@ func (e *proposalEngine) Veto(ctx context.Context, p rpc.TradeProposalVetoParams
 			if rec == nil && served != nil {
 				rec = records[automaticRecordKey(key, served.Revision)]
 			}
+		}
+		if conditional {
+			// A key/revision may have received a new veto window while the
+			// notification's request was in flight. Compare the stored window
+			// and the daemon's current clock under the same lock as the veto.
+			if rec == nil || automaticRecordWindowID(*rec) != noticeID ||
+				p.VetoUntil.After(rec.SubmitAt) ||
+				(rec.State != rpc.TradeProposalAutomaticVetoed && !now.Before(p.VetoUntil)) {
+				result = rpc.TradeProposalVetoResult{Accepted: false, Key: key, Revision: revision,
+					Message: "this notification no longer identifies a current veto window; review the pending orders before vetoing", AsOf: now}
+				return nil
+			}
+			// An exact retry of an already-persisted veto is safe after its
+			// deadline: the state case below acknowledges it without a write.
 		}
 		if rec == nil {
 			if served == nil || (revision != "" && served.Revision != revision) {
@@ -1786,6 +1806,9 @@ func (s *Server) handleTradeProposalsVeto(ctx context.Context, req *rpc.Request)
 	var p rpc.TradeProposalVetoParams
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
+	}
+	if req.Method == rpc.MethodTradeProposalsVetoWindow && (strings.TrimSpace(p.NoticeID) == "" || p.VetoUntil.IsZero()) {
+		return nil, errBadRequest("notification veto requires notice_id and veto_until")
 	}
 	if s.tradeProposals == nil {
 		return &rpc.TradeProposalVetoResult{Accepted: false, Key: p.Key, Revision: p.Revision, Message: "proposal engine is unavailable", AsOf: s.orderNow()}, nil

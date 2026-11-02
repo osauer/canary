@@ -178,6 +178,7 @@ var methodTimings = []MethodTiming{
 	{Method: MethodTradeProposalsPreparedBundleStatus, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodTradeProposalsIgnore, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	{Method: MethodTradeProposalsVeto, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
+	{Method: MethodTradeProposalsVetoWindow, Lifetime: MethodLifetimeUnary, DaemonTimeout: 5 * time.Second},
 	// queue_prepare refreshes the proposals like prepare; queue_arm reads the
 	// broker's open-order inventory once for the settling baseline.
 	{Method: MethodTradeProposalsQueuePrepare, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
