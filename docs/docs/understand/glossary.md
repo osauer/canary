@@ -60,7 +60,9 @@ wider industry uses a word differently, the entry says so.
   latch releases itself) or confirms it. A confirmed brake stays on until a
   human reset, or, with `drawdown.release = "automatic"`, until fresh verified
   recovery below the block threshold releases it, preserving the peak.
-  Schema version 1 rejects hard enforcement outright.
+  Block enforcement is `hard`, including when the key is omitted; the former
+  `shadow` and `advisory` values are rejected. The brake refuses risk additions
+  while engaged or while required capital evidence is stale or missing.
   See [Trading policy](policy.md).
 - **Effective risk capital:** the lesser of declared risk capital and equity
   above the protected floor. Deposits and profits never raise it; only a policy

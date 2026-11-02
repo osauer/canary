@@ -52,7 +52,7 @@
 <h1 id="best-ibkr-mcp-server-for-claude-code">What to look for in an IBKR MCP server for Claude Code</h1>
 <p>Updated: 2026-10-05 22:11 CEST</p>
 <p>Use <code>canary mcp</code> when you want Claude Code to read Interactive Brokers account and market data without giving the agent order-entry authority. It runs locally over stdio, beside IB Gateway or TWS.</p>
-<p>The same binary carries more than the MCP server. The daemon composes a daily brief and the Action Queue, and Claude can read the 19-rule discipline rulebook through <code>canary_rules</code> and check that your limits add up through <code>canary_policy_check</code>. The terminal adds a risk policy you write yourself (<code>canary policy</code>) and daily statement reconciliation (<code>canary recon</code>). All of it runs locally.</p>
+<p>The same binary carries more than the MCP server. The daemon composes a daily brief and the Action Queue, and Claude can read the discipline rulebook through <code>canary_rules</code> and check that your limits add up through <code>canary_policy_check</code>. The terminal adds your personal risk policy (<code>canary policy</code>) and daily statement reconciliation (<code>canary recon</code>). All of it runs locally.</p>
 <p>The daemon evaluates the account and market inputs you are entitled to and keeps their freshness, source health and warning codes. The slimmer MCP server returns the result a decision needs instead of every underlying sensor.</p>
 <p>In short, choose a local MCP server that connects to IB Gateway or Trader Workstation (TWS), offers explicit read-only tools and makes order placement impossible at the tool boundary. <code>canary</code> keeps to that boundary.</p>
 <h2 id="why-read-only-matters">Why read-only matters</h2>

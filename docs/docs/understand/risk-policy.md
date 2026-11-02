@@ -1,20 +1,26 @@
 # Writing a risk policy
 
-Updated: 2026-10-08 19:39 CEST
+Updated: 2026-11-02 10:22 CET
 
-The personal risk policy is one TOML file you write by hand. It holds the
+The personal risk policy is one TOML file you review and edit. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
 cadence declarations the daemon evaluates against your account, and the
 per-order limits every order preview and broker send must pass.
 [Trading policy](policy.md) covers who owns each control and what the system
 does with the result; this page covers how to write those decisions down.
 
-Every capital number in it is yours. There is no embedded default and no
-recommended value, and nothing here proposes one. A key you do not write does
-not exist, and the control that depends on it stays `unapproved`. The
-per-order limits in `[order_limits]` are the exception: Canary writes their
-values ([Order limits](policy.md#order-limits)), and a key missing from that
-table refuses every order preview.
+You supply the capital amounts, drawdown thresholds, exception-duration cap
+and reconciliation tolerances. Canary supplies no values for those choices;
+the capital tier stays `unapproved` while any required choice is missing.
+
+Other settings do have defaults. Canary writes starting per-order limits into
+`[order_limits]` and supplies defaults for optional cadence settings and
+switches. The separate Rulebook, protection and opportunity policies also have
+defaults; [Policy files Canary writes for you](policy.md#policy-files-canary-writes-for-you)
+explains which values are supplied and which remain your decision.
+The order gate reads its limits from the file. An order preview is refused
+when a required `[order_limits]` key is missing; evaluation supplies no
+substitute value ([Order limits](policy.md#order-limits)).
 
 ## Where the file lives
 
@@ -120,14 +126,17 @@ against the same declared figure.
 
 ## What the file cannot do
 
-Both schema versions accept `shadow` (the default when the key is empty) and
-`advisory` for `drawdown.block_enforcement`. They reject `"hard"` with a
-targeted error, so the drawdown ladder itself cannot block an order today.
-The mandate, allocation and `[order_limits]` gates can refuse orders. A warn or block tier
-attaches an advisory `capital_drawdown` cause to a risk-increasing order
-preview and leaves submit eligibility untouched; close and reduce previews, and
-a long put on the Rulebook's hedge index list, never carry it. Cadence classes
-accept `advisory` only.
+`drawdown.block_enforcement` accepts only `hard`; omitting it also means
+`hard`. The former `shadow` and `advisory` values are rejected. With an
+accepted risk policy, the block tier or a latched brake refuses risk-adding
+orders with `drawdown_brake`. Stale or missing capital evidence also refuses
+risk additions because the brake cannot be shown released. Reductions,
+closes, cancels and qualifying hedges remain available under this brake;
+their other order checks still apply.
+
+The warning tier adds an advisory `capital_drawdown` cause without refusing
+the order. Mandate, allocation and `[order_limits]` gates can separately
+refuse orders. Cadence classes accept `advisory` only.
 
 The schema has no key for account or route pins, freeze, preview tokens, broker
 WhatIf, or origin gating, so no revision can express a change to them, and an

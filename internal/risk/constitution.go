@@ -181,7 +181,7 @@ type ConstitutionCapital struct {
 type ConstitutionDrawdown struct {
 	WarnConsumedPct  *float64 `toml:"warn_consumed_pct" json:"warn_consumed_pct"`
 	BlockConsumedPct *float64 `toml:"block_consumed_pct" json:"block_consumed_pct"`
-	// BlockEnforcement is shadow (default when empty) or advisory in supported schemas.
+	// BlockEnforcement is hard, including when empty; shadow and advisory are rejected.
 	BlockEnforcement string `toml:"block_enforcement" json:"block_enforcement"`
 	// Release is manual (default when empty): a latched brake clears only
 	// through canary policy reset-drawdown. automatic also clears it when

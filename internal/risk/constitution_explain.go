@@ -16,7 +16,7 @@ type ConstitutionLimit struct {
 	Value       string `json:"value"`
 	Meaning     string `json:"meaning"`
 	Source      string `json:"source"`      // file | default | unapproved
-	Enforcement string `json:"enforcement"` // advisory | shadow | structural
+	Enforcement string `json:"enforcement"` // advisory | shadow | hard | structural
 }
 
 // ConstitutionLimits renders every material limit and governance field of
@@ -109,7 +109,7 @@ func ConstitutionLimits(c *Constitution) []ConstitutionLimit {
 		get("capital.declared_risk_capital", declVal, declSrc,
 			"The money you have deliberately authorized to be at risk. Effective risk capital = min(this, equity − protected floor). Deposits and profits never raise it; only a fingerprinted policy revision does.", "advisory"),
 		get("capital.max_equity_age_minutes", eqVal, eqSrc,
-			"How old the last equity observation may be before the capital state counts as stale. Stale never passes; once the block control is promoted to hard, stale fails closed for risk increases.", "advisory"),
+			"How old the last equity observation may be before the capital state counts as stale. With an accepted policy, stale capital evidence refuses risk-adding orders through the drawdown brake.", "advisory"),
 		get("capital.max_unreconciled_days", recVal, recSrc,
 			reconcileMeaning, "advisory"),
 		get("drawdown.warn_consumed_pct", warnVal, warnSrc,

@@ -143,7 +143,7 @@ It generates rows only when all of the following hold, and the snapshot's
 |---|---|
 | `needs_your_number` | the table is enabled but a cap or `max_order_notional` is not written; the reason names the keys |
 | `constitution_unapproved` | no risk constitution is active, or a material key is unapproved |
-| `enforcement_shadow` | `drawdown.block_enforcement` is `shadow`; the bucket acts only under `advisory` or stronger |
+| `enforcement_shadow` | Legacy shadow-policy state; current risk-policy validation accepts only `hard` or an omitted `drawdown.block_enforcement` key, which also means `hard` |
 | `not_latched` | the drawdown block tier is neither latched nor breached |
 | `currency_mismatch` | the constitution's base currency is not the account's |
 | `unmeasurable` | no long option leg has a base market value |

@@ -204,8 +204,9 @@ Use it for:
 
 - account, position, daily P&L, exposure, technical, and order-lifecycle reads;
 - the Action Queue and daemon-composed daily brief;
-- the 19-rule desk rulebook, operator-authored risk policy and its plausibility
-  check, and Flex-backed reconciliation;
+- the desk rulebook, personal risk policy with documented defaults and
+  owner-supplied capital settings, plausibility checks, and Flex-backed
+  reconciliation;
 - current option-strategy grouping, read-only protection proposals, and
   option-exercise opportunity review;
 - explicit freshness, entitlement, source-health, warning-code, and session

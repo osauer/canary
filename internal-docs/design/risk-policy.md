@@ -1,6 +1,6 @@
 # Risk Constitution (risk-policy.toml)
 
-Updated: 2026-10-09 21:45 CEST
+Updated: 2026-11-02 10:22 CET
 Status: phase 1 implemented 2026-07-12 (advisory/shadow only); 2026-10-05 adds
 [order_limits], a pre-trade hard gate (see Order limits below); 2026-10-09
 makes the drawdown brake the second (decision 4 below, owner 18:46 CEST);
@@ -8,8 +8,11 @@ makes the drawdown brake the second (decision 4 below, owner 18:46 CEST);
 (see Delta-reducing exits below); v2 adds
 [recon] 2026-07-13 (internal-docs/design/post-trade-truth.md); v3 2026-07-18 adds
 statement-authoritative flows and the clean-report auto-extend. Interview
-decisions approved by the operator on 2026-07-12; every numerical threshold
-remains unapproved until the operator writes it into the policy file.
+decisions approved by the operator on 2026-07-12. Capital amounts, drawdown
+thresholds, exception-duration caps and reconciliation tolerances remain
+unapproved until the operator writes them into the policy file. Per-order
+limits are written from existing configuration or compiled starting values;
+optional cadence settings and switches have documented defaults.
 
 The machine-readable policy is the constitution. `~/.config/ibkr/policies/
 risk-policy.toml` is the single authority over personal capital numbers;
@@ -62,8 +65,9 @@ must not duplicate numbers.
    Advisory (the warn tier): unknown + disclosure, never a silent pass. The
    block tier is hard (2026-10-09): stale equity or reconcile evidence
    refuses risk-adding orders, because the brake cannot be shown released;
-   an unseeded ladder (no observation yet, a paper account) is not stale and
-   refuses nothing.
+   with an accepted policy, an unseeded ladder or other missing capital
+   evidence also refuses risk additions because the brake cannot be shown
+   released.
 8. **Cadence:** routine brief viewing and clean monthly evidence are automated,
    never human attestations. Reconciliation lapses flow through the staleness
    posture; only exceptional repair returns to the operator.
@@ -87,10 +91,13 @@ cap scales with the book. Implemented 2026-10-05 20:28 CEST.
 1. **Keys.** `max_order_floor_base`, `max_order_pct_nlv`,
    `max_order_ceiling_base` (base currency, percent, base currency),
    `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open`.
-   Cap in force = min(ceiling, max(floor, pct / 100 × NLV)). Worked check:
+   Cap in force = min(ceiling, max(floor, pct / 100 × NLV)). Original
+   2026-10-05 worked check, with a 5% share:
    NLV 240,000 EUR gives 12,000 (pct binds); 150,000 gives 10,000 (floor);
    2,500,000 gives 100,000 (ceiling); NLV unreadable gives 10,000 (floor,
-   flagged in the summary and the refusal).
+   flagged in the summary and the refusal). The starting share became 10%
+   on 2026-10-07; current examples are in the public
+   [Order limits](../../docs/docs/understand/policy.md#order-limits) guide.
 2. **Read from the file only.** Compiled numbers exist solely to be written
    into the file (`order_limits_policy_file.go`). A missing key, a missing
    table or a missing constitution refuses every order preview with the
@@ -239,11 +246,12 @@ the 08:13 decision, so no preset makes the book less able to cut risk.
 
 | Concept | Authoritative source | Typed field/contract | Renderer/tool | Fallback or unavailable state |
 |---|---|---|---|---|
-| Capital numbers, ladder, override cap, process cadence, sibling pins | `risk-policy.toml` (no embedded default) | `risk.Constitution` | `canary policy show [--explain]` | missing file/key ⇒ `unapproved`, never a code value |
+| Capital numbers, ladder, override cap, reconciliation tolerances | `risk-policy.toml` (owner-supplied values) | `risk.Constitution` | `canary policy show [--explain]` | missing required key ⇒ `unapproved`, never a substitute code value |
+| Process cadence and sibling review | `risk-policy.toml` plus documented defaults for optional cadence keys and `inventory.require_signoff` | `risk.ConstitutionCadence`, `risk.ConstitutionInventory` | `canary policy show [--explain]` | omitted cadence keys use their defaults; sibling sign-off is optional and defaults off |
 | Single-issuer concentration: the issuer cap and trim level, illiquid bands, hedge credit, takeover gap, issuer groups, clusters, delta-swing and loss-budget watches | `rulebook-policy.toml` (Rulebook rule 1 and rules 16-18, amendment 15 of the Rulebook design) | `risk.RulebookPolicy`, `RulesResult` rows 1 and 16-18 | `canary rules`, `canary rules policy`, stress concentration row, risk-reduction bucket | the stress read and the protection policy define no concentration threshold of their own; rule 18 needs the effective risk capital above and reads unknown without it |
 | Net market exposure: the whole book's signed stock-equivalent exposure with hedges, and its regime-banded watch and act levels | `rulebook-policy.toml` (Rulebook rule 15, amendments 16 and 17 of the Rulebook design) | `risk.RulebookPolicy` regime sets, `RulesResult` row 15, `StressPortfolioSummary.NetExposure` | `canary rules`, `canary rules policy`, stress exposure row and `net_delta_high` | the stress read defines no net-exposure measure or level of its own; it takes rule 15's verdict (an act under the confirmed regime set is urgent); without a rule 15 measurement the exposure row is a data-quality watch |
 | Margin headroom: the broker's excess liquidity as a share of NLV (the worse of current and look-ahead), and its watch and act levels | `rulebook-policy.toml` (Rulebook rule 19, amendments 18 and 19 of the Rulebook design) | `risk.RulebookPolicy` margin-headroom keys, `RulesResult` row 19, `StressPortfolioSummary.MarginHeadroom` | `canary rules`, `canary rules policy`, stress margin row and `margin_cushion_low` | the stress read defines no margin-cushion level of its own; it takes rule 19's verdict (watch is a watch, act an act); without a rule 19 measurement the margin row is a data-quality watch |
-| Per-order limits: notional cap floor, NLV share and ceiling, option contracts, stock short and option sell-to-open permissions | `risk-policy.toml` `[order_limits]` (no embedded default) | `risk.ConstitutionOrderLimits`, `risk.OrderLimitsInForce` | `canary policy show [--explain]`, `canary trading status`, settings view (read-only) | missing key or file ⇒ every order preview refused (`order_risk_limit` naming the key); NLV not current ⇒ floor |
+| Per-order limits: notional cap floor, NLV share and ceiling, option contracts, stock short and option sell-to-open permissions | `risk-policy.toml` `[order_limits]`, written from existing configuration or compiled starting values; no fallback during order evaluation | `risk.ConstitutionOrderLimits`, `risk.OrderLimitsInForce` | `canary policy show [--explain]`, `canary trading status`, settings view (read-only) | missing required key or file ⇒ every order preview refused (`order_risk_limit` naming the key); NLV not current ⇒ floor |
 | Delta-reducing exit: the underlying's signed net dollar delta before an order and per unit of each contract it touches, in base currency | one current `positions.list` read of the order's account, with the deltas the daemon's verdicts use (`positionDollarDelta`, `positionBaseRate`) | `deltaReductionEvidence` (daemon-internal; `measureDeltaReduction`, `deltaReducingExit`) | the refusal text of `order_risk_limit`; `policy check` rules `lot_above_trading_max`, `order_cap_splits_reduction`, `reduction_cap_above_order_cap` | positions not current, another account, a stale row, a leg without delta, spot or FX rate, or a contract not held ⇒ not measured ⇒ the caps apply and the refusal says why |
 | Mandate risk budget: maximum loss, volatility target, tax reserve, start, gap numbers | `risk-policy.toml` `[mandate]` (optional; internal-docs/design/mandate-risk-budget.md, which records its deliberate departure from decision 3) | `risk.ConstitutionMandate`, `mandate.Verdict` | `canary mandate`, `canary_mandate`, blocker `mandate_budget` | table absent ⇒ inactive; incomplete, stale or missing evidence ⇒ unknown, additions refused |
 | Core sleeve: rule, pinned instrument, scale, band, minimum order, value cap (its share is `[mandate.sleeves]` `core_vol_pct`) | `risk-policy.toml` `[mandate.core]` (optional; internal-docs/design/core-sleeve.md) | `risk.ConstitutionMandateCore`, `core.Signal`, `rpc.CoreTargetResult` | `canary core`, `canary_core` (read-only: no proposal, no order) | table absent ⇒ inactive; an unwritten key, another rule, a missing, stale or suspect series, unknown capital or an unknown mandate verdict ⇒ the core holds and names why; the keys never enter the constitution's approval list |
@@ -256,12 +264,14 @@ the 08:13 decision, so no preset makes the book less able to cut risk.
 
 Manager semantics: protection-policy manager vocabulary (strict unknown-key
 rejection, version-bump-required drift detection, last-good retained on
-error) with two deliberate differences — **no embedded default** (missing
-file is status `absent`) and **no trading blockers** (v1 is advisory; a
-broken constitution is disclosed loudly, it does not stop trading — that
-posture flips per control if a control is promoted to hard). `[order_limits]`
-is that promotion for the per-order gates: the last good policy's table
-judges every order, and without one every order preview is refused.
+error), with no supplied capital choices. A missing file is status `absent`;
+missing required choices are `unapproved`. Optional cadence defaults and
+starting values written into `[order_limits]` do not fill those choices.
+The initial v1 constitution was advisory. Current order limits and the
+drawdown brake are enforced: the last good policy's limits judge the order,
+and an accepted policy's engaged brake or stale/missing capital evidence
+refuses risk additions. Reductions, closes, cancels and qualifying hedges
+remain exempt from the drawdown brake; their other order checks still apply.
 
 Cash-flow adjustment: capital events (deposit/withdrawal/reconcile) are
 operator-declared journal facts. Adjusted equity = equity − cumulative
@@ -584,12 +594,13 @@ unambiguous; fingerprint keys are unchanged.
 Revert the files above. The risk-capital document and governance events remain
 inside daemon.db and may be ignored by older feature code, but daemon.db must
 not be deleted or replaced; the operator's TOML remains separate policy
-authority. User-visible change on rollback: `canary policy` disappears and
-previews lose the advisory `capital_drawdown` cause; no trading-path behavior
-changes either way.
+authority. Rolling back the original advisory implementation removed
+`canary policy` and the advisory `capital_drawdown` preview cause without
+changing order eligibility. That no longer describes the current system:
+removing the enforced drawdown brake changes the trading path.
 
-`[order_limits]` (2026-10-05) is the exception: rolling it back changes the
-trading path. An older binary refuses a constitution that carries the table
+Rolling back `[order_limits]` (2026-10-05) also changes the trading path.
+An older binary refuses a constitution that carries the table
 (strict unknown-key rejection keeps the last good policy, or none on a fresh
 start) and reads the per-order gates from `config.toml` `[trading]` again,
 with its compiled defaults where a key is absent. Before rolling back,

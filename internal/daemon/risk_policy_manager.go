@@ -23,12 +23,12 @@ import (
 const riskPolicyDefaultPath = "~/.config/ibkr/policies/risk-policy.toml"
 
 // riskPolicyManager mirrors protectionPolicyManager's load/drift semantics
-// with one deliberate difference: there is NO embedded default. A missing
-// file is status "absent" and every control is unapproved — material
-// limits exist only when the operator writes them (interview decision,
-// 2026-07-12). Load or validation errors keep the last good policy active
-// and disclose loudly; they add no trading blockers in v1 because every
-// constitution control is advisory/shadow (stale-posture decision 7).
+// without a fallback constitution: a missing file is status "absent".
+// Required capital choices remain unapproved until written by the operator.
+// Optional settings have defaults; startup writes missing order limits into
+// the file. Load or validation errors retain the last good policy and disclose
+// the error. Order limits and the drawdown brake remain enforced by the order
+// path, including refusal of risk additions on stale or missing capital evidence.
 type riskPolicyManager struct {
 	mu              sync.Mutex
 	path            string

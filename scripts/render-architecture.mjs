@@ -489,7 +489,7 @@ function policyPrimer() {
   ${policyCard({ x: 36, y: 164, width: 210, height: 138, iconName: "fileText", color: C.greenDark, title: "Risk Boundary", lines: ["capital at risk", "evidence required"], format: "Set by the trader", formatClass: "card-note" })}
   ${policyCard({ x: 36, y: 336, width: 210, height: 138, iconName: "worldDownload", color: C.blue, title: "Current Evidence", lines: ["account · market", "broker statement"], format: "Freshness included", formatClass: "card-note" })}
   ${policyCard({ x: 290, y: 228, width: 196, height: 196, iconName: "serverCog", color: C.green, title: "Policy Check", lines: ["policy + current evidence", "missing stays unknown", "one consistent result"], format: "No trading discretion", formatClass: "card-note", dark: true })}
-  ${policyCard({ x: 526, y: 228, width: 196, height: 196, iconName: "bell", color: C.slate, title: "Advice Today", lines: ["status + explanation", "warning or proposal", "cannot submit"], format: "Advisory / shadow", formatClass: "card-note" })}
+  ${policyCard({ x: 526, y: 228, width: 196, height: 196, iconName: "bell", color: C.slate, title: "Policy Result", lines: ["status + explanation", "warning or blocker", "cannot submit"], format: "Risk limits enforced", formatClass: "card-note" })}
 
   <rect x="750" y="188" width="174" height="260" rx="16" fill="${C.amberSoft}" stroke="${C.amber}" stroke-width="1.5"/>
   ${iconTile("user", 766, 206, C.amber, 40)}
@@ -528,7 +528,7 @@ function policyPrimer() {
     width: 960,
     height: 706,
     title: "How Policy Informs a Trading Decision (Canary)",
-    description: "A trader sets the risk boundary, Canary checks it against current evidence, and the trader decides what happens next. Policy output is advisory or shadow, local decision records are not proof of execution, and only a human authorizes an order.",
+    description: "A trader sets the risk boundary, Canary checks it against current evidence, and the trader decides what happens next within the enforced limits. Policy results can warn or block; local decision records are not proof of execution, and only a human authorizes an order.",
     body,
     extraStyles: policyReadableStyles,
   });
@@ -557,7 +557,7 @@ function policyArchitecture() {
   <text x="298" y="181" class="policy-table-head">Set By</text>
   <text x="502" y="181" class="policy-table-head">What It Does Now</text>
   <text x="714" y="181" class="policy-table-head">How It Changes</text>
-  ${controlRow(198, C.panel, "Personal Risk Policy", "trader", "advice / shadow", "new policy version")}
+  ${controlRow(198, C.panel, "Personal Risk Policy", "trader", "warn / block", "new policy version")}
   ${controlRow(252, C.greenSoft, "Protection & Opportunity", "project or trader", "advisory output", "reviewed policy file")}
   ${controlRow(306, C.panel, "Runtime Settings", "trader", "product behavior", "allowlisted setting")}
   ${controlRow(360, C.blueSoft, "Analytical Models", "maintainer", "analysis context", "reviewed release")}
@@ -571,11 +571,11 @@ function policyArchitecture() {
   <rect x="280" y="526" width="400" height="386" rx="18" fill="${C.panel}" stroke="${C.greenLine}" stroke-width="1.5"/>
   <path d="M280 566h400v-22a18 18 0 0 0 -18 -18h-364a18 18 0 0 0 -18 18z" fill="${C.greenSoft}"/>
   <text x="300" y="552" class="boundary" style="fill:${C.greenDark}">Owned by the Canary Daemon</text>
-  <text x="304" y="604" class="layer">Policy Advice</text>
+  <text x="304" y="604" class="layer">Policy Evaluation</text>
   ${flowBox(304, 622, 152, 128, "Check", ["missing evidence", "stays unknown"], C.green, C.terminal, true)}
   ${flowBox(492, 622, 164, 128, "Decision Record", ["status + reasons", "saved locally"], C.slate)}
   <text x="304" y="790" class="layer">Broker Submission</text>
-  ${flowBox(380, 806, 200, 94, "Safety Gates", ["account · route · freeze", "preview token · journal"], C.amber, C.amberSoft)}
+  ${flowBox(380, 806, 200, 94, "Policy + Safety", ["account · route · freeze", "preview token · journal"], C.amber, C.amberSoft)}
 
   ${flowBox(714, 564, 210, 128, "Read-Only Views", ["CLI · app · MCP", "show the same result"], C.slate)}
   ${flowBox(714, 744, 210, 92, "IBKR Broker", ["execution venue"], C.greenDark)}
@@ -584,18 +584,19 @@ function policyArchitecture() {
   ${line("M246 628H270V686H304", "blue", { dashed: true })}
   ${line("M456 686H492", "slate")}
   ${line("M656 686H714", "slate")}
+  ${line("M380 750V768H480V806", "green")}
   ${line("M246 808H272V853H380", "amber", { dotted: true })}
   ${line("M580 853H690V790H714", "amber", { dotted: true })}
   ${line("M819 836V856", "blue", { dashed: true })}
 
-  <text x="924" y="982" text-anchor="end" class="footnote">Personal policy advises today. Broker records establish execution.</text>
+  <text x="924" y="982" text-anchor="end" class="footnote">Policy can refuse an order. Broker records establish execution.</text>
   `;
 
   return svgFrame({
     width: 960,
     height: 1002,
     title: "Who Controls What (Canary)",
-    description: "A compact matrix separates trader-authored policy, built-in or custom advisory policy, runtime settings, reviewed models, and broker safety controls. Below it, the daemon keeps policy advice separate from the human-authorized broker path, while broker records remain the evidence of execution.",
+    description: "A compact matrix separates personal risk policy, protection and opportunity policy, runtime settings, reviewed models, and broker safety controls. The daemon reports policy results and applies enforced limits to the separately authorized broker path. Broker records remain the evidence of execution.",
     body,
     extraStyles: policyReadableStyles,
   });

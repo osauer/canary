@@ -1,10 +1,10 @@
 # Trading policy
 
 You decide how much capital may be at risk, which evidence must be current,
-and when uncertainty requires attention. Today, `canary`'s personal risk policy
-observes, explains, and records the capital decisions. One table in it blocks:
-`[order_limits]`, the per-order limits every order preview and broker send must
-pass ([Order limits](#order-limits)). Nothing in the policy authorizes an
+and when uncertainty requires attention. Canary's personal risk policy
+records those decisions and supplies enforced limits. The drawdown brake can
+refuse risk additions, and `[order_limits]`, mandate and allocation checks
+constrain the orders they govern ([Order limits](#order-limits)). Nothing in the policy authorizes an
 order. Every submission remains a transaction-specific human decision and must
 pass separate, code-owned safety controls.
 
@@ -24,15 +24,16 @@ responsibilities become system-enforced governance.
 
 ## How policy informs a trading decision
 
-[![How a risk boundary and current evidence inform advice while the human retains the trading decision](../../diagrams/policy-lifecycle.svg)](../../diagrams/policy-lifecycle.svg)
+[![How a risk boundary and current evidence produce warnings or blockers while the human retains order authority](../../diagrams/policy-lifecycle.svg)](../../diagrams/policy-lifecycle.svg)
 
 [PNG fallback](../../diagrams/policy-lifecycle.png) ·
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Tabler Icons license](../../diagrams/ICON-LICENSE.txt)
 
 The human chooses the boundary before the market creates pressure. The daemon
-combines that policy with current evidence and returns a structured advisory or
-shadow result. The human decides what to do. Outcomes may justify a deliberate
+combines that policy with current evidence and reports the result. A warning
+informs the decision; an enforced limit can refuse an order. The human decides
+what to do within those controls. Outcomes may justify a deliberate
 higher policy version, but they never rewrite the active policy by themselves.
 
 > A policy result, proposal, or preview is never permission to submit an
@@ -42,9 +43,11 @@ higher policy version, but they never rewrite the active policy by themselves.
 
 Suppose the last accepted equity reading is near a declared drawdown boundary,
 but the evidence needed to rely on the current result has become stale. `canary`
-must disclose stale or unknown input rather than report a pass. In shadow mode
-it can record the condition and show what the declared response would mean; the
-personal risk policy still does not change submit eligibility.
+must disclose stale or unknown input rather than report a pass. With an
+accepted risk policy, stale or missing capital evidence prevents the drawdown
+brake from being shown released, so risk-adding orders are refused with
+`drawdown_brake`. Reductions, closes, cancels and qualifying hedges remain
+available under this brake; their other order checks still apply.
 
 The trader decides whether to wait, investigate, reduce risk, or take another
 explicitly authorized action. Separate broker-write controls remain binding:
@@ -68,7 +71,7 @@ decision.
 
 | Source of control | Decision owner and source of record | If absent | Effect today | How it changes |
 |---|---|---|---|---|
-| Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema. Canary writes a skeleton whose every capital number is a commented placeholder and whose `[order_limits]` carries today's per-order limits | Capital choices remain `unapproved`; without a complete `[order_limits]` every order preview is refused | Advisory or shadow capital, drawdown, evidence, reconciliation, cadence, and exception results; `[order_limits]` is a pre-trade hard gate | Write the numbers you approve and raise `policy_version`; one-shot `canary policy override` for a bounded exception |
+| Personal risk policy | Human-owned `~/.config/ibkr/policies/risk-policy.toml`; called the risk constitution in code and schema. Canary writes a skeleton whose capital choices are commented placeholders and whose `[order_limits]` carries starting limits | Required capital choices remain `unapproved`; missing order limits refuse the orders that need them | Capital and reconciliation evidence; an advisory drawdown warning, an enforced drawdown brake, and order-limit, mandate and allocation gates | Write the numbers you approve and raise `policy_version`; one-shot `canary policy override` for a bounded exception |
 | Rulebook policy | `~/.config/ibkr/policies/rulebook-policy.toml`, written from Canary's defaults and then yours | A running daemon retains its last loaded policy and reports drift. With no accepted file at startup, compiled defaults apply and the missing template is written | Every limit and mode behind `canary rules` | `canary rules policy set KEY=VALUE`, or edit the file and raise `policy_version` |
 | Protection and opportunity policy | `protection-policy.toml` and `opportunity-policy.toml`, written from Canary's defaults and then yours | A running daemon retains its last loaded policy and reports drift; protection pre-authorised submission pauses. Startup writes missing templates from embedded defaults, which is not evidence of human approval | Shapes defensive proposals, option-exercise opportunity detection and the calls and puts Add offers | Review the file, edit it, and raise `policy_version` |
 | Runtime settings | Human-operated typed settings stored by the daemon in `daemon.db` | The reported config or build default remains visible | Controls product features and allowlisted overrides; settings are not policy files and carry no order limit | `canary settings set`, Settings UI, or typed API; freeze changes remain human-only |
@@ -234,15 +237,24 @@ predates this view. With SECTION, `--json` prints only the matching part.
 
 ### Personal risk policy
 
-The personal risk policy has no embedded default for capital and no path
-override. The skeleton Canary writes (`canary policy default constitution`
-prints it) carries every capital choice commented out, so software cannot
-invent them; its `[order_limits]` carries values, written from `config.toml`
-`[trading]` (see [Order limits](#order-limits)).
+The personal risk policy leaves capital amounts, drawdown thresholds,
+exception-duration caps and reconciliation tolerances for you to supply.
+The skeleton Canary writes (`canary policy default constitution` prints it)
+keeps those choices commented out. Its path is fixed.
+
+Canary supplies defaults for other settings. It writes
+`[order_limits]` from applicable legacy `config.toml` `[trading]` values or its
+compiled starting values; the order gate then reads the file without filling
+missing required keys (see [Order limits](#order-limits)). Optional cadence
+settings and switches have documented defaults, as do the separate Rulebook,
+protection and opportunity policies. [Writing a risk policy](risk-policy.md)
+distinguishes the supplied settings from the choices that remain unapproved.
 
 Its main sections cover capital and the protected floor, drawdown response,
 bounded human exceptions, statement reconciliation, operating cadence, and
-approved sibling model identities. Supported schemas accept `advisory` and `shadow`; they reject hard drawdown enforcement. Effective risk capital is the
+approved sibling model identities. Drawdown block enforcement is `hard`,
+including when `block_enforcement` is omitted; `shadow` and `advisory` are
+rejected. The warning tier remains advisory. Effective risk capital is the
 lesser of declared risk capital and equity above the protected floor.
 
 Inspect the current result with:
@@ -264,22 +276,25 @@ in force. Mutating governance commands under
 The per-order limits are risk limits and live in the personal risk policy as
 `[order_limits]` (owner decision 2026-10-05 19:56 CEST). Until then they were
 `config.toml` `[trading]` keys with a runtime override in `canary settings`;
-both are retired. The trading gate reads every key from the file only; while
-one is missing every order preview is refused with the `order_risk_limit`
-blocker naming the key, until the next daemon start writes it. The one
-exception is `max_bond_maturity_years`: while it is missing only bond and bill
-buys are refused, so it never blocks an exit, a stop or any other order
-(owner decision 2026-10-07 08:27 CEST).
+both are retired. The trading gate reads its limits from the file only.
+A missing common limit refuses every order preview with `order_risk_limit`
+naming the key, until the next daemon start writes it. Three keys apply only
+to particular paths: `max_bond_maturity_years` to bond and bill buys,
+`reduce_allowance_pct` to percent reductions of stocks and ETFs, and
+`reduce_option_allowance_pct` to percent reductions of options. Their absence
+holds those paths without making the common limits incomplete.
 
 | Key | Meaning | `policy ensure` writes |
 |---|---|---|
 | `max_order_floor_base` | Smallest notional cap in force, account base currency | `[trading].max_notional`, else 10,000 |
 | `max_order_pct_nlv` | Share of net liquidation value that sets the cap between floor and ceiling | 10.0 (5.0 before 2026-10-07) |
-| `max_order_ceiling_base` | Largest notional cap in force, account base currency | 100,000 |
+| `max_order_ceiling_base` | Largest notional cap in force, account base currency | 100,000, raised to the floor if the migrated floor is higher |
 | `max_option_contracts` | Contracts in one single-leg option order or each strategy-close leg | `[trading].max_option_contracts`, else 10 (5 before 2026-10-07) |
 | `allow_stock_short` | A stock or ETF order may open or flip a short | `[trading].allow_stock_short`, else false |
 | `allow_option_sell_to_open` | An option order may sell to open | `[trading].allow_option_sell_to_open`, else false |
 | `max_bond_maturity_years` | Longest time to maturity, in whole years from today, a bond or bill buy may have (1 to 100) | 30 |
+| `reduce_allowance_pct` | How far a stock or ETF percent-reduction limit may sit beyond the bid or ask | 1.0 |
+| `reduce_option_allowance_pct` | How far an option percent-reduction limit may sit beyond the bid or ask, at least one tick | 5.0 |
 
 The notional cap scales with the book:
 
@@ -287,10 +302,13 @@ The notional cap scales with the book:
 cap in force = min(max_order_ceiling_base, max(max_order_floor_base, max_order_pct_nlv / 100 × NLV))
 ```
 
+With the current starting values (10,000 floor, 10% of NLV, 100,000 ceiling),
+the examples are:
+
 | NLV | Cap in force | Bound by |
 |---|---|---|
-| 240,000 EUR | 12,000 EUR | 5% of NLV |
-| 150,000 EUR | 10,000 EUR | the floor |
+| 240,000 EUR | 24,000 EUR | 10% of NLV |
+| 80,000 EUR | 10,000 EUR | the floor |
 | 2,500,000 EUR | 100,000 EUR | the ceiling |
 | cannot be read | 10,000 EUR | the floor, flagged |
 
@@ -300,8 +318,8 @@ reading is older than 5 minutes. An NLV that cannot be read currently binds the
 floor, the smaller cap, and the summary says why. Amounts are in the account
 base currency: a `capital.base_currency` that differs from the account's
 refuses every order. A refusal names the cap in force and how it was bound, for
-example `order notional 15,000 EUR exceeds the order cap in force 12,000 EUR
-(5% of NLV 240,000 EUR; [order_limits])`.
+example `order notional 30,000 EUR exceeds the order cap in force 24,000 EUR
+(10% of NLV 240,000 EUR; [order_limits])`.
 
 Three exemptions stand against the cap in force. A protective stock stop that
 sells at most the long position with no competing working sell passes the
@@ -397,10 +415,11 @@ it is bound.
 
 A file written before `[order_limits]` existed gains the table at the next
 daemon start, after a backup: each key from `config.toml` `[trading]` (a
-10,000 floor, 5 option contracts and no shorting or selling to open where a key
-was never set), the two scaled-cap keys, `max_bond_maturity_years = 30` and a
-raised `policy_version`. A table written before `max_bond_maturity_years`
-existed gains that key alone, 30, the same way. To return
+10,000 floor, 10 option contracts and no shorting or selling to open where a key
+was never set), the two scaled-cap keys, the maturity and reduction-allowance
+keys listed above, and a raised `policy_version`. An existing table gains
+every missing order-limit key the same way; values already written are
+preserved. To return
 to a fixed cap, set `max_order_ceiling_base` equal to `max_order_floor_base` and
 raise `policy_version`. The
 `[trading]` keys still load so an old `config.toml` stays valid, are never read
@@ -451,7 +470,7 @@ These words describe different facts:
 | Valid | The file matches its schema and internal rules. |
 | Active | The running daemon is using that version now. |
 | Commissioned | The complete evidence, evaluator, reporting, and operator path has been proven for its intended use. |
-| Enforced | The result actually constrains a path. The personal risk policy is advisory/shadow today except `[order_limits]`, which every order preview and broker send must pass; separate broker controls are enforced. |
+| Enforced | The result actually constrains a path. The drawdown brake, order limits, mandate and allocation gates can refuse orders. Advisory warnings and cadence reminders cannot; separate broker safety controls still apply. |
 | Delivered | A result reached its intended surface or alert channel. An evaluator can be active while delivery is inactive. |
 
 Do not infer enforcement or delivery merely because a schema, evaluator, or UI

@@ -355,15 +355,16 @@ and source health alongside the risk evidence.
 
 ### What it answers
 
-Rulebook evaluates 19 advisory checks over the current book, 16 discipline
-rules and 3 concentration watches that never act: which pass, which need
-attention, and which cannot be evaluated. Inputs are account and positions
+Rulebook evaluates the advisory checks listed in [The rulebook](rulebook.md)
+over the current book: which pass, which need attention, and which cannot be
+evaluated. The concentration watches for delta swing, cluster stress and loss
+budget never act. Inputs are account and positions
 evidence (margin headroom reads the broker's current and look-ahead excess
 liquidity), per-name
 earnings evidence, the classified Regime stage, 20-day average volume for days
 to exit, the constitution's effective risk capital for the loss budget, and
 current SPY tape where a rule needs it. The pure evaluator
-returns all 19 rows in stable order plus a hardest-first ranking, breach
+returns every rule row in stable order plus a hardest-first ranking, breach
 counts, offenders with their own status, observed values, thresholds, and
 evidence. The detailed
 [Trading Rulebook](../../../internal-docs/design/trading-rulebook.md) is the semantic authority;

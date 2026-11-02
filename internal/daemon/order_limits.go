@@ -15,8 +15,9 @@ import (
 // Order limits in force (owner decision 2026-10-05 19:56 CEST). The per-order
 // gates are read from the risk constitution's [order_limits] table only; the
 // notional cap scales with the book as min(ceiling, max(floor, pct × NLV)).
-// A missing key refuses every order preview with a blocker naming it. An NLV
-// that cannot be read currently binds the floor and the summary says so.
+// A missing common limit refuses every order preview with a blocker naming it;
+// maturity and reduction allowances are required only on their affected paths.
+// An NLV that cannot be read currently binds the floor and the summary says so.
 
 // orderLimitsNLVMaxAge bounds how old the account reading the cap scales
 // with may be; an older one is not current and the floor binds.

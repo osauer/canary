@@ -49,7 +49,7 @@ authorize or block a broker write.
 
 ## Scope
 
-- Goal: encode rules 1–19 (below) as a versioned model evaluated by the
+- Goal: encode the numbered rules below as a versioned model evaluated by the
   daemon; advisory-only. The hardest-first ranking is a property of the
   output, not a rule row. Still out of scope after v2: rule 12(b)
   (regime-aware wing-sell preview cause), carried-forward greeks for
