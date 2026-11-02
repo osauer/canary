@@ -45,16 +45,19 @@ func TestReconCommonValuationBasis(t *testing.T) {
 		name                string
 		price, fx, residual float64
 	}{
-		{"FX alone", 100, .96, 0}, {"marks alone", 90, 1, 0}, {"FX and marks", 90, .96, 0}, {"real residual retained", 90, .96, -2000},
+		{"FX alone", 100, .96, 0}, {"marks alone", 90, .9, 0}, {"FX and marks", 90, .96, 0}, {"real residual retained", 90, .96, -2000},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			row, st, sample := reconValuationFixture()
+			row.TotalBase, st.FX.NAV = 95000, 95000
+			st.Equity[0] = row
+			st.FX.Rates["USD"] = .9
 			sample.Positions[0].Mark, sample.Positions[0].MarketValue = tc.price, 100*tc.price
 			native := 40000 + 100*tc.price
 			sample.Currencies["USD"] = rpc.ReconNativeValuation{Equity: native, FXRate: tc.fx}
 			sample.EquityBase = 50000 + native*tc.fx + tc.residual
 			got := compareReconValuation(row, st, sample)
-			if got.Comparability != "comparable" || got.DivergencePct == nil || math.Abs(*got.DivergencePct-tc.residual/1000) > 1e-10 {
+			if got.Comparability != "comparable" || got.DivergencePct == nil || math.Abs(*got.DivergencePct-tc.residual/row.TotalBase*100) > 1e-10 {
 				t.Fatalf("comparison=%+v", got)
 			}
 			if got.Evidence == nil || got.Evidence.UnallocatedRuntimeBase != tc.residual || got.RuntimeAsOf != sample.AsOf || *got.RuntimeEquityBase != sample.EquityBase {

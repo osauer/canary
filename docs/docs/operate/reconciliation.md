@@ -165,6 +165,11 @@ the statement's closing prices and FX before applying the existing divergence
 limit. The raw difference remains available in JSON as diagnostic evidence.
 A matching date alone is insufficient. Missing historical evidence or changed
 holdings leave the comparison unverified, and the clock does not extend.
+When the broker reports 1 as a foreign-currency rate, an earlier saved sample
+cannot establish that rate as historical evidence. Today's display FX cannot
+repair the historical comparison either. The original account value and the
+reported inputs remain available while the comparison waits for independent
+historical valuation evidence.
 Each evaluated comparison is retained in the daemon's governance journal.
 
 The equity comparison itself is a data-quality reading about the runtime

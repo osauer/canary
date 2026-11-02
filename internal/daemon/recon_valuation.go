@@ -39,7 +39,9 @@ func captureReconValuation(raw *ibkrlib.RawAccountSummary, positions []*ibkrlib.
 			continue
 		}
 		v.Currencies[c] = rpc.ReconNativeValuation{Equity: row.NetLiquidationByCurrency, FXRate: rate, StockValueReported: row.StockMarketValueText, OptionValueReported: row.OptionMarketValueText}
-		if !row.NetLiquidationObserved || (c != v.BaseCurrency && !row.ExchangeRateObserved) || rate <= 0 || !reconFinite(rate) || !reconFinite(row.NetLiquidationByCurrency) {
+		// The account reader treats a foreign unit rate as unresolved. Keep the
+		// broker value, but do not promote it into historical FX evidence.
+		if !row.NetLiquidationObserved || (c != v.BaseCurrency && (!row.ExchangeRateObserved || rate == 1)) || rate <= 0 || !reconFinite(rate) || !reconFinite(row.NetLiquidationByCurrency) {
 			v.Reason = "runtime_currency_basis_missing"
 		}
 	}
@@ -195,7 +197,8 @@ func compareReconValuation(row flexstmt.EquityRow, st flexstmt.Statement, sample
 			return check
 		}
 	}
-	nativeTotal := 0.0
+	nativeTotal, fxAdjustment := 0.0, 0.0
+	foreignUnitRate := false
 	for _, c := range slices.Sorted(maps.Keys(sample.Currencies)) {
 		native := sample.Currencies[c]
 		rate, ok := f.Rates[c]
@@ -205,10 +208,17 @@ func compareReconValuation(row flexstmt.EquityRow, st flexstmt.Statement, sample
 		if c == sample.BaseCurrency && (rate != 1 || native.FXRate != 1) {
 			return check
 		}
+		foreignUnitRate = foreignUnitRate || (c != sample.BaseCurrency && native.FXRate == 1)
 		nativeTotal += native.Equity * native.FXRate
-		evidence.FXAdjustmentBase += native.Equity * (rate - native.FXRate)
+		fxAdjustment += native.Equity * (rate - native.FXRate)
 	}
 	evidence.UnallocatedRuntimeBase = sample.EquityBase - nativeTotal
+	// Legacy retained samples can lack the capture guard's Reason. Preserve
+	// their raw residual, without using unproved FX to normalize it away.
+	if foreignUnitRate {
+		return check
+	}
+	evidence.FXAdjustmentBase = fxAdjustment
 	compared := sample.EquityBase + evidence.FXAdjustmentBase + evidence.MarketAdjustmentBase
 	if !reconFinite(compared) {
 		return check
