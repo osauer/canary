@@ -662,8 +662,8 @@ func goldenMandateOwnerStop() rpc.MandateRiskResult {
 		{Sleeve: mandate.SleeveCore, TargetPct: 6, Note: "no [mandate.core]: the core is inactive"},
 		{Sleeve: mandate.SleeveOverlay, TargetPct: 4, Note: "no strategy registered in the overlay yet"},
 	}
-	v.OwnerStop = &mandate.SleeveStop{Sleeve: mandate.SleeveOwner, StopPct: 25, ReleasePct: 20, Known: true, StartedAt: "2026-09-01", RiskBase: 175000, HWMRiskBase: 240000, HWMAsOf: goldenAt.Add(-72 * time.Hour),
-		DrawdownBase: 65000, DrawdownPct: 27.08, Engaged: true, EngagedAt: goldenAt.Add(-30 * time.Minute), UseAtStopBase: 31200, TargetUseBase: 15600, UseBase: 23970, Over: true}
+	v.OwnerStop = &mandate.SleeveStop{Sleeve: mandate.SleeveOwner, StopPct: 25, ReleasePct: 20, Known: true, StartedAt: "2026-09-01", RiskBase: 175037, HWMRiskBase: 240037, HWMAsOf: goldenAt.Add(-72 * time.Hour),
+		DrawdownBase: 65037, DrawdownPct: 27.08, Engaged: true, EngagedAt: goldenAt.Add(-30 * time.Minute), UseAtStopBase: 31237, TargetUseBase: 15637, UseBase: 24007, Over: true}
 	res.Verdict = &v
 	res.Policy.Sleeves = &rpc.MandateSleevesView{OwnerVolPct: new(7.0), CoreVolPct: new(6.0), OverlayVolPct: new(4.0), OwnerStopPct: new(25.0)}
 	res.Gate = &rpc.MandateGateView{RefusesAdditions: true, Reason: "your sleeve is 27% below its high-water mark 240,000 EUR, past its 25% stop; the sleeve is reduce-only until its drawdown is back under 20%, 5 points under the stop"}

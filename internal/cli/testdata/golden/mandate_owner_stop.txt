@@ -12,9 +12,9 @@ Sizing budget · 15% × 230,000 EUR at room 93% a year · sizes the sleeve
 Risk base · 232,000 EUR = equity 307,000 EUR − tax reserve 70,000 EUR · flows
   since 2026-09-01 −5,000 EUR
 Owner sleeve · STOP ENGAGED since Sat 5 Sep 13:30 TZ · 27% below its
-               high-water mark 240,000 EUR · stop 25%, releases under 20% ·
-               reduce-only to 15,600 EUR a year, half its risk 31,200 EUR at the
-               stop · risk now 23,970 EUR
+               high-water mark 240,037 EUR · stop 25%, releases under 20% ·
+               reduce-only to 15,637 EUR a year, half its risk 31,237 EUR at the
+               stop · risk now 24,007 EUR
 Stock additions · refused · your sleeve is 27% below its high-water mark 240,000
                   EUR, past its 25% stop; the sleeve is reduce-only until its
                   drawdown is back under 20%, 5 points under the stop
@@ -74,9 +74,9 @@ Sizing budget · 15% × 230,000 EUR at room 93% a year · sizes the sleeve
 Risk base · 232,000 EUR = equity 307,000 EUR − tax reserve 70,000 EUR · flows
   since 2026-09-01 −5,000 EUR
 Owner sleeve · \x1b[31mSTOP ENGAGED since Sat 5 Sep 13:30 TZ · 27% below its\x1b[0m
-               \x1b[31mhigh-water mark 240,000 EUR · stop 25%, releases under 20% ·\x1b[0m
-               \x1b[31mreduce-only to 15,600 EUR a year, half its risk 31,200 EUR at the\x1b[0m
-               \x1b[31mstop · risk now 23,970 EUR\x1b[0m
+               \x1b[31mhigh-water mark 240,037 EUR · stop 25%, releases under 20% ·\x1b[0m
+               \x1b[31mreduce-only to 15,637 EUR a year, half its risk 31,237 EUR at the\x1b[0m
+               \x1b[31mstop · risk now 24,007 EUR\x1b[0m
 Stock additions · \x1b[31mrefused · your sleeve is 27% below its high-water mark 240,000\x1b[0m
                   \x1b[31mEUR, past its 25% stop; the sleeve is reduce-only until its\x1b[0m
                   \x1b[31mdrawdown is back under 20%, 5 points under the stop\x1b[0m

@@ -403,11 +403,6 @@ func failUnexpectedArgs(env *Env, fs *commandFlagSet) int {
 	return 2
 }
 
-// formatMoney renders a USD-style amount with grouping; "$ 248,310.42".
-func formatMoney(v float64) string {
-	return formatMoneyCcy(v, "USD")
-}
-
 // formatMoneyCcy renders a money amount with the right currency prefix.
 func formatMoneyCcy(v float64, ccy string) string {
 	prefix := moneyPrefix(ccy)
