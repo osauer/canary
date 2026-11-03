@@ -38,6 +38,12 @@ claude plugin marketplace add osauer/canary
 claude plugin install canary@canary
 ```
 
+Without the plugin, register the server directly; the path must be absolute:
+
+```sh
+claude mcp add canary -- /ABSOLUTE/PATH/TO/canary mcp
+```
+
 The plugin carries the skill, the safety hooks, and its own MCP server config. It does not carry the binary. Its launcher looks for one in this order and runs the first executable it finds: `CANARY_BIN`, the plugin's local `bin/canary`, `PATH`, `~/.local/bin/canary`, `/opt/homebrew/bin/canary`, `/usr/local/bin/canary`. With none of them present it prints install instructions and fails, which is the usual cause of a plugin that installs cleanly and then has no working tools.
 
 Binary and plugin release on separate cadences, so update them separately. [Working with agents](../operate/agents.md) covers what to do once the tools are live.

@@ -3,90 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta http-equiv="refresh" content="0; url=../interactive-brokers-mcp-server/">
+  <link rel="canonical" href="https://osauer.dev/canary/interactive-brokers-mcp-server/">
   <title>IB Gateway MCP server | Canary</title>
-  <meta name="description" content="Run Canary beside IB Gateway to give stdio MCP hosts local Interactive Brokers account and market context, with no order-entry tools.">
-  <link rel="canonical" href="https://osauer.dev/canary/ib-gateway-mcp/">
-
-  <meta property="og:type" content="article">
-  <meta property="og:url" content="https://osauer.dev/canary/ib-gateway-mcp/">
-  <meta property="og:title" content="IB Gateway MCP server | Canary">
-  <meta property="og:description" content="Run Canary beside IB Gateway to give stdio MCP hosts local Interactive Brokers account and market context, with no order-entry tools.">
-  <meta property="og:image" content="https://osauer.dev/canary/social/social-preview.png">
-  <meta property="og:image:width" content="1280">
-  <meta property="og:image:height" content="640">
-  <meta name="twitter:card" content="summary_large_image">
-  <script type="application/ld+json">
-{
-    "@context": "https://schema.org",
-    "@type": "TechArticle",
-    "author": {
-      "@type": "Person",
-      "name": "Oliver Sauer",
-      "url": "https://github.com/osauer"
-    },
-    "dateModified": "2026-08-10T08:25:00+02:00",
-    "description": "Run Canary beside IB Gateway to give stdio MCP hosts local Interactive Brokers account and market context, with no order-entry tools.",
-    "headline": "IB Gateway MCP server",
-    "isPartOf": {
-      "@type": "SoftwareApplication",
-      "name": "Canary",
-      "url": "https://osauer.dev/canary/"
-    },
-    "url": "https://osauer.dev/canary/ib-gateway-mcp/"
-  }
-  </script>
-  <link rel="stylesheet" href="../shared.css">
 </head>
 <body>
-  <div class="topline"></div>
-  <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="../index.html">Canary</a>
-    <nav class="nav-links" aria-label="Site">
-      <a href="../index.html#install">Install</a>
-      <a href="https://github.com/osauer/canary">GitHub</a>
-      <a href="../docs/reference/mcp-tools.html">MCP tools</a>
-      <a href="../docs/operate/agents.html">Agent guide</a>
-    </nav>
-  </header>
-  <main class="wrap doc">
-<h1 id="ib-gateway-mcp-server">IB Gateway MCP server</h1>
-<p>Updated: 2026-08-10 08:25 CEST</p>
-<p><code>canary mcp</code> is an IB Gateway MCP server for anyone who wants a local, headless bridge between Interactive Brokers data and an AI assistant. It uses the same local socket API that IB Gateway opens to ordinary TWS API clients and presents the read-only data as MCP tools.</p>
-<p>A Gateway session gives Canary the same data as TWS. That covers account and position authority, entitled market inputs, the daily brief and the advisory rulebook, with risk policy and reconciliation in the terminal.</p>
-<p>Use this setup for Claude Desktop, Claude Code, Cursor, Zed, Continue and other MCP hosts when IB Gateway is the process you keep running for account and market-data access.</p>
-<h2 id="gateway-prerequisites">Gateway prerequisites</h2>
-<ul>
-<li>IB Gateway 10.37 or newer, running on the same machine.</li>
-<li>An IBKR Pro account with TWS API access.</li>
-<li>API socket access enabled in IB Gateway.</li>
-<li>The paper or live Gateway port reachable on loopback.</li>
-</ul>
-<p><code>canary</code> probes the standard Gateway and TWS ports by default. If you use a custom port, write a local config file that pins only the fields you need.</p>
-<h2 id="install">Install</h2>
-<pre><code>curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
-canary status</code></pre>
-<p>Claude Desktop users can install the MCP Bundle from the latest release:</p>
-<pre><code>https://github.com/osauer/canary/releases/latest/download/canary.mcpb</code></pre>
-<p>Other MCP hosts can launch:</p>
-<pre><code>{
-  &#34;mcpServers&#34;: {
-    &#34;canary&#34;: {
-      &#34;command&#34;: &#34;/Users/you/.local/bin/canary&#34;,
-      &#34;args&#34;: [&#34;mcp&#34;]
-    }
-  }
-}</code></pre>
-<h2 id="what-gateway-backed-mcp-tools-can-read">What Gateway-backed MCP tools can read</h2>
-<ul>
-<li>Account summary, positions, daily P&amp;L, buying power, cash and margin.</li>
-<li>The assembled daily brief with market and session context.</li>
-<li>Technical evidence for named symbols, with data quality stated.</li>
-<li>Market and session context composed by the daemon, with source health, rulebook findings, protection proposals and option-exercise opportunities.</li>
-</ul>
-<p>See <a href="../docs/operate/agents.html">Working with agents</a> for example questions and the <a href="../docs/reference/mcp-tools.html">MCP tools reference</a> for the exact schema.</p>
-<h2 id="why-local-gateway-matters">Why local Gateway matters</h2>
-<p>Account and market questions should not need a hosted middle layer between you and your brokerage data. <code>canary</code> keeps the broker connection local and shares one daemon between shell and MCP clients. It offers no order-entry tools.</p>
-  </main>
-  <footer><div class="wrap"><a href="../index.html">Canary</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div><div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div></footer>
+  <p>This page has moved to <a href="../interactive-brokers-mcp-server/">Interactive Brokers MCP server</a>.</p>
 </body>
 </html>
