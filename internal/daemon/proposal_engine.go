@@ -2561,10 +2561,17 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 	}
 	preview, err := e.server.previewOrder(ctx, params)
 	if err != nil && given && mandateGiveRefused(err) {
-		// Beyond the line's spread cap, or past its worst price, the cut
-		// gives nothing and goes at the mid, as before the give existed.
-		e.appendEvent(proposalEventForProposal("priced_at_mid", prop, now, "", "", "mandate reduction priced at the mid: "+err.Error()))
-		preview, err = e.server.previewOrder(ctx, patient)
+		// Beyond the line's spread cap, an option cut whose give is small
+		// against the loss it removes goes at the bid ([mandate.reduction]
+		// cheap_leg_give_pct_of_loss); otherwise, or past its worst price,
+		// the cut gives nothing and goes at the mid, as before the give.
+		if cheap, why := e.mandateCheapLeg(ctx, prop, params, err); cheap != nil {
+			e.appendEvent(proposalEventForProposal("priced_at_bid", prop, now, "", "", "mandate reduction priced at the bid: "+why))
+			preview, err = cheap, nil
+		} else {
+			e.appendEvent(proposalEventForProposal("priced_at_mid", prop, now, "", "", "mandate reduction priced at the mid: "+nonEmptyString(why, err.Error())))
+			preview, err = e.server.previewOrder(ctx, patient)
+		}
 	}
 	if err != nil {
 		blockers := previewFailureBlockers(err)

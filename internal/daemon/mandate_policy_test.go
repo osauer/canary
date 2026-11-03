@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -142,8 +143,8 @@ func TestMandateTableIncompleteAndLegacyV4(t *testing.T) {
 }
 
 // The ensure migration never writes the [mandate] table and leaves a
-// written one byte for byte; the only mandate conversion is the two default
-// tables of 2026-10-29 (mandate_defaults_policy_file_test.go).
+// written one byte for byte; the only mandate conversions are the default
+// tables of 2026-10-29 and 2026-11-03 (mandate_defaults_policy_file_test.go).
 func TestMandateTableSurvivesMigrationUnchanged(t *testing.T) {
 	k := policyFileKind{name: PolicyFileConstitution, migrate: migrateConstitutionPolicyFileFrom(config.Trading{}, true, true)}
 	complete := strings.Replace(schema2ConstitutionTOML(), "policy_version = 5", "policy_version = 6", 1) + testOrderLimitsTOML + mandateTableTOML
@@ -152,7 +153,7 @@ func TestMandateTableSurvivesMigrationUnchanged(t *testing.T) {
 		t.Fatalf("a complete constitution with the table migrated: %v %v\n%s", changes, err, out)
 	}
 	for _, c := range changes {
-		if !strings.HasPrefix(c, "write [mandate.iv_fallback].") && !strings.HasPrefix(c, "write [mandate.index_hedge].") && !strings.HasPrefix(c, "raise policy_version") {
+		if !slices.ContainsFunc([]string{"write [mandate.iv_fallback].", "write [mandate.index_hedge].", "write [mandate.regime_gate].", "write [mandate.reduction].", "raise policy_version"}, func(p string) bool { return strings.HasPrefix(c, p) }) {
 			t.Fatalf("a complete constitution changed beyond the mandate defaults: %q", c)
 		}
 	}

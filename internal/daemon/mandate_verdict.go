@@ -253,6 +253,7 @@ func (s *Server) refreshMandateVerdict(ctx context.Context) {
 		s.mandateVerdicts.set(nil, nil, time.Time{}, "", true, daemonBrokerEvidenceBinding{})
 		return
 	}
+	s.refreshRegimeGate(ctx, c)
 	// A revised policy is judged at once; otherwise the cadence decides. A
 	// read's evaluation does not move it: the forced reduction counts only
 	// scheduled verdicts.
@@ -283,10 +284,12 @@ func (s *Server) handleMandateRisk(ctx context.Context, req *rpc.Request) (*rpc.
 		out := *result
 		out.Gate = s.mandateGateView(&out, now)
 		out.Reduction = s.mandateReductionView()
+		out.RegimeGate = s.regimeGateView()
 		return &out, nil
 	}
 	res := s.evaluateMandate(ctx, true)
 	res.Reduction = s.mandateReductionView()
+	res.RegimeGate = s.regimeGateView()
 	return res, nil
 }
 

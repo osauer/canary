@@ -86,6 +86,9 @@ type PolicyFileSet struct {
 	// `policy show`) has no record to read, so a table the owner deleted is
 	// never proposed again.
 	WriteMandateDefaults bool
+	// MandateDefaultsDone names the default batches the daemon's record says
+	// the file has had; the migration writes only the others.
+	MandateDefaultsDone []string
 }
 
 // PolicyFileSetFor resolves the policy paths from a daemon config; nil means
@@ -171,7 +174,7 @@ func EnsurePolicyFiles(set PolicyFileSet, opts EnsureOptions) []PolicyFileAction
 		{PolicyFileOpportunity, set.Opportunity, OpportunityPolicyTemplate, func(b []byte) error { _, err := parseOpportunityPolicy(b); return err }, migrateOpportunityPolicyFile},
 		{PolicyFileConstitution, set.Constitution, func(release string) []byte {
 			return constitutionPolicyTemplateFrom(release, set.OrderGateSource, set.OrderGateSourceRead)
-		}, parseConstitutionPolicy, migrateConstitutionPolicyFileFrom(set.OrderGateSource, set.OrderGateSourceRead, set.WriteMandateDefaults)},
+		}, parseConstitutionPolicy, migrateConstitutionPolicyFileFrom(set.OrderGateSource, set.OrderGateSourceRead, set.WriteMandateDefaults, set.MandateDefaultsDone...)},
 	}
 	// Validate the whole reviewed set before any write. Applying a plan never
 	// creates unrelated missing files, and an unknown/stale entry cannot cause
@@ -1405,6 +1408,24 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 # never the target. 25 is the owner's number of 2026-10-28.
 # [mandate.index_hedge]
 # max_contracts = 25
+# The regime gate: three readings on the latest US close (the S&P 500 above
+# its ten-month average, more than breadth_min_pct of its stocks above their
+# 50-day average, high-yield bonds above their 50-day average). Three on: the
+# strategies that read it enter at full size; two: at half_scale_pct; one or
+# none: no new entries and no adds. A reading changes after confirm_closes
+# closes in a row agree and counts off when more than stale_after_sessions
+# sessions old. The values are the owner's of 2026-11-03.
+# [mandate.regime_gate]
+# breadth_min_pct = 50.0
+# half_scale_pct = 50.0
+# stale_after_sessions = 1
+# confirm_closes = 2
+# How the forced reduction prices a cut: an option cut whose spread is wider
+# than its cap goes at the bid when that gives at most this percent of the
+# loss measure the cut removes; otherwise at the mid. 2 is the owner's
+# number of 2026-11-03.
+# [mandate.reduction]
+# cheap_leg_give_pct_of_loss = 2.0
 # Risk allocations per sleeve, in percent a year of the budget base. The
 # machine's (core, overlay) are reserved as far as each runs: its stage times
 # its allocation while the sleeve sends orders,
@@ -1534,7 +1555,8 @@ func (s *Server) ensurePolicyFilesOnStart() {
 		return
 	}
 	set := PolicyFileSetFor(s.cfg)
-	set.WriteMandateDefaults = !s.mandateDefaultsDone(set.Constitution)
+	done, all := s.mandateDefaultsDone(set.Constitution)
+	set.WriteMandateDefaults, set.MandateDefaultsDone = !all, done
 	actions := EnsurePolicyFiles(set, EnsureOptions{Release: s.version, ApplyMigrations: true})
 	if set.WriteMandateDefaults {
 		s.recordMandateDefaults(set.Constitution, actions)

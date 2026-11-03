@@ -397,3 +397,40 @@ Terms: the spec's params carry the 10% band and no minimum; the policy
 writes `min_order_base = 2500`. The compare says so under `terms` every run
 until the spec names it; the owner's number, not a defect.
 
+
+## 10. The regime gate (2026-11-03)
+
+Written 2026-11-03 13:42 CET. Desk's trading-machine spec TM-04.08, on the
+owner's decisions of 2026-11-03 13:29 CET (the decision list's D1 to D6,
+D3 at two closes). Code: `internal/core/regime_gate.go` (the arithmetic),
+`internal/daemon/regime_gate.go` (inputs, cadence, serving).
+
+- **Readings.** On the latest settled US close (spx.CompletedSessionKey):
+  trend, SPY's close above the mean of itself and the nine month-end closes
+  before it, which at a month-end is the library's trend-sma10m exactly (a
+  test holds the two equal); breadth, the breadth engine's share of S&P 500
+  constituents above their 50-day average, above `breadth_min_pct`; credit,
+  HYG's close above the mean of its last 50 closes. SPY and HYG come from
+  the regime engine's history cache (the same entries); a copy fetched
+  before the session's close plus 20 minutes is fetched again, and its bar
+  for that session is never read as the close.
+- **States.** Three on: on, scale 100. Two: half, `half_scale_pct`. One or
+  none: off, scale 0, no new entries and no adds; open positions are left
+  to their stops.
+- **Confirmation and staleness.** A reading flips only when
+  `confirm_closes` consecutive observed closes agree, walked over the last
+  30 sessions, so the state is a function of the history and no restart
+  loses it. A reading whose latest close is more than
+  `stale_after_sessions` sessions behind the latest session, or that has
+  none, counts off with its reason.
+- **Policy.** `[mandate.regime_gate]` `breadth_min_pct = 50`,
+  `half_scale_pct = 50`, `stale_after_sessions = 1`, `confirm_closes = 2`,
+  written once at daemon start as the second defaults batch (the first is
+  2026-10-29's), recorded under its own key so a first-batch table the
+  owner deleted stays deleted. Absent or half-written, the gate reads off.
+  The ten months and the 50 days are the spec row's, compiled.
+- **Scope.** The gate is measured every 15 minutes beside the mandate's
+  scheduled verdict and served on `mandate.risk` as `regime_gate`. It
+  scales only rules that declare it: strategy one's rule (TM-03.01) when it
+  lands. The core and s6-trend do not read it; the owner sleeve is never
+  scaled.

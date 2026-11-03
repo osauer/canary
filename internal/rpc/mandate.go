@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/core"
 	"github.com/osauer/canary/v2/internal/mandate"
 )
 
@@ -61,6 +62,10 @@ type MandateRiskResult struct {
 	// it: the batch waiting, held or withdrawn. Nil while inactive or before
 	// the engine has generated.
 	Reduction *MandateReductionView `json:"reduction,omitempty"`
+	// RegimeGate is the regime gate (Desk spec TM-04.08) as last measured:
+	// the three readings, the state and the scale it gives the machine
+	// strategies that declare it. Nil before the first measurement.
+	RegimeGate *RegimeGateView `json:"regime_gate,omitempty"`
 	// Register is the strategy register as this build runs it
 	// (internal-docs/design/strategy-register.md): one entry per machine
 	// strategy, the core first.
@@ -347,4 +352,13 @@ type MandateRealisedView struct {
 	Vol20Pct     *float64 `json:"vol_20_pct,omitempty"`
 	Vol60Pct     *float64 `json:"vol_60_pct,omitempty"`
 	BaseCurrency string   `json:"base_currency,omitempty"`
+}
+
+// RegimeGateView is the measured regime gate. Reason says why it reads off
+// without a measurement (its policy table unwritten, no history to read);
+// a reading that could not be made carries its own reason.
+type RegimeGateView struct {
+	core.Gate
+	EvaluatedAt time.Time `json:"evaluated_at"`
+	Reason      string    `json:"reason,omitempty"`
 }

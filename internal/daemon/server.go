@@ -470,6 +470,8 @@ type Server struct {
 	// mandate_verdict.go).
 	mandateHistory  mandateHistoryStore
 	mandateVerdicts mandateVerdictCache
+	// regimeGate keeps the last measured regime gate (regime_gate.go).
+	regimeGate regimeGateCache
 	// coreTargets keeps every registered strategy's frozen monthly decisions
 	// and contract pins (strategy_target.go, core_resolve.go).
 	coreTargets coreTargetStore
