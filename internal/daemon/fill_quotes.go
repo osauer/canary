@@ -306,6 +306,42 @@ func (rt *fillQuoteRuntime) list(account, mode string) []rpc.FillQuoteRecord {
 	return out
 }
 
+// fillsBetween returns the retained executions of one account with an
+// execution time in (from, to], ascending, and whether they are all of
+// them: the last poll of that account and mode completed without error, it
+// started after to, and no execution it found still waits for its capture.
+// The mandate's flow check reads it (mandateTradesExplain).
+func (rt *fillQuoteRuntime) fillsBetween(scope brokerStateScope, from, to time.Time) ([]rpc.FillQuoteRecord, bool) {
+	if rt == nil || !brokerScopeAccountConcrete(scope.Account) {
+		return nil, false
+	}
+	account := strings.ToUpper(strings.TrimSpace(scope.Account))
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	p := rt.poll
+	if !sameBrokerScope(p.scope, scope) || !p.complete || p.err != "" || !p.at.After(to) || len(rt.queue) > 0 || len(rt.pending) > 0 {
+		return nil, false
+	}
+	var out []rpc.FillQuoteRecord
+	for _, stored := range rt.records {
+		at := stored.Record.ExecTime
+		if at.IsZero() {
+			at = stored.Record.ObservedAt
+		}
+		if stored.Account != account || !at.After(from) || at.After(to) {
+			continue
+		}
+		out = append(out, stored.Record)
+	}
+	slices.SortFunc(out, func(a, b rpc.FillQuoteRecord) int {
+		if c := a.ExecTime.Compare(b.ExecTime); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ExecID, b.ExecID)
+	})
+	return out, true
+}
+
 // FillQuoteByExecID returns the retained quote for one execution. It is the
 // lookup the scorecard can use in place of its no_fill_quote reason.
 func (s *Server) FillQuoteByExecID(execID string) (rpc.FillQuoteRecord, bool) {

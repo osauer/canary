@@ -150,10 +150,20 @@ func TestMandateHeldAmbiguityPersistsAndRequiresLatestStatement(t *testing.T) {
 	if force := st.observeMandateLocked(c, 300500, pnl, later, 0, later); force || !st.state.Mandate.FlowSuspect.PnLResetAmbiguousAt.Equal(now) {
 		t.Fatal("unchanged figure advanced ambiguity or forced persistence")
 	}
-	// A second changed, near-zero reading advances the required evidence time.
+	// Drift from a figure already within the band changes neither basis by
+	// enough to hide a flow: no new ambiguity.
 	later = now.Add(2 * time.Minute)
 	pnl.DailyBase = new(0.0)
-	if force := st.observeMandateLocked(c, 300500, pnl, later, 0, later); !force || !st.state.Mandate.FlowSuspect.PnLResetAmbiguousAt.Equal(later) {
+	if force := st.observeMandateLocked(c, 300500, pnl, later, 0, later); force || !st.state.Mandate.FlowSuspect.PnLResetAmbiguousAt.Equal(now) {
+		t.Fatal("near-zero drift advanced ambiguity")
+	}
+	// A second reset from a figure beyond the band advances the required
+	// evidence time.
+	pnl.DailyBase = new(-5000.0)
+	st.observeMandateLocked(c, 295500, pnl, later.Add(30*time.Second), 0, later.Add(30*time.Second))
+	pnl.DailyBase = new(0.0)
+	later = later.Add(time.Minute)
+	if force := st.observeMandateLocked(c, 295500, pnl, later, 0, later); !force || !st.state.Mandate.FlowSuspect.PnLResetAmbiguousAt.Equal(later) {
 		t.Fatal("advanced ambiguity was not forced to persist")
 	}
 	// Friday's statement covers the first flow, but not Monday's ambiguity.

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -88,6 +90,14 @@ type mandatePnLReading struct {
 	// transfer in kind, a trade, an assignment or an expiry changes it; a
 	// mark does not.
 	PositionsKey string
+	// Quantities are the same cache's quantities by contract id, nil where
+	// PositionsKey is "". Never persisted: the flow check rebuilds an older
+	// reading's PositionsKey from them and the executions since.
+	Quantities map[int]float64
+	// Fills reads the account's retained executions with an execution time
+	// in (from, to], and whether they are all of them (fillsBetween); nil
+	// where none are read.
+	Fills func(from, to time.Time) ([]rpc.FillQuoteRecord, bool)
 }
 
 // mandateFlowBase is one observation as the flow check keeps it.
@@ -209,10 +219,14 @@ func (st *riskCapitalStore) mandateFlowCheckLocked(m *mandateCapitalStateV1, c *
 	if s := m.FlowSuspect; s != nil {
 		if m.Last != nil {
 			move := equityBase - m.Last.EquityBase - (flows - m.Last.FlowsBase)
-			if m.Last.DailyPnL != nil && *m.Last.DailyPnL != 0 && mandateNumericPnLReset(*m.Last, pnl, move, band) && *pnl.DailyBase != *m.Last.DailyPnL && asOf.After(s.PnLResetAmbiguousAt) {
+			if m.Last.DailyPnL != nil && math.Abs(*m.Last.DailyPnL) > band && mandateNumericPnLReset(*m.Last, pnl, move, band) && *pnl.DailyBase != *m.Last.DailyPnL && asOf.After(s.PnLResetAmbiguousAt) {
 				// A changed figure admits two bases; an unchanged reading
 				// adds no P&L and cannot itself erase a deposit. Keep the
 				// existing hold until statement evidence settles the basis.
+				// The two bases differ by the previous figure, so one within
+				// the band cannot hide a flow: early-morning drift near zero
+				// moved this to every new day, past the statement that had
+				// just arrived for the last (2026-11-03 06:57 UTC).
 				s.PnLResetAmbiguousAt = asOf
 			}
 			s.PnLSince += mandateSessionPnLStep(*m.Last, pnl)
@@ -225,13 +239,27 @@ func (st *riskCapitalStore) mandateFlowCheckLocked(m *mandateCapitalStateV1, c *
 			coverageAt = s.PnLResetAmbiguousAt
 		}
 		statement := !st.state.StatementCoverageTo.IsZero() && mandateSessionDate(coverageAt) <= st.state.StatementCoverageTo.UTC().Format(time.DateOnly)
-		if explained || statement {
-			st.appendRiskPolicyJournal(map[string]any{
+		// Trades move cash into positions and back: executions that carry
+		// the whole cash and quantity change since the base leave no room
+		// for a flow, whatever the P&L figure says or on which basis.
+		var cashResidual float64
+		var fills int
+		traded := false
+		if !explained && !statement {
+			cashResidual, fills, traded = mandateTradesExplain(s.Base, pnl, asOf, flows, threshold)
+		}
+		if explained || statement || traded {
+			entry := map[string]any{
 				"version": 1, "at": now.UTC(), "kind": "mandate_flow_cleared",
 				"suspected_at": s.At.UTC(), "unexplained_base": s.Unexplained, "equity_base": equityBase, "flows_base": flows, "by_statement": statement && !explained,
+				"by_executions":      traded,
 				"equity_move_base":   moveSince,
 				"policy_fingerprint": constitutionFingerprint(c),
-			})
+			}
+			if traded {
+				entry["executions"], entry["cash_residual_base"] = fills, cashResidual
+			}
+			st.appendRiskPolicyJournal(entry)
 			m.FlowSuspect = nil
 		}
 	} else if m.Last != nil {
@@ -280,10 +308,26 @@ func (st *riskCapitalStore) mandateFlowCheckLocked(m *mandateCapitalStateV1, c *
 				m.Last = mandateFlowBaseOf(asOf, equityBase, flows, pnl)
 				return
 			}
+			// The same with trades between the readings: when the broker's
+			// executions carry the whole cash and quantity change, marks and
+			// trades moved the equity, never money (2026-11-02 15:44 UTC: the
+			// owner's hand trades in TWS while the daemon was away held every
+			// mandate reduction). The executions usually arrive a poll after
+			// the reading; the held branch above clears on them then.
+			if cashResidual, fills, ok := mandateTradesExplain(*m.Last, pnl, asOf, flows, threshold); ok {
+				st.appendRiskPolicyJournal(map[string]any{
+					"version": 1, "at": now.UTC(), "kind": "mandate_trade_move",
+					"equity_move_base": move, "cash_residual_base": cashResidual, "executions": fills, "pnl_move_base": step, "unexplained_base": unexplained, "threshold_base": threshold, "equity_base": equityBase, "equity_as_of": asOf.UTC(),
+					"policy_fingerprint": constitutionFingerprint(c),
+				})
+				m.Last = mandateFlowBaseOf(asOf, equityBase, flows, pnl)
+				return
+			}
 			m.FlowSuspect = &mandateFlowSuspect{At: asOf, Base: *m.Last, PnLSince: step, Unexplained: unexplained, ThresholdAt: threshold, MoveBase: move}
 			st.appendRiskPolicyJournal(map[string]any{
 				"version": 1, "at": now.UTC(), "kind": "mandate_flow_suspected",
 				"unexplained_base": unexplained, "pnl_move_base": step, "equity_move_base": move, "pnl_reported": pnl.DailyBase != nil, "threshold_base": threshold,
+				"cash_reported": pnl.CashBase != nil && m.Last.CashBase != nil, "positions_reported": pnl.PositionsKey != "" && m.Last.PositionsKey != "", "positions_changed": pnl.PositionsKey != m.Last.PositionsKey,
 				"equity_base": equityBase, "equity_as_of": asOf.UTC(),
 				"policy_fingerprint": constitutionFingerprint(c),
 			})
@@ -306,16 +350,93 @@ func mandateQuantitiesUnchanged(last mandateFlowBase, pnl mandatePnLReading) boo
 // contract and quantity of every non-flat row, sorted, hashed. Marks,
 // prices and valuations are left out on purpose.
 func mandatePositionsKey(raw []*ibkrlib.RawPosition) string {
-	rows := make([]string, 0, len(raw))
+	return mandateQuantitiesKey(mandateQuantities(raw))
+}
+
+// mandateQuantities is the quantity of every non-flat row by contract id.
+func mandateQuantities(raw []*ibkrlib.RawPosition) map[int]float64 {
+	out := make(map[int]float64, len(raw))
 	for _, p := range raw {
 		if p == nil || p.Position == 0 {
 			continue
 		}
-		rows = append(rows, strconv.Itoa(p.Contract.ConID)+":"+strconv.FormatFloat(p.Position, 'f', -1, 64))
+		out[p.Contract.ConID] += p.Position
+	}
+	return out
+}
+
+// mandateQuantitiesKey is mandatePositionsKey of a quantities map.
+func mandateQuantitiesKey(qty map[int]float64) string {
+	rows := make([]string, 0, len(qty))
+	for conID, q := range qty {
+		if q == 0 {
+			continue
+		}
+		rows = append(rows, strconv.Itoa(conID)+":"+strconv.FormatFloat(q, 'f', -1, 64))
 	}
 	slices.Sort(rows)
 	sum := sha256.Sum256([]byte(strings.Join(rows, "\n")))
 	return hex.EncodeToString(sum[:8])
+}
+
+// mandateTradesExplain reports whether the broker's executions between an
+// earlier reading and this one carry the whole change of the book's
+// quantities and, net of declared and statement flows, of its cash: the
+// earlier reading's quantities fingerprint is rebuilt from this reading's
+// quantities less every execution since, and the cash residual (the cash
+// move less the executions' cash at each fill's own FX rate) is within the
+// threshold, which holds commissions and FX drift. It returns the residual
+// and the executions counted. Not explained, so held as before: no
+// execution, a reading without cash or a current positions cache, an
+// execution read that is not yet complete through this reading, or an
+// execution of anything but a stock or an option, or without a contract
+// id, multiplier or FX rate. A transfer in
+// kind, an assignment or an expiry changes quantities no execution carries;
+// a deposit or withdrawal beside a trade leaves its cash in the residual.
+func mandateTradesExplain(base mandateFlowBase, pnl mandatePnLReading, asOf time.Time, flows, threshold float64) (float64, int, bool) {
+	if base.CashBase == nil || pnl.CashBase == nil || base.PositionsKey == "" || pnl.PositionsKey == "" || pnl.Quantities == nil || pnl.Fills == nil {
+		return 0, 0, false
+	}
+	fills, complete := pnl.Fills(base.At, asOf)
+	if !complete || len(fills) == 0 {
+		return 0, 0, false
+	}
+	qty := make(map[int]float64, len(pnl.Quantities))
+	maps.Copy(qty, pnl.Quantities)
+	tradeCash := 0.0
+	for _, f := range fills {
+		// A stock or option trade settles price × quantity × multiplier in
+		// cash; a future's, a bond's or a currency's does not.
+		if f.Contract.SecType != "STK" && f.Contract.SecType != "OPT" {
+			return 0, 0, false
+		}
+		if f.Contract.ConID <= 0 || f.Contract.Multiplier <= 0 || f.FXRate == nil || f.Quantity <= 0 {
+			return 0, 0, false
+		}
+		var sign float64
+		switch f.Side {
+		case rpc.OrderActionBuy:
+			sign = 1
+		case rpc.OrderActionSell:
+			sign = -1
+		default:
+			return 0, 0, false
+		}
+		qty[f.Contract.ConID] -= sign * f.Quantity
+		tradeCash -= sign * f.Quantity * f.Price * float64(f.Contract.Multiplier) * *f.FXRate
+	}
+	for conID, q := range qty {
+		// Fractional quantities do not subtract exactly in binary.
+		qty[conID] = math.Round(q*1e8) / 1e8
+	}
+	if mandateQuantitiesKey(qty) != base.PositionsKey {
+		return 0, 0, false
+	}
+	residual := *pnl.CashBase - *base.CashBase - (flows - base.FlowsBase) - tradeCash
+	if math.Abs(residual) > threshold {
+		return 0, 0, false
+	}
+	return residual, len(fills), true
 }
 
 // mandateCashMove is the broker's total cash move between two consecutive
