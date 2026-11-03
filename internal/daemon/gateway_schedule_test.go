@@ -41,7 +41,7 @@ func TestGatewayScheduleCalendarEdges(t *testing.T) {
 		{"early close postwork", "2026-11-27T18:30:00Z", marketcal.MarketUSEquity, 0, time.Hour, true},
 		{"preparation", "2026-09-14T12:30:00Z", marketcal.MarketUSEquity, time.Hour, 0, true},
 		{"exact close", "2026-09-14T20:00:00Z", marketcal.MarketUSEquity, 0, 0, false},
-		{"calendar expired", "2027-02-01T22:00:00Z", marketcal.MarketHKHKEX, 0, 0, true},
+		{"calendar expired", "2028-02-01T22:00:00Z", marketcal.MarketHKHKEX, 0, 0, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			now := scheduleTime(t, tc.at)
