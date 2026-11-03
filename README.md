@@ -4,31 +4,36 @@
 [![release](https://img.shields.io/github/v/release/osauer/canary?display_name=tag&sort=semver)](https://github.com/osauer/canary/releases/latest)
 [![license](https://img.shields.io/github/license/osauer/canary)](LICENSE)
 
-**Your Interactive Brokers account, read by your terminal, your phone, and your
-AI agent. The binary you install has no code that writes to the broker.**
+**A risk desk for your Interactive Brokers account. It reads your account for
+you and your AI agent, checks it against your limits, and, in the trading build,
+places the trades you authorise.**
 
-Canary is one Go binary, a risk desk that runs beside your IB Gateway or TWS;
-nothing is hosted. It tells you what needs attention today, which of twenty
-discipline checks your positions breach against limits you set, your exposure
-by underlying, and what the price did over the next 1, 5, and 20 sessions after
-your past stock and ETF trades, where they repeat often enough to count,
-measured against your broker statements. The same
-readings come as text, as JSON, in a paired phone app, and as MCP tools for
-Claude Desktop, Claude Code, Cursor, or Zed.
+Canary runs beside your IB Gateway or TWS and nothing runs on a server of mine.
+It tells you what needs attention today. It runs twenty discipline checks
+against limits you set and names the ones your positions breach. It shows
+exposure by underlying. Canary Edge shows what the price did 1, 5 and 20
+sessions after your past stock and ETF trades, from your broker statements,
+where a decision repeated often enough to count. The same readings come as
+text, as JSON, in a paired phone app, and as MCP tools for Claude Desktop,
+Claude Code, Cursor or Zed.
 
-The standard binary does not place, change, or cancel an order, and MCP has no
-order or preview tool in either build. When you want trades, install the
-separate trading binary. It places only what you authorised, confirmed one
-transaction at a time or pre-authorised within your written policy, for you or
-for an agent, through the CLI and the paired app.
+It comes in two builds. The standard binary reads; it has no compiled order
+path. The trading binary, a separate download, also executes orders, and only
+the ones you authorised: a transaction you confirmed, or a close or reduction
+the daemon runs under a bucket you listed in your written policy, a list that
+ships empty. Every order is pinned to one account, client ID and mode, consumes
+a preview token for that exact draft, is journaled with its origin before it is
+sent, and passes the risk policy's order limits, the mandate gate and the
+freeze. An agent trades only through the gated CLI. The MCP server has no order
+or preview tool in any build. Canary never decides a trade on its own.
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
 ## Start
 
 You need IB Gateway 10.37+ or TWS with API socket access enabled, an IBKR Pro
-account, and macOS or Linux on arm64 or amd64. Paper and live both work. WSL
-works; native Windows does not.
+account, and macOS or Linux on arm64 or amd64. Paper and live both work. There
+is no Windows build; use WSL.
 
 **Terminal, and every MCP host.** One signed binary in `~/.local/bin`:
 
@@ -61,7 +66,7 @@ absolute path; `which canary` prints it.
 }
 ```
 
-Then ask:
+A first question that works in any host:
 
 > What needs attention today, and which data is missing or stale?
 
@@ -74,11 +79,11 @@ after past decisions, and how much evidence supports each row._
 
 | You want to… | Start with | What you get |
 | --- | --- | --- |
-| Ask an agent about the account | The MCP Bundle, or `canary mcp` from any local framework that can launch a stdio MCP server | Read-only tools; nothing that changes settings or orders |
+| Ask an agent about the account | The MCP Bundle, or `canary mcp` from any local framework that can launch a stdio MCP server | Read-only tools; the MCP server has no order or preview tool |
 | Work in a terminal or script | `canary brief`, `canary positions --by underlying`, and `--json` | Every reading as text or JSON, from the same source as the app and the MCP tools |
 | Check the desk from a phone | `canary app`, then `canary app pair` | A paired web app on your phone; local by default, remote access optional |
-| Read Canary from your own Go program | `github.com/osauer/canary/v2`, the daemon client | The same read-only tools over the local daemon socket, without an MCP process |
-| Build directly on the TWS protocol | `github.com/osauer/canary/v2/pkg/ibkr` | A low-level transport; policy, authorization, and journaling stay in your application |
+| Read Canary from your own Go program | `github.com/osauer/canary/v2`, the daemon client | The daemon's read methods over its local socket; its one submit method is served by a trading daemon only |
+| Build directly on the TWS protocol | `github.com/osauer/canary/v2/pkg/ibkr` | A low-level transport; it carries no policy, authorisation or journal, those stay in your program |
 
 ## MCP hosts
 
@@ -120,11 +125,13 @@ binary. Start with the [package documentation](pkg/ibkr/doc.go) and the
 
 ## Safety and privacy
 
-The standard binary has no broker-write path compiled in; the installer,
-updater, and MCP Bundle never install the trading binary. In the trading binary
-each trade, yours or an agent's, is pinned to one account, client ID, and mode,
-checked again just before it runs, and blocked by any runtime freeze.
-[Gated orders](docs/docs/operate/orders.md) describes this boundary.
+The standard binary has no compiled order path, and
+the installer, updater and MCP Bundle never install the trading binary. The
+trading binary executes what you authorised and nothing else. The daemon checks
+every order at preview, at admission and at the final send: account, client ID
+and mode pins, the preview token for that draft, the journal entry written
+before the send, the risk policy's order limits, the mandate gate and the
+freeze. [Gated orders](docs/docs/operate/orders.md) has the detail.
 
 Canary has no telemetry and does not send account IDs, balances, quantities, or
 P/L to the maintainer. [PRIVACY.md](PRIVACY.md) is the data map.
