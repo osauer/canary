@@ -2346,6 +2346,7 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		c.completePortfolioDownload(account, completedAt)
 	case msgMarketDataType:
 		c.processMarketDataTypeAtEpoch(fields, epoch)
+		c.dispatchHandlers(msgMarketDataType, fields, epoch)
 	case msgSystemNotification:
 		if c.systemNoticeAfterInitialEpochCheck != nil {
 			c.systemNoticeAfterInitialEpochCheck()
@@ -2884,11 +2885,19 @@ func (c *Connection) handlePosition(fields []string) {
 		}
 
 	} else if len(fields) >= 16 {
-		// Full options format with avgCost
+		// The wire layout (EDecoder position v3): account, conId, symbol,
+		// secType, lastTradeDate, strike, right, multiplier, exchange,
+		// currency, localSymbol, tradingClass, position, avgCost. Every
+		// secType carries the same slots; a stock leaves the multiplier
+		// empty and is one unit, as the streaming updatePortfolio decoder
+		// reads it. Only contractual types default to 100.
 		strike, _ := strconv.ParseFloat(fields[7], 64)
 		multiplier, _ := strconv.Atoi(fields[9])
 		if multiplier == 0 {
-			multiplier = 100
+			multiplier = 1
+			if portfolioMultiplierIsContractual(fields[5]) {
+				multiplier = 100
+			}
 		}
 
 		contract = Contract{

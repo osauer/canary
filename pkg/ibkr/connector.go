@@ -4900,7 +4900,11 @@ func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol str
 					// must stay in sync. The per-reqID release is idempotent
 					conn.releaseMarketDataSlot(sub.ReqID)
 				}
-				// Reset subscription metadata so the new request can cleanly re-register
+				// Reset subscription metadata so the new request can cleanly
+				// re-register. The cancelled id leaves the map too: a 200 or
+				// 354 TWS had queued for it must not be read as the
+				// replacement's verdict.
+				delete(c.reqIDMap, sub.ReqID)
 				sub.ReqID = 0
 				sub.Observed = false
 				// Drain any stale rejection left by the previous reqID so
@@ -9064,8 +9068,9 @@ func (c *Connector) handleOrderStatus(fields []string) {
 		if len(fields) > start+4 {
 			avgFillPrice = fields[start+4]
 		}
-		if len(fields) > start+6 {
-			lastFillPrice = fields[start+6]
+		// EDecoder: permId, parentId, lastFillPrice, clientId, whyHeld.
+		if len(fields) > start+7 {
+			lastFillPrice = fields[start+7]
 		}
 		if len(fields) > start+9 {
 			whyHeld = fields[start+9]

@@ -588,8 +588,11 @@ func parseOrderWhatIfOpenOrder(fields []string, orderID, serverVersion int) (Ord
 	if len(fields) > 1 && fields[1] == "protobuf" {
 		return parseOrderWhatIfOpenOrderProto(fields, orderID)
 	}
+	// Servers below MIN_SERVER_VER_ORDER_CONTAINER send a version field before
+	// the order id; later ones start with the order id, which is numeric like
+	// a version, so the server version decides where the id is (as EDecoder).
 	start := 1
-	if len(fields) > 2 && orderEventIntOK(fields[1]) {
+	if serverVersion < minServerVerOrderContainer {
 		start = 2
 	}
 	if orderEventInt(orderEventField(fields, start)) != orderID {
