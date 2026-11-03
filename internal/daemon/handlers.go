@@ -254,6 +254,10 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 			var valuation *rpc.ReconRuntimeValuation
 			if positions, health, err := s.readOrderIntegrityCachedPositions(ctx); err == nil && cachedPositionsMatchBrokerScope(positions, scope) && classifyPortfolioStreamHealth(scope, health, s.nowUTC()) == orderIntegrityHealthCurrent {
 				pnl.PositionsKey = mandatePositionsKey(positions)
+				pnl.Quantities = mandateQuantities(positions)
+				if rt := s.fillQuotes; rt != nil {
+					pnl.Fills = func(from, to time.Time) ([]rpc.FillQuoteRecord, bool) { return rt.fillsBetween(scope, from, to) }
+				}
 				if currentPortfolioAuthority(res.Authority) && provenance == ibkrlib.AccountSummaryProvenanceRequest {
 					valuation = captureReconValuation(raw, positions, res.AsOf)
 				}
