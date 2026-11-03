@@ -18,14 +18,19 @@ held evidence to stay visible. It is not a hosted brokerage service, a trade
 recommender or a complete TWS API replacement. macOS and Linux on arm64 or
 amd64; Windows through WSL only.
 
-## The boundary, stated once
+## Two builds, one boundary
 
-The standard binary cannot place, change or cancel an order. No MCP tool can
-preview or execute an order in any build. A separate, clearly marked
-`canary-trading` binary adds constrained CLI and app order actions behind
-account pins, fresh confirmation, journaling, daemon authorization and a
-freeze gate. An assistant that tries to trade through `canary mcp` has
-reached outside the tool's capability boundary.
+Canary reads the account, and in the trading build it also executes the
+orders the owner authorised. The standard binary has no compiled order path.
+The separate `canary-trading` binary places a transaction the owner
+confirmed, or a close or reduction the daemon runs under a bucket listed in
+the owner's written policy; every order is pinned to one account, client ID
+and mode, consumes a preview token for that draft, is journaled before the
+send, and passes the risk policy's order limits, the mandate gate and the
+freeze. An agent trades only through the gated CLI. No MCP tool can preview
+or execute an order in any build; an assistant that tries to trade through
+`canary mcp` has reached outside the tool's capability boundary. Canary never
+decides a trade on its own.
 
 ## Surfaces
 

@@ -268,12 +268,12 @@ func TestMandateReductionCutsTheLargestPremiumAtRiskWhateverTheSleeve(t *testing
 		assertMandateRowsReduceOnly(t, rows, pos)
 		first := rows[0]
 		if first.Contract.ConID != 8103 || first.Mandate.Rank != 1 || first.Mandate.Sleeve != mandate.SleeveCore || first.Mandate.Phase != rpc.MandatePhasePremium ||
-			!strings.Contains(first.Reason, "the largest premium at risk left, IBCF in the core's sleeve") {
+			!strings.Contains(first.Reason, "the cheapest relief left, IBCF in the core's sleeve") {
 			t.Fatalf("core allocation %.1f: first row %d %+v: %s", coreAllocation, first.Contract.ConID, first.Mandate, first.Reason)
 		}
 		for i, row := range rows[1:] {
-			if row.Mandate.Sleeve != mandate.SleeveOwner || row.Mandate.LegLossBase > rows[i].Mandate.LegLossBase {
-				t.Fatalf("after the core, the owner's lines by their loss: %+v", row.Mandate)
+			if row.Mandate.Sleeve != mandate.SleeveOwner || mandateRowRelief(in, row) > mandateRowRelief(in, rows[i])+1e-9 {
+				t.Fatalf("after the core, the owner's lines cheapest relief first: %+v", row.Mandate)
 			}
 		}
 		if st.Plan[0].Sleeve != mandate.SleeveCore || st.Plan[0].LossBase != first.Mandate.LegLossBase {

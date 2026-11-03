@@ -747,9 +747,10 @@ const (
 	// MandatePhaseGap: a leg of an underlying whose one-name gap loss is over
 	// its cap.
 	MandatePhaseGap = "gap"
-	// MandatePhasePremium: the largest premium at risk left, name by name,
-	// until the loss measure fits the loss room (spec TM-04.12, owner
-	// decision 2026-10-27 19:50 CET).
+	// MandatePhasePremium: the premium at risk left, cheapest relief first
+	// (the most of the loss measure per unit of value given up), until the
+	// loss measure fits the loss room (spec TM-04.12 and TM-05.18, owner
+	// 2026-10-27 19:50 CET and 2026-11-03 10:51 CET).
 	MandatePhasePremium = "premium"
 	// MandatePhaseRisk: the largest contributor to the simulated variance,
 	// the phase of batches sized before the loss measure headlined; kept for

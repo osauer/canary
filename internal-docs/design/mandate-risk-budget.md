@@ -52,7 +52,11 @@ proposal the owner confirms by writing it into the policy file.
     cuts was replaced on 2026-10-18 08:06 CEST (allocations, below): the sleeve
     furthest over its allocation first, within it the largest contributor;
     and again on 2026-10-27 19:50 CET (spec TM-04.12): the largest premium
-    at risk per name first, until the book fits the maximum loss.
+    at risk per name first, until the book fits the maximum loss; and on
+    2026-11-03 10:51 CET (owner, spec TM-05.18): cheapest relief first, the
+    most of the loss measure removed per unit of market value given up, in
+    the gap and premium phases and in the batch's dispatch order (expiry
+    cuts still lead).
   - Sleeve volatility shares of the 15%: owner 7, core 6, overlay 4. Recorded
     here as `[mandate.sleeves]`; enforcement per sleeve comes later. Since
     2026-10-18 the machine's `[mandate.sleeves]` numbers size its allocations
@@ -985,7 +989,8 @@ shadow record's paper decision reads the same way.
 
 ### The forced reduction
 
-Superseded 2026-10-27 19:50 CET (spec TM-04.12): the premium phase cuts the
+Superseded 2026-10-27 19:50 CET (spec TM-04.12), and again 2026-11-03
+10:51 CET (spec TM-05.18: cheapest relief first): the premium phase cuts the
 largest premium at risk per name whatever its sleeve ("The loss measure as
 the verdict's headline" below). The allocations' order below held from
 2026-10-18 to 2026-10-27 and is kept as the record of that decision.
@@ -1369,7 +1374,7 @@ Verification (`internal/mandate/loss_test.go`,
 room reads reduce and refuses a stock buy naming the measure, the room and
 the unstopped names; an option buy that would take the measure over the
 room passes the premium limits with the loss-room warning; the reduction
-cuts the largest premium at risk first whatever its sleeve and lowers the
+cuts the cheapest relief first (since 2026-11-03) whatever its sleeve and lowers the
 measure row by row to 95% of the room; a stopped share line counts its loss
 to the stop and an unstopped one counts nothing and is named; the premium
 budget counts protection with its share in the note.
