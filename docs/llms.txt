@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-03 08:40 CET. Current release: v3.32.1.
+Updated: 2026-11-03 20:10 CET. Current release: v3.33.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -10,6 +10,12 @@ maintainer, MIT licensed, with no hosted service and no telemetry.
 
 This file is the map. The release history, tool list and command list are
 in https://osauer.dev/canary/llms-full.txt.
+
+Version 3.33 adds Singapore, ASX and China A-share calendars, a brief whose
+session row follows the exchange holding most of the book, position figures
+in their own currency, a start page for Hong Kong and Singapore accounts,
+`canary feedback` for redacted bug reports, and six fixes in the TWS wire
+client. Earlier versions are described in llms-full.txt.
 
 ## Who it is for
 

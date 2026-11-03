@@ -1,6 +1,15 @@
 # Canary full context
 
-Updated: 2026-10-30 18:52 CET
+Updated: 2026-11-03 20:10 CET
+
+Version 3.33 serves accounts that trade from Asia: Singapore, ASX and China
+A-share calendars beside Hong Kong and Tokyo, a brief whose session row
+follows the exchange holding most of the book, position figures in their
+own currency, and a start page for Hong Kong and Singapore accounts. `canary
+feedback` turns a defect into a redacted report and a prefilled GitHub bug
+form link. The regime gate and strategy one's screen arrive as readings. Six
+fixes in the TWS wire client correct legacy order status frames, position
+multipliers, delayed-data notices and stale quote refreshes.
 
 Version 3.32 counts working put purchases and share sales before a put can
 qualify as protection, nets an index hedge against the index funds it
