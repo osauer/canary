@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.33.1 — Unreleased
+
+### Changed
+
+- The portfolio's industry split spreads SPY over State Street's holdings of 2 Nov 2026 (it was 17 Sep), and `make refresh-fund-sectors` rebuilds that split from State Street's daily SPY holdings workbook and the S&P 500 sector table, refusing to write when fewer than 480 holdings resolve or their weights sum below 99%. QQQ and IWM keep their hand-collected splits and dates: Invesco and iShares refuse scripted downloads. (#45)
+- `canary calendar --market hk` and the brief read Hong Kong sessions through 2027 from HKEX's published 2027 holiday schedule (circular CT/077/26), with the half days on Lunar New Year's Eve, Christmas Eve and New Year's Eve; dates in 2027 no longer read as unknown. Tokyo stays covered through 2027 until JPX publishes its 2028 market holidays. (#134)
+- [Market calendars](docs/docs/understand/concepts.md#market-calendars) lists all nine embedded calendars with each one's session and the date its coverage ends, and the architecture, updating and Hong Kong and Singapore pages point to it instead of naming three or six markets. (#136)
+- [Set up broker reporting](docs/docs/start/reporting.md#optional-cash-interest-rates) asks for the optional **Interest Details (Tiers)** Flex section and names what reads unavailable without it: the cash interest block of `canary account`, the cash sweep's benefit estimate, the sweep-economics policy check and the cash management rates. (#137)
+- The architecture page documents the broker seam as it is: one concrete IBKR connector in the daemon, the per-feature interfaces that slice it for tests, and what a second broker would have to supply. (#138)
+- The terminal output of `canary macro`, `canary rules`, `canary rules history`, `canary data health`, `canary reporting status`, `canary reporting performance`, `canary account`, `canary orders open` and the single-order status read is now pinned by golden render tests, so a lost label, column or colour fails the build instead of shipping. (#139, #140, #141, #142, #143)
+
 ## v3.33.0 — 2026-11-03 20:10 CET
 
 ### What's new

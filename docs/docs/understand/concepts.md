@@ -1,6 +1,6 @@
 # Concepts
 
-Updated: 2026-10-05 22:20 CEST
+Updated: 2026-11-03 21:05 CET
 
 What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. This page is the mental model. [Sensors](sensors.md) owns authority, freshness, last-good behavior, and the safe checks; the [regime dashboard contract](../internals/regime-dashboard.md) owns methodology.
 
@@ -8,15 +8,31 @@ What the load-bearing context surfaces measure, in enough depth to read the outp
 
 Calendars answer one risk-relevant question: is this market supposed to be trading right now, and if not, when does the official session resume?
 
-Supported calendars use official exchange schedules:
+Supported calendars use official exchange schedules. Each one starts on
+2026-01-01; this table is the reference for where each one's coverage ends:
 
-- **US equities** (`us` / `us-equity`): regular NYSE/Nasdaq-style cash-equity sessions, holidays, and early closes.
-- **US listed options** (`us-options`): regular listed-options sessions, separate because options have their own close window and holiday schedule surface. Per-class global hours, SPX/VIX extended sessions, curb trading, and exercise/settlement nuance are not modeled in v1.
-- **German Xetra equities** (`de` / `de-xetra`): Deutsche Boerse Xetra cash-equity sessions and non-trading days. Frankfurt floor trading and Eurex derivatives are not modeled in v1.
+| `--market` | Market (token) | Local regular session | Coverage ends |
+| --- | --- | --- | --- |
+| `us` | US cash equities, NYSE/Nasdaq (`us_equity`) | 09:30–16:00 New York | 2028-12-31 |
+| `us-options` | US listed options, regular sessions (`us_options`) | 09:30–16:15 New York | 2028-12-31 |
+| `de` | Xetra cash equities (`de_xetra`) | 09:00–17:30 Frankfurt | 2028-12-31 |
+| `uk` | London Stock Exchange, SETS (`uk_lse`) | 08:00–16:30 London | 2028-12-31 |
+| `jp` | Tokyo cash equities (`jp_tse`) | 09:00–11:30, 12:30–15:30 Tokyo | 2027-12-31 |
+| `hk` | Hong Kong cash equities (`hk_hkex`) | 09:30–12:00, 13:00–16:00 Hong Kong | 2027-12-31 |
+| `sg` | Singapore securities, SGX (`sg_sgx`) | 09:00–12:00, 13:00–17:00 Singapore | 2027-12-31 |
+| `au` | ASX cash equities (`au_asx`) | 10:00–16:00 Sydney | 2027-12-31 |
+| `cn` | China A-shares, SSE/SZSE (`cn_ashares`) | 09:30–11:30, 13:00–15:00 Shanghai | 2026-12-31 |
 
-- **London equities** (`uk`): London Stock Exchange SETS sessions and holidays.
-- **Tokyo equities** (`jp`): Tokyo Stock Exchange cash sessions, including its lunch break.
-- **Hong Kong equities** (`hk`): Hong Kong Exchange cash sessions, lunch breaks and half-days.
+The token in brackets is the `market` value a response carries; `--market`
+accepts it too, as well as aliases such as `us-equity`, `xetra` or `lse`.
+Early closes and half-days come from the same tables. What each calendar
+leaves out:
+
+- **US equities**: other US products may keep different hours.
+- **US listed options**: separate from equities because options have their own close window and holiday schedule. Per-class global hours, SPX/VIX extended sessions, curb trading, and exercise/settlement nuance are not modeled.
+- **Xetra**: Frankfurt floor trading and Eurex derivatives are not modeled.
+- **London, Tokyo, Hong Kong, Singapore, ASX**: ordinary cash sessions only; auctions, special products and unscheduled halts are outside the calendar.
+- **China A-shares**: an IBKR account reaches them northbound through Stock Connect, which trades only on days both Hong Kong and the mainland are open and skips some settlement-constrained days. Check the HKEX Stock Connect calendar before relying on a date near a holiday.
 
 Intraday `windows` describe the actual trading intervals; a lunch break is not
 an open session. Preserve the returned coverage limits for each market.

@@ -117,6 +117,55 @@ The desk-facing [Trading Policy](../understand/policy.md) reference explains who
 each control, what is advisory today, how runtime-local version checks behave,
 and which broker-write gates no policy may weaken.
 
+## Broker seam
+
+Canary has one broker, and the code is shaped by it. There is no broker
+interface. The daemon's server holds a concrete `*ibkrlib.Connector` (the
+`connector` field in `internal/daemon/server.go`), and the order path
+(contract resolution for a session, WhatIf previews, order-ID reservation,
+guarded submit and cancel, open-order snapshots, executions) calls methods on
+that concrete type. Measured 2026-11-03 21:14 CET at `37e6242d`:
+
+- `internal/daemon` is the only package that imports `pkg/ibkr`: 134 of its
+  330 non-test Go files do (298 once test files are counted). The CLI, MCP server,
+  app and `internal/rpc` do not import it, though `internal/rpc` contracts
+  carry IBKR identifiers such as ConIDs.
+- 43 non-test daemon files name the concrete `Connector` type, and daemon
+  code uses 179 distinct `pkg/ibkr` identifiers.
+- A match by name finds 131 of the connector's 159 exported methods called
+  from daemon code; matching by name overcounts, so read it as an upper bound.
+
+The narrow seams that do exist are small per-feature interfaces, declared in
+the daemon beside the code that uses them so tests can replace the connector.
+Of the 31 interface types in the `internal/daemon` package, 19 are slices of
+the connector:
+
+| Interface | File | What it covers |
+| --- | --- | --- |
+| `connectAttempter`, `lastErrorReporter`, `connectErrorReporter`, `sessionStartReporter` | `server.go` | Connect and stop, account ID, TLS and backend-link state, account updates, and the last connect or session-start failure. |
+| `ibkrMarketConnector` | `subs.go` | Market-data subscriptions, by symbol or exact contract, and the quote snapshot. |
+| `chainExpiriesConnector` | `chain.go` | Option expiries and strikes for one symbol. |
+| `expiryStrikesClassedFetcher` | `spx_chain.go` | Expiries and strikes split by trading class, for the SPX chain. |
+| `wshEarningsClient`, `wshStockIdentityClient`, `wshEntitlementClient` | `earnings_wsh.go` | Wall Street Horizon earnings events, the stock identity they key on, and the entitlement probe. |
+| `chartReader` | `market_data.go` | Historical chart bars and the delayed-data retry. |
+| `dailyPnLAuthorityConnector`, `dailyPnLCloseCaptureSource`, `accountDailyPnLReader` | `account_authority.go`, `daily_pnl_close_capture.go`, `handlers.go` | The account's daily P&L stream and the cached account summary it is read against. |
+| `feeRateHistoricalConnector` | `market_events_fee_rate.go` | Historical `FEE_RATE` bars for held short stocks, with positions and exact stock routing. |
+| `setupBarSource`, `setupResolver`, `mandateHistorySession`, `lendingIdentityResolver` | `setups.go`, `setup_resolve.go`, `mandate_history.go`, `lending_market.go` | Historical sessions, session-bound contract resolution and bars for setups, mandate history and lending identity. |
+
+These interfaces are written in `pkg/ibkr` types (`ibkrlib.Contract`,
+`HistoricalSessionBinding`, `ConnectorSessionBinding`, `RawPosition`,
+`AccountDailyPnL` and others). They are test seams, not broker-neutral
+contracts.
+
+A second broker would therefore have to supply, in `pkg/ibkr`'s types or
+through new neutral ones: the connector methods the daemon calls, order path
+included, with its session bindings, contract identities and order lifecycle;
+and the IBKR inputs that sit outside the connector, which are the Flex
+statements parsed by `internal/flexstmt` for reconciliation, Edge and
+reporting, the optional Web API cash ledger in `internal/ibkrledger`, the
+short-stock availability FTP file, and the TWS/Gateway endpoint discovery in
+`internal/discover`.
+
 ## Data flows and protocols
 
 The daemon protocol and the MCP protocol are different on purpose; only the
@@ -153,7 +202,7 @@ sources.
 | German Finance Agency factsheets | Bounded HTTPS HTML GET for an exact German ISIN | Issuer evidence for an issued EUR Bubill: unique ISIN, sovereign issuer, issue date and maturity. A failed or ambiguous read supplies no maturity. Broker identity, currency and order units remain separate evidence; a request-bound candidate is re-resolved at preview and does not establish a held-position identity. |
 | Wikipedia S&P 500 list | Scheduled HTTPS refresh | Breadth constituent membership, with a validated SQLite projection and embedded fallback, plus each constituent's GICS sector for portfolio allocation, held in memory over an embedded baseline. |
 | BLS, BEA, Federal Reserve, New York Fed, ECB | Daemon-owned scheduled HTTPS reads | Public economic dates, central-bank calendar entries and official RSS publications. Each source retains its last good response, latest failure and bounded retry state in `daemon.db`; CLI and MCP read the same bounded `macro.snapshot` without fetching. This is partial official-source coverage, not a licensed general-news or consensus feed. |
-| Official exchange calendars | Embedded Go data | Handwritten build-time tables for US equities, US options, and Xetra, covering 2026 through 2028; a date outside coverage reports an explicit unknown state. There is no runtime calendar network call. |
+| Official exchange calendars | Embedded Go data | Handwritten build-time tables in `internal/marketcal` for nine markets, each from 2026-01-01: US cash equities, US listed options, Xetra and the London Stock Exchange through 2028-12-31; Tokyo, Hong Kong, Singapore (SGX) and ASX cash equities through 2027-12-31; China A-shares (SSE/SZSE) through 2026-12-31. A date outside coverage reports an explicit unknown state. There is no runtime calendar network call. Per-market sessions: [Market calendars](../understand/concepts.md#market-calendars). |
 
 Market-event flags are daemon-owned observed context. Adapters render or filter
 the typed `market_events.snapshot`; they do not refetch Reg SHO, halt,

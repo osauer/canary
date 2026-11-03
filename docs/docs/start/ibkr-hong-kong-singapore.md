@@ -1,6 +1,6 @@
 # Canary with an Interactive Brokers Hong Kong or Singapore account
 
-Updated: 2026-11-03 14:10 CET
+Updated: 2026-11-03 21:05 CET
 
 Canary reads one Interactive Brokers account through your own IB Gateway or
 TWS session. Which IBKR entity holds the account, Interactive Brokers Hong
@@ -71,7 +71,7 @@ with its lunch break, half days and coverage window:
 
 | `--market` | Exchange | Local session | Coverage |
 | --- | --- | --- | --- |
-| `hk` | Hong Kong cash equities | 09:30–12:00, 13:00–16:00 HKT | 2026 |
+| `hk` | Hong Kong cash equities | 09:30–12:00, 13:00–16:00 HKT | 2026–2027 |
 | `sg` | Singapore securities | 09:00–12:00, 13:00–17:00 SGT | 2026–2027 |
 | `jp` | Tokyo cash equities | 09:00–11:30, 12:30–15:30 JST | 2026–2027 |
 | `au` | ASX cash equities | 10:00–16:00 Sydney | 2026–2027 |
@@ -83,7 +83,9 @@ canary calendar --market sg --date 2026-02-16
 ```
 
 A date outside the coverage window reads `unknown`, never a guess from the
-weekday. A-shares reach an IBKR account northbound through Stock Connect,
+weekday. [Market calendars](../understand/concepts.md#market-calendars) lists
+every calendar Canary embeds, with the exact date each one's coverage ends.
+A-shares reach an IBKR account northbound through Stock Connect,
 which trades only on days both Hong Kong and the mainland are open; check the
 HKEX Stock Connect calendar before relying on a date near a holiday.
 

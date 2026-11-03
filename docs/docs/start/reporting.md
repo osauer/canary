@@ -1,6 +1,6 @@
 # Set up broker reporting
 
-Updated: 2026-10-18 21:55 CEST
+Updated: 2026-11-03 21:05 CET
 
 Canary needs one **Activity Flex Query** from Interactive Brokers. This is the
 broker-reporting foundation for reconciliation, statement-derived equity,
@@ -117,6 +117,39 @@ Participation remains a setting at IBKR. Canary adds no enrollment modes. See
 [lending observations in Edge](../understand/edge.md#stock-lending-income).
 Availability and exact fields still need confirmation for your account/entity;
 synthetic tests do not establish broker commissioning.
+
+### Optional cash interest rates
+
+Add **Interest Details (Tiers)** with all fields to show the broker's own
+credit and debit rate on each currency's cash. Canary never enters or assumes
+these rates: it reads them from this section of the retained statements, as
+the rate on the tier the current balance reaches, at the broker's value date.
+A rate whose latest value date is more than two business days old reads as
+unavailable.
+
+Without the section, each rate reads as unavailable with the reason "no
+retained statement carries the Interest Details (Tiers) section yet":
+
+- the **Cash interest** block of `canary account`, and the `interest` field of
+  `canary_account`;
+- when the cash sweep is enabled, each invest row's `cash_interest`, so its
+  benefit estimate reads unavailable;
+- the sweep-economics rule of `canary policy check`, which is skipped for that
+  currency;
+- the loan and cash rates in the cash management settings snapshot
+  (`policy.cash.get`, the Go client's `CashPolicySnapshot`).
+
+Reporting validation, Recon, Edge, FX contribution and currency leveling do
+not read this section. Currency leveling measures its rates from Cash Report
+and Interest Accruals (see [FX contribution](#fx-contribution)). Adding the
+section does not change the checked query profile, so it does not restart the
+full-year validation.
+
+Canary reads the XML shape `TierInterestDetails > TierInterestDetail`. The
+section label and these element and attribute names follow IBKR's Flex
+reference; neither has yet been checked against the Client Portal picker or
+seen in a real statement. If the real names differ, Canary finds no section
+and the rates stay unavailable with the reason above; they never read as zero.
 
 ## 3. Configure delivery
 
@@ -368,7 +401,9 @@ the closing exchange rate is unchanged.
 
 Keep the eight sections above, with every field selected. For FX, also add
 **Cash Report**, **Interest Accruals**, and **Conversion Rates**, with all
-fields, daily totals, dates and currency. Confirm Open Positions is at Summary
+fields, daily totals, dates and currency. For the broker's cash interest
+rates, add **Interest Details (Tiers)** as well; see
+[Optional cash interest rates](#optional-cash-interest-rates). Confirm Open Positions is at Summary
 detail and Trades at Executions detail. If the account lends securities,
 also add **Securities Borrowed/Lent** and **Securities Borrowed/Lent Activity**
 with all fields: base-currency NAV alone cannot establish the native liability.
