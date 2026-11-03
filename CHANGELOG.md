@@ -21,6 +21,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 - The hold on Fully armed reads the mandate: each breach episode of the mandate's loss room holds full automatic scope at protection (`held_by: "mandate_breach"`) until the owner confirms full again on a device once the book is back within the room, and confirming full is refused while an episode is open. The `[capital]` ladder's drawdown brake no longer gates arming; it still blocks hand orders that add risk (owner, 2026-10-31: one loss ladder, build B5).
 
+### Fixed
+
+- Order status frames in the legacy layout (API server versions below 203) are read in the broker's field order: the last fill price and the client id come after the parent order id. Before, a bracket child with no fill recorded its parent's order id as its fill price, and the status event carried the fill price as its client id, so a working child could read as a manual TWS order.
+
 ## v3.32.1 — 2026-10-31 09:03 CET
 
 ### What's new

@@ -9064,8 +9064,9 @@ func (c *Connector) handleOrderStatus(fields []string) {
 		if len(fields) > start+4 {
 			avgFillPrice = fields[start+4]
 		}
-		if len(fields) > start+6 {
-			lastFillPrice = fields[start+6]
+		// EDecoder: permId, parentId, lastFillPrice, clientId, whyHeld.
+		if len(fields) > start+7 {
+			lastFillPrice = fields[start+7]
 		}
 		if len(fields) > start+9 {
 			whyHeld = fields[start+9]
