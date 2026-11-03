@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The project adheres to 
 
 ## v3.33.1 — Unreleased
 
+### What's new
+
+The mandate's pre-authorised cuts reach the broker again. An option cut is
+sized to the contract cap the order gate applies, its price is judged by the
+live bid and ask rather than the last trade, and a row that drops out of the
+batch for a moment keeps the veto window it was already given.
+
 ### Changed
 
 - The portfolio's industry split spreads SPY over State Street's holdings of 2 Nov 2026 (it was 17 Sep), and `make refresh-fund-sectors` rebuilds that split from State Street's daily SPY holdings workbook and the S&P 500 sector table, refusing to write when fewer than 480 holdings resolve or their weights sum below 99%. QQQ and IWM keep their hand-collected splits and dates: Invesco and iShares refuse scripted downloads. (#45)
@@ -12,6 +19,12 @@ All notable changes to this project are documented here. The project adheres to 
 - [Set up broker reporting](docs/docs/start/reporting.md#optional-cash-interest-rates) asks for the optional **Interest Details (Tiers)** Flex section and names what reads unavailable without it: the cash interest block of `canary account`, the cash sweep's benefit estimate, the sweep-economics policy check and the cash management rates. (#137)
 - The architecture page documents the broker seam as it is: one concrete IBKR connector in the daemon, the per-feature interfaces that slice it for tests, and what a second broker would have to supply. (#138)
 - The terminal output of `canary macro`, `canary rules`, `canary rules history`, `canary data health`, `canary reporting status`, `canary reporting performance`, `canary account`, `canary orders open` and the single-order status read is now pinned by golden render tests, so a lost label, column or colour fails the build instead of shipping. (#139, #140, #141, #142, #143)
+
+### Fixed
+
+- An option cut of the mandate's forced reduction is held to `[order_limits].max_option_contracts` per order, as it already was to the money caps. Selling long calls in a book that leans short raises its absolute delta, so the order gate kept the contract cap and refused a cut sized past it at every send; the rest goes in the next cycle.
+- A bounded-limit order (the pre-authorised cut's price) reads the exact session's live bid and ask received after the request and is dated by them. Before, its freshness was the last trade's, and a thinly traded option with a live market was refused `quote_stale` at every send.
+- A mandate row served again within its breach after it dropped out of the set, was blocked, or was refused at send because it had moved on (`stale_revision`) keeps the veto clock its notice started, by the same one-lot rule as a re-sized row. Before, each such blip, a broker reconnect or a refresh among them, gave it a fresh 30 minutes, and the batch never went. A clock started before the session the row would be sent in still restarts at that session.
 
 ## v3.33.0 — 2026-11-03 20:10 CET
 

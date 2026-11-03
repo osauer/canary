@@ -24,7 +24,7 @@ func TestArmedSelectionOrderLimitKeepsBindingZero(t *testing.T) {
 		{"no cap", 0, 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := mandateOrderLimit(row, "EUR", tc.native, tc.base); got != tc.want {
+			if got := mandateOrderLimit(row, "EUR", tc.native, tc.base, 0); got != tc.want {
 				t.Fatalf("limit = %d contracts at 15000 per contract; native cap %.0f, base cap %.0f: want %d", got, tc.native, tc.base, tc.want)
 			}
 		})

@@ -86,8 +86,11 @@ type mandateReductionInput struct {
 	// MaxOrderNotional is [buckets.risk_reduction].max_order_notional, the
 	// reduction cap the issuer trim uses; OrderCapBase the [order_limits] cap
 	// in force in base currency (0 when unknown). Both bound one order.
-	MaxOrderNotional float64
-	OrderCapBase     float64
+	// MaxOptionContracts is [order_limits].max_option_contracts (0 when
+	// unknown); it bounds one option order.
+	MaxOrderNotional   float64
+	OrderCapBase       float64
+	MaxOptionContracts int
 	// Ignored reports a row key the owner ignored; its leg leaves the batch.
 	Ignored func(key string) bool
 	// WorkingOrder reports a same-side order working at the broker for a
@@ -145,7 +148,7 @@ func (e *proposalEngine) mandateReductionInput(ctx context.Context, policy prote
 		in.Result, in.Input, in.EvaluatedAt, in.OverStreak = kept.result, kept.input, kept.evaluatedAt, kept.overStreak
 	}
 	if limits := s.orderLimitsInForce(protectionCoverageBaseCurrency(pos)); limits.Complete {
-		in.OrderCapBase = limits.CapBase
+		in.OrderCapBase, in.MaxOptionContracts = limits.CapBase, limits.MaxOptionContracts
 	}
 	in.LocksUnknown = "the locked holdings cannot be read without a request context"
 	if ctx != nil {
@@ -1427,11 +1430,23 @@ func mandateSessionsToExpiry(expiryYMD string, now time.Time) (int, bool) {
 
 // mandateOrderLimit is the most units one order may carry under the caps
 // in force at the row's mark: max_order_notional as the issuer trim and the
-// governor apply it, and the [order_limits] cap in base currency when the
-// row's rate is known. Never below one, as the governor's: one unit above a
-// cap is the order gate's to judge, which admits it only as a delta-reducing
-// exit. Zero when nothing bounds it.
-func mandateOrderLimit(row rpc.PositionView, base string, maxOrderNotional, capBase float64) int {
+// governor apply it, the [order_limits] cap in base currency when the
+// row's rate is known, and for an option max_option_contracts. Never below
+// one, as the governor's: one unit above a cap is the order gate's to judge,
+// which admits it only as a delta-reducing exit. Zero when nothing bounds it.
+// The contract cap binds whether or not the exit would reduce delta: selling
+// long calls in a book that leans short raises its absolute delta, and an
+// order sized past the cap was refused at every send (2026-11-03 16:39 CET).
+func mandateOrderLimit(row rpc.PositionView, base string, maxOrderNotional, capBase float64, maxContracts int) int {
+	limit := mandateMoneyOrderLimit(row, base, maxOrderNotional, capBase)
+	if maxContracts > 0 && positionWireSecType(row.SecType) == "OPT" && (limit == 0 || maxContracts < limit) {
+		limit = maxContracts
+	}
+	return limit
+}
+
+// mandateMoneyOrderLimit is mandateOrderLimit under the money caps alone.
+func mandateMoneyOrderLimit(row rpc.PositionView, base string, maxOrderNotional, capBase float64) int {
 	mark := math.Abs(row.Mark)
 	if mark <= 0 {
 		mark = math.Abs(row.ValuationMark)
@@ -1468,7 +1483,7 @@ func mandateOrderLimit(row rpc.PositionView, base string, maxOrderNotional, capB
 // 110 under a cap now at 111 named the 111).
 func mandateCycleQuantity(c *mandateCut, in mandateReductionInput, base string) (int, string) {
 	qty := c.units
-	limit := mandateOrderLimit(c.row, base, in.MaxOrderNotional, in.OrderCapBase)
+	limit := mandateOrderLimit(c.row, base, in.MaxOrderNotional, in.OrderCapBase, in.MaxOptionContracts)
 	capped := limit > 0 && qty > limit
 	if capped {
 		qty = limit

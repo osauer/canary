@@ -175,22 +175,24 @@ func TestConditionalVetoRejectsRenewedSameRevisionBeforeOldDeadline(t *testing.T
 		t.Fatalf("original notice not vetoable: %+v", original)
 	}
 	// The client has read and matched this exact notice and deadline. Before
-	// its key/revision-only RPC reaches Canary, a transient blocker comes and
-	// goes. Neither the order terms nor the breach episode have changed.
-	blocked := prop
-	blocked.State = rpc.TradeProposalStateBlocked
-	blocked.Blockers = []rpc.TradingBlocker{{Code: "quote_stale", Message: "synthetic temporary quote gap"}}
+	// its key/revision-only RPC reaches Canary, the owner ignores the row and
+	// takes it back: the row returns at the same revision with a fresh
+	// window, which the prior notification must not veto.
+	rig.engine.mu.Lock()
+	rig.engine.ignored[scopedIgnoreKey(rig.scope, prop.Key)] = struct{}{}
+	rig.engine.mu.Unlock()
 	rig.advance(time.Second)
-	if got := rig.install(blocked); got != revision {
-		t.Fatalf("test blocker changed the proposal revision")
-	}
+	rig.install()
 	rig.cycle()
 	if got := rig.record(prop.Key, revision); got.State != rpc.TradeProposalAutomaticSuperseded {
-		t.Fatalf("blocked record was not superseded: %+v", got)
+		t.Fatalf("ignored record was not superseded: %+v", got)
 	}
+	rig.engine.mu.Lock()
+	delete(rig.engine.ignored, scopedIgnoreKey(rig.scope, prop.Key))
+	rig.engine.mu.Unlock()
 	rig.advance(time.Second)
 	if got := rig.install(prop); got != revision {
-		t.Fatalf("unblocked proposal changed its revision")
+		t.Fatalf("the row taken back changed its revision")
 	}
 	rig.cycle()
 	renewed := rig.record(prop.Key, revision)
@@ -207,9 +209,43 @@ func TestConditionalVetoRejectsRenewedSameRevisionBeforeOldDeadline(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Logf("same revision=%t, notice changed=%t, seconds before old deadline=%.0f, accepted=%t, state=%s",
-		renewed.Revision == original.Revision, oldID != newID, original.SubmitAt.Sub(rig.now).Seconds(), result.Accepted, result.State)
 	if result.Accepted || rig.record(prop.Key, revision).State == rpc.TradeProposalAutomaticVetoed {
 		t.Fatal("prior notification vetoed a different notice window; the old deadline did not fence renewal")
+	}
+}
+
+// A transient blocker that comes and goes within the breach keeps the
+// window the owner was notified of (2026-11-03 carry rule): the notice and
+// its deadline are unchanged, so the owner's veto of it stops the row.
+func TestConditionalVetoHoldsAcrossATransientBlock(t *testing.T) {
+	rig := newAutomaticTestRig(t, automaticMandateAuthority)
+	prop := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
+	revision := rig.install(prop)
+	rig.cycle()
+	rig.notice(rig.record(prop.Key, revision))
+	original := rig.record(prop.Key, revision)
+	oldID := automaticRecordNoticeID(original)
+	blocked := prop
+	blocked.State = rpc.TradeProposalStateBlocked
+	blocked.Blockers = []rpc.TradingBlocker{{Code: "quote_stale", Message: "synthetic temporary quote gap"}}
+	rig.advance(time.Second)
+	if got := rig.install(blocked); got != revision {
+		t.Fatalf("test blocker changed the proposal revision")
+	}
+	rig.cycle()
+	rig.advance(time.Second)
+	rig.install(prop)
+	rig.cycle()
+	back := rig.record(prop.Key, revision)
+	if back.State != rpc.TradeProposalAutomaticPending || automaticRecordNoticeID(back) != oldID || !back.SubmitAt.Equal(original.SubmitAt) {
+		t.Fatalf("a transient block changed the notified window: original=%+v back=%+v", original, back)
+	}
+	result, err := rig.engine.Veto(context.Background(), rpc.TradeProposalVetoParams{
+		Key: original.Key, Revision: original.Revision, Origin: rpc.OrderOriginPairedDevice,
+		Reason:   "owner acted on the notification",
+		NoticeID: oldID, VetoUntil: original.SubmitAt,
+	})
+	if err != nil || !result.Accepted || rig.record(prop.Key, revision).State != rpc.TradeProposalAutomaticVetoed {
+		t.Fatalf("the owner's veto of the notified window did not stop the row: %+v %v", result, err)
 	}
 }
