@@ -115,7 +115,7 @@ type Daemon struct {
 	LogLevel string `toml:"log_level"`
 	// LogCalendarMode controls gateway diagnostic quieting: "conservative" (default) retains warnings because cached positions/API orders cannot prove all manual or overnight duties. "scheduled" declares the configured markets and padding cover the operator's duties, allowing INFO outside them; live positions and orders can only widen that declaration, never veto it. Logging only; restart after editing.
 	LogCalendarMode string `toml:"log_calendar_mode"`
-	// LogMarkets sets the gateway diagnostic operating baseline: us_equity, us_options, de_xetra, uk_lse, jp_tse, hk_hkex. Default includes all six, including Asia. Use ["always"] for continuous warning relevance. Positions and automatic US analytics may only widen the baseline; this never grants trading permission. Restart after editing.
+	// LogMarkets sets the gateway diagnostic operating baseline: us_equity, us_options, de_xetra, uk_lse, jp_tse, hk_hkex, sg_sgx, au_asx, cn_ashares. Default is the first six, including Tokyo and Hong Kong; declare sg_sgx, au_asx or cn_ashares to add those hours. Use ["always"] for continuous warning relevance. Positions and automatic US analytics may only widen the baseline; this never grants trading permission. Restart after editing.
 	LogMarkets []string `toml:"log_markets"`
 	// LogBeforeOpenMinutes includes preparation and extended-hours work before each opening (default 360, range 0..720). Missing calendar coverage retains warnings.
 	LogBeforeOpenMinutes *int `toml:"log_before_open_minutes"`

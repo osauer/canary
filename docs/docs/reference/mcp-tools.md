@@ -213,7 +213,7 @@ Read official exchange sessions to plan work around market opens, closes, holida
 | `at` | string | no | optional RFC3339 instant including a timezone offset; evaluates the market at that instant and takes precedence over date |
 | `date` | string | no | optional YYYY-MM-DD in the market timezone; evaluates that date at local noon. Omit for now; at takes precedence when both are supplied |
 | `days` | integer | no | number of forward calendar dates including the selected date, not trading sessions; default 14, maximum 400 |
-| `market` | string | no | exchange-session market; default us. US listed options models the regular 16:15 session; per-class exceptions and global/curb hours are not modeled |
+| `market` | string | no | exchange-session market; default us; hk, sg, jp, au and cn are the Hong Kong, Singapore, Tokyo, ASX and China A-share (Stock Connect) sessions. US listed options models the regular 16:15 session; per-class exceptions and global/curb hours are not modeled |
 
 ## `canary_macro`
 

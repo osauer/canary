@@ -135,6 +135,12 @@ func venueMarket(venue string) (marketcal.Market, bool) {
 		return marketcal.MarketJPTSE, true
 	case "SEHK":
 		return marketcal.MarketHKHKEX, true
+	case "SGX":
+		return marketcal.MarketSGSGX, true
+	case "ASX", "CHIXAU":
+		return marketcal.MarketAUASX, true
+	case "SEHKNTL", "SEHKSZSE", "SEHKSTAR", "CHINEXT":
+		return marketcal.MarketCNAShares, true
 	default:
 		return "", false
 	}

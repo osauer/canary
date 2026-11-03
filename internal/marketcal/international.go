@@ -72,4 +72,80 @@ func init() {
 			"2026-12-31": {"New Year early close", hm{12, 0}},
 		},
 	}
+	// Checked against the linked publications on 2026-11-03. SGX closes on
+	// Singapore's gazetted public holidays (a Sunday holiday moves to the
+	// Monday; a Saturday one does not move) and trades the morning only on the
+	// eves of Chinese New Year, Christmas and New Year when those fall on a
+	// trading day. 2027's Hari Raya dates follow the published list and can
+	// move with the moon sighting.
+	specs[MarketSGSGX] = calendarSpec{
+		market: MarketSGSGX, label: "Singapore securities", timezone: "Asia/Singapore",
+		open: hm{9, 0}, close: hm{17, 0}, breaks: []sessionBreak{{hm{12, 0}, hm{13, 0}}},
+		coverageStart: "2026-01-01", coverageEnd: "2027-12-31",
+		source:    "official_exchange_calendar",
+		sourceURL: "https://www.mom.gov.sg/employment-practices/public-holidays",
+		notes:     "SGX securities market continuous sessions only; the pre-open, closing routine and trade-at-close phases are excluded. Holidays: Singapore's gazetted public holidays as SGX observes them. Half days end at 12:00 with no afternoon session. Hours: https://www.sgx.com/securities/trading.",
+		holidays: map[string]string{
+			"2026-01-01": "New Year's Day", "2026-02-17": "Chinese New Year", "2026-02-18": "Chinese New Year",
+			"2026-04-03": "Good Friday", "2026-05-01": "Labour Day", "2026-05-27": "Hari Raya Haji",
+			"2026-06-01": "Vesak Day observed", "2026-08-10": "National Day observed", "2026-11-09": "Deepavali observed",
+			"2026-12-25": "Christmas Day",
+			"2027-01-01": "New Year's Day", "2027-02-08": "Chinese New Year observed", "2027-03-10": "Hari Raya Puasa",
+			"2027-03-26": "Good Friday", "2027-05-17": "Hari Raya Haji", "2027-05-20": "Vesak Day",
+			"2027-08-09": "National Day", "2027-10-28": "Deepavali",
+		},
+		earlyCloses: map[string]dayOverride{
+			"2026-02-16": {"Chinese New Year eve half day", hm{12, 0}},
+			"2026-12-24": {"Christmas eve half day", hm{12, 0}},
+			"2026-12-31": {"New Year eve half day", hm{12, 0}},
+			"2027-02-05": {"Chinese New Year eve half day", hm{12, 0}},
+			"2027-12-24": {"Christmas eve half day", hm{12, 0}},
+			"2027-12-31": {"New Year eve half day", hm{12, 0}},
+		},
+	}
+	// Checked against the ASX cash-market trading calendar on 2026-11-03.
+	// ANZAC Day on a weekend is not substituted (2026-04-25 is a Saturday;
+	// the 2027-04-26 substitute is a normal trading day).
+	specs[MarketAUASX] = calendarSpec{
+		market: MarketAUASX, label: "ASX cash equities", timezone: "Australia/Sydney",
+		open: hm{10, 0}, close: hm{16, 0},
+		coverageStart: "2026-01-01", coverageEnd: "2027-12-31",
+		source:    "official_exchange_calendar",
+		sourceURL: "https://www.asx.com.au/markets/market-resources/trading-hours-calendar/cash-market-trading-hours/trading-calendar",
+		notes:     "ASX normal trading only. The staggered open (10:00 to 10:09 by security group), the pre-CSPA phase and the closing single price auction from 16:10 are excluded. Early closes end normal trading at 14:10. Hours: https://www.asx.com.au/markets/market-resources/trading-hours-calendar/cash-market-trading-hours.",
+		holidays: map[string]string{
+			"2026-01-01": "New Year's Day", "2026-01-26": "Australia Day", "2026-04-03": "Good Friday",
+			"2026-04-06": "Easter Monday", "2026-06-08": "King's Birthday", "2026-12-25": "Christmas Day",
+			"2026-12-28": "Boxing Day observed",
+			"2027-01-01": "New Year's Day", "2027-01-26": "Australia Day", "2027-03-26": "Good Friday",
+			"2027-03-29": "Easter Monday", "2027-06-14": "King's Birthday", "2027-12-27": "Christmas Day observed",
+			"2027-12-28": "Boxing Day observed",
+		},
+		earlyCloses: map[string]dayOverride{
+			"2026-12-24": {"Christmas early close", hm{14, 10}}, "2026-12-31": {"New Year early close", hm{14, 10}},
+			"2027-12-24": {"Christmas early close", hm{14, 10}}, "2027-12-31": {"New Year early close", hm{14, 10}},
+		},
+	}
+	// Checked against the Shanghai Stock Exchange notice on 2026-11-03
+	// (上证公告〔2025〕45号; Shenzhen follows the same State Council
+	// arrangement). Make-up working Saturdays and Sundays stay closed. The
+	// 2027 arrangement is published late in 2026; coverage ends with 2026
+	// until it is embedded.
+	specs[MarketCNAShares] = calendarSpec{
+		market: MarketCNAShares, label: "China A-shares (SSE/SZSE)", timezone: "Asia/Shanghai",
+		open: hm{9, 30}, close: hm{15, 0}, breaks: []sessionBreak{{hm{11, 30}, hm{13, 0}}},
+		coverageStart: "2026-01-01", coverageEnd: "2026-12-31",
+		source:    "official_exchange_calendar",
+		sourceURL: "https://www.sse.com.cn/disclosure/announcement/general/c/c_20251222_10802507.shtml",
+		notes:     "Shanghai and Shenzhen A-share sessions; the afternoon window ends with the 14:57 to 15:00 closing call auction. Northbound Stock Connect, which is how IBKR routes A-shares (SEHKNTL, SEHKSZSE), trades only on days both this calendar and Hong Kong are open and skips some settlement-constrained days; consult the HKEX Stock Connect calendar before relying on a date. Hours: https://english.sse.com.cn/start/trading/schedule/.",
+		holidays: map[string]string{
+			"2026-01-01": "New Year's Day", "2026-01-02": "New Year's Day holiday",
+			"2026-02-16": "Spring Festival", "2026-02-17": "Spring Festival", "2026-02-18": "Spring Festival",
+			"2026-02-19": "Spring Festival", "2026-02-20": "Spring Festival", "2026-02-23": "Spring Festival",
+			"2026-04-06": "Qingming Festival", "2026-05-01": "Labour Day", "2026-05-04": "Labour Day holiday",
+			"2026-05-05": "Labour Day holiday", "2026-06-19": "Dragon Boat Festival", "2026-09-25": "Mid-Autumn Festival",
+			"2026-10-01": "National Day", "2026-10-02": "National Day holiday", "2026-10-05": "National Day holiday",
+			"2026-10-06": "National Day holiday", "2026-10-07": "National Day holiday",
+		},
+	}
 }

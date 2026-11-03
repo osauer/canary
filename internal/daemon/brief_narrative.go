@@ -1104,6 +1104,13 @@ func briefUpperFirst(text string) string {
 // beside it carry the exact values.
 func briefMoney(amount float64, currency string, signed bool) string {
 	figure := briefFigure(amount, signed)
+	if rpc.CurrencyDecimals(currency) == 0 {
+		// Yen and won carry no minor units at any size.
+		figure = briefThousands(amount, 0)
+		if signed && amount > 0 {
+			figure = "+" + figure
+		}
+	}
 	if currency = strings.TrimSpace(currency); currency != "" {
 		return currency + " " + figure
 	}

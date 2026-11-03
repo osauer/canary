@@ -56,7 +56,9 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	// and causes the alert producer to fail closed with source_time_invalid.
 	now := s.briefNow()
 	res := &rpc.BriefResult{AsOf: now}
-	cal, calErr := s.handleMarketCalendar(&rpc.Request{Params: briefJSON(rpc.MarketCalendarParams{Market: "us", At: now, Days: 1})})
+	// The session the brief speaks of is the home market of the book: the
+	// venue holding most of its value, US when nothing says otherwise.
+	cal, calErr := s.handleMarketCalendar(&rpc.Request{Params: briefJSON(rpc.MarketCalendarParams{Market: string(briefSessionMarket(pos)), At: now, Days: 1})})
 	evaluation := s.acceptedRiskPolicy(now)
 	renderAuthority := s.nudgeAuthorityForPolicy(evaluation, now)
 	policy := s.policyResultForEvaluation(acct, acctErr, evaluation, now)

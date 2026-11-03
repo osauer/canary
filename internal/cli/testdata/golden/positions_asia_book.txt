@@ -1,0 +1,32 @@
+# canary positions · COLUMNS=80 · colour off
+
+Positions by underlying
+
+  LEG                           QTY         AVG        MARK  CHANGE / GREEKS             MKT VALUE     UNREAL P&L
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  700
+  Stock                      500 sh  HKD 352.40  HKD 388.20  +HKD 1,100.00 (+0.57%)  HKD 194,100.00  HKD 17,900.00
+  D05
+  Stock                     1000 sh   SGD 41.10   SGD 43.75  -SGD 250.00 (-0.57%)    SGD 43,750.00   SGD 2,650.00
+  7203
+  Stock                      300 sh     ¥ 2,810     ¥ 2,955  -¥ 9,000 (-1.01%)           ¥ 886,500       ¥ 43,500
+  2026-12-11 P 2800.00         1 ct        ¥ 62        ¥ 48  Δ-0.22 Γ — Θ — ν —            ¥ 4,800       -¥ 1,400
+  ─── Total                                                                              ¥ 891,300       ¥ 42,100
+
+  3 underlyings  ·  as of 14:00:00 TZ
+# canary positions · COLUMNS=80 · colour on, ESC written as \x1b
+
+Positions by underlying
+
+\x1b[2m  LEG                           QTY         AVG        MARK  CHANGE / GREEKS             MKT VALUE     UNREAL P&L\x1b[0m
+\x1b[2m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1b[0m
+  \x1b[1m700\x1b[0m
+  Stock                      500 sh  HKD 352.40  HKD 388.20  \x1b[32m+HKD 1,100.00 (+0.57%)\x1b[0m  HKD 194,100.00  \x1b[32mHKD 17,900.00\x1b[0m
+  \x1b[1mD05\x1b[0m
+  Stock                     1000 sh   SGD 41.10   SGD 43.75  \x1b[31m-SGD 250.00 (-0.57%)\x1b[0m    SGD 43,750.00  \x1b[32m SGD 2,650.00\x1b[0m
+  \x1b[1m7203\x1b[0m
+  Stock                      300 sh     ¥ 2,810     ¥ 2,955  \x1b[31m-¥ 9,000 (-1.01%)\x1b[0m           ¥ 886,500   \x1b[32m    ¥ 43,500\x1b[0m
+  2026-12-11 P 2800.00         1 ct        ¥ 62        ¥ 48  \x1b[31mΔ-0.22\x1b[0m \x1b[2mΓ —\x1b[0m \x1b[2mΘ —\x1b[0m \x1b[2mν —\x1b[0m            ¥ 4,800   \x1b[31m    -¥ 1,400\x1b[0m
+  \x1b[2m─── Total\x1b[0m                                                                              ¥ 891,300   \x1b[32m    ¥ 42,100\x1b[0m
+
+  3 underlyings  ·  as of 14:00:00 TZ

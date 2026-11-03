@@ -15,7 +15,7 @@ func (d Daemon) GatewayLogMarkets() []marketcal.Market {
 		return nil
 	}
 	if d.LogMarkets == nil {
-		return marketcal.AllMarkets()
+		return defaultLogMarkets()
 	}
 	out := make([]marketcal.Market, 0, len(d.LogMarkets))
 	for _, m := range d.LogMarkets {
@@ -56,4 +56,13 @@ func (d Daemon) validateLogging() error {
 		}
 	}
 	return nil
+}
+
+// defaultLogMarkets is the baseline an undeclared [daemon].log_markets means:
+// the US, Xetra, London, Tokyo and Hong Kong sessions. Singapore, Australia
+// and the A-share session join the duty hours only by declaration or through
+// a held position on that venue, so adding a calendar never widens the
+// warning hours of a book that does not trade there.
+func defaultLogMarkets() []marketcal.Market {
+	return []marketcal.Market{marketcal.MarketUSEquity, marketcal.MarketUSOptions, marketcal.MarketDEXetra, marketcal.MarketUKLSE, marketcal.MarketJPTSE, marketcal.MarketHKHKEX}
 }

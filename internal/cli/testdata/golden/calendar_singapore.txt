@@ -1,0 +1,22 @@
+# canary calendar --market sg --days 3 · COLUMNS=80 · colour off
+Market calendar · Singapore securities · Asia/Singapore
+Source · official_exchange_calendar ·
+  https://www.mom.gov.sg/employment-practices/public-holidays
+Coverage · 2026-01-01 to 2027-12-31
+2026-02-16 · early_close · Chinese New Year eve half day
+  Session · 2026-02-16T09:00:00+08:00 to 2026-02-16T12:00:00+08:00
+2026-02-17 · holiday · Chinese New Year
+2026-02-18 · holiday · Chinese New Year
+Next open · 2026-02-19T09:00:00+08:00
+Exchange sessions only; economic releases and earnings require separate evidence.
+# canary calendar --market sg --days 3 · COLUMNS=80 · colour on, ESC written as \x1b
+Market calendar · Singapore securities · Asia/Singapore
+Source · official_exchange_calendar ·
+  https://www.mom.gov.sg/employment-practices/public-holidays
+Coverage · 2026-01-01 to 2027-12-31
+2026-02-16 · early_close · Chinese New Year eve half day
+  Session · 2026-02-16T09:00:00+08:00 to 2026-02-16T12:00:00+08:00
+2026-02-17 · holiday · Chinese New Year
+2026-02-18 · holiday · Chinese New Year
+Next open · 2026-02-19T09:00:00+08:00
+Exchange sessions only; economic releases and earnings require separate evidence.

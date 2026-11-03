@@ -418,15 +418,23 @@ func formatMoneyCcy(v float64, ccy string) string {
 	if neg {
 		v = -v
 	}
-	s := fmt.Sprintf("%.2f", v)
-	dot := strings.IndexByte(s, '.')
-	intPart, frac := s[:dot], s[dot:]
-	grouped := groupThousands(intPart)
-	out := prefix + grouped + frac
+	out := prefix + moneyFigure(v, ccy)
 	if neg {
 		return "-" + out
 	}
 	return out
+}
+
+// moneyFigure is the grouped absolute amount in the currency's own minor
+// units: "1,234.56" for most currencies, "1,234" for yen and won.
+func moneyFigure(abs float64, ccy string) string {
+	decimals := rpc.CurrencyDecimals(ccy)
+	s := strconv.FormatFloat(abs, 'f', decimals, 64)
+	intPart, frac, _ := strings.Cut(s, ".")
+	if frac != "" {
+		frac = "." + frac
+	}
+	return groupThousands(intPart) + frac
 }
 
 // formatMoneyBare renders the amount with no currency prefix at all.
@@ -552,19 +560,6 @@ func (e *Env) formatMoneyNegCcyRight(v float64, ccy string, w int) string {
 	return e.colorBySign(v, s, signNeg)
 }
 
-// formatPnLRight is formatPnL but right-aligns the value within the
-// given visible width by prepending spaces. Used by the Portfolio
-// aggregate where numeric columns line up on the right edge — a
-// thousands-grouped money string varies in width and would otherwise
-// leave the trailing unit text at random positions.
-func (e *Env) formatPnLRight(v float64, width int) string {
-	s := formatMoney(v)
-	if pad := width - len(s); pad > 0 {
-		s = strings.Repeat(" ", pad) + s
-	}
-	return e.colorBySign(v, s, signPnL)
-}
-
 // formatPnLCcyRight is formatPnLRight with a currency prefix attached
 // (using the same prefix table as formatMoneyCcy). For account-level
 // non-USD accounts. Width counts visible cells of the full prefix+value.
@@ -586,10 +581,7 @@ func formatMoneyCcyForPnL(v float64, ccy string) string {
 	if neg {
 		abs = -v
 	}
-	s := fmt.Sprintf("%.2f", abs)
-	dot := strings.IndexByte(s, '.')
-	intPart, frac := s[:dot], s[dot:]
-	out := prefix + groupThousands(intPart) + frac
+	out := prefix + moneyFigure(abs, ccy)
 	if neg {
 		return "-" + out
 	}

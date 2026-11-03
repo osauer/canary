@@ -1,6 +1,6 @@
 # Install and first run
 
-Updated: 2026-10-20 13:53 CEST
+Updated: 2026-11-03 14:10 CET
 
 `canary` is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.
 
@@ -11,6 +11,7 @@ Updated: 2026-10-20 13:53 CEST
 - **An IBKR Pro account.** IBKR Lite does not include TWS API access.
 - **macOS or Linux, on arm64 or amd64.** Releases build for those four combinations.
 - **The same machine as the gateway**, unless you pin `[gateway].host`. Discovery only probes loopback.
+- **Any IBKR entity.** An account held with Interactive Brokers Hong Kong, Singapore, Japan, Australia, Ireland, the UK or the LLC connects the same way; [Hong Kong and Singapore accounts](ibkr-hong-kong-singapore.md) covers base currency and exchange calendars.
 
 There is no Windows build. The daemon uses `setsid`, `flock`, and AF_UNIX sockets, so the code does not compile for Windows at all, and the installer stops with a message when it sees an MSYS, MinGW, or Cygwin shell. WSL is the Windows path: inside WSL, `uname` reports Linux and the ordinary Linux install applies.
 
@@ -162,6 +163,9 @@ Policy defaults remain under `HOME/.config/ibkr/policies`, even with `XDG_CONFIG
 Set up the shared IBKR statement source in [Set up broker
 reporting](reporting.md) before relying on reconciliation, statement-derived
 equity, or Canary Edge. Then wire an agent to the server in [Connect an MCP
-host](hosts.md). Keep the binary current with [Updating](updating.md). Read
+host](hosts.md). An account in Hong Kong dollars, Singapore dollars or yen
+reads [Hong Kong and Singapore accounts](ibkr-hong-kong-singapore.md) for the
+calendars and the brief's timing. Keep the binary current with
+[Updating](updating.md). Read
 [Constrained orders and the trading build](../operate/orders.md) before
 assuming anything about what this can and cannot send to the broker.

@@ -48,6 +48,12 @@ func NormalizeMarket(v string) (Market, bool) {
 		return MarketJPTSE, true
 	case "hk", "hk_hkex", "hk-hkex", "hkex", "sehk":
 		return MarketHKHKEX, true
+	case "sg", "sg_sgx", "sg-sgx", "sgx", "singapore":
+		return MarketSGSGX, true
+	case "au", "au_asx", "au-asx", "asx", "australia", "sydney":
+		return MarketAUASX, true
+	case "cn", "cn_ashares", "cn-ashares", "sse", "szse", "a-shares", "ashares", "china", "sehkntl", "sehkszse":
+		return MarketCNAShares, true
 	default:
 		return "", false
 	}
