@@ -28,6 +28,10 @@ func init() {
 			"2028-12-22": {"Christmas early close", hm{12, 30}}, "2028-12-29": {"New Year early close", hm{12, 30}},
 		},
 	}
+	// JPX publishes the next year's market holidays once the National
+	// Astronomical Observatory announces the equinox dates each February; on
+	// 2026-11-03 its page (updated 2026-02-06) listed 2026 and 2027 only, so
+	// 2028 waits for that publication.
 	specs[MarketJPTSE] = calendarSpec{
 		market: MarketJPTSE, label: "Tokyo cash equities", timezone: "Asia/Tokyo",
 		open: hm{9, 0}, close: hm{15, 30}, breaks: []sessionBreak{{hm{11, 30}, hm{12, 30}}},
@@ -52,12 +56,17 @@ func init() {
 			"2027-11-23": "Labor Thanksgiving Day", "2027-12-31": "Market Holiday",
 		},
 	}
+	// 2027 checked on 2026-11-03 against SEHK circular CT/077/26 of
+	// 2026-06-01, the securities market holiday schedule for 2027 (sourceURL);
+	// 2026 follows circular CT/075/25:
+	// https://www.hkex.com.hk/-/media/HKEX-Market/Services/Circulars-and-Notices/Participant-and-Members-Circulars/SEHK/2025/ce_SEHK_CT_075_2025.pdf.
+	// Holidays on a Saturday (Labour Day and Christmas Day 2027) do not move.
 	specs[MarketHKHKEX] = calendarSpec{
 		market: MarketHKHKEX, label: "Hong Kong cash equities", timezone: "Asia/Hong_Kong",
 		open: hm{9, 30}, close: hm{16, 0}, breaks: []sessionBreak{{hm{12, 0}, hm{13, 0}}},
-		coverageStart: "2026-01-01", coverageEnd: "2026-12-31",
+		coverageStart: "2026-01-01", coverageEnd: "2027-12-31",
 		source:    "official_exchange_calendar",
-		sourceURL: "https://www.hkex.com.hk/-/media/HKEX-Market/Services/Circulars-and-Notices/Participant-and-Members-Circulars/SEHK/2025/ce_SEHK_CT_075_2025.pdf",
+		sourceURL: "https://www.hkex.com.hk/Services/Circulars-and-Notices/Participant-and-Members-Circulars/SEHK/2026/SEHK_CT_077_2026Jun01162846?sc_lang=en",
 		notes:     "Ordinary cash-equity continuous sessions only. Closing auctions (random end), extended-morning eligible products, Stock Connect and derivatives are excluded. Hours: https://www.hkex.com.hk/Services/Trading-hours-and-Severe-Weather-Arrangements/Trading-Hours/Securities-Market.",
 		holidays: map[string]string{
 			"2026-01-01": "New Year's Day", "2026-02-17": "Lunar New Year", "2026-02-18": "Lunar New Year",
@@ -65,11 +74,19 @@ func init() {
 			"2026-04-07": "Easter Monday observed", "2026-05-01": "Labour Day", "2026-05-25": "Buddha's Birthday observed",
 			"2026-06-19": "Tuen Ng Festival", "2026-07-01": "Establishment Day", "2026-10-01": "National Day",
 			"2026-10-19": "Chung Yeung observed", "2026-12-25": "Christmas Day",
+			"2027-01-01": "New Year's Day", "2027-02-08": "Lunar New Year", "2027-02-09": "Lunar New Year observed",
+			"2027-03-26": "Good Friday", "2027-03-29": "Easter Monday", "2027-04-05": "Ching Ming Festival",
+			"2027-05-13": "Buddha's Birthday", "2027-06-09": "Tuen Ng Festival", "2027-07-01": "Establishment Day",
+			"2027-09-16": "Day after Mid-Autumn Festival", "2027-10-01": "National Day", "2027-10-08": "Chung Yeung Festival",
+			"2027-12-27": "First weekday after Christmas",
 		},
 		earlyCloses: map[string]dayOverride{
 			"2026-02-16": {"Lunar New Year early close", hm{12, 0}},
 			"2026-12-24": {"Christmas early close", hm{12, 0}},
 			"2026-12-31": {"New Year early close", hm{12, 0}},
+			"2027-02-05": {"Lunar New Year early close", hm{12, 0}},
+			"2027-12-24": {"Christmas early close", hm{12, 0}},
+			"2027-12-31": {"New Year early close", hm{12, 0}},
 		},
 	}
 	// Checked against the linked publications on 2026-11-03. SGX closes on
