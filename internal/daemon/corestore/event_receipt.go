@@ -27,7 +27,7 @@ func (s *Store) GetEvent(ctx context.Context, scope, key string) (EventRecord, b
 		return EventRecord{}, false, nil
 	}
 	if err != nil {
-		return EventRecord{}, false, err
+		return EventRecord{}, false, s.latchCorruptRead(err)
 	}
 	want := sha256.Sum256(out.PayloadJSON)
 	if !bytes.Equal(digest, want[:]) {

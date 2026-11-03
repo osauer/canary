@@ -17,6 +17,8 @@ import (
 
 const macroStateKind = "macro_public_sources_v1"
 
+const macroPersistenceUnavailable = "Public source persistence unavailable"
+
 // macroRecord is one source's persisted evidence. Failure is the typed cause of
 // the latest failed attempt in the current streak and is dated at that attempt;
 // Source.FirstFailure keeps the streak's onset. Records written before causes
@@ -45,7 +47,7 @@ func (s *Server) loadMacroSources() *macroCache {
 		row := coldMacroRecord(spec)
 		raw, ok, err := loadMarketState(s.coreStore, "public-macro:"+spec.ID, macroStateKind)
 		if err != nil {
-			row.Source.Detail = "Public source persistence unavailable"
+			row.Source.Detail = macroPersistenceUnavailable
 		} else if ok {
 			var saved macroRecord
 			if json.Unmarshal(raw, &saved) == nil && validateMacroEnvelope(spec, saved, s.orderNow()) == nil {
@@ -153,11 +155,18 @@ func (s *Server) refreshMacroSource(ctx context.Context, c *macroCache, spec mac
 	if encodeErr != nil {
 		c.mu.Lock()
 		prior := c.records[spec.ID]
+		firstFailure := prior.Source.Detail != macroPersistenceUnavailable
 		prior.Source.LastAttempt = at
+		prior.Source.NextAttempt = row.Source.NextAttempt
 		prior.Source.Availability = "unavailable"
-		prior.Source.Detail = "Public source persistence unavailable"
+		prior.Source.Detail = macroPersistenceUnavailable
 		c.records[spec.ID] = prior
 		c.mu.Unlock()
+		// Health shows only "refresh failed"; the cause is logged once per
+		// streak so a storage fault is never visible solely as a stale source.
+		if firstFailure {
+			s.warnf("macro source %s could not be saved; serving its prior record: %v", spec.ID, encodeErr)
+		}
 		return
 	}
 	c.mu.Lock()

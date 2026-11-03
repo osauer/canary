@@ -72,7 +72,7 @@ func (s *Store) PreviewTokenConsumed(ctx context.Context, digest PreviewTokenDig
 	}
 	var consumed bool
 	if err := s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM consumed_preview_tokens WHERE token_digest=?)`, digest[:]).Scan(&consumed); err != nil {
-		return false, fmt.Errorf("read preview token tombstone: %w", err)
+		return false, fmt.Errorf("read preview token tombstone: %w", s.latchCorruptRead(err))
 	}
 	return consumed, nil
 }
@@ -311,7 +311,7 @@ func (s *Store) LatestOrderEventSeq(ctx context.Context, scope BrokerScope, rese
 	}
 	var latest sql.NullInt64
 	if err := s.db.QueryRowContext(ctx, `SELECT MAX(event_seq) FROM order_events WHERE scope_key=? AND reserved_order_id=?`, scope.ScopeKey, reservedOrderID).Scan(&latest); err != nil {
-		return 0, fmt.Errorf("read per-order event frontier: %w", err)
+		return 0, fmt.Errorf("read per-order event frontier: %w", s.latchCorruptRead(err))
 	}
 	if !latest.Valid {
 		return 0, nil
@@ -492,7 +492,7 @@ oe.reserved_order_id, oe.perm_id, oe.status, el.payload_json
 FROM order_events oe JOIN event_log el ON el.event_seq=oe.event_seq JOIN broker_scopes bs ON bs.scope_key=oe.scope_key
 WHERE `+strings.Join(clauses, " AND ")+` ORDER BY oe.event_seq LIMIT ?`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("load order events: %w", err)
+		return nil, fmt.Errorf("load order events: %w", s.latchCorruptRead(err))
 	}
 	defer rows.Close()
 	var out []OrderEventRecord
@@ -509,7 +509,7 @@ WHERE `+strings.Join(clauses, " AND ")+` ORDER BY oe.event_seq LIMIT ?`, args...
 		out = append(out, event)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("load order events: %w", err)
+		return nil, fmt.Errorf("load order events: %w", s.latchCorruptRead(err))
 	}
 	return out, nil
 }
@@ -517,7 +517,8 @@ WHERE `+strings.Join(clauses, " AND ")+` ORDER BY oe.event_seq LIMIT ?`, args...
 // GlobalOrderIDFloor returns the greatest order ID reserved across all broker
 // scopes, or zero when no floor exists.
 func (s *Store) GlobalOrderIDFloor(ctx context.Context) (int64, error) {
-	return readFloor(ctx, s.db, "global", "")
+	floor, err := readFloor(ctx, s.db, "global", "")
+	return floor, s.latchCorruptRead(err)
 }
 
 // ScopedOrderIDFloor returns the greater of the global and named broker-scope
@@ -528,11 +529,11 @@ func (s *Store) ScopedOrderIDFloor(ctx context.Context, scopeKey string) (int64,
 	}
 	global, err := readFloor(ctx, s.db, "global", "")
 	if err != nil {
-		return 0, err
+		return 0, s.latchCorruptRead(err)
 	}
 	scoped, err := readFloor(ctx, s.db, "broker", scopeKey)
 	if err != nil {
-		return 0, err
+		return 0, s.latchCorruptRead(err)
 	}
 	if global > scoped {
 		return global, nil

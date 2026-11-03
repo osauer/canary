@@ -102,7 +102,7 @@ func (s *Store) ListEarningsEvents(ctx context.Context) ([]EarningsEvent, error)
 	rows, err := s.db.QueryContext(ctx, `SELECT symbol, event_date, source, time_of_day, estimated, first_seen, last_seen, withdrawn_at
 FROM earnings_events ORDER BY symbol, event_date, source`)
 	if err != nil {
-		return nil, fmt.Errorf("list earnings events: %w", err)
+		return nil, fmt.Errorf("list earnings events: %w", s.latchCorruptRead(err))
 	}
 	defer rows.Close()
 	var out []EarningsEvent

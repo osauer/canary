@@ -379,7 +379,8 @@ func (s *Store) LoadStatementRecords(ctx context.Context, scopeKey string, kinds
 	if limit <= 0 || limit > 250000 {
 		return nil, errorsf("statement record limit is invalid")
 	}
-	return loadStatementRecordsIncludingMetadataQuery(ctx, s.db, scopeKey, kinds, limit)
+	records, err := loadStatementRecordsIncludingMetadataQuery(ctx, s.db, scopeKey, kinds, limit)
+	return records, s.latchCorruptRead(err)
 }
 
 type statementRowsQueryer interface {
@@ -525,7 +526,7 @@ func (s *Store) LoadStatementFiles(ctx context.Context, scopeKey string) ([]Stat
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT file_key,size_bytes,sha256,status,statement_generated_at,ingested_at,updated_at FROM statement_files WHERE scope_key=? ORDER BY file_key`, scopeKey)
 	if err != nil {
-		return nil, err
+		return nil, s.latchCorruptRead(err)
 	}
 	defer rows.Close()
 	var out []StatementFileRecord
@@ -581,7 +582,8 @@ func (s *Store) LoadStatementEquityDays(ctx context.Context, scopeKey, fromDay, 
 	if limit == 0 {
 		limit = 1000
 	}
-	return loadStatementEquityDaysQuery(ctx, s.db, scopeKey, fromDay, toDay, limit)
+	days, err := loadStatementEquityDaysQuery(ctx, s.db, scopeKey, fromDay, toDay, limit)
+	return days, s.latchCorruptRead(err)
 }
 
 func loadStatementEquityDaysQuery(ctx context.Context, q statementRowsQueryer, scopeKey, fromDay, toDay string, limit int) ([]StatementEquityDayRecord, error) {

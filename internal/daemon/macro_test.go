@@ -703,3 +703,50 @@ func TestMacroConditionalRefreshKeepsBatchAcrossRestart(t *testing.T) {
 		}
 	}
 }
+
+// A source whose fetch succeeds but whose record cannot be saved used to
+// return silently and keep its old next-attempt time, so health showed only
+// "refresh failed" while the source was refetched on every tick. The save
+// failure is logged once per streak and the refresh cadence still holds.
+func TestMacroSaveFailureLogsOnceAndKeepsCadence(t *testing.T) {
+	store := openMarketTestCoreStore(t)
+	now := time.Date(2026, 11, 3, 4, 47, 0, 0, time.UTC)
+	var logs bytes.Buffer
+	s := &Server{coreStore: store, now: func() time.Time { return now }, logger: &Logger{l: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))}}
+	spec := macroSpecByID(t, "bls-calendar")
+	fetches := 0
+	client := macrosource.NewClient()
+	client.HTTP.Transport = macroHTTPTransport(func(req *http.Request) (*http.Response, error) {
+		fetches++
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(syntheticMacroICS)), Request: req}, nil
+	})
+	s.macro = s.loadMacroSources()
+	s.macro.client = client
+	s.refreshMacroSource(t.Context(), s.macro, spec)
+	if fetches != 1 || s.macro.records[spec.ID].Source.Availability != "available" {
+		t.Fatalf("first refresh: fetches=%d record=%+v", fetches, s.macro.records[spec.ID].Source)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	for streak := range 2 {
+		now = s.macro.records[spec.ID].Source.NextAttempt
+		s.refreshMacroSource(t.Context(), s.macro, spec)
+		got := s.macro.records[spec.ID].Source
+		if got.Detail != macroPersistenceUnavailable {
+			t.Fatalf("attempt %d: detail=%q, want the persistence cause", streak, got.Detail)
+		}
+		if !got.NextAttempt.After(now) {
+			t.Fatalf("attempt %d: next attempt %s does not move past %s; the source would be refetched every tick", streak, got.NextAttempt, now)
+		}
+		before := fetches
+		s.refreshMacroSource(t.Context(), s.macro, spec)
+		if fetches != before {
+			t.Fatalf("attempt %d: refetched before the next attempt time", streak)
+		}
+	}
+	if n := strings.Count(logs.String(), "macro source bls-calendar could not be saved"); n != 1 {
+		t.Fatalf("save failure logged %d times, want once per streak:\n%s", n, logs.String())
+	}
+}

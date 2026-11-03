@@ -12,6 +12,7 @@ func (s *Store) StatementCoverage(ctx context.Context, scope string) (coverage, 
 	var end, stamp sql.NullString
 	err = s.db.QueryRowContext(ctx, `SELECT MAX(effective_at), MAX(generated_at)
  FROM statement_metadata WHERE scope_key=?`, scope).Scan(&end, &stamp)
+	err = s.latchCorruptRead(err)
 	if err != nil || !end.Valid || !stamp.Valid {
 		return
 	}

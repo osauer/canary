@@ -309,7 +309,8 @@ func (s *Store) Health() Health {
 
 // AuthorityHead reads the current rollback identity and monotonic write head.
 func (s *Store) AuthorityHead(ctx context.Context) (AuthorityHead, error) {
-	return readAuthorityHead(ctx, s.db)
+	head, err := readAuthorityHead(ctx, s.db)
+	return head, s.latchCorruptRead(err)
 }
 
 func readAuthorityHead(ctx context.Context, q interface {
@@ -427,6 +428,20 @@ func (s *Store) latchCritical(err error) bool {
 		return false
 	}
 	return s.latchHealth(code)
+}
+
+// latchCorruptRead latches the store when a read finds the authority damaged
+// and returns err unchanged. A mutation latches on its own failure; a read that
+// meets a damaged page is the same evidence. Left Ready, the store kept taking
+// writes into a damaged table while the reader only marked its own feature
+// unavailable (2026-11-03: three calendar rows on cross-linked pages, a lost
+// proposal write, then a daemon that refused to start). Callers must not hold
+// writeMu, since the observer runs here.
+func (s *Store) latchCorruptRead(err error) error {
+	if code, _ := criticalSQLiteCode(err); code == "corrupt" {
+		s.notifyLatch(s.latchNoticeFor(s.latchHealth(code), err))
+	}
+	return err
 }
 
 // latchHealth records a permanent latch that only an explicit reopen clears.

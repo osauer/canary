@@ -32,7 +32,7 @@ FROM state_documents WHERE scope_key=? AND kind=?`, scopeKey, kind).Scan(&doc.Re
 		return StateDocument{}, false, nil
 	}
 	if err != nil {
-		return StateDocument{}, false, fmt.Errorf("get state document: %w", err)
+		return StateDocument{}, false, fmt.Errorf("get state document: %w", s.latchCorruptRead(err))
 	}
 	digest := sha256.Sum256(doc.JSON)
 	if len(storedDigest) != sha256.Size || !bytes.Equal(storedDigest, digest[:]) {

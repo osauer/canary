@@ -220,7 +220,7 @@ FROM observations WHERE `+where+` ORDER BY observed_at_ms DESC, observation_id D
 		return Observation{}, false, nil
 	}
 	if err != nil {
-		return Observation{}, false, fmt.Errorf("latest observation: %w", err)
+		return Observation{}, false, fmt.Errorf("latest observation: %w", s.latchCorruptRead(err))
 	}
 	if err := decodeObservation(&out, observed, recorded, digest); err != nil {
 		return Observation{}, false, err
@@ -262,7 +262,7 @@ FROM observations WHERE observation_id=? AND scope_key=? AND source=? AND kind=?
 		return Observation{}, false, nil
 	}
 	if err != nil {
-		return Observation{}, false, fmt.Errorf("exact decision-eligible observation: %w", err)
+		return Observation{}, false, fmt.Errorf("exact decision-eligible observation: %w", s.latchCorruptRead(err))
 	}
 	if err := decodeObservation(&out, observed, recorded, digest); err != nil {
 		return Observation{}, false, err
@@ -305,7 +305,7 @@ func (s *Store) ListObservations(ctx context.Context, query ObservationQuery) ([
 	rows, err := s.db.QueryContext(ctx, `SELECT observation_id,scope_key,source,kind,observed_at,recorded_at,content_type,payload,payload_sha256,metadata_json,decision_eligible
 FROM observations WHERE `+strings.Join(clauses, " AND ")+` ORDER BY observed_at_ms,observation_id LIMIT ?`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list observations: %w", err)
+		return nil, fmt.Errorf("list observations: %w", s.latchCorruptRead(err))
 	}
 	defer rows.Close()
 	var out []Observation
@@ -324,7 +324,7 @@ FROM observations WHERE `+strings.Join(clauses, " AND ")+` ORDER BY observed_at_
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, s.latchCorruptRead(err)
 	}
 	return out, nil
 }

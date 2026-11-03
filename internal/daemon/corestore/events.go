@@ -126,7 +126,7 @@ func (s *Store) LoadEvents(ctx context.Context, query EventQuery) ([]EventRecord
 	rows, err := s.db.QueryContext(ctx, `SELECT event_seq,scope_key,event_key,event_type,action_kind,origin,occurred_at,recorded_at,payload_json
 FROM event_log WHERE `+strings.Join(clauses, " AND ")+` ORDER BY event_seq LIMIT ?`, args...)
 	if err != nil {
-		return nil, fmt.Errorf("load events: %w", err)
+		return nil, fmt.Errorf("load events: %w", s.latchCorruptRead(err))
 	}
 	defer rows.Close()
 	var out []EventRecord
@@ -147,7 +147,7 @@ FROM event_log WHERE `+strings.Join(clauses, " AND ")+` ORDER BY event_seq LIMIT
 		out = append(out, item)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, s.latchCorruptRead(err)
 	}
 	return out, nil
 }

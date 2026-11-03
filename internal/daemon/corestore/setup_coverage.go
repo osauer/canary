@@ -65,7 +65,7 @@ func (s *Store) SaveSetupCoverage(ctx context.Context, session string, payload [
 func (s *Store) ListSetupCoverageSessions(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT scope_key FROM state_documents WHERE kind=? ORDER BY scope_key DESC LIMIT ?", setupCoverageKind, SetupCoverageSessions)
 	if err != nil {
-		return nil, fmt.Errorf("list setup coverage: %w", err)
+		return nil, fmt.Errorf("list setup coverage: %w", s.latchCorruptRead(err))
 	}
 	defer rows.Close()
 	out := []string{}
@@ -78,7 +78,7 @@ func (s *Store) ListSetupCoverageSessions(ctx context.Context) ([]string, error)
 			out = append(out, session)
 		}
 	}
-	return out, rows.Err()
+	return out, s.latchCorruptRead(rows.Err())
 }
 
 func validateSetupCoverageSession(session string) error {
