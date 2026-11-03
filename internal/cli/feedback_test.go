@@ -62,7 +62,7 @@ func TestFeedbackRunsAgainstTheDaemonAndWithoutOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	q, err := url.ParseQuery(strings.SplitN(res.URL, "?", 2)[1])
-	if err != nil || q.Get("template") != "bug_report.yml" || q.Get("surface") != "CLI" || q.Get("version") != "v3.33.0 (standard build)" {
+	if err != nil || q.Get("template") != "bug_report.yml" || q.Get("surface") != "CLI" || q.Get("version") != "v3.33.0 ("+buildKind()+" build)" {
 		t.Fatalf("url fields = %v (%v)", q, err)
 	}
 	if res.Fields.Daemon.Reachable || !strings.Contains(res.Report, "Daemon     not reachable") || !res.Redacted {
