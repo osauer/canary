@@ -24,6 +24,7 @@ All notable changes to this project are documented here. The project adheres to 
 ### Fixed
 
 - Order status frames in the legacy layout (API server versions below 203) are read in the broker's field order: the last fill price and the client id come after the parent order id. Before, a bracket child with no fill recorded its parent's order id as its fill price, and the status event carried the fill price as its client id, so a working child could read as a manual TWS order.
+- A market data type notice (live, frozen, delayed) reaches the handlers registered for it. Snapshot reads now report whether the quote was delayed instead of an unknown type.
 
 ## v3.32.1 — 2026-10-31 09:03 CET
 

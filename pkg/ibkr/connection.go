@@ -2346,6 +2346,7 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		c.completePortfolioDownload(account, completedAt)
 	case msgMarketDataType:
 		c.processMarketDataTypeAtEpoch(fields, epoch)
+		c.dispatchHandlers(msgMarketDataType, fields, epoch)
 	case msgSystemNotification:
 		if c.systemNoticeAfterInitialEpochCheck != nil {
 			c.systemNoticeAfterInitialEpochCheck()
