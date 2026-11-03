@@ -450,9 +450,12 @@ Code: `internal/core/strong_names.go` (the rule, `strong-names-v1`),
 - **Universe and history.** The S&P 500 constituents the breadth engine
   keeps: 253 closes per name, dated on the US calendar back from the
   window's last bar and checked against its 60 dated bars, which carry the
-  volumes; a window that disagrees is left out and counted. The 50-session
-  watch-list walk fits inside those closes with every 200-session average
-  defined. SPY is the regime engine's cached series under the settled-bar
+  volumes; a window that disagrees is left out and counted. The walk reads
+  at most 50 sessions, and a session counts for a name only where its
+  200-session average is defined: on the windows of 2026-11-03 that left
+  about 35 (from 15 September), more than B9's ten. `since` is the first
+  walked session that saw a name on the list, so a name listed before the
+  walk began reads the walk's first readable session. SPY is the regime engine's cached series under the settled-bar
   rule of section 10; highs and lows for the average true range are read
   only for the names a plan needs.
 - **Stateless.** The watch list is walked from the history, so restarts and
