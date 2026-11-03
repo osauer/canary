@@ -150,6 +150,20 @@ func regimeGateSettledAt(session string, now time.Time) time.Time {
 	return res.Session.Close.Add(regimeGateSettle)
 }
 
+// settledSeries is the bars' closes on or before latest; a copy fetched
+// before latest settled loses its bar for that session, which was partial.
+func settledSeries(bars []ibkrlib.HistoricalBar, fetched time.Time, latest string, settled time.Time) core.Series {
+	var s core.Series
+	for _, b := range bars {
+		d := historyBarSessionDate(b)
+		if d == "" || d > latest || (d == latest && fetched.Before(settled)) {
+			continue
+		}
+		s.Dates, s.Closes = append(s.Dates, d), append(s.Closes, b.Close)
+	}
+	return s
+}
+
 // regimeGateInputs is what one measurement read.
 type regimeGateInputs struct {
 	Now        time.Time
@@ -165,18 +179,7 @@ type regimeGateInputs struct {
 func regimeGateFrom(in regimeGateInputs, p core.GateParams) *rpc.RegimeGateView {
 	out := &rpc.RegimeGateView{EvaluatedAt: in.Now}
 	settled := regimeGateSettledAt(in.Latest, in.Now)
-	series := func(bars []ibkrlib.HistoricalBar, fetched time.Time) core.Series {
-		var s core.Series
-		for _, b := range bars {
-			d := historyBarSessionDate(b)
-			if d == "" || d > in.Latest || (d == in.Latest && fetched.Before(settled)) {
-				continue
-			}
-			s.Dates, s.Closes = append(s.Dates, d), append(s.Closes, b.Close)
-		}
-		return s
-	}
-	gi := core.GateInput{SPY: series(in.SPY, in.SPYFetched), HYG: series(in.HYG, in.HYGFetched), Breadth: map[string]float64{}}
+	gi := core.GateInput{SPY: settledSeries(in.SPY, in.SPYFetched, in.Latest, settled), HYG: settledSeries(in.HYG, in.HYGFetched, in.Latest, settled), Breadth: map[string]float64{}}
 	if b := in.Breadth; b != nil && (b.State == rpc.BreadthStateReady || b.State == rpc.BreadthStateDegraded) {
 		for _, v := range b.History {
 			if v.Date != "" && v.Date <= in.Latest && v.Coverage50 > 0 {

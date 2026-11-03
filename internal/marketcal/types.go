@@ -25,12 +25,20 @@ const (
 	MarketJPTSE Market = "jp_tse"
 	// MarketHKHKEX is Hong Kong's ordinary cash-equity continuous session.
 	MarketHKHKEX Market = "hk_hkex"
+	// MarketSGSGX is Singapore's securities-market session, including its
+	// midday break.
+	MarketSGSGX Market = "sg_sgx"
+	// MarketAUASX is the ASX cash-equity normal-trading session.
+	MarketAUASX Market = "au_asx"
+	// MarketCNAShares is the Shanghai and Shenzhen A-share session, which IBKR
+	// reaches northbound through Stock Connect (SEHKNTL, SEHKSZSE).
+	MarketCNAShares Market = "cn_ashares"
 )
 
 // AllMarkets returns the calendar catalogue. Availability does not enable a
 // market for trading, desk scheduling, or backend-loss notification policy.
 func AllMarkets() []Market {
-	return []Market{MarketUSEquity, MarketUSOptions, MarketDEXetra, MarketUKLSE, MarketJPTSE, MarketHKHKEX}
+	return []Market{MarketUSEquity, MarketUSOptions, MarketDEXetra, MarketUKLSE, MarketJPTSE, MarketHKHKEX, MarketSGSGX, MarketAUASX, MarketCNAShares}
 }
 
 // State classifies a market at an instant or a calendar date.

@@ -255,6 +255,7 @@ func init() {
 		{"stress", "Portfolio stress with margin, exposure, concentration, options, protection, and source evidence", "canary stress [--details] [--json]", runStress},
 		{"mandate", "Mandate: the book's loss measure against the maximum loss, its volatility as the 1-day swing, what drives it, gap and index stresses, and whether additions are open", "canary mandate [--refresh] [--json]", runMandate},
 		{"core", "Core sleeve target: the month's trend and volatility decision, the target shares, the holding, the band and what the rule would trade; live, the month's row waiting for your confirmation and the last decision. Reads only", "canary core [--refresh] [--json]\ncanary core resolve [--isin ISIN] [--currency CCY] [--json]", runCore},
+		{"strategy-one", "Strategy one's screen: the watch list of strong names, the leading set, the names that left, the entry plans sized at the regime gate's scale and the open names' adds and exits. Holds no risk allocation yet, so its plans buy nothing. Reads only", "canary strategy-one [--json]", runStrategyOne},
 		{"strategy", "A registered strategy's target by its id in the strategy register: its month's decision, target, paper position and what its rule would trade, in the core's shape; with --replay, its rule run over the month-ends FROM TO on the daemon's own history, the table the lab's `replay-compare` reads; read-only, no orders", "canary strategy ID [--refresh] [--json] | canary strategy ID --replay FROM TO [--json]", runStrategy},
 		{"brief", "Combined post- and pre-trade operator brief with disclosed source degradation", "canary brief [--details] [--json]", runBrief},
 		{"edge", "Review past trading decisions using broker records; replay long-option exit rules over your own option trades", "canary edge [--window 90d|365d] [--horizon 1|5|20] [--limit N] [--change ID] [--option ID] [--option-offset N] [--option-limit N] [--all-options] [--json] | canary edge replay [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--rules A,B,C,D,loss_exit,...] [--json]", runEdge},
@@ -403,11 +404,6 @@ func failUnexpectedArgs(env *Env, fs *commandFlagSet) int {
 	return 2
 }
 
-// formatMoney renders a USD-style amount with grouping; "$ 248,310.42".
-func formatMoney(v float64) string {
-	return formatMoneyCcy(v, "USD")
-}
-
 // formatMoneyCcy renders a money amount with the right currency prefix.
 func formatMoneyCcy(v float64, ccy string) string {
 	prefix := moneyPrefix(ccy)
@@ -419,15 +415,23 @@ func formatMoneyCcy(v float64, ccy string) string {
 	if neg {
 		v = -v
 	}
-	s := fmt.Sprintf("%.2f", v)
-	dot := strings.IndexByte(s, '.')
-	intPart, frac := s[:dot], s[dot:]
-	grouped := groupThousands(intPart)
-	out := prefix + grouped + frac
+	out := prefix + moneyFigure(v, ccy)
 	if neg {
 		return "-" + out
 	}
 	return out
+}
+
+// moneyFigure is the grouped absolute amount in the currency's own minor
+// units: "1,234.56" for most currencies, "1,234" for yen and won.
+func moneyFigure(abs float64, ccy string) string {
+	decimals := rpc.CurrencyDecimals(ccy)
+	s := strconv.FormatFloat(abs, 'f', decimals, 64)
+	intPart, frac, _ := strings.Cut(s, ".")
+	if frac != "" {
+		frac = "." + frac
+	}
+	return groupThousands(intPart) + frac
 }
 
 // formatMoneyBare renders the amount with no currency prefix at all.
@@ -553,19 +557,6 @@ func (e *Env) formatMoneyNegCcyRight(v float64, ccy string, w int) string {
 	return e.colorBySign(v, s, signNeg)
 }
 
-// formatPnLRight is formatPnL but right-aligns the value within the
-// given visible width by prepending spaces. Used by the Portfolio
-// aggregate where numeric columns line up on the right edge — a
-// thousands-grouped money string varies in width and would otherwise
-// leave the trailing unit text at random positions.
-func (e *Env) formatPnLRight(v float64, width int) string {
-	s := formatMoney(v)
-	if pad := width - len(s); pad > 0 {
-		s = strings.Repeat(" ", pad) + s
-	}
-	return e.colorBySign(v, s, signPnL)
-}
-
 // formatPnLCcyRight is formatPnLRight with a currency prefix attached
 // (using the same prefix table as formatMoneyCcy). For account-level
 // non-USD accounts. Width counts visible cells of the full prefix+value.
@@ -587,10 +578,7 @@ func formatMoneyCcyForPnL(v float64, ccy string) string {
 	if neg {
 		abs = -v
 	}
-	s := fmt.Sprintf("%.2f", abs)
-	dot := strings.IndexByte(s, '.')
-	intPart, frac := s[:dot], s[dot:]
-	out := prefix + groupThousands(intPart) + frac
+	out := prefix + moneyFigure(abs, ccy)
 	if neg {
 		return "-" + out
 	}

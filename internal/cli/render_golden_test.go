@@ -382,6 +382,9 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "proposals_reduce_portfolio_submit_tokens", argv: []string{"proposals", "reduce", "--portfolio", "--submit", "--preview-token", goldenReduceToken, "--preview-token", goldenReduceTokenB, "--request-ref", "desk-basket-7f3a"},
 			conn: goldenConn{rpc.MethodTradeProposalsReducePortfolioSubmit: goldenReducePortfolioSubmit()}},
 		{name: "brief", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
+		{name: "brief_tokyo_yen", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBriefTokyoYen()}},
+		{name: "positions_asia_book", argv: []string{"positions"}, render: func(env *Env) { renderPositionsByUnderlyingTo(env, env.Stdout, goldenAsiaBook()) }},
+		{name: "calendar_singapore", argv: []string{"calendar", "--market", "sg", "--days", "3"}, conn: goldenConn{rpc.MethodMarketCalendar: goldenSingaporeCalendar()}},
 		{name: "setups_evaluate_confirmed", argv: []string{"setups", "evaluate"}, render: func(env *Env) { renderSetupResult(env, goldenSetup()) }},
 		{name: "brief_details", argv: []string{"brief", "--details"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_rows", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(false)}},
@@ -661,8 +664,8 @@ func goldenMandateOwnerStop() rpc.MandateRiskResult {
 		{Sleeve: mandate.SleeveCore, TargetPct: 6, Note: "no [mandate.core]: the core is inactive"},
 		{Sleeve: mandate.SleeveOverlay, TargetPct: 4, Note: "no strategy registered in the overlay yet"},
 	}
-	v.OwnerStop = &mandate.SleeveStop{Sleeve: mandate.SleeveOwner, StopPct: 25, ReleasePct: 20, Known: true, StartedAt: "2026-09-01", RiskBase: 175000, HWMRiskBase: 240000, HWMAsOf: goldenAt.Add(-72 * time.Hour),
-		DrawdownBase: 65000, DrawdownPct: 27.08, Engaged: true, EngagedAt: goldenAt.Add(-30 * time.Minute), UseAtStopBase: 31200, TargetUseBase: 15600, UseBase: 23970, Over: true}
+	v.OwnerStop = &mandate.SleeveStop{Sleeve: mandate.SleeveOwner, StopPct: 25, ReleasePct: 20, Known: true, StartedAt: "2026-09-01", RiskBase: 175037, HWMRiskBase: 240037, HWMAsOf: goldenAt.Add(-72 * time.Hour),
+		DrawdownBase: 65037, DrawdownPct: 27.08, Engaged: true, EngagedAt: goldenAt.Add(-30 * time.Minute), UseAtStopBase: 31237, TargetUseBase: 15637, UseBase: 24007, Over: true}
 	res.Verdict = &v
 	res.Policy.Sleeves = &rpc.MandateSleevesView{OwnerVolPct: new(7.0), CoreVolPct: new(6.0), OverlayVolPct: new(4.0), OwnerStopPct: new(25.0)}
 	res.Gate = &rpc.MandateGateView{RefusesAdditions: true, Reason: "your sleeve is 27% below its high-water mark 240,000 EUR, past its 25% stop; the sleeve is reduce-only until its drawdown is back under 20%, 5 points under the stop"}
@@ -1364,4 +1367,59 @@ func goldenSetup() rpc.SetupResult {
 		Contract: rpc.ContractParams{ConID: 17, Symbol: "SYNTH", SecType: "STK", Currency: "USD"}, EvaluatedAt: confirmed.Add(20 * time.Second), EvidenceKind: "current_observation",
 		State: "confirmed", Reasons: []string{"volume_spike_price_rising"}, SpikeAt: &spike, FirstConfirmedAt: &confirmed, ConfirmationType: "rising", ValidUntil: &valid, BaselineSessions: 20,
 		Features: rpc.SetupFeatures{SpikeMultiple: new(3.4), TradeSize: new(74.2), TradeSizeUsual: new(128.6), TradeSizeBars: 12}}
+}
+
+// goldenBriefTokyoYen is the row brief of a yen-base account holding Tokyo
+// names at a Tokyo morning: the session row reads the Tokyo calendar and every
+// yen figure is written without minor units.
+func goldenBriefTokyoYen() rpc.BriefResult {
+	res := goldenBrief(false)
+	review, ready := &res.Review, &res.Ready
+	review.SessionPnL.EquityBase, review.SessionPnL.DailyPnLBase, review.SessionPnL.BaseCurrency = new(15000000.0), new(-82500.0), "JPY"
+	review.LastSession.DailyPnLBase, review.LastSession.BaseCurrency = new(41000.0), "JPY"
+	review.Attribution.Rows = []rpc.BriefMover{{Symbol: "7203", DailyPnLBase: -60000}, {Symbol: "6758", DailyPnLBase: -22500}}
+	ready.Session.Market, ready.Session.State = "jp_tse", "regular"
+	ready.PremiumAtRisk.AmountBase, ready.PremiumAtRisk.BaseCurrency = new(150000.0), "JPY"
+	ready.HedgeCost.AmountBase, ready.HedgeCost.BaseCurrency = new(1500.0), "JPY"
+	return res
+}
+
+// goldenAsiaBook is a HKD-base book with a Hong Kong share, a Singapore bank
+// and a Tokyo name: each row's money carries its own currency and the yen
+// line has no minor units.
+func goldenAsiaBook() *rpc.PositionsResult {
+	hk := rpc.PositionView{Symbol: "700", SecType: rpc.SecTypeStock, PrimaryExch: "SEHK", Currency: "HKD", Quantity: 500, Multiplier: 1,
+		AvgCost: 352.40, Mark: 388.20, MarketValue: 194100, UnrealizedPnL: 17900, DayChangeMoney: new(1100.0), DayChangePct: new(0.57), MarketValueBase: new(194100.0)}
+	sg := rpc.PositionView{Symbol: "D05", SecType: rpc.SecTypeStock, PrimaryExch: "SGX", Currency: "SGD", Quantity: 1000, Multiplier: 1,
+		AvgCost: 41.10, Mark: 43.75, MarketValue: 43750, UnrealizedPnL: 2650, DayChangeMoney: new(-250.0), DayChangePct: new(-0.57), MarketValueBase: new(252262.5)}
+	jp := rpc.PositionView{Symbol: "7203", SecType: rpc.SecTypeStock, PrimaryExch: "TSEJ", Currency: "JPY", Quantity: 300, Multiplier: 1,
+		AvgCost: 2810, Mark: 2955, MarketValue: 886500, UnrealizedPnL: 43500, DayChangeMoney: new(-9000.0), DayChangePct: new(-1.01), MarketValueBase: new(45363.0)}
+	jpPut := rpc.PositionView{Symbol: "7203", SecType: rpc.SecTypeOption, Currency: "JPY", Quantity: 1, Multiplier: 100, Right: "P", Strike: 2800, Expiry: "20261211",
+		AvgCost: 6200, Mark: 48, MarketValue: 4800, UnrealizedPnL: -1400, Delta: new(-0.22)}
+	return &rpc.PositionsResult{AsOf: goldenAt, DataType: "live",
+		Stocks: []rpc.PositionView{hk, sg, jp}, Options: []rpc.PositionView{jpPut},
+		ByUnderlying: []rpc.PositionGroup{
+			{Underlying: "700", Stock: &hk, GroupMarketValue: 194100, GroupUnrealizedPnL: 17900},
+			{Underlying: "D05", Stock: &sg, GroupMarketValue: 43750, GroupUnrealizedPnL: 2650},
+			{Underlying: "7203", Stock: &jp, Options: []rpc.PositionView{jpPut}, GroupMarketValue: 891300, GroupUnrealizedPnL: 42100},
+		}}
+}
+
+// goldenSingaporeCalendar is the Singapore securities calendar over the 2026
+// Chinese New Year: a half day, two holidays, and the lunch break on an
+// ordinary day, as the daemon serves it.
+func goldenSingaporeCalendar() rpc.MarketCalendarResult {
+	singapore := time.FixedZone("+08", 8*60*60)
+	day := func(d int, hour, minute int) time.Time { return time.Date(2026, 2, d, hour, minute, 0, 0, singapore) }
+	halfDay := rpc.MarketSession{Market: "sg_sgx", Label: "Singapore securities", Date: "2026-02-16", Timezone: "Asia/Singapore", State: "early_close", Reason: "Chinese New Year eve half day",
+		Open: day(16, 9, 0), Close: day(16, 12, 0), Windows: []rpc.MarketWindow{{Open: day(16, 9, 0), Close: day(16, 12, 0)}}}
+	next := day(19, 9, 0)
+	halfDay.NextOpen = &next
+	return rpc.MarketCalendarResult{Market: "sg_sgx", Label: "Singapore securities", Timezone: "Asia/Singapore", AsOf: goldenAt,
+		CoverageStart: "2026-01-01", CoverageEnd: "2027-12-31", Source: "official_exchange_calendar", SourceURL: "https://www.mom.gov.sg/employment-practices/public-holidays",
+		Session: halfDay,
+		Sessions: []rpc.MarketSession{halfDay,
+			{Market: "sg_sgx", Date: "2026-02-17", State: "holiday", Reason: "Chinese New Year"},
+			{Market: "sg_sgx", Date: "2026-02-18", State: "holiday", Reason: "Chinese New Year"},
+		}}
 }

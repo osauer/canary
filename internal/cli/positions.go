@@ -195,11 +195,11 @@ func renderStocksTable(env *Env, out io.Writer, rows []rpc.PositionView, dataTyp
 		row = append(row,
 			formatPositionPrice(avgCostPerShare(p)),
 			formatPositionValue(p),
-			env.formatPositionPnLPtr(p.DailyPnL),
-			env.formatPositionPnL(p.UnrealizedPnL),
+			env.formatPositionPnLPtr(p.DailyPnL, p.Currency),
+			env.formatPositionPnL(p.UnrealizedPnL, p.Currency),
 		)
 		if showRealized {
-			row = append(row, env.formatPositionPnL(p.RealizedPnL))
+			row = append(row, env.formatPositionPnL(p.RealizedPnL, p.Currency))
 		}
 		row = append(row, formatPositionData(env, p), formatPositionAsOf(p))
 		tableRows = append(tableRows, row)
@@ -321,11 +321,11 @@ func renderOptionsTable(env *Env, out io.Writer, rows []rpc.PositionView, dataTy
 			formatPositionPrice(avgCostPerShare(p)),
 			formatPositionPrice(p.Mark),
 			formatOptionBidAsk(p),
-			env.formatPositionPnLPtr(p.DailyPnL),
-			env.formatPositionPnL(p.UnrealizedPnL),
+			env.formatPositionPnLPtr(p.DailyPnL, p.Currency),
+			env.formatPositionPnL(p.UnrealizedPnL, p.Currency),
 		}
 		if showRealized {
-			row = append(row, env.formatPositionPnL(p.RealizedPnL))
+			row = append(row, env.formatPositionPnL(p.RealizedPnL, p.Currency))
 		}
 		tableRows = append(tableRows, row)
 	}
@@ -552,18 +552,20 @@ func formatVolumePart(v *int64) string {
 	}
 }
 
-func (e *Env) formatPositionPnL(v float64) string {
+// formatPositionPnL renders a row's P&L in the row's own currency, as the
+// VALUE column does; a HKD line never reads as dollars.
+func (e *Env) formatPositionPnL(v float64, ccy string) string {
 	if v == 0 {
 		return e.dim("—")
 	}
-	return e.colorBySign(v, formatMoney(v), signPnL)
+	return e.colorBySign(v, formatMoneyCcy(v, ccy), signPnL)
 }
 
-func (e *Env) formatPositionPnLPtr(v *float64) string {
+func (e *Env) formatPositionPnLPtr(v *float64, ccy string) string {
 	if v == nil {
 		return "—"
 	}
-	return e.formatPositionPnL(*v)
+	return e.formatPositionPnL(*v, ccy)
 }
 
 // renderPortfolioSummaryTo prints the daemon-computed aggregate block when
@@ -728,26 +730,33 @@ func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResu
 	for _, g := range r.ByUnderlying {
 		fmt.Fprintln(out, "  "+env.bold(g.Underlying))
 
+		// Every money cell carries the leg's own currency, so a Hong Kong
+		// or Tokyo line in a mixed book never reads as dollars.
+		groupCurrency := ""
 		if g.Stock != nil {
 			s := g.Stock
+			groupCurrency = s.Currency
 			writeRow(
 				"Stock",
 				fmt.Sprintf("%.0f sh", s.Quantity),
-				formatMoney(avgCostPerShare(*s)),
-				formatMoney(s.Mark),
+				formatMoneyCcy(avgCostPerShare(*s), s.Currency),
+				formatMoneyCcy(s.Mark, s.Currency),
 				env.formatDayChange(s.DayChangeMoney, s.DayChangePct, s.Currency, 0),
-				formatMoney(s.MarketValue),
-				env.formatPnLRight(s.UnrealizedPnL, wUnreal))
+				formatMoneyCcy(s.MarketValue, s.Currency),
+				env.formatPnLCcyRight(s.UnrealizedPnL, s.Currency, wUnreal))
 		}
 		for _, o := range g.Options {
+			if groupCurrency == "" {
+				groupCurrency = o.Currency
+			}
 			writeRow(
 				fmt.Sprintf("%s %s %.2f", formatExpiry(o.Expiry), o.Right, o.Strike),
 				fmt.Sprintf("%.0f ct", o.Quantity),
-				formatMoney(avgCostPerShare(o)),
-				formatMoney(o.Mark),
+				formatMoneyCcy(avgCostPerShare(o), o.Currency),
+				formatMoneyCcy(o.Mark, o.Currency),
 				env.formatGreeksLine(o),
-				formatMoney(o.MarketValue),
-				env.formatPnLRight(o.UnrealizedPnL, wUnreal))
+				formatMoneyCcy(o.MarketValue, o.Currency),
+				env.formatPnLCcyRight(o.UnrealizedPnL, o.Currency, wUnreal))
 		}
 
 		// Total row only when there's more than one leg — for a single
@@ -760,8 +769,8 @@ func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResu
 			writeRow(
 				env.dim("─── Total"),
 				"", "", "", "",
-				formatMoney(g.GroupMarketValue),
-				env.formatPnLRight(g.GroupUnrealizedPnL, wUnreal))
+				formatMoneyCcy(g.GroupMarketValue, groupCurrency),
+				env.formatPnLCcyRight(g.GroupUnrealizedPnL, groupCurrency, wUnreal))
 		}
 	}
 	fmt.Fprintln(out)

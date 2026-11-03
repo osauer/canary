@@ -3998,7 +3998,7 @@ func (s *Server) handleMarketCalendar(req *rpc.Request) (*rpc.MarketCalendarResu
 	}
 	market, ok := marketcal.NormalizeMarket(p.Market)
 	if !ok {
-		return nil, errBadRequest(fmt.Sprintf("unsupported market %q (supported: us, us-options, de, uk, jp, hk)", p.Market))
+		return nil, errBadRequest(fmt.Sprintf("unsupported market %q (supported: us, us-options, de, uk, jp, hk, sg, au, cn)", p.Market))
 	}
 	res, err := marketcal.New().Query(marketcal.Query{
 		Market: market,

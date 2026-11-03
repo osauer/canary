@@ -3744,9 +3744,11 @@ func formatMoneyCcy(v float64, ccy string) string {
 	if neg {
 		v = -v
 	}
-	s := fmt.Sprintf("%.2f", v)
-	dot := strings.IndexByte(s, '.')
-	intPart, frac := s[:dot], s[dot:]
+	s := strconv.FormatFloat(v, 'f', rpc.CurrencyDecimals(ccy), 64)
+	intPart, frac, _ := strings.Cut(s, ".")
+	if frac != "" {
+		frac = "." + frac
+	}
 	out := prefix + groupThousands(intPart) + frac
 	if neg {
 		return "-" + out

@@ -35,6 +35,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary stress`](#canary-stress) | Desk | Portfolio stress with margin, exposure, concentration, options, protection, and source evidence | `read-only` | yes |
 | [`canary mandate`](#canary-mandate) | Desk | Mandate: the book's loss measure against the maximum loss, its volatility as the 1-day swing, what drives it, gap and index stresses, and whether additions are open | `read-only` | yes |
 | [`canary core`](#canary-core) | Desk | Core sleeve target: the month's trend and volatility decision, the target shares, the holding, the band and what the rule would trade; live, the month's row waiting for your confirmation and the last decision. Reads only | `read-only` | yes |
+| [`canary strategy-one`](#canary-strategy-one) |  | Strategy one's screen: the watch list of strong names, the leading set, the names that left, the entry plans sized at the regime gate's scale and the open names' adds and exits. Holds no risk allocation yet, so its plans buy nothing. Reads only | `read-only` | yes |
 | [`canary strategy`](#canary-strategy) | Desk | A registered strategy's target by its id in the strategy register: its month's decision, target, paper position and what its rule would trade, in the core's shape; with --replay, its rule run over the month-ends FROM TO on the daemon's own history, the table the lab's `replay-compare` reads; read-only, no orders | `read-only` | yes |
 | [`canary brief`](#canary-brief) | Desk | Combined post- and pre-trade operator brief with disclosed source degradation | `read-only` | yes |
 | [`canary edge`](#canary-edge) | Desk | Review past trading decisions using broker records; replay long-option exit rules over your own option trades | `read-only` | yes |
@@ -576,6 +577,18 @@ Subcommands: `resolve`.
 | `--isin` | yes | - |
 | `--currency` | yes | - |
 | `--json` | no | - |
+
+## `canary strategy-one`
+
+Strategy one's screen: the watch list of strong names, the leading set, the names that left, the entry plans sized at the regime gate's scale and the open names' adds and exits. Holds no risk allocation yet, so its plans buy nothing. Reads only.
+
+Guard `read-only`. Also available as an MCP tool.
+
+```text
+canary strategy-one [--json]
+```
+
+*The catalog records no flags. Run `canary strategy-one --help` for what the command parses.*
 
 ## `canary strategy`
 

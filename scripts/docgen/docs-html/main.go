@@ -145,6 +145,14 @@ var pages = []pageSpec{
 		Status:      statusPublished,
 	},
 	{
+		Source:      "docs/docs/start/ibkr-hong-kong-singapore.md",
+		Section:     "start",
+		NavTitle:    "Hong Kong and Singapore accounts",
+		Summary:     "The same gateway steps, base currency in HKD, SGD or yen, the Asian exchange calendars, and when to run the brief.",
+		Description: "What is different when an Interactive Brokers account sits in Hong Kong, Singapore, Japan or Australia: identical IB Gateway steps, how HKD, SGD and yen figures render, the SEHK, SGX, Tokyo, ASX and Stock Connect calendars, and the brief's session at an Asian morning.",
+		Status:      statusPublished,
+	},
+	{
 		Source:      "docs/docs/start/updating.md",
 		Section:     "start",
 		NavTitle:    "Updating",

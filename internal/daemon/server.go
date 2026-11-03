@@ -3025,6 +3025,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleCoreTarget(ctx, req) })
 	case rpc.MethodStrategyTarget:
 		s.unary(req, enc, func() (any, error) { return s.handleStrategyTarget(ctx, req) })
+	case rpc.MethodStrategyOne:
+		s.unary(req, enc, func() (any, error) { return s.handleStrategyOne(ctx) })
 	case rpc.MethodStrategyReplay:
 		s.unary(req, enc, func() (any, error) { return s.handleStrategyReplay(ctx, req) })
 	case rpc.MethodCoreResolve:
