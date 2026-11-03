@@ -57,7 +57,13 @@ proposal the owner confirms by writing it into the policy file.
     most of the loss measure removed per unit of market value given up, in
     the gap and premium phases; the batch is sent nearest expiry first,
     options before shares, the cheaper relief first within one expiry
-    (owner, 2026-11-03 11:21 CET), behind the expiry cuts.
+    (owner, 2026-11-03 11:21 CET), behind the expiry cuts. A pre-authorised
+    cut gives half the way from the mid toward the bid within the line's
+    spread cap and a worst price 25% from its mark, else goes at the mid;
+    an option cut beyond the spread cap goes at the bid when the give is at
+    most `[mandate.reduction] cheap_leg_give_pct_of_loss` (2%) of the loss
+    measure it removes, the give bound then standing in for the spread cap
+    and the worst price (owner, 2026-11-03 13:29 CET, C4).
   - Sleeve volatility shares of the 15%: owner 7, core 6, overlay 4. Recorded
     here as `[mandate.sleeves]`; enforcement per sleeve comes later. Since
     2026-10-18 the machine's `[mandate.sleeves]` numbers size its allocations

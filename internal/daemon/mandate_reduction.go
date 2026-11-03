@@ -1706,6 +1706,82 @@ func (e *proposalEngine) mandateReductionGive(prop rpc.TradeProposal) *rpc.Order
 		MaxSpreadPctOfMid: queuedSpreadLimit(policy, prop)}
 }
 
+// mandateCheapLegSpreadPct is the spread bound a cheap-leg preview carries:
+// any two-sided quote's spread is under 200% of its mid, so the give bound,
+// not the spread, decides.
+const mandateCheapLegSpreadPct = 200
+
+// mandateCheapLeg prices an option cut the spread cap refused at the bid
+// (owner decision 2026-11-03 13:29 CET, spec TM-05.18 C4): the preview at
+// the touch stands when its give, mid minus the limit for every unit in the
+// base currency, is at most cheap_leg_give_pct_of_loss of the loss measure
+// the row removes. Nil, with why, sends the cut to the mid: not an option,
+// the bound unwritten, a refusal by the worst price, no FX rate, or a give
+// above the bound.
+func (e *proposalEngine) mandateCheapLeg(ctx context.Context, prop rpc.TradeProposal, given rpc.OrderPreviewParams, refused error) (*rpc.OrderPreviewResult, string) {
+	if !previewRefusedWith(refused, previewBoundedSpreadCode) || !strings.EqualFold(prop.Contract.SecType, "OPT") || given.Bounded == nil ||
+		prop.Mandate == nil || !(prop.Mandate.LossCutBase > 0) || prop.Mandate.Units <= 0 {
+		return nil, ""
+	}
+	var m *risk.ConstitutionMandate
+	if e.server.riskPolicies != nil {
+		if c := e.server.riskPolicies.snapshot().policy; c != nil {
+			m = c.Mandate
+		}
+	}
+	pct, ok := m.CheapLegGivePct()
+	if !ok || !(pct > 0) {
+		return nil, ""
+	}
+	// At the touch the give bound replaces both the spread cap and the
+	// worst price: a spread wider than half the mid puts the bid past a
+	// worst price 25% from the mark, which would refuse every cheap leg the
+	// rule exists for. What still bounds the price is the give itself, at
+	// most cheap_leg_give_pct_of_loss of the loss the row removes.
+	at, bound := given, *given.Bounded
+	bound.Concession, bound.MaxSpreadPctOfMid, bound.WorstPrice = 1, mandateCheapLegSpreadPct, mandateCheapLegWorst(given.Action)
+	at.Bounded = &bound
+	preview, err := e.server.previewOrder(ctx, at)
+	if err != nil {
+		return nil, err.Error()
+	}
+	q, d := preview.Quote, preview.Draft
+	if q.Bid == nil || q.Ask == nil || d.Contract.Multiplier <= 0 || d.Quantity <= 0 {
+		return nil, "the preview at the bid carries no two-sided quote or multiplier"
+	}
+	_, rate, _, reason := e.server.fillQuoteFX(ctx, nonEmptyString(d.Contract.Currency, prop.Contract.Currency))
+	if rate == nil || !(*rate > 0) {
+		return nil, "no exchange rate to measure the give: " + reason
+	}
+	give := math.Abs((*q.Bid+*q.Ask)/2-d.LimitPrice) * float64(d.Quantity) * float64(d.Contract.Multiplier) * *rate
+	removes := prop.Mandate.LossCutBase * min(1, float64(d.Quantity)/float64(prop.Mandate.Units))
+	words := fmt.Sprintf("the give %.2f is %.1f%% of the %.2f of the loss measure the cut removes, against %g%%", give, give/removes*100, removes, pct)
+	if give > pct/100*removes {
+		return nil, words
+	}
+	return preview, words
+}
+
+// mandateCheapLegWorst is the worst price a cheap-leg preview carries: no
+// bound of its own, below any bid for a sale and above any ask for a
+// purchase.
+func mandateCheapLegWorst(action string) float64 {
+	if strings.EqualFold(action, rpc.OrderActionBuy) {
+		return 1e12
+	}
+	return 1e-6
+}
+
+// previewRefusedWith reports a preview refusal carrying the code.
+func previewRefusedWith(err error, code string) bool {
+	for _, b := range previewFailureBlockers(err) {
+		if b.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 // mandateGiveRefused reports a preview refused only by the give's own
 // bounds: a spread beyond the cap or a limit past the worst price.
 func mandateGiveRefused(err error) bool {

@@ -470,6 +470,8 @@ type Server struct {
 	// mandate_verdict.go).
 	mandateHistory  mandateHistoryStore
 	mandateVerdicts mandateVerdictCache
+	// regimeGate keeps the last measured regime gate (regime_gate.go).
+	regimeGate regimeGateCache
 	// coreTargets keeps every registered strategy's frozen monthly decisions
 	// and contract pins (strategy_target.go, core_resolve.go).
 	coreTargets coreTargetStore
@@ -3023,6 +3025,8 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		s.unary(req, enc, func() (any, error) { return s.handleCoreTarget(ctx, req) })
 	case rpc.MethodStrategyTarget:
 		s.unary(req, enc, func() (any, error) { return s.handleStrategyTarget(ctx, req) })
+	case rpc.MethodStrategyOne:
+		s.unary(req, enc, func() (any, error) { return s.handleStrategyOne(ctx) })
 	case rpc.MethodStrategyReplay:
 		s.unary(req, enc, func() (any, error) { return s.handleStrategyReplay(ctx, req) })
 	case rpc.MethodCoreResolve:

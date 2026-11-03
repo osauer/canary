@@ -616,15 +616,6 @@ func TestBoundedLimitPriceNeverPassesTheWorstPrice(t *testing.T) {
 	}
 }
 
-func previewRefusedWith(err error, code string) bool {
-	for _, b := range previewFailureBlockers(err) {
-		if b.Code == code {
-			return true
-		}
-	}
-	return false
-}
-
 // The halfway concession on a concrete quote: sell 24.95 inside 24.90–25.10.
 func TestBoundedLimitPriceIsHalfwayToTheBid(t *testing.T) {
 	t.Parallel()

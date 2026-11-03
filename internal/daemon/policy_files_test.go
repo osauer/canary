@@ -260,7 +260,7 @@ func TestEnsurePolicyFilesFreshInstallUnderHome(t *testing.T) {
 		Opportunity:  filepath.Join(policies, "opportunity-policy.toml"),
 		Constitution: filepath.Join(policies, "risk-policy.toml"),
 	}
-	if set != want {
+	if !reflect.DeepEqual(set, want) {
 		t.Fatalf("default paths = %+v, want %+v", set, want)
 	}
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)

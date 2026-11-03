@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/core"
 	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -154,6 +155,7 @@ func renderMandate(env *Env, res rpc.MandateRiskResult) {
 	renderMandateOwnerStop(env, v.OwnerStop, ccy)
 	renderMandateGate(env, res.Gate)
 	renderMandateReduction(env, res.Reduction, ccy)
+	renderRegimeGate(env, res.RegimeGate)
 	renderMandateAllocations(env, v, ccy)
 	renderMandateExposure(env, res.Exposure, ccy)
 	renderMandateRegister(env, res.Register)
@@ -447,6 +449,46 @@ func renderMandateReduction(env *Env, r *rpc.MandateReductionView, ccy string) {
 			parts = append(parts, o.Automatic)
 		case !r.PreAuthorised:
 			parts = append(parts, "waits for your approval")
+		}
+		riskDisplayLine(env, "  ", briefJoin(parts...), nil)
+	}
+}
+
+// renderRegimeGate prints the regime gate (Desk spec TM-04.08): the state,
+// the scale it gives the strategies that read it, and each reading.
+func renderRegimeGate(env *Env, g *rpc.RegimeGateView) {
+	if g == nil {
+		return
+	}
+	style := env.green
+	switch g.State {
+	case core.GateHalf:
+		style = env.yellow
+	case core.GateOff:
+		style = env.red
+	}
+	head := fmt.Sprintf("%s, scale %s for the strategies that read it", g.State, mandatePct(g.ScalePct))
+	if g.State == core.GateOff {
+		head += "; no new entries and no adds"
+	}
+	riskDisplayLine(env, "Regime gate · ", briefJoin(head, g.Reason), style)
+	names := map[string]string{core.GateTrend: "S&P 500 above its ten-month average", core.GateBreadth: "more than " + mandatePct(g.Params.BreadthMinPct) + " of S&P 500 stocks above their 50-day average", core.GateCredit: "high-yield credit (HYG) above its 50-day average"}
+	for _, r := range g.Readings {
+		mark := "yes"
+		if !r.On {
+			mark = "no"
+		}
+		parts := []string{names[r.ID] + ": " + mark}
+		switch {
+		case r.Reason != "":
+			parts = append(parts, r.Reason)
+		case r.ID == core.GateBreadth:
+			parts = append(parts, fmt.Sprintf("%s on %s", mandatePct(r.Value), r.AsOf))
+		default:
+			parts = append(parts, fmt.Sprintf("%.2f against %.2f on %s", r.Value, r.Level, r.AsOf))
+		}
+		if r.Pending {
+			parts = append(parts, fmt.Sprintf("the latest close reads otherwise; it flips after %d closes", g.Params.ConfirmCloses))
 		}
 		riskDisplayLine(env, "  ", briefJoin(parts...), nil)
 	}

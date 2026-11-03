@@ -31,6 +31,12 @@ import (
 // file is kept for the reader and still honoured, but it cannot be the
 // record alone: a file whose tables the owner wrote never gets one, and a
 // comment is the owner's to delete.
+//
+// The owner's decisions of 2026-11-03 13:29 CET (Desk spec TM-04.08 and
+// TM-05.18 C4) are the second batch: [mandate.regime_gate] and
+// [mandate.reduction], written once in the same way and recorded under
+// their own key, so a table of the first batch the owner deleted is never
+// written again by the second.
 const (
 	mandateDefaultsSource = "owner decision 2026-10-29 07:06 CET"
 	mandateDefaultsNote   = "mandate defaults of 2026-10-29 written once"
@@ -38,12 +44,35 @@ const (
 	stateKindMandateDefaults = "mandate_defaults"
 )
 
-var mandateDefaultTables = []struct {
+type mandateDefaultTable struct {
 	table string
 	keys  [][2]string
-}{
-	{"mandate.iv_fallback", [][2]string{{"short_band_pct", "65.0"}, {"month_band_pct", "15.0"}, {"long_band_pct", "8.0"}, {"measured_pct", "5.0"}, {"range_pct", "20.0"}}},
-	{"mandate.index_hedge", [][2]string{{"max_contracts", "25"}}},
+}
+
+// mandateDefaultsBatch is one owner decision's tables. key names the batch
+// in the daemon's record ("" is the first, recorded under the path alone).
+type mandateDefaultsBatch struct {
+	key, source, note string
+	tables            []mandateDefaultTable
+}
+
+var mandateDefaultBatches = []mandateDefaultsBatch{
+	{"", mandateDefaultsSource, mandateDefaultsNote, []mandateDefaultTable{
+		{"mandate.iv_fallback", [][2]string{{"short_band_pct", "65.0"}, {"month_band_pct", "15.0"}, {"long_band_pct", "8.0"}, {"measured_pct", "5.0"}, {"range_pct", "20.0"}}},
+		{"mandate.index_hedge", [][2]string{{"max_contracts", "25"}}},
+	}},
+	{"2026-11-03", "owner decision 2026-11-03 13:29 CET", "mandate defaults of 2026-11-03 written once", []mandateDefaultTable{
+		{"mandate.regime_gate", [][2]string{{"breadth_min_pct", "50.0"}, {"half_scale_pct", "50.0"}, {"stale_after_sessions", "1"}, {"confirm_closes", "2"}}},
+		{"mandate.reduction", [][2]string{{"cheap_leg_give_pct_of_loss", "2.0"}}},
+	}},
+}
+
+// mandateDefaultsRecordKey is the batch's key in the daemon's record.
+func mandateDefaultsRecordKey(path, batch string) string {
+	if batch == "" {
+		return path
+	}
+	return path + "|" + batch
 }
 
 // migrateConstitutionMandateDefaults writes each default table the file
@@ -51,27 +80,34 @@ var mandateDefaultTables = []struct {
 // sits under it, and raises policy_version when raise is set. A table the
 // owner wrote is never touched, nor one the owner commented out with other
 // values than the proposal's. write is false unless the daemon's record says
-// this file has not had its defaults.
-func migrateConstitutionMandateDefaults(doc *tomlDoc, c risk.Constitution, data string, raise, write bool) []string {
-	if !write || c.Mandate == nil || doc.headerLine("mandate") < 0 || strings.Contains(data, mandateDefaultsNote) {
+// this file has not had every batch; done names the batches it has had.
+func migrateConstitutionMandateDefaults(doc *tomlDoc, c risk.Constitution, data string, raise, write bool, done []string) []string {
+	if !write || c.Mandate == nil || doc.headerLine("mandate") < 0 {
 		return nil
 	}
-	present := map[string]bool{"mandate.iv_fallback": c.Mandate.IVFallback != nil, "mandate.index_hedge": c.Mandate.IndexHedge != nil}
+	m := c.Mandate
+	present := map[string]bool{"mandate.iv_fallback": m.IVFallback != nil, "mandate.index_hedge": m.IndexHedge != nil,
+		"mandate.regime_gate": m.RegimeGate != nil, "mandate.reduction": m.Reduction != nil}
 	var changes []string
-	for _, t := range mandateDefaultTables {
-		if present[t.table] || doc.headerLine(t.table) >= 0 || doc.commentedTableDiffers(t.table, t.keys) {
+	for _, b := range mandateDefaultBatches {
+		if slices.Contains(done, b.key) || strings.Contains(data, b.note) {
 			continue
 		}
-		if !doc.uncommentTableHeader(t.table) {
-			doc.addTable(t.table)
+		for _, t := range b.tables {
+			if present[t.table] || doc.headerLine(t.table) >= 0 || doc.commentedTableDiffers(t.table, t.keys) {
+				continue
+			}
+			if !doc.uncommentTableHeader(t.table) {
+				doc.addTable(t.table)
+			}
+			var lines []string
+			for _, kv := range t.keys {
+				doc.dropCommentedKey(t.table, kv[0])
+				lines = append(lines, kv[0]+" = "+kv[1]+"  # "+b.source)
+				changes = append(changes, fmt.Sprintf("write [%s].%s = %s (%s)", t.table, kv[0], kv[1], b.source))
+			}
+			doc.insert(t.table, lines)
 		}
-		var lines []string
-		for _, kv := range t.keys {
-			doc.dropCommentedKey(t.table, kv[0])
-			lines = append(lines, kv[0]+" = "+kv[1]+"  # "+mandateDefaultsSource)
-			changes = append(changes, fmt.Sprintf("write [%s].%s = %s (%s)", t.table, kv[0], kv[1], mandateDefaultsSource))
-		}
-		doc.insert(t.table, lines)
 	}
 	if len(changes) > 0 && raise {
 		next := c.PolicyVersion + 1
@@ -170,29 +206,37 @@ func mandateDefaultsPreserved(before, after *risk.ConstitutionMandate) bool {
 		return false
 	}
 	return (before.IVFallback == nil || reflect.DeepEqual(before.IVFallback, after.IVFallback)) &&
-		(before.IndexHedge == nil || reflect.DeepEqual(before.IndexHedge, after.IndexHedge))
+		(before.IndexHedge == nil || reflect.DeepEqual(before.IndexHedge, after.IndexHedge)) &&
+		(before.RegimeGate == nil || reflect.DeepEqual(before.RegimeGate, after.RegimeGate)) &&
+		(before.Reduction == nil || reflect.DeepEqual(before.Reduction, after.Reduction))
 }
 
-// mandateDefaultsDone reads the daemon's record that the constitution at
-// path already had its mandate defaults. An unreadable record counts as
-// done: writing the hedge table hands out a permission, so a doubt keeps it
-// unwritten. A server without the SQLite authority (a test server) has no
-// record and relies on the file's note.
-func (s *Server) mandateDefaultsDone(path string) bool {
+// mandateDefaultsDone reads the daemon's record of which default batches
+// the constitution at path already had, and whether it had all of them. An
+// unreadable record counts as all done: writing the hedge table hands out a
+// permission, so a doubt keeps it unwritten. A server without the SQLite
+// authority (a test server) has no record and relies on the file's notes.
+func (s *Server) mandateDefaultsDone(path string) (done []string, all bool) {
 	if s.coreStore == nil || path == "" {
-		return false
+		return nil, false
 	}
 	records, _, err := loadMandateDefaults(context.Background(), s.coreStore)
 	if err != nil {
 		s.warnf("mandate defaults record unreadable, nothing written: %v", err)
-		return true
+		return nil, true
 	}
-	return !records[path].IsZero()
+	for _, b := range mandateDefaultBatches {
+		if !records[mandateDefaultsRecordKey(path, b.key)].IsZero() {
+			done = append(done, b.key)
+		}
+	}
+	return done, len(done) == len(mandateDefaultBatches)
 }
 
-// recordMandateDefaults records the constitution at path once daemon start
-// has seen it with an active [mandate] and its ensure step did not fail:
-// from then on the defaults were either written or found written.
+// recordMandateDefaults records every batch for the constitution at path
+// once daemon start has seen it with an active [mandate] and its ensure step
+// did not fail: from then on each batch was either written or found
+// written. A batch recorded before keeps its first time.
 func (s *Server) recordMandateDefaults(path string, actions []PolicyFileAction) {
 	if s.coreStore == nil || path == "" {
 		return
@@ -216,7 +260,11 @@ func (s *Server) recordMandateDefaults(path string, actions []PolicyFileAction) 
 		s.warnf("record mandate defaults: %v", err)
 		return
 	}
-	records[path] = time.Now().UTC()
+	for _, b := range mandateDefaultBatches {
+		if key := mandateDefaultsRecordKey(path, b.key); records[key].IsZero() {
+			records[key] = time.Now().UTC()
+		}
+	}
 	raw, err := json.Marshal(records)
 	if err == nil {
 		_, err = s.coreStore.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{ScopeKey: daemonStateScope, Kind: stateKindMandateDefaults, ExpectedRevision: revision, JSON: raw})
