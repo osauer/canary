@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**43 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**44 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_add`
 
@@ -273,6 +273,12 @@ Read the daemon's target for one machine strategy of the strategy register by it
 |------|------|----------|-------------|
 | `id` | string | **yes** | the strategy's id in the register: core, or the [mandate.strategies.<id>] table's key |
 | `refresh` | boolean | no | when true, the daemon reads the account and positions and measures the mandate again before deciding; false (the default) uses a mandate verdict younger than thirty seconds |
+
+## `canary_strategy_one`
+
+Read strategy one's screen (rule `strong-names-v1`, lab spec `s7_strong_names`; spec TM-03.01, owner decisions 2026-11-03): strong US names on short dips, judged on the latest settled US close over the S&P 500 constituents the breadth engine keeps. `numbers` are the rule's: eligible at a price of at least 10, 20-session average dollar volume of at least 20 million and 20-session volatility of at most 70% a year; a rising trend is the close above its 50- and 200-session averages with the 50 above the 200; `strength` is the 126-session return less SPY's in percent, `rank` its place among the eligible names. `watch` is the watch list: a name joins in the top 20 with its trend, leaves after 10 sessions outside the top 20 or on a trend break (`departures`, walked over the last 50 sessions, so a restart changes nothing); `leading` marks the top 8. `entries` are the trade plans: a leading name 3% to 12% under its 10-session high (`dip_pct`), bought the next session at the mid while the regime gate is on or half (`gate_state`, `gate_scale_pct`), stopped 2.5 average true ranges under the entry (`atr`, `stop`), sized to lose 0.5% of the risk base at the stop and at most 5% of it in value, times the gate's scale (`rule_units`), and `units` what the strategy's risk allocation lets through: zero while no register entry names the rule, so every plan is recorded and nothing is bought (`allocation_pct`, `notes`). `held` gives an open name's add at a new 20-session high (gate on, at most two lots) and exit after two closes under its 50-session average. `undated` counts constituents whose closes could not be checked against their dated bars and were left out; `status` hold with `reason` when the screen could not run. Read-only: it proposes, previews and sends nothing.
+
+*No parameters.*
 
 ## `canary_brief`
 

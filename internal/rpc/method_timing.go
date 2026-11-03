@@ -115,6 +115,9 @@ var methodTimings = []MethodTiming{
 	// its own stores and runs a few dozen simulations for the headroom.
 	{Method: MethodCoreTarget, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodStrategyTarget, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
+	// Strategy one screens the S&P 500 constituents from the breadth
+	// engine's memory and reads highs and lows for at most eight names.
+	{Method: MethodStrategyOne, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	// The replay reads five years of daily bars once (the charts' 25 s
 	// read) and runs the rule over about sixty month-ends.
 	{Method: MethodStrategyReplay, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},

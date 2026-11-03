@@ -434,3 +434,36 @@ D3 at two closes). Code: `internal/core/regime_gate.go` (the arithmetic),
   scales only rules that declare it: strategy one's rule (TM-03.01) when it
   lands. The core and s6-trend do not read it; the owner sleeve is never
   scaled.
+
+## 11. Strategy one's screen (2026-11-03)
+
+Written 2026-11-03 14:04 CET. Desk's spec TM-03.01, on the owner's
+decisions of 2026-11-03 13:29 CET (the decision list's A2 and B1 to B10).
+Code: `internal/core/strong_names.go` (the rule, `strong-names-v1`),
+`internal/daemon/strategy_one.go` (inputs, served as `strategy.one`).
+
+- **A rule of its own, not a library filter.** The evaluator above holds
+  one fund on a trend filter; strategy one screens many names. Its numbers
+  (B1 to B9) are compiled with the rule like the core's, so a change is a
+  new rule and a new lab spec version (`s7_strong_names`), never a policy
+  key. How much budget it may use is the register's risk allocation.
+- **Universe and history.** The S&P 500 constituents the breadth engine
+  keeps: 253 closes per name, dated on the US calendar back from the
+  window's last bar and checked against its 60 dated bars, which carry the
+  volumes; a window that disagrees is left out and counted. The 50-session
+  watch-list walk fits inside those closes with every 200-session average
+  defined. SPY is the regime engine's cached series under the settled-bar
+  rule of section 10; highs and lows for the average true range are read
+  only for the names a plan needs.
+- **Stateless.** The watch list is walked from the history, so restarts and
+  rebuilds never change who is on it.
+- **Zero allocation (A2).** No register entry names the rule, and the
+  loader refuses an allocation of zero, so the strategy stays out of the
+  register until the TM-01.01 bar is met or the owner writes a number. The
+  screen sizes each plan by the rule and buys nothing; it proposes and
+  sends nothing. Adds and exits (B7, B8) are computed for open names, and
+  there are none.
+- **Not yet built.** The 2.5-ATR trailing stop under the highest close
+  since entry needs the entry record a live sleeve keeps; the five-session
+  judgement of an add is the scorecard's. Both arrive with a register
+  entry. Watch-list names outside the S&P 500 are not screened yet.

@@ -621,6 +621,14 @@
       }
     },
     {
+      "name": "canary_strategy_one",
+      "description": "Read strategy one's screen (rule `strong-names-v1`, lab spec `s7_strong_names`; spec TM-03.01, owner decisions 2026-11-03): strong US names on short dips, judged on the latest settled US close over the S\u0026P 500 constituents the breadth engine keeps. `numbers` are the rule's: eligible at a price of at least 10, 20-session average dollar volume of at least 20 million and 20-session volatility of at most 70% a year; a rising trend is the close above its 50- and 200-session averages with the 50 above the 200; `strength` is the 126-session return less SPY's in percent, `rank` its place among the eligible names. `watch` is the watch list: a name joins in the top 20 with its trend, leaves after 10 sessions outside the top 20 or on a trend break (`departures`, walked over the last 50 sessions, so a restart changes nothing); `leading` marks the top 8. `entries` are the trade plans: a leading name 3% to 12% under its 10-session high (`dip_pct`), bought the next session at the mid while the regime gate is on or half (`gate_state`, `gate_scale_pct`), stopped 2.5 average true ranges under the entry (`atr`, `stop`), sized to lose 0.5% of the risk base at the stop and at most 5% of it in value, times the gate's scale (`rule_units`), and `units` what the strategy's risk allocation lets through: zero while no register entry names the rule, so every plan is recorded and nothing is bought (`allocation_pct`, `notes`). `held` gives an open name's add at a new 20-session high (gate on, at most two lots) and exit after two closes under its 50-session average. `undated` counts constituents whose closes could not be checked against their dated bars and were left out; `status` hold with `reason` when the screen could not run. Read-only: it proposes, previews and sends nothing.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
       "name": "canary_brief",
       "description": "Read Canary's current daily brief exactly as the daemon composed it. Use when the user asks what changed since the last close, what matters today, which inputs are missing or stale, or what still needs attention before trading. This is the same typed brief used by Canary's terminal and paired app; it does not rebuild the answer from separate account, position, regime, or rulebook calls. Read-only: it never acknowledges the brief, records a sign-off, advances a review clock, writes to the journal, or changes settings. For market indicators use `canary_regime`; for full portfolio-risk evidence use `canary_stress`. NOT for drilling into one holding or account total; use `canary_positions` or `canary_account` after the brief points to that detail.",
       "inputSchema": {

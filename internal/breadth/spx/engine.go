@@ -826,6 +826,20 @@ func (e *Engine) SetMembers(members []string) bool {
 	return true
 }
 
+// Windows returns a copy of every constituent's window: its last closes
+// (the newest dated LastBarAt) and its dated bars with volume. Strategy one
+// screens the constituents on them (Desk spec TM-03.01).
+func (e *Engine) Windows() map[string]ConstituentWindow {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	out := make(map[string]ConstituentWindow, len(e.windows))
+	for sym, w := range e.windows {
+		w.Closes, w.Bars = slices.Clone(w.Closes), slices.Clone(w.Bars)
+		out[sym] = w
+	}
+	return out
+}
+
 // History returns up to `limit` trailing history points, oldest first.
 func (e *Engine) History(limit int) []HistoryPoint {
 	e.mu.RLock()
