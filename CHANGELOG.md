@@ -2,14 +2,17 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.33.1 — Unreleased
+## v3.33.1 — 2026-11-03 21:44 CET
 
 ### What's new
 
 The mandate's pre-authorised cuts reach the broker again. An option cut is
 sized to the contract cap the order gate applies, its price is judged by the
 live bid and ask rather than the last trade, and a row that drops out of the
-batch for a moment keeps the veto window it was already given.
+batch for a moment keeps the veto window it was already given, paused while
+it was out. Hong Kong sessions now run through 2027, the industry split
+reads State Street's current SPY holdings, and the calendar, broker
+reporting and architecture pages describe the product as it is.
 
 ### Changed
 

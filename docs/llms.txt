@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-03 20:50 CET. Current release: v3.33.0.
+Updated: 2026-11-03 21:44 CET. Current release: v3.33.1.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
