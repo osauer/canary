@@ -3,6 +3,8 @@ package daemon
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"syscall"
 	"time"
@@ -17,7 +19,12 @@ import (
 // after which one committed risk-capital save was missing. The daemon names
 // any process it finds holding the database open, so the next one is known.
 const (
-	outsideOpenerCheckEvery = time.Minute
+	// A minute let one-shot openers slip between checks; a second also
+	// bounds how long the daemon writes on after its shared memory is reset.
+	outsideOpenerCheckEvery = time.Second
+	// shmFirstRegion is the size SQLite gives daemon.db-shm on first use; an
+	// outside first opener truncates it to 3 bytes before rebuilding.
+	shmFirstRegion = 32 << 10
 	// shmDMSByte is SQLite's dead-man-switch lock byte in the -shm file,
 	// (22+SQLITE_SHM_NLOCK)*4+SQLITE_SHM_NLOCK. Every open connection holds
 	// it shared.
@@ -31,6 +38,7 @@ type outsideOpenerWatch struct {
 	// SQLite's included.
 	shm    *os.File
 	warned map[int]bool
+	reset  bool
 }
 
 func (s *Server) startOutsideOpenerWatch(ctx context.Context) {
@@ -85,6 +93,10 @@ func (s *Server) checkOutsideSQLiteOpeners(ctx context.Context) {
 		w.shm = f
 		w.warned = map[int]bool{}
 	}
+	if reason := shmResetReason(w.shm, s.coreStorePath+"-shm"); reason != "" && !w.reset {
+		w.reset = true
+		s.coreStore.LatchDamaged("shm_reset", fmt.Errorf("daemon.db-shm %s under the daemon's open connection; its next checkpoint could write stale pages", reason))
+	}
 	lock := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0, Start: shmDMSByte, Len: 1}
 	if err := syscall.FcntlFlock(w.shm.Fd(), syscall.F_GETLK, &lock); err != nil {
 		return
@@ -96,4 +108,26 @@ func (s *Server) checkOutsideSQLiteOpeners(ctx context.Context) {
 	w.warned[pid] = true
 	name := procinfo.Names(ctx, []int{pid})[pid]
 	s.warnf("daemon.db: another process (pid %d %s) has it open with SQLite; only the daemon may, because an outside opener resets the daemon's shared memory if the daemon's lock on it is lost (crash of 2026-10-29). Read account data through canary commands", pid, nonEmptyString(name, "unknown"))
+}
+
+// shmResetReason reports how daemon.db-shm stopped being the shared memory the
+// daemon's connection maps: truncated below SQLite's first region, as an
+// outside first opener does, or removed or replaced at its path. Empty means
+// intact.
+func shmResetReason(held *os.File, path string) string {
+	info, err := held.Stat()
+	if err != nil {
+		return ""
+	}
+	if info.Size() < shmFirstRegion {
+		return fmt.Sprintf("was truncated to %d bytes", info.Size())
+	}
+	current, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "was removed"
+	}
+	if err == nil && !os.SameFile(info, current) {
+		return "was replaced"
+	}
+	return ""
 }

@@ -135,3 +135,67 @@ func TestRetiredMoneyFileIsRemovedAtStart(t *testing.T) {
 		t.Fatalf("gate cache removed: %v", err)
 	}
 }
+
+// shmResetReason is checked on plain files: truncating a -shm under a live
+// SQLite connection would fault the test process the way it faulted the
+// daemon on 2026-10-29.
+func TestShmResetReasonNamesTruncationRemovalAndReplacement(t *testing.T) {
+	dir := privateTestDir(t)
+	path := filepath.Join(dir, "daemon.db-shm")
+	if err := os.WriteFile(path, make([]byte, shmFirstRegion), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = held.Close() })
+	if got := shmResetReason(held, path); got != "" {
+		t.Fatalf("intact shm reported %q", got)
+	}
+	if err := os.Rename(path, path+".old"); err != nil {
+		t.Fatal(err)
+	}
+	if got := shmResetReason(held, path); got != "was removed" {
+		t.Fatalf("removed shm reported %q", got)
+	}
+	if err := os.WriteFile(path, make([]byte, shmFirstRegion), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := shmResetReason(held, path); got != "was replaced" {
+		t.Fatalf("replaced shm reported %q", got)
+	}
+	if err := os.Truncate(path+".old", 3); err != nil {
+		t.Fatal(err)
+	}
+	if got := shmResetReason(held, path); got != "was truncated to 3 bytes" {
+		t.Fatalf("truncated shm reported %q", got)
+	}
+}
+
+// A shared memory replaced under the daemon latches the store fail-closed,
+// once, and names the cause.
+func TestReplacedShmLatchesTheStore(t *testing.T) {
+	path := filepath.Join(privateTestDir(t), "daemon.db")
+	store, err := corestore.Open(context.Background(), corestore.Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	var logs bytes.Buffer
+	s := &Server{coreStore: store, coreStorePath: path, logger: NewLogger(&logs, "warn")}
+	s.checkOutsideSQLiteOpeners(t.Context())
+	if !store.Health().Ready {
+		t.Fatalf("intact store latched: %+v", store.Health())
+	}
+	if err := os.Rename(path+"-shm", path+"-shm.moved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path+"-shm", make([]byte, shmFirstRegion), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.checkOutsideSQLiteOpeners(t.Context())
+	if got := store.Health(); got.Ready || got.Code != "shm_reset" {
+		t.Fatalf("health after the shm was replaced = %+v, want latched shm_reset", got)
+	}
+}

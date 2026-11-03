@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/procinfo"
@@ -167,5 +168,43 @@ func TestFindDaemonProcessRefusesWhatItCannotVerify(t *testing.T) {
 		if !errors.Is(err, ErrDaemonUnverified) || !strings.Contains(err.Error(), tc.wantText) || proc.PID != 0 {
 			t.Fatalf("%s: FindDaemonProcess = pid %d err %v; want ErrDaemonUnverified containing %q", tc.name, proc.PID, err, tc.wantText)
 		}
+	}
+}
+
+// A stop names its requester in the daemon log before the signal, and never
+// creates a log that is not there.
+func TestStopDaemonNamesTheRequesterInTheDaemonLog(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "ibkr-daemon.log")
+	t.Setenv("CANARY_LOG", logPath)
+	stop := func() int {
+		t.Helper()
+		child := exec.Command("sleep", "30")
+		if err := child.Start(); err != nil {
+			t.Fatal(err)
+		}
+		if err := StopDaemon(child.Process.Pid, 5*time.Second); err != nil {
+			_ = child.Process.Kill()
+			t.Fatal(err)
+		}
+		_ = child.Wait()
+		return child.Process.Pid
+	}
+
+	stop()
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("stop created a daemon log: %v", err)
+	}
+
+	if err := os.WriteFile(logPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pid := stop()
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := fmt.Sprintf("daemon pid %d: SIGTERM requested by pid %d (", pid, os.Getpid())
+	if !strings.Contains(string(got), want) || !strings.Contains(string(got), "level=INFO") {
+		t.Fatalf("daemon log = %q, want a line containing %q", got, want)
 	}
 }

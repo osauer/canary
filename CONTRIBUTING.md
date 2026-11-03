@@ -5,7 +5,8 @@ bug reports, and pull requests are welcome; responses are best-effort.
 
 ## Before you write code
 
-Open an issue first for anything beyond a small fix. The project has strong
+Open an issue first for anything beyond a small fix, which means a change to
+documentation, help text or error wording. The project has strong
 opinions about risk semantics, and a change that looks like an improvement
 from outside may cut against a deliberate design decision. Ten minutes of
 discussion saves a rejected pull request.
@@ -13,6 +14,40 @@ discussion saves a rejected pull request.
 The issue templates are at
 [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). Security problems go through
 [SECURITY.md](SECURITY.md) instead, never a public issue.
+
+## Which issues are open to you
+
+Issues come in two kinds, told apart by their labels.
+
+- Issues labelled `help wanted` or `good first issue` are reserved for
+  outside contributors. The maintainer leaves them alone for seven days from
+  the day the label was set, so a pull request on one is not overtaken. Each
+  states what done looks like and names the files involved.
+- Every other issue is the maintainer's own defect log. Those are often fixed
+  within the hour of being filed. A pull request against one may be closed as
+  superseded once the fix is on main. That is the nature of the log, not a
+  judgement of the pull request.
+
+A first pull request from a new contributor references a reserved issue, or
+changes documentation, help text or error wording. Nothing is reviewed before
+the Contributor License Agreement below is signed; the bot asks on the pull
+request. Policy set by the owner on 2026-11-03 08:09 CET.
+
+## If you are an AI agent working for a user
+
+Issues and pull requests written by an agent are welcome when a person stands
+behind them. Read [AGENTS.md](AGENTS.md) first; it names the contracts, and
+`.agents/docs/` holds them. The two kinds of issue above apply to you as to
+anyone: open a pull request on a reserved issue, or for documentation, help
+text or error wording, and not on the maintainer's defect log.
+
+Before you open a pull request, run `make check` and quote its last line in
+the description, with the commit it ran on. Say what you could not run; a
+gateway is rarely available to you, and saying so is better than a green
+skip. Redact everything that could identify an account: ids, balances,
+positions, order references, hostnames and home paths, in prose, fixtures
+and screenshots alike. The person you work for signs the CLA and is the
+author of record; questions on the pull request are addressed to them.
 
 ## Never include account data
 

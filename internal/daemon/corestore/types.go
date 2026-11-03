@@ -336,8 +336,18 @@ func (e *RevisionConflictError) Error() string {
 	if !e.Exists {
 		return fmt.Sprintf("%v: expected revision %d, document does not exist", ErrRevisionConflict, e.Expected)
 	}
+	if e.LostWrite() {
+		return fmt.Sprintf("%v: expected revision %d, actual revision %d; a committed write is missing", ErrRevisionConflict, e.Expected, e.Actual)
+	}
 	return fmt.Sprintf("%v: expected revision %d, actual revision %d", ErrRevisionConflict, e.Expected, e.Actual)
 }
+
+// LostWrite reports a stored revision older than the caller's expected one.
+// Callers take their expected revision only from a load or a committed save,
+// and revisions only grow, so in this single-writer store an older stored
+// revision means committed pages went back: the 2026-11-03 damage showed
+// exactly this, ten hours before the file failed its startup check.
+func (e *RevisionConflictError) LostWrite() bool { return e.Exists && e.Actual < e.Expected }
 
 // Is reports whether the error matches ErrRevisionConflict.
 func (e *RevisionConflictError) Is(target error) bool { return target == ErrRevisionConflict }

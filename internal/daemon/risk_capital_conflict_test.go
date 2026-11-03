@@ -1,22 +1,23 @@
 package daemon
 
 import (
-	"encoding/json"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
 )
 
 // A save the database does not hold leaves the store one revision ahead of
-// it (live 2026-10-29 21:30 CET, after a daemon crash and a double start).
-// The store reloads the saved state on the conflict, so the next change
-// saves instead of failing the same way until a restart; the failure warns
-// once and its recovery once.
-func TestRiskCapitalRevisionConflictReloadsAndSavesAgain(t *testing.T) {
+// it (live 2026-10-29 21:30 CET, after a daemon crash and a double start;
+// again 2026-11-02 19:57 CET, ten hours before the file failed its startup
+// check). Reloading and saving on, as b8964f6a did, kept writing into a
+// store that had lost committed pages. A lost save now latches the
+// authority fail-closed: the change is dropped, the failure warns once, and
+// no later save lands until a restart re-checks the file.
+func TestRiskCapitalLostSaveLatchesTheAuthority(t *testing.T) {
 	st, c, now := recoveryStore(t)
 	var warnings []string
-	st.warnf = func(format string, args ...any) { warnings = append(warnings, fmt.Sprintf(format, args...)) }
+	st.warnf = func(format string, args ...any) { warnings = append(warnings, format) }
+	before := st.revision
 	st.revision++ // the daemon remembers a save the database lost
 
 	*now = now.Add(time.Minute)
@@ -24,20 +25,16 @@ func TestRiskCapitalRevisionConflictReloadsAndSavesAgain(t *testing.T) {
 	if st.state.AdjustedPeakBase == 270000 {
 		t.Fatal("a failed save kept its change in memory")
 	}
+	if got := st.core.Health(); got.Ready || got.Code != "lost_write" {
+		t.Fatalf("authority health after a lost save = %+v, want latched lost_write", got)
+	}
 	*now = now.Add(time.Minute)
 	st.Observe(275000, *now, c, testLiveObserveScope, true)
 	doc, ok, err := st.core.GetStateDocument(t.Context(), st.scopeKey, stateKindRiskCapital)
-	if err != nil || !ok {
-		t.Fatalf("saved state unreadable: ok=%v err=%v", ok, err)
+	if err != nil || !ok || doc.Revision != before {
+		t.Fatalf("a save landed after the latch: doc revision %d (want %d) ok=%v err=%v", doc.Revision, before, ok, err)
 	}
-	var saved riskCapitalSQLiteDocument
-	if err := json.Unmarshal(doc.JSON, &saved); err != nil {
-		t.Fatal(err)
-	}
-	if saved.State.AdjustedPeakBase != 275000 || st.revision != doc.Revision {
-		t.Fatalf("the store stayed stuck after the conflict: saved peak %v, revision memory %d database %d", saved.State.AdjustedPeakBase, st.revision, doc.Revision)
-	}
-	if len(warnings) != 2 || !strings.Contains(warnings[0], "could not be saved") || !strings.Contains(warnings[1], "saves again") {
-		t.Fatalf("want one failure warning and one recovery warning, got %q", warnings)
+	if len(warnings) == 0 || !strings.Contains(warnings[0], "could not be saved") {
+		t.Fatalf("want the failed save warned, got %q", warnings)
 	}
 }

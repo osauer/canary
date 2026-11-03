@@ -1,256 +1,113 @@
 # Canary
 
-Updated: 2026-10-30 18:52 CET
+Updated: 2026-11-03 08:40 CET. Current release: v3.32.1.
 
-Version 3.32 counts working put purchases and share sales before a put can
-qualify as protection, nets an index hedge against the index funds it
-protects, and stores each distinct statement-row version once. Older
-supported databases can complete their upgrade. The release also updates
-the relay development tooling's vulnerable dependency and strengthens
-source validation and the repository privacy check.
+Canary is a local risk desk for an Interactive Brokers account. One daemon
+on the user's machine reads a running IB Gateway or TWS session and serves
+the same evidence to four adapters: a shell CLI, a read-only MCP server, a
+paired phone app and a Go client. It is a private open-source project by one
+maintainer, MIT licensed, with no hosted service and no telemetry.
 
-Version 3.31 adds protective puts to Add, with the call and put bands in
-the opportunity policy. The volatility budget can be lifted from Desk's
-console after a confirmation on the paired device. Canary's own privacy
-check and log monitor no longer open the daemon's database. The daemon
-also recovers from a lost save without a restart.
+This file is the map. The release history, tool list and command list are
+in https://osauer.dev/canary/llms-full.txt.
 
-Version 3.30 lets you close an index hedge from Canary: `canary proposals
-reduce --con-id ID --include-hedges` buys back held Micro E-mini S&P 500
-futures. The hedge plan only suggests a sale Canary will accept and says
-what's holding it back. A deleted hedge table stays deleted, and the daemon
-clears out its own old policy backups.
+## Who it is for
 
-Version 3.29 adds reduction-plan comparisons for index falls and rises, loss
-room and quoted trading costs, plus index-hedge planning. Optional IV-fallback
-policy reports uncertainty when a held option lacks its own volatility.
-Plans are not submission authority.
+An IBKR Pro user who runs Gateway or TWS locally and wants stale, missing or
+held evidence to stay visible. It is not a hosted brokerage service, a trade
+recommender or a complete TWS API replacement. macOS and Linux on arm64 or
+amd64; Windows through WSL only.
 
-Version 3.28 adds historical option-exit replay, option-list pagination and
-intraday account-value history. Holding locks cover a name across its held
-contracts. Mandate reporting separates the loss measure from volatility;
-proposal reviews include an index-fall comparison when it can be measured.
-Historical replays are not forecasts or instructions to trade.
+## The boundary, stated once
 
-Version 3.27 adds stock-entry reviews with optional protection for the added
-shares, call discovery and budget-based call sizing, and holding locks for
-bulk and automatic reductions. CLI help includes JSON request examples.
-Reduction checks account for Canary's working combo legs and wait when known
-fills and positions disagree. Existing written limits are preserved; policy
-migration adds missing reduction-allowance fields (1% for stocks/ETFs and 5%
-for options). Standard binaries and MCP remain read-only, and MCP cannot
-preview or submit orders.
+The standard binary cannot place, change or cancel an order. No MCP tool can
+preview or execute an order in any build. A separate, clearly marked
+`canary-trading` binary adds constrained CLI and app order actions behind
+account pins, fresh confirmation, journaling, daemon authorization and a
+freeze gate. An assistant that tries to trade through `canary mcp` has
+reached outside the tool's capability boundary.
 
-Version 3.26 says in plain words which TWS or IB Gateway settings differ
-from what Canary needs: `canary status` gains a Gateway setup row, read once
-after each connect, and Canary never changes a setting. When the Gateway
-answers the open-order request late, as during IBKR's nightly reset, the
-daemon now redials its connection instead of reading no open orders until a
-restart. Existing policies load unchanged; standard binaries and MCP remain
-read-only.
+## Surfaces
 
-Version 3.25 lets every live strategy in the register trade, not only the
-core: each entry written live turns its month's decision into a row of its
-own on its own line, with the core's terms, gates and standing-mandate path,
-and its fills count in its own sleeve. A strategy whose traded share class
-is young can read its trend on an older class of the same fund until its
-own closes fill the window. The second strategy, a managed-futures fund on
-its EUR-hedged Xetra line, can be written into the register. Existing
-policies load unchanged; standard binaries and MCP remain read-only.
+- MCP: `canary mcp` over stdio, or the Claude Desktop bundle `canary.mcpb`.
+  Read-only tools for status, account, positions, brief, rules, regime,
+  stress, reporting, lending, short interest, Edge, calendars and orders.
+  Reference: https://osauer.dev/canary/docs/reference/mcp-tools.html
+- CLI: `canary brief`, `canary positions --by underlying`, `--json` on every
+  read. Reference: https://osauer.dev/canary/docs/reference/cli.html
+- App: `canary app`, then `canary app pair`; local by default, optional relay.
+  https://osauer.dev/canary/docs/operate/app.html
+- Go: `github.com/osauer/canary/v2` is the daemon client, `canarytest` its
+  test double, `pkg/ibkr` the TWS wire protocol. The module stays on `/v2`;
+  product v3 tags do not change it. https://pkg.go.dev/github.com/osauer/canary/v2
 
-Version 3.24 lets the desk's arming reach the strategies: Canary serves a
-submit path for the standing automatic mandate the owner confirms once on
-their device, so a controller can send a served strategy row, the core
-sleeve's monthly buy included, through the one order path with every gate
-re-checked; nothing is sent until the controller presents that mandate. The
-decision scorecard can now conclude: one unit of evidence per name and week,
-overlap charged, the market taken out on SPY and the sector fund, a placebo
-and a futility test, and each decision's fill cost. The owner's sleeve gets a
-drawdown stop of its own. Existing policies load unchanged; standard binaries
-and MCP remain read-only.
+## Install
 
-Version 3.23 adds one strategy evaluator that runs every machine strategy in
-the risk policy's register: the core sleeve's rule is its first entry,
-unchanged, and a second strategy is a table naming its fund, a signal from the
-library and the owner's numbers (`canary strategy ID` shows what it would
-trade). The core sleeve can go live at a small stage: with its stage written,
-each monthly decision becomes one proposal row the owner confirms on their
-device, and the daemon never sends it by itself. Every entry runs in shadow
-until the owner writes its stage. Existing policies load unchanged; standard
-binaries and MCP remain read-only.
+```sh
+curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
+canary status
+canary brief
+```
 
-Version 3.22 adds the owner's mandate: a whole-book risk budget measured by
-historical simulation, refusals of risk-adding orders while the book is over
-it, a pre-authorised forced reduction with a veto window, and risk
-allocations per sleeve. A decision scorecard scores every position change per
-sleeve with sequential evidence, and a quote kept at every fill measures the
-spread paid. A strategy register in the risk policy names each machine
-strategy; the core sleeve runs read-only in shadow; an option-chain recorder
-saves the desk's chains once a session. Hand orders in TWS can be cancelled or
-changed from Canary when the owner enables it, and two Canary orders never
-sell the same shares twice. Cash interest rates come from the broker's
-statement. Existing policies load unchanged; standard binaries and MCP remain
-read-only.
+The installer verifies the signed release checksum and installs to
+`~/.local/bin`. Hosts: https://osauer.dev/canary/docs/start/hosts.html
 
-Version 3.21 adds owner-confirmed order queues and whole-position stock trailing
-protection in trading builds. It fixes large volume readings and keeps explicitly
-deactivated orders visible without counting them as active protection. A read-only
-CLI diagnostic reports supported TWS and Gateway API settings as part of
-TWS / IB Gateway 10.50 compatibility hardening. The main connection keeps its
-tested protocol. Live validation used TWS; Gateway 10.50 still needs an end-to-end
-check. Existing policies and broker settings stay
-unchanged. Standard binaries and MCP remain read-only.
+## Where things live in the repository
 
-Version 3.20 adds exact or maximum stock sizing and read-only portfolio planning
-against explicit, expiring owner targets. Routine monitoring reuses verified
-statement and order-history work to reduce CPU use. The drawdown brake refuses
-risk-adding orders while engaged or when required evidence is unavailable.
-Desk mandate records and request lookup do not expose execution submission or
-activate automatic trading. Standard binaries and MCP remain read-only.
+- `AGENTS.md`: the contracts an agent reads before changing behaviour, with
+  a table of which document governs which area. `.agents/docs/` holds them:
+  the daemon and CLI trading contract, the risk policy contract, the MCP
+  description guide, the SPA authority matrix, the release procedure.
+- `internal/daemon` owns broker state; `internal/risk` owns risk semantics;
+  `internal/rpc` owns the cross-surface contracts. `internal/cli`,
+  `internal/mcp` and `internal/app` are adapters and may not persist state.
+- `pkg/ibkr` is the broker layer in its own package so other brokers can
+  follow. `cmd/canary` is the binary.
+- `docs/docs/` is the handbook in Markdown: `start/` (install, first
+  session, hosts, reporting, troubleshooting), `operate/` (daily desk,
+  alerts, protection, orders, reconciliation, agents), `understand/`
+  (concepts, rulebook, risk policy, sensors, market data, Edge),
+  `reference/` (generated CLI, MCP and config references), `internals/`
+  (architecture, protocol, storage).
+- Generated references are regenerated with `make docs-regen` and checked
+  by `make check`. Human-readable CLI output has golden render tests in
+  `internal/cli`.
 
-Version 3.19 adds owner-approved currency repayments, gated bill and bond orders
-by ISIN or CUSIP, and bond yield, duration and rate-risk measurements. Currency
-leveling starts disabled and cannot be pre-authorised. Bond-risk measurements
-introduce no new warnings or blocks. Cash settings and risk presets are served
-from the daemon; order-limit changes require verified device confirmation.
-Qualifying exits can pass the notional and option-contract caps only when they
-reduce absolute net delta for both their underlying and the portfolio, fit
-beside working orders and satisfy the option-cover checks. This also applies
-to existing pre-authorised exit buckets, with their notice and veto window.
-Existing written policy limits are preserved; newly written defaults are 10%
-of net liquidation value and 10 option contracts. Standard binaries and MCP
-remain read-only.
+## How to contribute, and where to file what
 
-Version 3.18 introduced the following features. It shows every limit in force and checks that the limits add up.
-`canary policy show --explain` prints every limit, policy and runtime setting
-that governs Canary, each with its value, unit, source and meaning, and `canary
-policy show SECTION` prints one part. `canary policy check` reads the config and
-the policy files against each other and, through the daemon, against the live
-account (`--offline` checks the files alone), and names each implausible value
-with a reason and, where one applies, a suggested fix. MCP clients get the same
-report from the read-only `canary_policy_check` tool, which never changes a
-limit. The per-order limits now live in the risk constitution,
-`risk-policy.toml` `[order_limits]`, and the order-value cap scales with net
-liquidation value between a floor and ceiling in the policy file. A temporary
-larger cap is one override that Canary records in its journal. The cash sweep's
-reserve follows net liquidation value and planned needs, each bill order stays
-between a minimum and a maximum size and bill buys wait while any currency is
-borrowed. The daemon now produces the portfolio stress verdict and the position
-risk flags; the CLI, MCP tools, app and Go client show the installed daemon's
-answer. `canary setups coverage`, `options` and `markouts` print readable output
-by default (`--json` returns the previous output), and the status, market,
-macro, proposal and data-health views lead with what needs attention. In trading
-builds the order-value cap and the short-sale check no longer refuse a
-broker-side stop that, with the other working sell orders for the same stock or
-ETF, sells no more than the long position, and a protective stop guard writes on
-its own, but only to shrink or cancel stop orders Canary itself placed when the
-position falls below them. Stops placed by hand are never changed. Version 3.18.1
-introduced automatic policy migration: at its first start the daemon backs up
-each file it changes and writes the missing keys. That release wrote a 5% of
-net liquidation scale with a 100,000 base-currency ceiling. Version 3.19 writes
-10% and 10 option contracts only for new or missing keys; existing written
-values are preserved and the 100,000 ceiling is unchanged. The sweep remains off by default. Owner commissioning requires
-calibrated reserves and current native settlement evidence; missing evidence
-holds the sweep. Bills can lose value on an early sale. Standard binaries and
-the MCP server remain read-only. Installation does not enable automatic
-submission or grant broker-write permission.
+Read `CONTRIBUTING.md` in full. In short:
 
-Canary is a local risk desk for a brokerage account: a daemon, shell CLI,
-read-only MCP server, paired app, and a public Go module with a daemon client
-and the TWS wire protocol. It works with Interactive Brokers today (IB Gateway
-or TWS); the broker layer is a separate Go package,
-`github.com/osauer/canary/v2/pkg/ibkr`, so other platforms can follow. The
-daemon owns account scope, market sensors, rulebook evaluation, protection
-proposals, option-exercise opportunities, and typed source quality. The CLI, MCP
-server, and app are adapters over that authority.
+- Issues labelled `help wanted` or `good first issue` are reserved for
+  outside contributors for seven days. Every other issue is the maintainer's
+  defect log and may be fixed within the hour.
+- A first pull request references a reserved issue or changes documentation,
+  help text or error wording. Risk semantics, limits, freeze and the gated
+  order path change only after a policy discussion.
+- Run `make check` before opening a pull request and quote its last line.
+- Agent-authored work is welcome when a person stands behind it and signs
+  the CLA; that person is the author of record.
+- Never include account ids, balances, positions, order references,
+  hostnames or home paths, in prose, fixtures or screenshots.
 
-Canary is an independent personal project by Oliver Sauer.
+File a reproducible defect as an issue: https://github.com/osauer/canary/issues/new/choose
+Anything that carries account or gateway detail goes by email instead:
+https://osauer.dev/canary/feedback/#private
+Security problems: https://github.com/osauer/canary/blob/main/SECURITY.md
 
-Canary v3.17.0 adds a durable owner watchlist, read-only volume-turn
-observations, standard-call discovery, setup coverage and entry markouts through
-the CLI and typed Go reads. Setup parameters are unvalidated observations, and
-historical reconstruction does not establish what was known at the original
-decision. Markouts use later quotes for qualifying Canary-placed fills, exclude
-commissions and never replace account P/L; missed targets stay missing. These
-setup tools have no MCP surface. Watchlist edits change local preferences only.
-CLI and read-only MCP add indicative borrowing-rate discovery, dated price and
-liquidity context, and FINRA short-interest screens. Borrower costs are not
-lender yields. FINRA positions are twice-monthly reports; percentage of free
-float remains unavailable. Source dates and partial market coverage stay visible.
+## What not to claim about Canary
 
-Canary v3.16.0 adds lending observations to the signed binaries and MCPB.
-The read-only `canary lending fees --json` command and `canary_lending_fees`
-MCP tool expose bounded customer net-fee history from retained IBKR statements. The app shows
-dated position loan annotations and expandable fees; Desk's analyst can read
-the same evidence. Missing sections, partial coverage and complete zero are
-distinct. Participation stays with IBKR. Fees are not added to account P&L:
-payment status and P&L/accrual linkage remain unproved. Populated account reports
-are still needed for commissioning. Borrow Fee Details describes short-borrow
-costs; it is not earned lending income. Forex P&L Details describes currency
-transactions and realised lots; it is not the valuation contribution reported
-by `canary reporting fx`.
-See https://osauer.dev/canary/docs/understand/edge.html#stock-lending-income.
+It reports the evidence currently available and names what is stale,
+degraded, held, blocked or unknown. Do not say a delayed value is live, that
+an MCP client has order authority, that a plan or proposal row is an order,
+that Edge forecasts or proves causation, or that a v3 product tag makes the
+Go module v3.
 
-Canary v3.16.0 adds FX contribution to the signed binaries and MCPB.
-`canary reporting fx`, `canary_reporting_fx` and Desk's Portfolio → Performance
-→ FX expose the same result.
-It attributes completed statement-day P&L to currencies in the account's base
-currency for Day, WTD, MTD and YTD. It reconciles FX plus other P&L to portfolio
-value change after external flows. Partial periods expose missing dates and
-omit totals; this is valuation attribution, not realised tax-lot P&L.
-See https://osauer.dev/canary/docs/start/reporting.html#fx-contribution.
+## Links
 
-Use it for:
-
-- account, position, daily P&L, exposure, technical, and order-lifecycle reads;
-- the Action Queue and daemon-composed daily brief;
-- the desk rulebook, personal risk policy with documented defaults and
-  owner-supplied capital settings, plausibility checks, and Flex-backed
-  reconciliation;
-- current option-strategy grouping, read-only protection proposals, and
-  option-exercise opportunity review;
-- explicit freshness, entitlement, source-health, warning-code, and session
-  context; and
-- Go programs reading the daemon through `github.com/osauer/canary/v2`, or
-  building on the clean-room `pkg/ibkr` protocol package.
-
-The MCP server exposes read-only tools for status, trading status, settings,
-open orders, order history, one-order status, account, positions, option
-strategies, named-symbol technical analysis, detailed regime and portfolio stress, brief, broker-reporting status and the
-statement performance series, FX contribution, lending fee history, indicative
-borrowing-rate research, market context, FINRA short-interest screens, Edge,
-rules, the policy plausibility check, proposals, opportunities, portfolio
-allocation, reconciliation status,
-market quotes and price history, exchange sessions, and official macro calendars
-and publications. It has no MCP resources, settings writes, order previews, or
-execution tools. Breadth and gamma remain daemon inputs. Use
-`canary_regime` for the eight-indicator market dashboard and `canary_stress` for
-full portfolio-risk evidence; the daily brief remains the summary.
-
-Standard downloads cannot place, modify, cancel, or exercise orders. A separate
-opt-in `canary-trading` binary exposes constrained CLI and app order actions with
-fresh confirmation/preflight, account and mode pins, journaling, daemon policy,
-and the runtime freeze gate. Trading builds also support explicitly pre-authorised defensive proposals within the existing policy and execution gates.
-Since v3.18, a protective stop guard in trading builds writes on its own, but
-only shrinks or cancels stop orders Canary itself placed when the position falls
-below them. Stops placed by hand are never changed. A freeze holds a shrink but
-not a cancel, and every other write gate still applies.
-
-Product v3 releases ship as signed binaries, installer output, MCPB, and app
-assets. The public Go module deliberately remains `/v2`; its `@latest` resolves
-to the maintained v2 module line and does not install the product v3 binary.
-
-## Authoritative links
-
-- [GitHub and install](https://github.com/osauer/canary#readme)
-- [Full LLM context](https://osauer.dev/canary/llms-full.txt)
-- [Documentation](https://osauer.dev/canary/docs/)
-- [MCP tools](https://osauer.dev/canary/docs/reference/mcp-tools.html)
-- [CLI reference](https://osauer.dev/canary/docs/reference/cli.html)
-- [Install](https://osauer.dev/canary/docs/start/install.html)
-- [First session](https://osauer.dev/canary/docs/start/first-session.html)
-- [Daily desk](https://osauer.dev/canary/docs/operate/daily-desk.html)
-- [Releases and support](https://osauer.dev/canary/docs/reference/releases.html)
-- [Architecture](https://osauer.dev/canary/docs/internals/architecture.html)
-- [Market data and entitlements](https://osauer.dev/canary/docs/understand/market-data.html)
-- [GitHub releases](https://github.com/osauer/canary/releases)
+- Repository: https://github.com/osauer/canary
+- Documentation: https://osauer.dev/canary/docs/
+- Full context: https://osauer.dev/canary/llms-full.txt
+- Releases: https://github.com/osauer/canary/releases
+- MCP registry entry: https://osauer.dev/canary/.well-known/mcp/server.json
+- Safety: https://github.com/osauer/canary/blob/main/SECURITY.md
+- Privacy: https://github.com/osauer/canary/blob/main/PRIVACY.md

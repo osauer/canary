@@ -480,7 +480,31 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   without the cash figure or a current positions cache. Cash and quantities
   are read only at the raising reading, never to clear a hold: over hours
   trades move cash into positions and back, so an unchanged figure says
-  nothing then. Taken by the integrating session on the owner's standing
+  nothing then. The one exception is executions, which say where the
+  cash went: since 2026-11-03 08:11 CET (instructed through the session
+  investigating the 2026-11-02 hold; the owner decides the install) a
+  reading whose cash and quantity change since the earlier reading is
+  carried by the broker's executions in between (the earlier quantities
+  fingerprint rebuilt from this reading's quantities less every execution,
+  and the cash move net of flows less the executions' cash at each fill's
+  own FX rate within the threshold) is journaled `mandate_trade_move`,
+  never a hold, and a hold whose span from its base the executions carry
+  that way clears (`mandate_flow_cleared` with `by_executions`), whatever
+  the P&L figure says or on which basis. The executions count only when
+  the fill-quote poll of the same account completed without error after
+  the reading and every execution it found has been captured; one of
+  anything but a stock or an option, or without a contract id, multiplier
+  or FX rate, explains nothing. The incident: on
+  2026-11-02 the owner traded by hand in TWS while TWS displaced IB Gateway,
+  and the daemon's first reading on TWS at 15:44:50 UTC, against a base
+  from 14:23 before the trades, raised a hold; the executions reached the
+  daemon 59 s later, and the cash moved as they did to within 2% of
+  the threshold. What stays held: a deposit or withdrawal
+  beside a trade (its cash is the residual), a transfer in kind, an
+  assignment or an expiry (no execution carries the quantity change), a
+  futures, bond or currency trade (its cash does not move as price ×
+  quantity × multiplier), and any span the poll does not cover. Taken by
+  the integrating session on the owner's standing
   instruction that the machine runs by itself (refuted twice, 2026-10-19
   13:05 and 13:30 CEST: the first version read cash alone and would have
   passed a transfer in kind); the owner may reverse it. The price of the
@@ -529,7 +553,11 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   reading compatible with both a reset and continuous P&L persists its
   ambiguity immediately: neither numerical recovery nor even a full flow
   declaration proves the basis. Only a statement covering the latest such
-  reading clears it. Otherwise a real reset from negative P&L to zero can
+  reading clears it. A reading is ambiguous only when the previous figure
+  sits beyond the band: the two bases differ by that figure, so drift near
+  zero cannot hide a flow (2026-11-03 08:11 CET: such drift at 06:57 UTC
+  moved the 2026-11-02 hold past the statement for 2026-11-02 that had
+  just been reconciled, and would have done so every morning). Otherwise a real reset from negative P&L to zero can
   itself look like a gain that erases a deposit. This retains an existing
   hold; it does not create the declined new hold.
   How the owner clears it: declare

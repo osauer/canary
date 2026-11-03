@@ -130,9 +130,12 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 		return fail(err)
 	}
 	if report, err := checkIntegrityDB(ctx, db); err != nil {
+		if code, _ := criticalSQLiteCode(err); code == "corrupt" || errors.Is(err, errContentHashMismatch) {
+			err = fmt.Errorf("%w: %w", ErrDamaged, err)
+		}
 		return fail(fmt.Errorf("startup integrity check: %w", err))
 	} else if !report.OK() {
-		return fail(integrityFailure(report))
+		return fail(fmt.Errorf("%w: %w", ErrDamaged, integrityFailure(report)))
 	}
 	var preMigrationVersion int
 	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&preMigrationVersion); err != nil {
@@ -409,6 +412,9 @@ func (s *Store) criticalMutationLocked(ctx context.Context, fn func(*sql.Tx) err
 	}
 	if err != nil {
 		latched = s.latchCritical(err) || latched
+		if conflict, ok := errors.AsType[*RevisionConflictError](err); ok && conflict.LostWrite() {
+			latched = s.latchHealth("lost_write") || latched
+		}
 	}
 	return s.latchNoticeFor(latched, err), err
 }
@@ -428,6 +434,13 @@ func (s *Store) latchCritical(err error) bool {
 		return false
 	}
 	return s.latchHealth(code)
+}
+
+// LatchDamaged blocks critical mutations because the owning process saw the
+// authority's files damaged outside SQLite's own errors, such as its shared
+// memory reset under the open connection. Only a reopen clears it.
+func (s *Store) LatchDamaged(code string, cause error) {
+	s.notifyLatch(s.latchNoticeFor(s.latchHealth(code), cause))
 }
 
 // latchCorruptRead latches the store when a read finds the authority damaged

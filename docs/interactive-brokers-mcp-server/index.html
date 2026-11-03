@@ -28,7 +28,7 @@
         "headline": "IBKR / Interactive Brokers MCP server for local trading research",
         "description": "A practical guide to running Canary as a local Interactive Brokers MCP server with IB Gateway or TWS, for portfolio analysis, risk checks and market context in Claude Desktop, Claude Code, Cursor and Zed.",
         "url": "https://osauer.dev/canary/interactive-brokers-mcp-server/",
-        "dateModified": "2026-10-30",
+        "dateModified": "2026-11-03",
         "author": {
           "@type": "Person",
           "name": "Oliver Sauer",
@@ -51,7 +51,7 @@
         "applicationSubCategory": "Model Context Protocol server",
         "operatingSystem": "macOS, Linux, Unix",
         "softwareVersion": "3.32.0",
-        "dateModified": "2026-10-30",
+        "dateModified": "2026-11-03",
         "codeRepository": "https://github.com/osauer/canary",
         "isAccessibleForFree": true,
         "sameAs": [
@@ -684,14 +684,16 @@
       <div>
         <div class="section-head">
           <h2>What it does not expose.</h2>
-          <p>The MCP server offers read-only tools and nothing else. It has no resources, settings writes, previews or execution tools. Each release also publishes a separate, clearly marked <code>canary-trading</code> binary for constrained, opt-in order management in the CLI and app. MCP stays read-only.</p>
+          <p>The MCP server offers read-only tools and nothing else. It has no resources, settings writes, previews or execution tools. Each release also publishes a separate, clearly marked <code>canary-trading</code> binary for constrained, opt-in order management in the CLI and app. MCP stays read-only. An assistant that tries to trade through <code>canary mcp</code> has reached outside the tool's capability boundary.</p>
+          <p>Read-only is a capability boundary, not a claim that market data is complete. Account and market inputs still depend on the connected account's entitlements, the market session and source freshness.</p>
         </div>
       </div>
       <ul class="list negative">
         <li>No MCP tool for placing orders.</li>
         <li>No MCP tool for modifying orders.</li>
         <li>No MCP tool for cancelling orders.</li>
-        <li>No MCP tool for changing your limits or policy files.</li>
+        <li>No MCP tool for changing your limits, policy files or settings.</li>
+        <li>No remote service between the assistant and IBKR.</li>
         <li>No hosted service with broker credentials.</li>
         <li>No Python bridge or IBKR jar dependency for the bundled binary.</li>
       </ul>
@@ -705,6 +707,8 @@
         </div>
         <p><a class="button primary" href="https://github.com/osauer/canary/releases/latest/download/canary.mcpb">Download MCPB for Claude Desktop</a></p>
         <p>Open the <code>.mcpb</code> file with Claude Desktop, drag it into the app or install it from its settings. You need IB Gateway 10.37+ or TWS running locally and an IBKR Pro account with TWS API access.</p>
+        <p>Use TWS when the desktop platform is already part of your workflow, and IB Gateway when you want a lighter, headless API process. The tools are the same in both cases. Only the local IBKR process behind the API socket changes.</p>
+        <p>For Claude Code, install the plugin or add the server directly with <code>claude mcp add canary -- /ABSOLUTE/PATH/TO/canary mcp</code>. <a href="../docs/start/hosts.html">Hosts</a> covers Claude Desktop, Claude Code, Cursor, Zed and any other stdio host.</p>
       </div>
       <div class="terminal">
         <div class="terminal-bar">
@@ -766,43 +770,23 @@ canary setup claude-desktop</code></pre>
     <section class="wrap">
       <div class="section-head">
         <h2>Useful setup pages.</h2>
-        <p>Start with Claude Desktop if that is where you will ask your questions. The other pages cover TWS, IB Gateway, safety and portfolio review in more depth.</p>
+        <p>Start with Claude Desktop if that is where you will ask your questions. The handbook covers every other host, and the portfolio review shows a full session.</p>
       </div>
       <div class="grid">
-        <article class="card">
-          <small>IBKR MCP</small>
-          <h3><a href="../ibkr-mcp/">IBKR MCP server</a></h3>
-          <p>A short overview of IBKR MCP, with exact setup notes.</p>
-        </article>
-        <article class="card">
-          <small>TWS</small>
-          <h3><a href="../ibkr-mcp-tws/">IBKR MCP TWS setup</a></h3>
-          <p>Use Trader Workstation as the local Interactive Brokers API process.</p>
-        </article>
-        <article class="card">
-          <small>IB Gateway</small>
-          <h3><a href="../ib-gateway-mcp/">IB Gateway MCP server</a></h3>
-          <p>Use IB Gateway as the lighter local account and market-data bridge.</p>
-        </article>
         <article class="card">
           <small>Claude Desktop</small>
           <h3><a href="../claude-desktop-interactive-brokers/">Claude Desktop Interactive Brokers setup</a></h3>
           <p>Install the MCPB and connect Claude Desktop to the local IBKR session.</p>
         </article>
         <article class="card">
-          <small>Claude Code</small>
-          <h3><a href="../best-ibkr-mcp-server-claude-code/">What to look for in an IBKR MCP server for Claude Code</a></h3>
-          <p>Compare IBKR MCP servers by local execution, tool coverage and fit with Claude Code.</p>
+          <small>Claude Code and other hosts</small>
+          <h3><a href="../docs/start/hosts.html">Hosts</a></h3>
+          <p>Claude Code plugin, the direct <code>claude mcp add</code> path, Cursor, Zed and any other stdio host.</p>
         </article>
         <article class="card">
           <small>Claude portfolio review</small>
           <h3><a href="../portfolio-review-with-claude-ibkr/">Portfolio review with Claude and IBKR</a></h3>
           <p>A prompt-led review of exposures, option risks, data freshness and the next checks to run.</p>
-        </article>
-        <article class="card">
-          <small>Safety</small>
-          <h3><a href="../read-only-mcp-server/">Read-only MCP server</a></h3>
-          <p>The local MCP tools expose account and market data, not trading authority.</p>
         </article>
       </div>
     </section>
