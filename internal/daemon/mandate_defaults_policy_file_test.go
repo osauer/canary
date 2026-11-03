@@ -2,12 +2,16 @@ package daemon
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
 // mandateDefaultsBase is a complete current constitution with an active
@@ -224,5 +228,54 @@ func TestMigrationLeavesAnOwnerCommentedTable(t *testing.T) {
 	}
 	if c.Mandate.IVFallback == nil {
 		t.Fatalf("the missing fallback table was not written:\n%s", out)
+	}
+}
+
+// The owner's decisions of 2026-11-03 13:29 CET: an install whose record
+// already holds the 2026-10-29 batch gains [mandate.regime_gate] (50, 50, 1,
+// 2) and [mandate.reduction] (2.0) at the next start, once, while the hedge
+// table the owner deleted after the first batch stays deleted.
+func TestASecondDefaultsBatchWritesOnlyItsOwnTables(t *testing.T) {
+	home := t.TempDir()
+	db := filepath.Join(t.TempDir(), "state", "daemon.db")
+	path := filepath.Join(home, ".config", "ibkr", "policies", "risk-policy.toml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	start := mandateDefaultsBase() + "\n[mandate.iv_fallback]\nshort_band_pct = 65.0\nmonth_band_pct = 15.0\nlong_band_pct = 8.0\nmeasured_pct = 5.0\nrange_pct = 20.0\n"
+	if err := os.WriteFile(path, []byte(start), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	core := openTestCoreStore(t, db)
+	raw, _ := json.Marshal(map[string]time.Time{path: time.Date(2026, 10, 29, 7, 6, 0, 0, time.UTC)})
+	if _, err := core.CompareAndSwapStateDocument(context.Background(), corestore.StateDocumentCAS{ScopeKey: daemonStateScope, Kind: stateKindMandateDefaults, JSON: raw}); err != nil {
+		t.Fatal(err)
+	}
+	core.Close()
+
+	startWithConstitution(t, home, db)
+	written := readPolicyTestFile(t, path)
+	c := decodeTestConstitution(t, written)
+	if c.Mandate.IndexHedge != nil {
+		t.Fatalf("the second batch wrote the first batch's deleted hedge table:\n%s", written)
+	}
+	b, h, stale, confirm, why := c.Mandate.RegimeGateNumbers()
+	if why != "" || b != 50 || h != 50 || stale != 1 || confirm != 2 {
+		t.Fatalf("regime gate = %g %g %d %d %q:\n%s", b, h, stale, confirm, why, written)
+	}
+	if v, ok := c.Mandate.CheapLegGivePct(); !ok || v != 2 {
+		t.Fatalf("cheap leg give = %g %v", v, ok)
+	}
+	if !strings.Contains(string(written), "confirm_closes = 2  # owner decision 2026-11-03 13:29 CET") {
+		t.Fatalf("the written key lacks its provenance:\n%s", written)
+	}
+
+	backups, _ := filepath.Glob(path + ".bak-*")
+	for _, b := range backups {
+		_ = os.Remove(b)
+	}
+	startWithConstitution(t, home, db)
+	if again := readPolicyTestFile(t, path); string(again) != string(written) {
+		t.Fatalf("a second start changed the file:\n%s", again)
 	}
 }

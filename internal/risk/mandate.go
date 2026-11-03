@@ -73,6 +73,107 @@ type ConstitutionMandate struct {
 	// without max_contracts, placing one is refused with a blocker naming
 	// the table, and every fingerprint is kept. There is no second switch.
 	IndexHedge *ConstitutionMandateIndexHedge `toml:"index_hedge" json:"index_hedge,omitempty"`
+	// RegimeGate is [mandate.regime_gate] (Desk spec TM-04.08; owner
+	// decision 2026-11-03 13:29 CET): the numbers of the three-reading
+	// regime gate that scales the machine strategies declaring it. Absent,
+	// or with a key unwritten, the gate reads off, so a strategy that
+	// declares it adds nothing; every fingerprint is kept.
+	RegimeGate *ConstitutionMandateRegimeGate `toml:"regime_gate" json:"regime_gate,omitempty"`
+	// Reduction is [mandate.reduction] (Desk spec TM-05.18; owner decision
+	// 2026-11-03 13:29 CET): how the forced reduction prices a cut. Absent,
+	// a cut the spread cap refuses goes at the mid, as before.
+	Reduction *ConstitutionMandateReduction `toml:"reduction" json:"reduction,omitempty"`
+}
+
+// ConstitutionMandateRegimeGate is [mandate.regime_gate]. BreadthMinPct is
+// the share of S&P 500 constituents above their 50-day average the breadth
+// reading needs (strictly more); HalfScalePct the scale with two readings
+// on; StaleAfterSessions how many sessions a reading may lag the latest
+// completed one before it counts off; ConfirmCloses how many consecutive
+// closes a reading must hold before it flips. The owner's numbers of
+// 2026-11-03 13:29 CET: 50, 50, 1, 2.
+type ConstitutionMandateRegimeGate struct {
+	BreadthMinPct      *float64 `toml:"breadth_min_pct" json:"breadth_min_pct"`
+	HalfScalePct       *float64 `toml:"half_scale_pct" json:"half_scale_pct"`
+	StaleAfterSessions *int     `toml:"stale_after_sessions" json:"stale_after_sessions"`
+	ConfirmCloses      *int     `toml:"confirm_closes" json:"confirm_closes"`
+}
+
+// RegimeGateNumbers returns the gate's numbers, or the reason the gate
+// reads off: no table, or a key unwritten.
+func (m *ConstitutionMandate) RegimeGateNumbers() (breadthMinPct, halfScalePct float64, staleAfter, confirm int, why string) {
+	if m == nil || m.RegimeGate == nil {
+		return 0, 0, 0, 0, "the risk constitution carries no [mandate.regime_gate] table; the regime gate reads off"
+	}
+	g := m.RegimeGate
+	var missing []string
+	if g.BreadthMinPct == nil {
+		missing = append(missing, "breadth_min_pct")
+	}
+	if g.HalfScalePct == nil {
+		missing = append(missing, "half_scale_pct")
+	}
+	if g.StaleAfterSessions == nil {
+		missing = append(missing, "stale_after_sessions")
+	}
+	if g.ConfirmCloses == nil {
+		missing = append(missing, "confirm_closes")
+	}
+	if len(missing) > 0 {
+		return 0, 0, 0, 0, "[mandate.regime_gate] does not write " + strings.Join(missing, ", ") + "; the regime gate reads off"
+	}
+	return *g.BreadthMinPct, *g.HalfScalePct, *g.StaleAfterSessions, *g.ConfirmCloses, ""
+}
+
+// validate holds the percentages in (0, 100), the staleness to 0..5
+// sessions and the confirmation to 1..5 closes.
+func (g *ConstitutionMandateRegimeGate) validate() error {
+	if g == nil {
+		return nil
+	}
+	for _, k := range []struct {
+		key string
+		v   *float64
+	}{{"breadth_min_pct", g.BreadthMinPct}, {"half_scale_pct", g.HalfScalePct}} {
+		if v := k.v; v != nil && (math.IsNaN(*v) || *v <= 0 || *v >= 100) {
+			return fmt.Errorf("mandate.regime_gate.%s must be in (0, 100)", k.key)
+		}
+	}
+	if v := g.StaleAfterSessions; v != nil && (*v < 0 || *v > 5) {
+		return fmt.Errorf("mandate.regime_gate.stale_after_sessions must be 0 to 5")
+	}
+	if v := g.ConfirmCloses; v != nil && (*v < 1 || *v > 5) {
+		return fmt.Errorf("mandate.regime_gate.confirm_closes must be 1 to 5")
+	}
+	return nil
+}
+
+// ConstitutionMandateReduction is [mandate.reduction].
+// CheapLegGivePctOfLoss: an option cut whose spread is wider than its cap
+// still goes at the bid when the give (mid minus bid, for every unit) is at
+// most this percent of the loss measure the cut removes; otherwise it goes
+// at the mid. The owner's number of 2026-11-03 13:29 CET: 2.
+type ConstitutionMandateReduction struct {
+	CheapLegGivePctOfLoss *float64 `toml:"cheap_leg_give_pct_of_loss" json:"cheap_leg_give_pct_of_loss"`
+}
+
+// CheapLegGivePct returns the cheap-leg bound in percent, or false while it
+// is unwritten.
+func (m *ConstitutionMandate) CheapLegGivePct() (float64, bool) {
+	if m == nil || m.Reduction == nil || m.Reduction.CheapLegGivePctOfLoss == nil {
+		return 0, false
+	}
+	return *m.Reduction.CheapLegGivePctOfLoss, true
+}
+
+func (r *ConstitutionMandateReduction) validate() error {
+	if r == nil || r.CheapLegGivePctOfLoss == nil {
+		return nil
+	}
+	if v := *r.CheapLegGivePctOfLoss; math.IsNaN(v) || v < 0 || v > 25 {
+		return fmt.Errorf("mandate.reduction.cheap_leg_give_pct_of_loss must be 0 to 25")
+	}
+	return nil
 }
 
 // ConstitutionMandateIndexHedge is [mandate.index_hedge]. MaxContracts is a
@@ -381,6 +482,12 @@ func (m *ConstitutionMandate) validate(semantics ConstitutionSemantics) error {
 		return err
 	}
 	if err := m.IndexHedge.validate(); err != nil {
+		return err
+	}
+	if err := m.RegimeGate.validate(); err != nil {
+		return err
+	}
+	if err := m.Reduction.validate(); err != nil {
 		return err
 	}
 	if sl := m.Sleeves; sl != nil {

@@ -71,7 +71,7 @@ func previewPolicyFileMigration(k policyFileKind, data []byte, release string) (
 			return nil, nil, notes, fmt.Errorf("conversion would change a written [order_limits] key; nothing written: %v", err)
 		}
 		if !mandateDefaultsPreserved(before.Mandate, after.Mandate) {
-			return nil, nil, notes, fmt.Errorf("conversion would change a written [mandate.iv_fallback] or [mandate.index_hedge] key; nothing written")
+			return nil, nil, notes, fmt.Errorf("conversion would change a written mandate default table key ([mandate.iv_fallback], [mandate.index_hedge], [mandate.regime_gate] or [mandate.reduction]); nothing written")
 		}
 	}
 	beforeKey, err := keyOf(k.name, data)
@@ -134,7 +134,7 @@ func protectionMaterialisationFileKey(_ string, data []byte) (string, error) {
 // CEST), or from the owner's decided value, raising policy_version.
 // writeMandateDefaults lets it write the mandate defaults
 // (PolicyFileSet.WriteMandateDefaults).
-func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead, writeMandateDefaults bool) func([]byte, string) ([]byte, []string, []string, error) {
+func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead, writeMandateDefaults bool, defaultsDone ...string) func([]byte, string) ([]byte, []string, []string, error) {
 	return func(data []byte, _ string) ([]byte, []string, []string, error) {
 		var c risk.Constitution
 		if _, err := toml.Decode(string(data), &c); err != nil {
@@ -151,7 +151,7 @@ func migrateConstitutionPolicyFileFrom(src config.Trading, srcRead, writeMandate
 		}
 		limits := migrateConstitutionOrderLimits(doc, c, src, srcRead)
 		changes = append(changes, limits...)
-		changes = append(changes, migrateConstitutionMandateDefaults(doc, c, string(data), len(limits) == 0, writeMandateDefaults)...)
+		changes = append(changes, migrateConstitutionMandateDefaults(doc, c, string(data), len(limits) == 0, writeMandateDefaults, defaultsDone)...)
 		if len(changes) == 0 {
 			return data, nil, notes, nil
 		}
@@ -251,8 +251,10 @@ func constitutionMigrationTrailer(changes []string) string {
 	if strings.Contains(joined, "write [order_limits].") {
 		parts = append(parts, "missing [order_limits] keys written (owner decisions 2026-10-05 19:56 CEST and 2026-10-06 20:17 CEST; each key's comment names its source)")
 	}
-	if strings.Contains(joined, "write [mandate.") {
-		parts = append(parts, mandateDefaultsNote+" ("+mandateDefaultsSource+"; a table you delete stays deleted)")
+	for _, b := range mandateDefaultBatches {
+		if strings.Contains(joined, "("+b.source+")") {
+			parts = append(parts, b.note+" ("+b.source+"; a table you delete stays deleted)")
+		}
 	}
 	return "; " + strings.Join(parts, "; ") + ", every other setting verified unchanged."
 }

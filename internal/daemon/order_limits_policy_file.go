@@ -170,7 +170,7 @@ func constitutionMaterialisationFileKey(_ string, data []byte) (string, error) {
 	c.OrderLimits = nil
 	if c.Mandate != nil {
 		m := *c.Mandate
-		m.IVFallback, m.IndexHedge = nil, nil
+		m.IVFallback, m.IndexHedge, m.RegimeGate, m.Reduction = nil, nil, nil, nil
 		c.Mandate = &m
 	}
 	return c.EffectiveFingerprintKey(), nil
