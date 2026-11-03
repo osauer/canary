@@ -1,10 +1,12 @@
 # The paired app
 
-Updated: 2026-10-31 08:33 CET
+Updated: 2026-11-03 08:22 CET
 
 Run `canary app` on the Mac to get Canary on your phone. That single process serves
 the progressive web app, handles pairing, streams live updates to paired devices
-over `/api/events`, and sends opt-in push notifications.
+over `/api/events`, and sends opt-in push notifications. The app has five views:
+Monitor, Positions, Edge, Alerts, and Orders. Settings opens from the gear icon
+in the header.
 
 ## Pair a phone
 

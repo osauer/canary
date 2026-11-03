@@ -1,6 +1,6 @@
 # TWS wire protocol
 
-Updated: 2026-10-07 08:40 CEST
+Updated: 2026-11-03 08:22 CET
 
 `pkg/ibkr` is a clean-room Go implementation of the TWS wire protocol. It is
 not a full replacement for every TWS API method; it covers the broker reads and
@@ -73,6 +73,50 @@ Option-exercise preview likewise returns the typed
 option-to-underlying risk policy and durable one-shot authority are not yet
 approved. These disabled daemon capabilities do not become available merely
 because the lower-level wire method or a platform workflow setting exists.
+
+## Using the package
+
+`pkg/ibkr` connects to one TWS or IB Gateway session and does not depend on
+Interactive Brokers client libraries:
+
+```go
+import (
+    "context"
+    "time"
+
+    "github.com/osauer/canary/v2/pkg/ibkr"
+)
+
+func accountSummary(ctx context.Context, clientID int) (*ibkr.RawAccountSummary, error) {
+    cfg := ibkr.DefaultConfig()
+    cfg.Port = 4002 // Gateway paper
+
+    connector := ibkr.NewConnector(&ibkr.ConnectorConfig{
+        // Use an ID not already owned by Canary or another TWS client.
+        PreferredClientID: clientID,
+        BaseConfig:        cfg,
+    })
+    if err := connector.Start(ctx); err != nil {
+        return nil, err
+    }
+    defer connector.Stop()
+
+    return connector.RequestAccountSummary(ctx, 5*time.Second)
+}
+```
+
+The package transports broker requests; policy, authorization, journaling, and
+reconciliation are the caller's job. Start with the
+[package documentation](../../../pkg/ibkr/doc.go).
+
+## Reading a running Canary from Go
+
+To read a running Canary instead, import the module root
+`github.com/osauer/canary/v2`. It runs the same read-only tool catalogue over
+the daemon socket, and `canarytest` serves the wire types on a temporary socket
+for tests. The Go module is on `/v2`. Canary itself ships as signed v3
+binaries, so `go install github.com/osauer/canary/v2/cmd/canary@latest`
+installs the v2 CLI, not the current release ([Install](../start/install.md)).
 
 ## Semantic fingerprints
 

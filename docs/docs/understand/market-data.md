@@ -210,3 +210,6 @@ ET on a Tuesday is the system working correctly; the same quote at 11:00 ET is
 worth investigating. [Concepts](concepts.md#market-calendars) explains why the
 embedded exchange calendar, rather than the gateway's quote state, decides
 whether a market is open.
+
+Over a weekend or a closure, a one-day chart keeps showing the last session
+that traded. Its bars keep their real dates.

@@ -1,6 +1,6 @@
 # Your first session
 
-Updated: 2026-10-18 21:55 CEST
+Updated: 2026-11-03 08:22 CET
 
 This walkthrough uses only read-only commands. It assumes Canary is installed
 and a local IB Gateway or TWS session is available. [Install and first
@@ -40,8 +40,9 @@ canary account
 canary positions --by underlying
 ```
 
-Both reads identify one selected account and mode. A missing value stays
-missing, and an unresolved multi-account login is refused rather than combined.
+Both reads identify one selected account and mode. Each position carries the
+listing venue IBKR reports. A missing value stays missing, and an unresolved
+multi-account login is refused rather than combined.
 Check positions freshness and Greeks coverage before relying on aggregate
 exposure.
 
@@ -110,8 +111,10 @@ naming a tool:
 | --- | --- |
 | “What needs attention today?” | `canary_brief` |
 | “How does my account look?” | `canary_account`, then `canary_positions` |
+| “What is my exposure per underlying?” | `canary_positions` |
 | “Is broker reporting ready for Recon and Edge?” | `canary_reporting` |
 | “What did my past stock, ETF, and option activity actually deliver?” | `canary_edge` |
+| “Which of my past entries, adds, trims, or exits had the largest 20-session price impact?” | `canary_edge` |
 | “Which rulebook inputs are unknown?” | `canary_rules` |
 | “Are there protection or exercise candidates?” | `canary_proposals` or `canary_opportunities` |
 | “Why is a local order still open?” | `canary_orders_open`, then `canary_order_status` |

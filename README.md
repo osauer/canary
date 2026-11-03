@@ -4,177 +4,61 @@
 [![release](https://img.shields.io/github/v/release/osauer/canary?display_name=tag&sort=semver)](https://github.com/osauer/canary/releases/latest)
 [![license](https://img.shields.io/github/license/osauer/canary)](LICENSE)
 
-**A local risk desk for your brokerage account.**
+**A local risk desk for your Interactive Brokers account.**
 
-It runs with Interactive Brokers today, through IB Gateway or TWS, and keeps the
-broker layer in its own Go package, `pkg/ibkr`, so other brokers can follow.
-
-Canary turns one local IB Gateway or TWS session into a daily brief, current
-portfolio and market evidence, and a broker-confirmed review of what past
-position changes delivered. Use the same daemon from an MCP host, the shell,
-or a paired phone. The standard binary cannot place, change or cancel an
-order; it can preview one, which asks the gateway for a what-if check and
-creates no order. No MCP tool can preview or execute an order in any build.
-
-Canary is for an IBKR Pro user who runs Gateway or TWS locally and wants stale,
-missing, or held evidence to remain visible. It is not a hosted brokerage
-service, a trade recommender, or a complete TWS API replacement. If you only
-need a Go wire-protocol client, use [`pkg/ibkr`](#go-wire-protocol-library).
-To read a running Canary from your own Go program, import the module root
-`github.com/osauer/canary/v2`: it runs the same read-only tool catalogue over the
-daemon socket, and `canarytest` serves the wire types on a temporary socket for
-tests. The client also exposes a narrow audited cash-sweep ordering preference;
-its tool catalogue remains read-only and the preference cannot activate reserves
-or broker execution.
+Canary reads one local IB Gateway or TWS session. From it you get a daily
+brief, the current portfolio with the market evidence behind it, and a
+broker-confirmed review of what your past position changes delivered. It is for
+an IBKR Pro user who runs the Gateway or TWS locally and wants to see when
+evidence is stale or missing rather than have it hidden. The standard binary
+can preview an order but never place, change, or cancel one, and no MCP tool
+can even preview one in any build.
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
+
+![Canary Edge showing a synthetic decision review, its coverage, and price outcomes after decisions](docs/social/canary-app-edge.png)
+
+_Canary Edge in the paired app, rendered from synthetic data. Edge reports what
+happened after past decisions; it is not a forecast or a claim of cause._
 
 ## Start
 
 You need IB Gateway 10.37+ or TWS with API socket access enabled, an IBKR Pro
-account, and macOS or Linux on arm64 or amd64. WSL works; native Windows does
-not.
-
-For one binary shared by the shell and local MCP hosts:
+account, and macOS or Linux on arm64 or amd64. WSL works; native Windows does not.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
-canary status    # prove which gateway and account Canary reached
+canary status    # show which Gateway and account Canary reached
 canary brief     # review what changed and what needs attention
 ```
 
 The installer verifies the signed release checksum and installs to
 `~/.local/bin`. The [install guide](docs/docs/start/install.md) shows how to
-inspect the script first and covers every other installation path. Canary can
-discover Gateway or TWS automatically; `canary status` identifies the selected
-connection and account. An explicit endpoint pin remains fixed. Market-data
-availability depends on your IBKR subscriptions: delayed values stay labeled
-and cannot satisfy live-only execution requirements.
+inspect the script first and covers every other installation path.
 
-For Claude Desktop only, download
+If you use Claude Desktop, download the MCP Bundle,
 [`canary.mcpb`](https://github.com/osauer/canary/releases/latest/download/canary.mcpb),
-open it with Claude Desktop, then quit Claude completely and relaunch it. Ask:
+open it with Claude Desktop, then quit Claude completely and relaunch it. The
+[walkthrough](https://osauer.dev/canary/claude-desktop-interactive-brokers/)
+covers the first connection. Ask:
 
 > What needs attention today, and which inputs are degraded?
 
-The bundle carries its own macOS and Linux binaries. The
-[Claude Desktop walkthrough](https://osauer.dev/canary/claude-desktop-interactive-brokers/)
-covers the first connection.
+## Choose how you use it
 
-![Canary Edge showing a synthetic decision review, review coverage and price outcomes after decisions](docs/social/canary-app-edge.png)
-
-_Current Canary SPA rendered from synthetic data. Edge reports observed
-historical outcomes; it is not a forecast or a causal claim._
-
-Reduction plans compare both index directions, loss room and quoted trading
-costs. An index-hedge plan sizes whole Micro E-mini contracts; a plan does not
-submit an order. [Protection and reduction planning](docs/docs/operate/protection.md)
-explains the figures and their limits.
-
-## Choose your surface
-
-| You want to… | Start with | Boundary |
+| You want to… | Start with | What you get |
 | --- | --- | --- |
-| Ask an agent about the account | The MCP Bundle, or `canary mcp` from any local framework that can launch a stdio MCP server | Read-only tools; no settings writes, previews, or execution tools |
-| Work in a terminal or script | `canary brief`, `canary positions --by underlying`, and `--json` | Deterministic CLI output over the same daemon authority |
-| Check the desk from a phone | `canary app`, then `canary app pair` | Paired PWA; local by default, optional remote relay |
-| Read Canary from your own Go program | `github.com/osauer/canary/v2`, the daemon client, with `canarytest` for tests | The MCP tool catalogue over the daemon socket without an MCP process; the daemon keeps every policy and broker gate |
-| Build directly on the TWS protocol | `github.com/osauer/canary/v2/pkg/ibkr` | Lower-level transport; your application owns policy, authorization, and journaling |
-
-Constrained broker actions are not a fifth onboarding path. They require a
-separate experimental trading binary and remain limited to gated CLI and
-paired-app flows. MCP stays read-only in every build. Read
-[Gated orders and the trading build](docs/docs/operate/orders.md) before using
-that artifact.
-
-## What Canary helps you answer
-
-- **What needs attention now?** `canary brief`, the Rulebook, and the Action
-  Queue combine current alerts, process exceptions, protection candidates,
-  and exercise candidates without turning any row into submit authority.
-- **Am I within my limits?** `canary rules` checks the book against limits for
-  position size, premium budget, time value, expiry, losses, net market
-  exposure and margin headroom. They start from a compiled baseline; `canary
-  rules policy set` makes them yours.
-- **How is the book exposed?** Account and position reads identify one selected
-  account, group stock and option legs by underlying, and keep missing values
-  separate from real zeros. Each position carries the listing venue IBKR
-  reports. Multi-account ambiguity is refused rather than blended.
-- **What did past decisions actually deliver?** Canary Edge uses retained IBKR
-  Flex records and exact-contract market history. It reviews account P/L after
-  confirmed external flows, compares adequately repeated stock and ETF
-  opens/adds/trims/exits with leaving the prior position unchanged over 1, 5,
-  and 20 sessions, and reports broker-recorded option P/L separately. It does
-  not infer intent, recommend a trade, or claim causation.
-- **What did stock lending earn?** Dated shares-lent annotations and
-  `canary lending fees --json` provide customer net fees, expandable history
-  and explicit report coverage. IBKR controls participation.
-  Fees explain income; they are never added again to broker account P/L.
-  Payment linkage remains unproved. See [lending reporting](docs/docs/understand/edge.md#stock-lending-income).
-- **What high-fee names are outside my list?** `canary lending screen --min-rate 50 --limit 25 --json`
-  and MCP `canary_lending_screen` rank the existing IBKR US USD bulk feed.
-  Optional exclusions remove familiar names; coverage, source dates and truncation
-  stay explicit. This does not establish listing quality, liquidity or lender yield.
-- **Which US equities have large reported short positions?** `canary short-interest screen --listed-only --min-average-volume 1000000 --json` ranks FINRA short shares before limiting results. Sort by `days_to_cover` or add the shared price/liquidity filters; market coverage is explicit and free-float percentage remains unavailable. See [source and freshness semantics](internal-docs/design/short-interest-screen.md).
-- **Where are borrowing fees unusually high?** `canary lending rates --symbols AAA,BBB --json`
-  and MCP `canary_lending_rates` read dated indicative borrower costs for an explicit
-  US-stock universe. Preserve missing data, source age and numeric scale. These
-  rates are research inputs, not your lending yield or a buy recommendation.
-  See [lending research](docs/docs/understand/edge.md#lending-research-and-borrowing-rates).
-- **How much did exchange rates contribute?** `canary reporting fx --json`
-  reads completed daily valuation effects across investments, currency cash
-  and accrued interest, with missing days retained. This differs from realised
-  currency-lot P/L in IBKR's Forex P/L Details. See
-  [FX reporting](docs/docs/start/reporting.md#fx-contribution).
-- **Can this reading be trusted?** Quotes, calendars, breadth, gamma, regime,
-  stress, earnings, borrow, halt, and reporting sources carry their own health,
-  freshness, coverage, and last-good state. Unavailable evidence stays
-  unavailable. `canary data health --json` reads the service report;
-  `canary data check --json` requests a bounded ordinary-quote check. A healthy
-  service does not mean every quote is live or suitable for execution.
-- **When is the market open, and what is scheduled?** Exchange calendars cover
-  US equities and listed options, Xetra, London, Tokyo and Hong Kong, with
-  explicit coverage bounds and intraday breaks. `canary macro` separately reads
-  cached official economic calendars and publications with their source health.
-- **Can I review an addition before placing it?** `canary add plan` checks a
-  stock addition; `canary add preview` reviews exact terms, including an optional
-  stop for the added shares. `canary add market` discovers calls and
-  `canary add call-plan` sizes an exact call against a budget. These commands
-  place no order. See the [Add command guide](docs/docs/reference/cli.md#add)
-  for request examples and the separate confirmation boundary.
-- **How can I reduce exposure while keeping chosen holdings?**
-  `canary locks` keeps every held contract of a chosen name out of bulk and
-  automatic reductions, including contracts acquired after a roll.
-  Portfolio reductions can target net exposure, long positions, sectors or
-  higher-beta holdings. `--plan` shows a proposed reduction without creating
-  anything that can be submitted. A direct single-holding reduction can still
-  target a locked line. See [reductions and holding locks](docs/docs/operate/protection.md).
-- **How would option exit rules have changed past trades?** `canary edge replay`
-  compares historical exit rules using statement trades and dated market evidence.
-  Missing history and reconciliation limits remain explicit; this is a historical
-  simulation, not a forecast or a live trading instruction. See the
-  [Edge guide](docs/docs/understand/edge.md).
-- **What work already exists?** Proposals, opportunities, and the local order
-  journal show what is blocked or ready for human review and how it changed.
-  They are evidence, not broker authority. A multi-leg option position is
-  reviewed as one unit, net premium paid against net close value at fresh leg
-  quotes, and routed to the strategy workflow or a broker combo; the row
-  places no order. Option purpose follows the measured book, not per-leg
-  declarations. An opt-in cash sweep proposes putting idle cash into bills of
-  the same currency; it never converts one currency into another.
-
-Reconciliation, statement-derived equity, and Edge require one shared IBKR
-Activity Flex Query. Run `canary setup reporting`, then follow the
-[screenshot-driven field checklist](docs/docs/start/reporting.md). A received
-empty section counts as zero reported activity and does not block readiness.
-Missing sections and missing required fields on populated rows remain distinct
-problems; `canary reporting status --json` shows the current evidence.
+| Ask an agent about the account | The MCP Bundle, or `canary mcp` from any local framework that can launch a stdio MCP server | Read-only tools; nothing that changes settings or orders |
+| Work in a terminal or script | `canary brief`, `canary positions --by underlying`, and `--json` | Every reading as text or JSON, from the same source as the app and the MCP tools |
+| Check the desk from a phone | `canary app`, then `canary app pair` | A paired web app on your phone; local by default, remote relay optional |
+| Read Canary from your own Go program | `github.com/osauer/canary/v2`, the daemon client, with `canarytest` for tests | The same read-only tools over the daemon socket, without an MCP process |
+| Build directly on the TWS protocol | `github.com/osauer/canary/v2/pkg/ibkr` | A low-level transport; policy, authorization, and journaling are yours |
 
 ## MCP and agent frameworks
 
-The MCP Bundle is the shortest Claude Desktop path. For another local host,
-install the shared binary and point the host at its absolute path. Hosts that
-use the common `mcpServers` shape accept:
+For a host other than Claude Desktop, install the standard binary and point the
+host at the binary's absolute path; `which canary` prints it. Hosts that use
+the common `mcpServers` shape accept:
 
 ```json
 {
@@ -187,158 +71,60 @@ use the common `mcpServers` shape accept:
 }
 ```
 
-Use `which canary` to find the path. A browser-only agent cannot reach this
-local stdio process. After upgrading, fully relaunch the host so it respawns
-the MCP server.
+Ask plain questions like the one above rather than naming tools. The
+[host guide](docs/docs/start/hosts.md) covers Claude Code, Cursor, Zed,
+continuously running agents, logs, and connection checks. The generated
+[MCP reference](docs/docs/reference/mcp-tools.md) lists every tool and its
+schema.
 
-Continuously running agents can keep this MCP child process available and
-reuse Canary's brief, calendar, regime, risk, and order evidence. Use
-`canary_calendar` for official exchange sessions, `canary_macro` for official
-economic calendars and publications, and `canary_data_health` for passive source
-health. Preserve their coverage bounds and original source times. The host owns
-durable wakeups, model budgets, and process recovery. Canary owns the observations and risk semantics. See
-[continuous hosts](docs/docs/start/hosts.md#continuously-running-agents) for
-the lifecycle and data-quality contract.
-
-Ask in desk language rather than naming tools:
-
-> How is my portfolio exposed by underlying?
->
-> Which repeated entries, adds, trims, or exits had the largest observed
-> 20-session price impact, and what coverage bounds that answer?
->
-> Are any protection or exercise candidates ready for human review?
-
-The [host guide](docs/docs/start/hosts.md) covers Claude Code, Cursor, Continue,
-Zed, framework integration, logs, and connection checks. The generated
-[MCP reference](docs/docs/reference/mcp-tools.md) is the exact tool and schema
-inventory. The optional Claude Code plugin adds Canary's skill, MCP config, and
-safety hooks; it does not ship the binary.
-
-## Shell and paired app
+## Terminal and paired app
 
 Every data command supports `--json`:
 
 ```sh
-canary data health
 canary account
 canary positions --by underlying
-canary brief
 canary edge
 canary rules
 canary regime --explain
 canary stress --details
-canary technical SPY,QQQ
-canary calendar --market us --days 14
-canary macro
-canary market
-canary reporting status
-canary proposals list
-canary opportunities list
-canary orders open
 ```
-
-For a continuous display, `canary market --watch --json` streams broker updates
-with explicit account scope and separate source clocks. One-day charts retain
-the last applicable session across weekends and closures; retained bars keep
-their actual dates.
 
 Run `canary status` first for connection problems and `canary data health` for
 missing or degraded inputs. `canary --help` and the
 [CLI reference](docs/docs/reference/cli.md) carry the complete command and flag
-inventory.
+list.
 
 For the paired app, run `canary app` on the machine that owns the Gateway or
-TWS session, then run `canary app pair` and scan the QR code. The current
-workspace is Monitor, Positions, Edge, Alerts, and Orders; Settings opens from
-the header gear. See the [app guide](web/app/README.md) for local pairing,
-remote-relay, and Web Push boundaries.
+TWS session, then run `canary app pair` and scan the QR code. The
+[app guide](docs/docs/operate/app.md) covers pairing, remote relay, and push
+notifications.
 
 ## Go wire-protocol library
 
-`pkg/ibkr` is a clean-room Go client for the TWS wire protocol:
-
-```go
-import (
-    "context"
-    "time"
-
-    "github.com/osauer/canary/v2/pkg/ibkr"
-)
-
-func accountSummary(ctx context.Context, clientID int) (*ibkr.RawAccountSummary, error) {
-    cfg := ibkr.DefaultConfig()
-    cfg.Port = 4002 // Gateway paper
-
-    connector := ibkr.NewConnector(&ibkr.ConnectorConfig{
-        // Use an ID not already owned by Canary or another TWS client.
-        PreferredClientID: clientID,
-        BaseConfig:        cfg,
-    })
-    if err := connector.Start(ctx); err != nil {
-        return nil, err
-    }
-    defer connector.Stop()
-
-    return connector.RequestAccountSummary(ctx, 5*time.Second)
-}
-```
-
-Protocol coverage is purpose-driven, not exhaustive. The package transports
-broker requests but does not provide Canary's application-level authority
-boundary. Direct users must supply their own policy, authorization, journaling,
-and reconciliation controls. Start with the
-[package documentation](pkg/ibkr/doc.go).
-
-The public Go module deliberately remains on the maintained `/v2` line while
-product v3 ships as signed binaries. Therefore `go install
-github.com/osauer/canary/v2/cmd/canary@latest` installs the v2 CLI, not product
-v3.
-
-## One authority, several adapters
-
-```text
-shell, MCP host, or paired app
-              ↓ local Unix socket
-         canary daemon
-              ↓ local TCP by default
-       IB Gateway or TWS
-```
-
-The daemon starts on demand, owns the selected account, broker connection,
-market evidence, policy state, and local order journal, and normally exits
-after 15 idle minutes. Adapters render typed daemon results; they do not
-re-create risk policy. Official public-data sources also feed the daemon;
-embedded exchange calendars remain available without a broker connection.
-The [architecture](docs/docs/internals/architecture.md)
-and [storage guide](docs/docs/internals/storage.md) describe the boundaries and
-the retained `ibkr` XDG paths used for upgrade continuity.
+`pkg/ibkr` is a clean-room Go library for the TWS wire protocol. It transports
+broker requests only; the policy, authorization, and journaling that Canary
+adds are your application's job. The Go module is on `/v2`. Canary itself ships
+as signed v3 binaries, so `go install github.com/osauer/canary/v2/cmd/canary@latest`
+installs the v2 CLI, not the current release. Start with the
+[package documentation](pkg/ibkr/doc.go) and the
+[wire protocol page](docs/docs/internals/protocol.md).
 
 ## Safety and privacy
 
-- **Read-only is the normal product.** The installer, updater, and MCP Bundle
-  select the standard binary, which has no broker-write path compiled in. Its
-  CLI can still preview an order; the preview creates no order, and this build
-  refuses to place it.
-- **MCP has no preview or execution tools in any build.** It cannot place,
-  modify, cancel, submit, or exercise an order.
-- **Trading is a separate decision.** The experimental trading artifact keeps
-  actions behind a pinned, broker-confirmed account, pinned client ID and trading mode,
-  any explicit endpoint pin, a fresh exact review contract,
-  broker eligibility where applicable, healthy journaling, daemon
-  revalidation, runtime freeze, and transaction-specific human authority.
-- **Missing evidence stays missing.** A stale or unavailable input never
-  becomes a clean result merely because an older value exists.
+The installer, updater, and MCP Bundle install the standard binary, which has
+no broker-write path compiled in. Trading needs a separate, opt-in binary.
+Every action in it is pinned to one account, client ID, and mode, reviewed
+again just before it runs, blocked by any runtime freeze, and authorized by a
+person for that one transaction. [Gated orders](docs/docs/operate/orders.md)
+describes this boundary.
 
 Canary has no telemetry and does not send account IDs, balances, quantities, or
-P/L to the maintainer. Configured public-data refreshes, an MCP host, remote
-relay, or push service receive only the data disclosed in the path you enable.
-[PRIVACY.md](PRIVACY.md) is the authoritative data map; [SECURITY.md](SECURITY.md)
-covers the threat model and signed release artifacts.
+P/L to the maintainer. [PRIVACY.md](PRIVACY.md) is the data map.
+[SECURITY.md](SECURITY.md) covers the threat model and signed releases.
 
-## Help and project information
+## Documentation and legal
 
-- [Install and first run](docs/docs/start/install.md)
 - [Daily desk workflow](docs/docs/operate/daily-desk.md)
 - [Troubleshooting](docs/docs/start/troubleshooting.md)
 - [Configuration](docs/docs/reference/config.md)
@@ -354,83 +140,3 @@ investment advice.
 Canary is a private project of Oliver Sauer.
 
 MIT. See [LICENSE](LICENSE).
-
-FX contribution is available through `canary reporting fx` and the read-only
-`canary_reporting_fx` MCP tool. See [FX contribution and backfill](internal-docs/fx-contribution.md)
-for daily evidence, reconciliation, query fields and Day/Week/Month/YTD semantics.
-
-### Lending price and liquidity context
-
-`canary lending market --symbols AAA,BBB --json` and the read-only
-`canary_lending_market` MCP tool return matching cached context for 1–100 explicit
-USD names in the borrowing feed, or exact identities already resolved for a
-displayed research row. Named reads do not initiate missing-feed resolution;
-without either identity, the row remains unavailable.
-The daemon admits at most 150 background unattempted names per research family, then
-progressively admits more on later reads. A single joined worker rotates families
-and refreshes one name at a time on the background lane (35-second bound).
-Up to 30,000 exact-contract projections are retained while requested, expiring after
-24 hours without interest. Named reads request quotes for 15 minutes; intraday
-receipts expire after five minutes. Completed-session history is reused until the
-next completed session, preserving its actual source dates. Incomplete histories
-retry hourly; failures retry after five minutes, except that a name IBKR does
-not recognise as a contract reads unavailable and waits at least 30 minutes
-and until the broker session changes. History uses the durable cache
-without adding chart-refresh interests. No quote fan-out occurs in a screen read.
-
-Rows carry last completed close or a recent actual trade (including delayed-feed
-labels), change from prior close, session share volume, average daily dollar
-turnover over all 20 completed sessions, and completed-close YTD price change
-from the exact prior year-end session. YTD excludes dividends; missing year-end,
-latest session or any volume baseline stays missing. Field dates and pending,
-partial, unavailable and expiry remain explicit. Filters are research preferences,
-not trading policy or a liquidity guarantee. Discovery filters apply across the
-full qualifying fee/exclusion universe before the output limit, using only known
-market values. Acquisition is progressive: inspect `coverage` before interpreting
-an empty or partial screen. `covered`, `pending` and `unavailable` partition all
-candidates; `complete` requires every candidate to have the fields needed by the
-query (default price and turnover). Missing YTD does not block price-only filters.
-Desk's own-list view retains its separate named-rate/local filtering path so
-nonbulk evidence is not silently dropped.
-
-### Canonical discovery filters and sorting
-
-```sh
-canary lending screen --min-rate 50 --min-price 5 --min-avg-dollar-volume-20d 10000000 --min-high-dates 3 --sort-by avg_dollar_volume_20d --sort-dir desc --limit 50 --json
-```
-
-CLI flags map directly to MCP/RPC `min_price`, `min_avg_dollar_volume_20d`,
-`min_high_dates`, `sort_by`, and `sort_dir`. Zero disables each optional filter.
-Sort keys are `symbol`, `price`, `day_change_pct`, `volume`,
-`avg_dollar_volume_20d`, `ytd_change_pct`, `fee_rate`, and `high_dates`.
-Missing numeric values stay last in both directions; symbols break ties.
-`high_dates` is the number of distinct provider dates at or above `min_rate`
-within seven UTC source dates, reset by a later lower or unknown observation.
-An intraday dip followed by recovery starts a new streak on that date.
-Each row also exposes at most seven dated `history` samples for the fee chart.
-Repeated polls of one timestamp never add dates. This history is persisted with
-the daemon's borrow-fee source state; it starts from genuine retained observations,
-not an assumed backfill. Old installations therefore initially know one date.
-
-### Displayed research prices
-
-The returned discovery rows receive bounded priority in their displayed order:
-at most 100 names per family, including a source-ranked discovery tail so filters
-do not cancel unresolved candidates, with a 15-minute interest replaced by the next query.
-Three foreground jobs alternate with one available background job, preserving
-broader-universe progress. A newly displayed name can enter even when the 150-name
-background batch is full; changing tabs does not accumulate unresolved jobs.
-
-Displayed short-interest symbols missing from the borrowing file may resolve
-through one session-bound IBKR contract-details request. Only a unique exact
-symbol, positive contract ID, USD stock type and supported US calendar qualify.
-No suffix conversion, guessed common-share substitute or issuer-name matching is
-performed. Non-displayed unmatched names remain unavailable; the full FINRA
-universe does not trigger a contract-resolution scan.
-
-A short daily-history read supplies the dated last completed close first; the
-one-year history then fills remaining liquidity and YTD context. A dated regular close from
-the canonical quote may also supply price. Undated previous-close ticks and old
-last trades never receive an invented current date. Missing or failed yearly
-history preserves matching completed-session price and independently dated fields.
-Borrowing fees remain independent: resolving a price does not create a fee quote.

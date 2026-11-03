@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-10-31 08:33 CET
+Updated: 2026-11-03 08:22 CET
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -128,10 +128,11 @@ A rule that cannot get clean inputs reports `unknown`. It never reports `pass`. 
 
 ## During the session
 
-The terminal surfaces worth leaving open are `account --watch` and `positions
---watch`. Use the paired app for the continuously assembled Monitor and Action
-Queue rather than rebuilding the daemon's market authority from several shell
-commands.
+The terminal surfaces worth leaving open are `account --watch`, `positions
+--watch`, and `canary market --watch --json`, which streams broker updates and
+names the account and source clock for each. Use the paired app for the
+continuously assembled Monitor and Action Queue rather than rebuilding the
+daemon's market authority from several shell commands.
 
 `rules` and `brief` are checkpoints, not tickers. For conditions that should
 interrupt you, use the push path in [Alerts and notifications](alerts.md)
