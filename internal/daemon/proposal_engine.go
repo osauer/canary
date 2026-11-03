@@ -2550,10 +2550,22 @@ func (e *proposalEngine) submit(ctx context.Context, p rpc.TradeProposalSubmitPa
 		return rpc.TradeProposalSubmitResult{Proposal: prop, Blockers: blockers, AsOf: now}, nil
 	}
 	params := proposalOrderPreviewParams(prop, selectedProposalQty(prop, p.Quantity), p.TimeoutMs)
+	patient := params
+	given := false
 	if opts.bounded != nil {
 		params.Strategy, params.Bounded = rpc.OrderStrategyBoundedLimit, opts.bounded
+	} else if opts.automatic {
+		if bound := e.mandateReductionGive(prop); bound != nil {
+			params.Strategy, params.Bounded, given = rpc.OrderStrategyBoundedLimit, bound, true
+		}
 	}
 	preview, err := e.server.previewOrder(ctx, params)
+	if err != nil && given && mandateGiveRefused(err) {
+		// Beyond the line's spread cap, or past its worst price, the cut
+		// gives nothing and goes at the mid, as before the give existed.
+		e.appendEvent(proposalEventForProposal("priced_at_mid", prop, now, "", "", "mandate reduction priced at the mid: "+err.Error()))
+		preview, err = e.server.previewOrder(ctx, patient)
+	}
 	if err != nil {
 		blockers := previewFailureBlockers(err)
 		e.appendBlocked(prop, prop.Key, prop.Revision, blockers, err)

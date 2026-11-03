@@ -25,10 +25,11 @@ import (
 // verdicts at least five minutes apart reading reduce start a breach
 // episode: every generation then sizes one batch of mandate_reduction rows
 // afresh, with the daemon's own evaluator on the book the verdict measured.
-// Cut by cut, the book re-evaluated after each: the largest gap loser of a
-// name over its gap cap, then the largest premium at risk left, name by name
-// (spec TM-04.12, owner decision 2026-10-27 19:50 CET, replacing the
-// largest Euler contributor of the volatility headline), each by the
+// Cut by cut, the book re-evaluated after each: a gap loser of a name over
+// its gap cap, then the premium at risk left, each time the cheapest relief
+// first, the most of the loss removed per unit of value given up (spec
+// TM-05.18, owner 2026-11-03 10:51 CET, replacing the 27 Oct order by the
+// largest premium per name), each by the
 // smallest whole step (contracts, or share lots) that takes the loss
 // measure to 0.95 × the loss room with every gap cap met, or else by the
 // step that takes the most off it. Short options are never
@@ -225,6 +226,7 @@ type mandateCut struct {
 	// removes; gapLoss and gapCap a gap row's figures; sessions an expiry
 	// row's sessions to expiry.
 	loss         float64
+	value        float64
 	lossCut      float64
 	contribution float64
 	gapLoss      *float64
@@ -802,7 +804,7 @@ func mandateSizeBatchBy(verdictBook mandate.Input, candidates map[string]*mandat
 	z.volBudget = base.Capital.BudgetAnnualSD
 	for _, rep := range base.Legs {
 		if c, ok := candidates[rep.ID]; ok {
-			c.contribution, c.loss = rep.ContributionPct, rep.LossBase
+			c.contribution, c.loss, c.value = rep.ContributionPct, rep.LossBase, math.Abs(rep.ValueBase)
 		}
 	}
 	for id := range candidates {
@@ -824,10 +826,16 @@ func mandateSizeBatchBy(verdictBook mandate.Input, candidates map[string]*mandat
 	if base.Loss != nil {
 		batch.lossBefore = base.Loss.TotalBase
 	}
-	// Expiry cuts lead the batch; the rest keep the order they were cut in.
+	// Expiry cuts lead the batch; the rest go cheapest relief first: the
+	// most of the loss measure removed per unit of market value given up
+	// (spec TM-05.18), so a deep out-of-the-money option goes before a dated
+	// one and both before shares, whatever name or phase cut them.
 	batch.cuts = slices.DeleteFunc(slices.Clone(z.cuts), func(c *mandateCut) bool { return c.units <= 0 })
 	slices.SortStableFunc(batch.cuts, func(a, b *mandateCut) int {
-		return cmp.Compare(boolRank(a.phase != rpc.MandatePhaseExpiry), boolRank(b.phase != rpc.MandatePhaseExpiry))
+		if c := cmp.Compare(boolRank(a.phase != rpc.MandatePhaseExpiry), boolRank(b.phase != rpc.MandatePhaseExpiry)); c != 0 {
+			return c
+		}
+		return mandateCheaperFirst(a, b)
 	})
 	riskBefore, lossBefore := batch.riskBefore, batch.lossBefore
 	applied := map[string]int{}
@@ -897,11 +905,9 @@ func (z *mandateSizer) reset() {
 	}
 }
 
-// sizeMain cuts gap breaches first, then the largest premium at risk left,
-// name by name and within a name its largest leg, until the loss measure
-// reaches the target or nothing reduces further (spec TM-04.12, owner
-// decision 2026-10-27 19:50 CET: the reduction is ordered by premium at risk
-// per name until the book fits the maximum loss). Inside the target only
+// sizeMain cuts gap breaches first, then the premium at risk left, the
+// cheapest relief first (spec TM-05.18, owner 2026-11-03 10:51 CET), until
+// the loss measure reaches the target or nothing reduces further. Inside the target only
 // the owner sleeve's stop can be left, cut in its own sleeve alone by the
 // sleeve's volatility, as before.
 func (z *mandateSizer) sizeMain() {
@@ -955,7 +961,7 @@ func (z *mandateSizer) sizeMain() {
 			z.commit(top, units, rpc.MandatePhaseStop)
 			continue
 		}
-		top = z.largestPremium(v, exhausted)
+		top = z.cheapestPremium(v, exhausted)
 		if top == nil {
 			return
 		}
@@ -968,21 +974,17 @@ func (z *mandateSizer) sizeMain() {
 	}
 }
 
-// largestPremium picks the next premium cut: the name with the most of the
-// loss measure left among the legs still reducible, and within it the leg
-// with the most. Nil when no reducible leg carries any.
-func (z *mandateSizer) largestPremium(v mandate.Verdict, exhausted map[string]bool) *mandateCut {
-	legLoss := map[string]float64{}
+// cheapestPremium picks the next premium cut: the leg still reducible that
+// removes the most of the loss measure per unit of market value given up
+// (spec TM-05.18, owner 2026-11-03 10:51 CET; it replaces the 27 Oct order
+// of the largest premium per name). A deep out-of-the-money option, whose
+// premium at risk is its price paid while it is worth little, goes first;
+// a dated option worth about what it cost next; shares, whose loss to the
+// stop is a fraction of their value, last. Ties go to the larger loss.
+func (z *mandateSizer) cheapestPremium(v mandate.Verdict, exhausted map[string]bool) *mandateCut {
+	legLoss, legValue := map[string]float64{}, map[string]float64{}
 	for _, rep := range v.Legs {
-		legLoss[rep.ID] = rep.LossBase
-	}
-	nameLoss := map[string]float64{}
-	for _, id := range z.ids {
-		c := z.candidates[id]
-		if c.units >= c.full || exhausted[c.id] || legLoss[c.id] <= mandateReductionEpsilon {
-			continue
-		}
-		nameLoss[c.leg.Underlying] += legLoss[c.id]
+		legLoss[rep.ID], legValue[rep.ID] = rep.LossBase, math.Abs(rep.ValueBase)
 	}
 	var top *mandateCut
 	for _, id := range z.ids {
@@ -990,8 +992,7 @@ func (z *mandateSizer) largestPremium(v mandate.Verdict, exhausted map[string]bo
 		if c.units >= c.full || exhausted[c.id] || legLoss[c.id] <= mandateReductionEpsilon {
 			continue
 		}
-		if top == nil || nameLoss[c.leg.Underlying] > nameLoss[top.leg.Underlying] ||
-			nameLoss[c.leg.Underlying] == nameLoss[top.leg.Underlying] && legLoss[c.id] > legLoss[top.id] {
+		if top == nil || mandateCheaper(legLoss[c.id], legValue[c.id], legLoss[top.id], legValue[top.id]) {
 			top = c
 		}
 	}
@@ -999,6 +1000,38 @@ func (z *mandateSizer) largestPremium(v mandate.Verdict, exhausted map[string]bo
 		top.loss = legLoss[top.id]
 	}
 	return top
+}
+
+// mandateRelief is a cut's loss removed per unit of value given up; a leg
+// worth nothing removes its loss for free.
+func mandateRelief(loss, value float64) float64 {
+	if value <= mandateReductionEpsilon {
+		return math.Inf(1)
+	}
+	return loss / value
+}
+
+// mandateCheaper reports whether a cut removing loss a for value av is
+// cheaper relief than one removing b for bv: the higher relief, then the
+// larger loss.
+func mandateCheaper(a, av, b, bv float64) bool {
+	ra, rb := mandateRelief(a, av), mandateRelief(b, bv)
+	if ra != rb {
+		return ra > rb
+	}
+	return a > b
+}
+
+// mandateCheaperFirst orders two sized cuts cheapest relief first, the
+// contract id breaking a tie so the order is stable across verdicts.
+func mandateCheaperFirst(a, b *mandateCut) int {
+	switch {
+	case mandateCheaper(a.loss, a.value, b.loss, b.value):
+		return -1
+	case mandateCheaper(b.loss, b.value, a.loss, a.value):
+		return 1
+	}
+	return cmp.Compare(a.id, b.id)
 }
 
 // mandateSleeveUseOf is one sleeve's use on a verdict: its allocation's use,
@@ -1013,8 +1046,9 @@ func mandateSleeveUseOf(v mandate.Verdict, sleeve string) float64 {
 	return v.Risk.SDAnnualBase
 }
 
-// gapStep cuts the largest gap loser of one breached name, the losers tried
-// in order until one lowers the name's gap loss; false when none can. A gap
+// gapStep cuts a gap loser of one breached name, the cheapest relief first
+// (gap loss removed per unit of value given up), the losers tried in order
+// until one lowers the name's gap loss; false when none can. A gap
 // cut never leaves the book riskier than before it.
 func (z *mandateSizer) gapStep(v mandate.Verdict, name string) bool {
 	loss, capBase := mandateGapLoss(v, name)
@@ -1043,7 +1077,17 @@ func (z *mandateSizer) gapStep(v mandate.Verdict, name string) bool {
 			losses[c.id] = l
 		}
 	}
-	slices.SortStableFunc(losers, func(a, b *mandateCut) int { return cmp.Compare(losses[b.id], losses[a.id]) })
+	// The gap loss removed per unit of value given up decides which loser
+	// goes first, as in the premium phase.
+	slices.SortStableFunc(losers, func(a, b *mandateCut) int {
+		if mandateCheaper(losses[a.id], a.value, losses[b.id], b.value) {
+			return -1
+		}
+		if mandateCheaper(losses[b.id], b.value, losses[a.id], a.value) {
+			return 1
+		}
+		return cmp.Compare(a.id, b.id)
+	})
 	for _, c := range losers {
 		units, ok := z.move(c, func(over map[string]int) float64 {
 			after := z.eval(over)
@@ -1470,7 +1514,7 @@ func (e *proposalEngine) mandateReductionRow(policy protectionPolicy, status rpc
 		why = fmt.Sprintf("%s: the largest risk contributor left in %s, cut to half the sleeve's risk at the stop (%s a year) (%.0f%% of the risk)",
 			mandateOwnerStopSentence(v.OwnerStop, ccy), mandateSleeveName(c.sleeve), mandateMoney(v.OwnerStop.TargetUseBase, ccy), c.contribution)
 	default:
-		why = fmt.Sprintf("the largest premium at risk left, %s in %s (%s of the loss measure)", c.leg.Underlying, mandateSleeveName(c.sleeve), mandateMoney(c.loss, ccy))
+		why = fmt.Sprintf("the cheapest relief left, %s in %s: %s of the loss measure for %s of value", c.leg.Underlying, mandateSleeveName(c.sleeve), mandateMoney(c.loss, ccy), mandateMoney(c.value, ccy))
 	}
 	reason := fmt.Sprintf("%s; %s: %s; the full plan projects the loss measure to %s if all planned units fill", risk, why, order, mandateMoney(batch.lossAfter, ccy))
 	if batch.reached {
@@ -1619,4 +1663,34 @@ func (s *Server) mandateReductionView() *rpc.MandateReductionView {
 	}
 	slices.SortStableFunc(view.Orders, func(a, b rpc.MandateReductionOrder) int { return cmp.Compare(a.Rank, b.Rank) })
 	return view
+}
+
+// mandateReductionGive is the price a pre-authorised mandate cut gives after
+// the open (spec TM-05.18): the queued executor's bounded terms, halfway from
+// the mid toward the touch, never beyond 25% from the row's mark, and only
+// while the spread is within the line's cap (25% of mid for an option, 2% for
+// shares, from the protection policy). Nil for any other row, or a row
+// without a mark; the cut then goes at the mid.
+func (e *proposalEngine) mandateReductionGive(prop rpc.TradeProposal) *rpc.OrderBoundedLimit {
+	if prop.Bucket != rpc.TradeProposalBucketMandateReduction || prop.LimitPrice == nil || !positiveFinite(*prop.LimitPrice) {
+		return nil
+	}
+	policy, ok := e.automaticPolicy()
+	if !ok {
+		return nil
+	}
+	action := strings.ToUpper(strings.TrimSpace(prop.Action))
+	return &rpc.OrderBoundedLimit{Concession: queuedConcession, WorstPrice: queuedDefaultWorstPrice(action, *prop.LimitPrice, prop.Contract),
+		MaxSpreadPctOfMid: queuedSpreadLimit(policy, prop)}
+}
+
+// mandateGiveRefused reports a preview refused only by the give's own
+// bounds: a spread beyond the cap or a limit past the worst price.
+func mandateGiveRefused(err error) bool {
+	for _, b := range previewFailureBlockers(err) {
+		if b.Code == previewBoundedSpreadCode || b.Code == previewBoundedWorstCode {
+			return true
+		}
+	}
+	return false
 }

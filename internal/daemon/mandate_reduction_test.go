@@ -258,7 +258,7 @@ func TestMandateReductionDominantFirstSizedToTargetSecondOnlyWhenNeeded(t *testi
 		!m.VerdictAt.Equal(in.Result.Verdict.AsOf) || st.VerdictFingerprint != m.VerdictFingerprint || m.Held {
 		t.Fatalf("row does not carry its verdict: %+v status %+v", m, st)
 	}
-	if !strings.Contains(syna.Reason, "the largest premium at risk left, SYNA") || !strings.Contains(syna.Reason, "inside the") ||
+	if !strings.Contains(syna.Reason, "the cheapest relief left, SYNA") || !strings.Contains(syna.Reason, "inside the") ||
 		!slices.ContainsFunc(syna.Details, func(d string) bool { return strings.Contains(d, "sized on the reduce verdict of") }) {
 		t.Fatalf("reason %q details %q", syna.Reason, syna.Details)
 	}
@@ -659,9 +659,51 @@ func TestMandateReductionReduceOnlyNeverFlips(t *testing.T) {
 		assertMandateRowsReduceOnly(t, rows, pos)
 		assertMandateStepsLowerRisk(t, in, rows)
 		short, ok := mandateRowFor(rows, 9003)
-		if !ok || short.Action != rpc.OrderActionBuy || short.Mandate.Rank != 1 {
-			t.Fatalf("ratio %g: the short line (the largest loss to its stop) is not bought back first: %+v", ratio, short)
+		if ok && short.Action != rpc.OrderActionBuy || !ok && ratio >= 50 {
+			t.Fatalf("ratio %g: the short line is not bought back: %+v", ratio, short)
 		}
+	}
+}
+
+// mandateRowRelief is a row's loss removed per unit of value given up, from
+// the verdict's own leg report.
+func mandateRowRelief(in mandateReductionInput, row rpc.TradeProposal) float64 {
+	id := mandateLegID(rpc.PositionView{ConID: row.Contract.ConID})
+	for _, rep := range in.Result.Verdict.Legs {
+		if rep.ID == id {
+			return mandateRelief(rep.LossBase, math.Abs(rep.ValueBase))
+		}
+	}
+	return 0
+}
+
+// Cheapest relief first (spec TM-05.18, owner 2026-11-03 10:51 CET): a
+// deep out-of-the-money call, whose premium at risk is its price paid while
+// it is worth little, is cut and ranked before a dated call worth about what
+// it cost, and both before shares, whatever name carries the most premium.
+func TestMandateReductionCutsTheCheapestReliefFirst(t *testing.T) {
+	t.Parallel()
+	cheap := mandateReductionCall("SYNA", 9101, 20, 150, 100, 0.4, "20261120") // deep out of the money
+	cheap.AvgCost = 3 * 100                                                    // paid 3.00, worth 0.40
+	dated := mandateReductionCall("SYNB", 9102, 10, 80, 100, 24, "20270115")   // worth about what it cost
+	pos := mandateReductionBook(cheap, dated, mandateReductionStock("SYNC", 9003, 2000, 100))
+	in := mandateReductionFixture(t, pos, 3, 1e7, 2)
+	rows, st := mandateReductionRun(t, in, pos)
+	if len(rows) < 2 {
+		t.Fatalf("rows %d (%+v)", len(rows), st)
+	}
+	assertMandateRowsReduceOnly(t, rows, pos)
+	for i := 1; i < len(rows); i++ {
+		if mandateRowRelief(in, rows[i]) > mandateRowRelief(in, rows[i-1])+1e-9 {
+			t.Fatalf("row %d (%s) is cheaper relief than row %d (%s)", i+1, rows[i].Symbol, i, rows[i-1].Symbol)
+		}
+	}
+	first, ok := mandateRowFor(rows, 9101)
+	if !ok || first.Mandate.Rank != 1 || !strings.Contains(first.Reason, "the cheapest relief left, SYNA") {
+		t.Fatalf("the deep out-of-the-money call is not cut first: %+v", rows[0])
+	}
+	if d, ok := mandateRowFor(rows, 9102); ok && d.Mandate.Rank < first.Mandate.Rank {
+		t.Fatalf("the dated call ranks ahead: %d", d.Mandate.Rank)
 	}
 }
 
