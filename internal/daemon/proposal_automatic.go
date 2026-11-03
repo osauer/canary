@@ -155,6 +155,13 @@ type automaticSubmissionRecord struct {
 	// across revisions; an owner's veto holds its line for the rest of it.
 	Episode       string `json:"episode,omitempty"`
 	ClockQuantity int    `json:"clock_quantity,omitempty"`
+	// CarryClock marks a mandate record superseded for a reason that is not
+	// the owner's act (re-sized, dropped out of the set, blocked, or refused
+	// at send because the row moved on): the row served again in the same
+	// breach keeps this record's veto clock (owner, 2026-11-03 20:47 CET,
+	// "ok fix them"). A clock started before the session the row would be
+	// sent in still restarts at that session (automaticNewSessionReason).
+	CarryClock bool `json:"carry_clock,omitempty"`
 }
 
 // clockQuantity is the size a record's veto clock was started for.
@@ -617,6 +624,14 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 	// row's own key included, and a waiting one is superseded. Read before the
 	// record lock, since the queue's arm check reads records under its own.
 	queued := e.queuedLiveKeys(snap.Proposals)
+	// A row the owner ignored leaves the set by the owner's act: its record
+	// passes no clock on (CarryClock).
+	ignored := map[string]bool{}
+	e.mu.Lock()
+	for k := range e.ignored {
+		ignored[k] = true
+	}
+	e.mu.Unlock()
 	err := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 		var events []automaticSubmissionEvent
 		for _, rec := range records {
@@ -625,16 +640,16 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			}
 			prop, ok := present[rec.Key]
 			lockBlockers := append(e.budgetHoldingLockBlockers(ctx, prop), e.automaticLockBlockers(ctx, prop)...)
-			reason := ""
+			reason, carry := "", false
 			switch {
 			case !ok:
-				reason = "proposal disappeared from the current set"
+				reason, carry = "proposal disappeared from the current set", !ignored[scopedIgnoreKey(scope, rec.Key)]
 			case prop.Revision != rec.Revision && rec.Episode != "" && prop.Mandate != nil && prop.Mandate.Episode == rec.Episode:
-				reason = automaticEpisodeResizedReason
+				reason, carry = automaticEpisodeResizedReason, true
 			case prop.Revision != rec.Revision:
 				reason = "proposal revision changed; a new window starts for the new revision"
 			case !proposalUnblocked(snap, prop):
-				reason = proposalBlockedReason(snap, prop)
+				reason, carry = proposalBlockedReason(snap, prop), true
 			case len(lockBlockers) > 0:
 				reason = lockBlockers[0].Message
 			case queued[rec.Key]:
@@ -652,6 +667,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			rec.State = rpc.TradeProposalAutomaticSuperseded
 			rec.Reason = reason
 			rec.ResolvedAt = now
+			rec.CarryClock = carry && rec.Episode != ""
 			events = append(events, automaticSubmissionEvent{At: now, Type: automaticEventSuperseded, Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket, State: rec.State, AccountID: rec.AccountID, AccountMode: rec.AccountMode, Reason: reason})
 		}
 		if !policyOK || !brokerScopeConcrete(scope) {
@@ -699,6 +715,8 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			// its size stays within one lot above the size that clock (and its
 			// notice) was started for; a larger growth gets a fresh notice and
 			// a full window, re-noticed once per such growth, not per verdict.
+			// So does a row back after it dropped out, was blocked or was
+			// refused at send because it moved on (CarryClock).
 			// A line the owner vetoed in this breach gets no record again in it.
 			if prop.Mandate != nil && prop.Mandate.Episode != "" {
 				rec.Episode, rec.ClockQuantity = prop.Mandate.Episode, prop.Quantity
@@ -706,7 +724,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 					if prior.State == rpc.TradeProposalAutomaticVetoed {
 						continue
 					}
-					if !recovering && prior.State == rpc.TradeProposalAutomaticSuperseded && prior.Reason == automaticEpisodeResizedReason &&
+					if !recovering && prior.State == rpc.TradeProposalAutomaticSuperseded && (prior.CarryClock || prior.Reason == automaticEpisodeResizedReason) &&
 						prop.Quantity <= prior.clockQuantity()+max(1, prop.Mandate.Lot) {
 						rec.CreatedAt, rec.SubmitAt, rec.NoticedAt = prior.CreatedAt, prior.SubmitAt, prior.NoticedAt
 						rec.SettlingBaseline, rec.SettlingBaselineKnown = slices.Clone(prior.SettlingBaseline), prior.SettlingBaselineKnown
@@ -1344,6 +1362,7 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 			r.ResolvedAt = finish
 			r.State = rpc.TradeProposalAutomaticSuperseded
 			r.Reason = automaticOutcomeReason(res, err)
+			r.CarryClock = r.Episode != ""
 			return []automaticSubmissionEvent{{At: finish, Type: automaticEventSuperseded, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, Reason: r.Reason}}
 		case automaticFrozenRefusal(res, err, placeErr):
 			// The freeze refused the write before any broker frame, so the

@@ -283,3 +283,73 @@ func TestMandateReductionIsAClosedPreAuthorisableBucket(t *testing.T) {
 		t.Fatalf("an unknown bucket was accepted: %v", err)
 	}
 }
+
+// A mandate row that comes back within its breach keeps the veto clock its
+// notice started, as a re-sized one does: after it dropped out of the set
+// (a broker outage, a blocked refresh) and after a send refused because the
+// row moved on (stale_revision), a fresh 30 minutes restarted the window at
+// every such blip and the batch never went (2026-11-03 19:27-20:00 CET).
+func TestMandateReductionRowBackWithinItsBreachKeepsTheClock(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticMandateAuthority)
+	a := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
+	rev := rig.install(a)
+	rig.cycle()
+	rig.notice(rig.record(a.Key, rev))
+	first := rig.record(a.Key, rev)
+
+	rig.advance(10 * time.Minute)
+	rig.install()
+	rig.cycle()
+	if gone := rig.record(a.Key, rev); gone.State != rpc.TradeProposalAutomaticSuperseded {
+		t.Fatalf("the record of the row that dropped out: %s %q", gone.State, gone.Reason)
+	}
+	rig.advance(5 * time.Minute)
+	back := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
+	rev = rig.install(back)
+	rig.cycle()
+	rec := rig.record(back.Key, rev)
+	if rec.State != rpc.TradeProposalAutomaticPending || !rec.SubmitAt.Equal(first.SubmitAt) || !rec.NoticedAt.Equal(first.NoticedAt) {
+		t.Fatalf("the row back within its breach: %+v, want the clock of %+v", rec, first)
+	}
+
+	// Due, the send is refused because the row moved on; the row served
+	// again at the next cycle keeps the clock and is attempted at once.
+	rig.advance(20 * time.Minute)
+	revalidate := rig.engine.revalidateForTest
+	stale := true
+	rig.engine.revalidateForTest = func(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
+		if stale {
+			stale = false
+			rig.count(&rig.revalidations)
+			return rpc.TradeProposal{}, []rpc.TradingBlocker{{Code: "stale_revision", Message: "stale"}}, nil
+		}
+		return revalidate(ctx, key, revision)
+	}
+	rig.cycle()
+	if refused := rig.record(back.Key, rev); refused.State != rpc.TradeProposalAutomaticSuperseded {
+		t.Fatalf("the record refused stale_revision: %s %q", refused.State, refused.Reason)
+	}
+	rig.cycle()
+	if rec := rig.record(back.Key, rev); !rec.SubmitAt.Equal(first.SubmitAt) || !rec.NoticedAt.Equal(first.NoticedAt) {
+		t.Fatalf("the row served again after stale_revision: %+v, want the clock of %+v", rec, first)
+	}
+}
+
+// A row the owner ignored leaves the set by the owner's act: its record
+// passes no clock on.
+func TestMandateReductionIgnoredRowPassesNoClockOn(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticMandateAuthority)
+	a := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
+	rev := rig.install(a)
+	rig.cycle()
+	rig.engine.mu.Lock()
+	rig.engine.ignored[scopedIgnoreKey(rig.scope, a.Key)] = struct{}{}
+	rig.engine.mu.Unlock()
+	rig.install()
+	rig.cycle()
+	if rec := rig.record(a.Key, rev); rec.State != rpc.TradeProposalAutomaticSuperseded || rec.CarryClock {
+		t.Fatalf("the ignored row's record: %s carry=%t", rec.State, rec.CarryClock)
+	}
+}

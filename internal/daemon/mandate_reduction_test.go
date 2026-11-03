@@ -922,3 +922,32 @@ func TestMandateReductionSellsTheNearestExpiryFirst(t *testing.T) {
 		t.Fatalf("order %v, want %v", got, want)
 	}
 }
+
+// An option cut is held to [order_limits].max_option_contracts like the
+// money caps: the order gate admits more only as a delta-reducing exit, and
+// selling long calls in a book that leans short raises its absolute delta,
+// so a cut sized to the money caps alone was refused at every send
+// (2026-11-03 16:39 CET: 18 contracts against the cap of 5). A kept order
+// above the contract cap is not kept.
+func TestMandateCycleQuantityHoldsAnOptionToTheContractCap(t *testing.T) {
+	t.Parallel()
+	row := mandateReductionCall("SYNA", 9701, 150, 100, 100, 10, "20270115")
+	in := mandateReductionInput{MaxOrderNotional: 1e9, MaxOptionContracts: 5}
+	c := &mandateCut{row: row, full: 150, step: 1, units: 18}
+	if qty, waits := mandateCycleQuantity(c, in, "EUR"); qty != 5 || !strings.Contains(waits, "hold one order to 5") {
+		t.Fatalf("option cut over the contract cap: %d %q", qty, waits)
+	}
+	c = &mandateCut{row: row, full: 150, step: 1, units: 18, prevUnits: 18, prevQty: 18}
+	if qty, _ := mandateCycleQuantity(c, in, "EUR"); qty != 5 {
+		t.Fatalf("kept order above the contract cap: %d", qty)
+	}
+	c = &mandateCut{row: row, full: 150, step: 1, units: 4}
+	if qty, waits := mandateCycleQuantity(c, in, "EUR"); qty != 4 || waits != "" {
+		t.Fatalf("option cut under the contract cap: %d %q", qty, waits)
+	}
+	stock := rpc.PositionView{SecType: "STK", Currency: "EUR", Mark: 10, Multiplier: 1}
+	s := &mandateCut{row: stock, full: 150, step: 1, units: 18}
+	if qty, waits := mandateCycleQuantity(s, in, "EUR"); qty != 18 || waits != "" {
+		t.Fatalf("stock cut under the contract cap: %d %q", qty, waits)
+	}
+}

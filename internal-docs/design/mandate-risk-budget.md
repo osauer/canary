@@ -354,8 +354,12 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   risk, the risk the cut takes off and the risk after the batch.
 - **Order caps.** One order is held to the lower of
   `[buckets.risk_reduction].max_order_notional` and the `[order_limits]` cap
-  in force, at the row's mark; `mandate.units` keeps the whole cut and the
-  status `plan` both numbers. After the fill the next verdict measures the
+  in force, at the row's mark, and an option order to
+  `[order_limits].max_option_contracts` as well, whether or not the exit
+  would reduce delta (owner, 2026-11-03 20:47 CET: a cut of long calls in a
+  book that leans short raises its absolute delta, so an order sized past
+  the contract cap was refused at every send); `mandate.units` keeps the
+  whole cut and the status `plan` both numbers. After the fill the next verdict measures the
   book as it then is and sizes the remainder. As in the governor, an order
   is never held below one unit: one contract or share above a cap is the
   order gate's to judge, and it passes only as a delta-reducing exit.
@@ -369,7 +373,11 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   size; the push copy itself carries no figures by the presentation
   contract, the Protection row shows the order) and a full window, once
   per such growth, never per verdict, so "sell 100" can never become
-  "close 3,000" on the old clock. A record whose clock started before the
+  "close 3,000" on the old clock. A row served again in its episode after
+  it dropped out of the set, was blocked, or was refused at send because it
+  had moved on (`stale_revision`) keeps its clock by the same rule (owner,
+  2026-11-03 20:47 CET: each such blip restarted the 30 minutes and the
+  batch never went). A record whose clock started before the
   regular session it would be sent in, as after an overnight hold, never
   goes out on it: when that session opens it gets a fresh notice and a full
   window. The owner's veto holds the line for the rest of the episode,
@@ -384,6 +392,11 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   exposure fingerprint and the next order's size stay unchanged. Upgrading an
   existing record preserves its identity until the saved holding proves a
   change; a missing baseline or unresolved submission cannot establish a fill.
+- **Quote freshness.** The bounded-limit order prices from the bid and ask
+  alone, so its quote is the exact session's live bid and ask received
+  after the request and is dated by them, never by the last trade, which
+  for a thinly traded option is hours old while its market is live (owner,
+  2026-11-03 20:47 CET).
 - **Temporary refusal before staging.** A known temporary quote, session or
   evidence refusal that occurs before submission intent is staged keeps the
   record and veto clock, with the existing one-minute retry floor. Every retry

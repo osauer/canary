@@ -476,9 +476,12 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	}
 
 	var quote rpc.OrderQuoteSnapshot
-	if isFX {
+	switch {
+	case isFX:
 		quote, err = s.fetchPreviewFXQuote(ctx, previewAuthority, contract, timeout)
-	} else {
+	case !fixedChild && !isBond && previewPricesFromSides(p):
+		quote, err = s.fetchPreviewSidesQuote(ctx, contract, timeout, previewAuthority)
+	default:
 		quote, err = s.fetchPreviewQuoteBound(ctx, contract, timeout, previewAuthority)
 	}
 	if err != nil {
@@ -796,6 +799,28 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 //lint:ignore U1000 used by trading-tag order placement paths
 func (s *Server) fetchPreviewQuote(ctx context.Context, contract rpc.ContractParams, timeout time.Duration) (rpc.OrderQuoteSnapshot, error) {
 	return s.fetchPreviewQuoteBound(ctx, contract, timeout, nil)
+}
+
+// previewPricesFromSides reports a draft priced from the bid and ask alone
+// (bounded-limit): its quote is judged by when both sides arrived, never by
+// the last trade, which for a thinly traded option is hours old while its
+// market is live (2026-11-03 19:22 CET: every pre-authorised cut refused
+// quote_stale).
+func previewPricesFromSides(p rpc.OrderPreviewParams) bool {
+	return p.Bounded != nil || strings.EqualFold(strings.TrimSpace(p.Strategy), rpc.OrderStrategyBoundedLimit)
+}
+
+// fetchPreviewSidesQuote is fetchPreviewQuoteBound for a draft priced from
+// both sides: on the exact broker session it waits for a live bid and ask
+// received after the request and dates the quote by them.
+func (s *Server) fetchPreviewSidesQuote(ctx context.Context, contract rpc.ContractParams, timeout time.Duration, authority *orderPreviewBrokerAuthority) (rpc.OrderQuoteSnapshot, error) {
+	if s.orderPreviewQuote != nil || authority == nil {
+		return s.fetchPreviewQuoteBound(ctx, contract, timeout, authority)
+	}
+	if authority.connector == nil || contract.ConID <= 0 || !s.orderPreviewBrokerAuthorityCurrent(authority) {
+		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact broker quote authority is unavailable", ErrTradingDisabled)
+	}
+	return s.previewExactSessionContractQuote(ctx, authority, contract, timeout, true)
 }
 
 func (s *Server) fetchPreviewQuoteBound(ctx context.Context, contract rpc.ContractParams, timeout time.Duration, authority *orderPreviewBrokerAuthority) (rpc.OrderQuoteSnapshot, error) {

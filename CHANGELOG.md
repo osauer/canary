@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.33.1 — Unreleased
+
+### What's new
+
+The mandate's pre-authorised cuts reach the broker again. An option cut is
+sized to the contract cap the order gate applies, its price is judged by the
+live bid and ask rather than the last trade, and a row that drops out of the
+batch for a moment keeps the veto window it was already given.
+
+### Fixed
+
+- An option cut of the mandate's forced reduction is held to `[order_limits].max_option_contracts` per order, as it already was to the money caps. Selling long calls in a book that leans short raises its absolute delta, so the order gate kept the contract cap and refused a cut sized past it at every send; the rest goes in the next cycle.
+- A bounded-limit order (the pre-authorised cut's price) reads the exact session's live bid and ask received after the request and is dated by them. Before, its freshness was the last trade's, and a thinly traded option with a live market was refused `quote_stale` at every send.
+- A mandate row served again within its breach after it dropped out of the set, was blocked, or was refused at send because it had moved on (`stale_revision`) keeps the veto clock its notice started, by the same one-lot rule as a re-sized row. Before, each such blip, a broker reconnect or a refresh among them, gave it a fresh 30 minutes, and the batch never went. A clock started before the session the row would be sent in still restarts at that session.
+
 ## v3.33.0 — 2026-11-03 20:10 CET
 
 ### What's new
