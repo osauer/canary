@@ -55,8 +55,9 @@ proposal the owner confirms by writing it into the policy file.
     at risk per name first, until the book fits the maximum loss; and on
     2026-11-03 10:51 CET (owner, spec TM-05.18): cheapest relief first, the
     most of the loss measure removed per unit of market value given up, in
-    the gap and premium phases and in the batch's dispatch order (expiry
-    cuts still lead).
+    the gap and premium phases; the batch is sent nearest expiry first,
+    options before shares, the cheaper relief first within one expiry
+    (owner, 2026-11-03 11:21 CET), behind the expiry cuts.
   - Sleeve volatility shares of the 15%: owner 7, core 6, overlay 4. Recorded
     here as `[mandate.sleeves]`; enforcement per sleeve comes later. Since
     2026-10-18 the machine's `[mandate.sleeves]` numbers size its allocations

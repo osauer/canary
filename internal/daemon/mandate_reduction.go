@@ -227,6 +227,7 @@ type mandateCut struct {
 	// row's sessions to expiry.
 	loss         float64
 	value        float64
+	relief       float64
 	lossCut      float64
 	contribution float64
 	gapLoss      *float64
@@ -805,6 +806,11 @@ func mandateSizeBatchBy(verdictBook mandate.Input, candidates map[string]*mandat
 	for _, rep := range base.Legs {
 		if c, ok := candidates[rep.ID]; ok {
 			c.contribution, c.loss, c.value = rep.ContributionPct, rep.LossBase, math.Abs(rep.ValueBase)
+			// The batch's order is the relief on the verdict itself; a later
+			// pass re-reads c.loss as what is left of the leg, which must not
+			// move its place (3 Nov: a leg cut in the gap phase and re-read
+			// as its remainder ranked last).
+			c.relief = mandateRelief(c.loss, c.value)
 		}
 	}
 	for id := range candidates {
@@ -826,10 +832,11 @@ func mandateSizeBatchBy(verdictBook mandate.Input, candidates map[string]*mandat
 	if base.Loss != nil {
 		batch.lossBefore = base.Loss.TotalBase
 	}
-	// Expiry cuts lead the batch; the rest go cheapest relief first: the
-	// most of the loss measure removed per unit of market value given up
-	// (spec TM-05.18), so a deep out-of-the-money option goes before a dated
-	// one and both before shares, whatever name or phase cut them.
+	// Expiry cuts lead the batch; the rest go nearest expiry first, options
+	// before shares, and within an expiry cheapest relief first: the most of
+	// the loss measure removed per unit of market value given up (spec
+	// TM-05.18, owner 2026-11-03 10:51 and 11:21 CET), whatever name or phase
+	// cut them.
 	batch.cuts = slices.DeleteFunc(slices.Clone(z.cuts), func(c *mandateCut) bool { return c.units <= 0 })
 	slices.SortStableFunc(batch.cuts, func(a, b *mandateCut) int {
 		if c := cmp.Compare(boolRank(a.phase != rpc.MandatePhaseExpiry), boolRank(b.phase != rpc.MandatePhaseExpiry)); c != 0 {
@@ -977,7 +984,8 @@ func (z *mandateSizer) sizeMain() {
 // cheapestPremium picks the next premium cut: the leg still reducible that
 // removes the most of the loss measure per unit of market value given up
 // (spec TM-05.18, owner 2026-11-03 10:51 CET; it replaces the 27 Oct order
-// of the largest premium per name). A deep out-of-the-money option, whose
+// of the largest premium per name). The batch then sells its cuts nearest
+// expiry first (mandateCheaperFirst). A deep out-of-the-money option, whose
 // premium at risk is its price paid while it is worth little, goes first;
 // a dated option worth about what it cost next; shares, whose loss to the
 // stop is a fraction of their value, last. Ties go to the larger loss.
@@ -1022,16 +1030,30 @@ func mandateCheaper(a, av, b, bv float64) bool {
 	return a > b
 }
 
-// mandateCheaperFirst orders two sized cuts cheapest relief first, the
+// mandateCheaperFirst orders two sized cuts: the nearer expiry first,
+// options before shares, then the higher relief on the verdict, the
 // contract id breaking a tie so the order is stable across verdicts.
 func mandateCheaperFirst(a, b *mandateCut) int {
-	switch {
-	case mandateCheaper(a.loss, a.value, b.loss, b.value):
-		return -1
-	case mandateCheaper(b.loss, b.value, a.loss, a.value):
-		return 1
+	if c := cmp.Compare(mandateExpiryKey(a), mandateExpiryKey(b)); c != 0 {
+		return c
+	}
+	if c := cmp.Compare(b.relief, a.relief); c != 0 {
+		return c
 	}
 	return cmp.Compare(a.id, b.id)
+}
+
+// mandateExpiryKey sorts a cut by its option's expiry, nearest first; a
+// share line, which never expires, sorts after every option (owner
+// 2026-11-03 11:21 CET: the earlier expiries sell first).
+func mandateExpiryKey(c *mandateCut) string {
+	if c.leg.Kind != mandate.KindOption {
+		return "99999999"
+	}
+	if e := strings.ReplaceAll(strings.TrimSpace(c.row.Expiry), "-", ""); e != "" {
+		return e
+	}
+	return "99999998"
 }
 
 // mandateSleeveUseOf is one sleeve's use on a verdict: its allocation's use,

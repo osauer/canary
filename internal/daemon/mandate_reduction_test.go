@@ -686,7 +686,7 @@ func TestMandateReductionCutsTheCheapestReliefFirst(t *testing.T) {
 	cheap := mandateReductionCall("SYNA", 9101, 20, 150, 100, 0.4, "20261120") // deep out of the money
 	cheap.AvgCost = 3 * 100                                                    // paid 3.00, worth 0.40
 	dated := mandateReductionCall("SYNB", 9102, 10, 80, 100, 24, "20270115")   // worth about what it cost
-	pos := mandateReductionBook(cheap, dated, mandateReductionStock("SYNC", 9003, 2000, 100))
+	pos := mandateReductionBook(cheap, dated, mandateReductionStock("IBCF", 9004, 2000, 100))
 	in := mandateReductionFixture(t, pos, 3, 1e7, 2)
 	rows, st := mandateReductionRun(t, in, pos)
 	if len(rows) < 2 {
@@ -694,8 +694,8 @@ func TestMandateReductionCutsTheCheapestReliefFirst(t *testing.T) {
 	}
 	assertMandateRowsReduceOnly(t, rows, pos)
 	for i := 1; i < len(rows); i++ {
-		if mandateRowRelief(in, rows[i]) > mandateRowRelief(in, rows[i-1])+1e-9 {
-			t.Fatalf("row %d (%s) is cheaper relief than row %d (%s)", i+1, rows[i].Symbol, i, rows[i-1].Symbol)
+		if rows[i].Contract.Expiry == rows[i-1].Contract.Expiry && mandateRowRelief(in, rows[i]) > mandateRowRelief(in, rows[i-1])+1e-9 {
+			t.Fatalf("row %d (%s) is cheaper relief than row %d (%s) of the same expiry", i+1, rows[i].Symbol, i, rows[i-1].Symbol)
 		}
 	}
 	first, ok := mandateRowFor(rows, 9101)
@@ -874,5 +874,51 @@ func TestMandateCycleQuantityKeptOrderNamesItsOwnSize(t *testing.T) {
 			return strings.Contains(detail, "planned cut") && strings.Contains(detail, "150 planned contracts")
 		}) {
 		t.Fatalf("kept order and full plan were not explained separately: quantity=%d mandate=%+v reason=%s details=%q", p.Quantity, p.Mandate, p.Reason, p.Details)
+	}
+}
+
+// A cut's place in the batch is its relief on the verdict: a later pass
+// that re-reads the leg's loss as what is left of it does not move it
+// (3 Nov 2026: a call cut in the gap phase was re-read as its remainder
+// and ranked behind every other row).
+func TestMandateReductionRankIsTheVerdictRelief(t *testing.T) {
+	t.Parallel()
+	cheap := &mandateCut{id: "con:1", loss: 9500, value: 4600}
+	dear := &mandateCut{id: "con:2", loss: 7200, value: 7150}
+	for _, c := range []*mandateCut{cheap, dear} {
+		c.relief = mandateRelief(c.loss, c.value)
+	}
+	cheap.loss = 1000 // a later pass's remainder
+	cuts := []*mandateCut{dear, cheap}
+	slices.SortStableFunc(cuts, mandateCheaperFirst)
+	if cuts[0] != cheap {
+		t.Fatalf("the re-read remainder moved the cheaper cut behind: %s first", cuts[0].id)
+	}
+}
+
+// The batch sells the nearest expiry first, whatever its relief (owner
+// 2026-11-03 11:21 CET): a November call worth about its cost goes before a
+// January call deep out of the money, and options before shares; within one
+// expiry the cheaper relief goes first.
+func TestMandateReductionSellsTheNearestExpiryFirst(t *testing.T) {
+	t.Parallel()
+	cut := func(id, kind, expiry string, loss, value float64) *mandateCut {
+		c := &mandateCut{id: id, leg: mandate.Leg{Kind: kind}, row: rpc.PositionView{Expiry: expiry}, loss: loss, value: value}
+		c.relief = mandateRelief(loss, value)
+		return c
+	}
+	novDear := cut("con:1", mandate.KindOption, "20261120", 7200, 7150)
+	novCheap := cut("con:2", mandate.KindOption, "20261120", 9500, 4600)
+	janCheap := cut("con:3", mandate.KindOption, "20270115", 9400, 420)
+	feb := cut("con:4", mandate.KindOption, "2027-02-19", 18000, 14000)
+	shares := cut("con:5", mandate.KindStock, "", 1500, 12000)
+	cuts := []*mandateCut{shares, feb, janCheap, novDear, novCheap}
+	slices.SortStableFunc(cuts, mandateCheaperFirst)
+	var got []string
+	for _, c := range cuts {
+		got = append(got, c.id)
+	}
+	if want := []string{"con:2", "con:1", "con:3", "con:4", "con:5"}; !slices.Equal(got, want) {
+		t.Fatalf("order %v, want %v", got, want)
 	}
 }

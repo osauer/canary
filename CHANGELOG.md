@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Changed
 
+- The mandate's forced reduction cuts the cheapest relief first: the most of the loss measure removed per unit of market value given up, so a deep out-of-the-money option is cut before a dated one and both before shares (owner, 2026-11-03 10:51 CET, spec TM-05.18; it replaces the largest premium at risk per name). The batch is sent nearest expiry first, options before shares, the cheaper relief first within one expiry (owner, 11:21 CET); expiry cuts still lead. A pre-authorised cut gives half the way from the mid toward the bid after the open, within the line's spread cap and a worst price 25% from its mark, and goes at the mid beyond them.
 - The optional Wall Street Horizon earnings feed is checked once for the account, at startup and then daily, with one metadata read. While the account holds no WSH subscription, no symbol sends a WSH request; Nasdaq answers alone and each name records the account's verdict. A subscription added later is found at the next daily check. Before, an unentitled account paid one contract lookup per held name every five minutes.
 - `canary rules` and the brief no longer tell the trader to type an earnings date with `canary settings`. An unresolved name reads its outcome and that rules 6-8 and 20 stay unknown, never pass. The settings key remains for the owner and is documented in the settings reference only.
 
