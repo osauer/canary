@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 )
 
@@ -64,6 +65,8 @@ func checkIntegrityDB(ctx context.Context, db *sql.DB) (IntegrityReport, error) 
 	return report, nil
 }
 
+var errContentHashMismatch = errors.New("application content hash mismatch")
+
 type applicationHashCheck struct {
 	table         string
 	payloadColumn string
@@ -112,7 +115,7 @@ func checkApplicationHashes(ctx context.Context, db *sql.DB) error {
 		}
 		rows.Close()
 		if mismatches != 0 {
-			return fmt.Errorf("application content hash mismatch: table=%s rows=%d", check.table, mismatches)
+			return fmt.Errorf("%w: table=%s rows=%d", errContentHashMismatch, check.table, mismatches)
 		}
 	}
 	return nil

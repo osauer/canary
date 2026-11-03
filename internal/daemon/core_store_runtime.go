@@ -1,11 +1,16 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
@@ -72,6 +77,9 @@ func (s *Server) openCoreStore(ctx context.Context) error {
 			if err == nil {
 				store, err = corestore.Open(ctx, s.liveCoreStoreOptions(minimum))
 			}
+		}
+		if errors.Is(err, corestore.ErrDamaged) {
+			store, err = s.salvageCoreStore(ctx, minimum, err)
 		}
 	} else {
 		store, err = s.createAndPublishCoreStore(ctx)
@@ -269,4 +277,37 @@ func (s *Server) closeCoreStore() error {
 		}
 	})
 	return s.authorityCloseErr
+}
+
+// rebuildableStateKinds are the state documents the daemon fetches or derives
+// again on its own from public and broker sources. Losing one costs a refetch,
+// never an order, a limit, a receipt or a decision record.
+var rebuildableStateKinds = map[string]bool{
+	macroStateKind:            true,
+	corestore.ChartCacheKind:  true,
+	regimeHistoryStateKind:    true,
+	regimeSeriesStateKind:     true,
+	gammaZeroStateKind:        true,
+	expiryGridStateKind:       true,
+	marketEventHaltsStateKind: true,
+}
+
+// salvageCoreStore repairs a damaged authority when it lost nothing but
+// rebuildable documents (corestore.Salvage) and opens the result. Otherwise
+// the daemon stays stopped as before, naming both causes. The damaged files
+// are kept either way.
+func (s *Server) salvageCoreStore(ctx context.Context, minimum *corestore.AuthorityHead, damaged error) (*corestore.Store, error) {
+	keep := filepath.Join(filepath.Dir(s.coreStorePath), "damaged")
+	result, err := corestore.Salvage(ctx, s.coreStorePath, *minimum, keep, func(kind string) bool { return rebuildableStateKinds[kind] })
+	if err != nil {
+		return nil, fmt.Errorf("%w; automatic repair refused: %v; the damaged files are kept in %s", damaged, err, cmp.Or(result.Preserved, keep))
+	}
+	kinds := slices.Sorted(maps.Keys(result.Dropped))
+	parts := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		parts = append(parts, fmt.Sprintf("%d %s", result.Dropped[kind], kind))
+	}
+	s.logger.Warnf("daemon authority was damaged and is repaired: %v; dropped %s, which the daemon fetches again; the damaged files are kept in %s",
+		damaged, cmp.Or(strings.Join(parts, ", "), "nothing"), result.Preserved)
+	return corestore.Open(ctx, s.liveCoreStoreOptions(minimum))
 }

@@ -157,6 +157,7 @@ func StopDaemon(pid int, timeout time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("find pid %d: %w", pid, err)
 	}
+	noteStopRequest(pid, "SIGTERM")
 	if err := proc.Signal(syscall.SIGTERM); err != nil {
 		// ESRCH or os.ErrProcessDone = process already gone — treat
 		// as success. The Go runtime returns ErrProcessDone for PIDs
@@ -195,6 +196,7 @@ func KillDaemon(pid int, timeout time.Duration) error {
 	if err != nil {
 		return fmt.Errorf("find pid %d: %w", pid, err)
 	}
+	noteStopRequest(pid, "SIGKILL")
 	if err := proc.Signal(syscall.SIGKILL); err != nil {
 		if errors.Is(err, syscall.ESRCH) || errors.Is(err, os.ErrProcessDone) {
 			return nil
@@ -209,4 +211,36 @@ func KillDaemon(pid int, timeout time.Duration) error {
 		time.Sleep(restartPoll)
 	}
 	return fmt.Errorf("daemon (pid %d) did not exit within %s after SIGKILL", pid, timeout)
+}
+
+// noteStopRequest appends one line to the daemon log naming who asks the
+// daemon to stop, before the signal goes out. A graceful stop leaves no line
+// of its own, so the stop at 2026-11-03 06:51:29 CET that exposed a damaged
+// authority could not be attributed. Best-effort: it never creates the log
+// and never delays the stop.
+func noteStopRequest(pid int, signal string) {
+	path := dial.DefaultLogPath()
+	if path == "stderr" {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	describe := func(p int) string {
+		cmd, err := procinfo.CommandLine(ctx, p)
+		if err != nil {
+			return "unknown"
+		}
+		if len(cmd) > 160 {
+			cmd = cmd[:160] + "…"
+		}
+		return cmd
+	}
+	self, parent := os.Getpid(), os.Getppid()
+	msg := fmt.Sprintf("daemon pid %d: %s requested by pid %d (%s), parent pid %d (%s)", pid, signal, self, describe(self), parent, describe(parent))
+	_, _ = fmt.Fprintf(f, "time=%s level=INFO msg=%q\n", time.Now().Format("2006-01-02T15:04:05.000Z07:00"), msg)
 }

@@ -297,9 +297,25 @@ order-ID floors must agree before writes resume.
 
 A damaged or rolled-back `daemon.db`, a missing `daemon.db.head` watermark, or
 a preview signer key that does not match the database's authority generation
-stops the daemon before it serves its socket. Nothing is repaired or restored
-automatically: order-safety state (consumed preview tokens, order-ID floors,
-open order chains) must never roll back.
+stops the daemon before it serves its socket. Order-safety state (consumed
+preview tokens, order-ID floors, open order chains) must never roll back.
+
+One case repairs itself. When the startup check finds damaged pages or
+content, the daemon first copies the damaged files into
+`~/.local/state/ibkr/damaged/`, then rebuilds the database row by row. It
+replaces the file only when all of these hold:
+
+- every row of every table copied, except state documents the daemon fetches
+  again on its own (public calendars, chart, regime and gamma caches, trading
+  halts);
+- the rebuilt file passes the same integrity and content-hash checks as a
+  normal start;
+- its write head is not older than `daemon.db.head`.
+
+The daemon log then names what was dropped and where the damaged copy is.
+Anything else, including a damaged order, receipt or decision record, keeps
+the daemon stopped and follows the steps below. The damaged copies are not
+cleaned up automatically.
 
 What you see: CLI commands report `daemon socket did not appear within 5s`,
 and the daemon log (`~/.local/state/ibkr/ibkr-daemon.log`, or under

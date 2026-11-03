@@ -11,6 +11,9 @@ import (
 
 const chartCacheKind = "market_chart_history.current.v1"
 
+// ChartCacheKind names chart cache documents for callers outside the store.
+const ChartCacheKind = chartCacheKind
+
 // ChartCacheMaxBytes bounds retained chart payloads independently of broker,
 // accounting and decision evidence. SQLite pages, WAL and backups add overhead.
 const ChartCacheMaxBytes = 512 << 20
