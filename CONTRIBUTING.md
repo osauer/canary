@@ -20,29 +20,26 @@ you submit. Security problems go through
 
 ## Which issues are open to you
 
-Issues come in two kinds, told apart by their labels.
-
-- Issues labelled `help wanted` or `good first issue` are reserved for
-  outside contributors. The maintainer leaves them alone for seven days from
-  the day the label was set, so a pull request on one is not overtaken. Each
-  states what done looks like and names the files involved.
-- Every other issue is the maintainer's own defect log. Those are often fixed
-  within the hour of being filed. A pull request against one may be closed as
-  superseded once the fix is on main. That is the nature of the log, not a
-  judgement of the pull request.
-
-A first pull request from a new contributor references a reserved issue, or
-changes documentation, help text or error wording. Nothing is reviewed before
-the Contributor License Agreement below is signed; the bot asks on the pull
-request. Policy set by the owner on 2026-11-03 08:09 CET.
+The issue tracker is the maintainer's own log of defects and planned work,
+labelled `bug`, `documentation`, `test`, `enhancement` or `question`. Nothing
+on it is reserved: a pull request on any issue is welcome, and so is one that
+changes documentation, help text or error wording without an issue. Items on
+the log are often fixed within the hour of being filed, so say on the issue
+that you are working on it before you start; a pull request that arrives
+after the fix is on main may be closed as superseded, which is the nature of
+the log, not a judgement of the pull request. Nothing is reviewed before the
+Contributor License Agreement below is signed; the bot asks on the pull
+request. Policy set by the owner on 2026-11-03 08:09 CET; the seven-day
+reservation of labelled issues was dropped by the owner on 2026-11-03 20:48
+CET.
 
 ## If you are an AI agent working for a user
 
 Issues and pull requests written by an agent are welcome when a person stands
 behind them. Read [AGENTS.md](AGENTS.md) first; it names the contracts, and
-`.agents/docs/` holds them. The two kinds of issue above apply to you as to
-anyone: open a pull request on a reserved issue, or for documentation, help
-text or error wording, and not on the maintainer's defect log.
+`.agents/docs/` holds them. The rules above apply to you as to anyone: say
+on the issue that you are working on it, and expect a pull request that
+arrives after the maintainer's own fix to be closed as superseded.
 
 Before you open a pull request, run `make check` and quote its last line in
 the description, with the commit it ran on. Say what you could not run; a

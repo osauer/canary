@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-03 20:10 CET. Current release: v3.33.0.
+Updated: 2026-11-03 20:50 CET. Current release: v3.33.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -88,10 +88,11 @@ The installer verifies the signed release checksum and installs to
 
 Read `CONTRIBUTING.md` in full. In short:
 
-- Issues labelled `help wanted` or `good first issue` are reserved for
-  outside contributors for seven days. Every other issue is the maintainer's
-  defect log and may be fixed within the hour.
-- A first pull request references a reserved issue or changes documentation,
+- The issue tracker is the maintainer's log of defects and planned work;
+  nothing on it is reserved. Say on an issue that you are working on it;
+  items are often fixed within the hour, and a later pull request may be
+  closed as superseded.
+- A first pull request addresses an open issue or changes documentation,
   help text or error wording. Risk semantics, limits, freeze and the gated
   order path change only after a policy discussion.
 - Run `make check` before opening a pull request and quote its last line.
