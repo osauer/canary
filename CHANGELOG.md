@@ -27,6 +27,7 @@ All notable changes to this project are documented here. The project adheres to 
 - A market data type notice (live, frozen, delayed) reaches the handlers registered for it. Snapshot reads now report whether the quote was delayed instead of an unknown type.
 - A stock, cash or bond row in a `reqPositions` answer carries one unit as its multiplier, as the streaming portfolio rows do. Before, every such row read a multiplier of 100 because the broker sends the option slots empty for every security type.
 - A market data line refreshed after going stale forgets its cancelled request id. Before, a "no security definition" or "not subscribed" answer the broker had already queued for the cancelled request was read as the verdict on the replacement, which then stood as absent for up to thirty minutes.
+- A paper order gate that names its connection by endpoint alone is checked against the connected host and port. Before, such a gate passed against any connection; the daemon always supplied host and port as well, so no order was affected.
 - A WhatIf preview answered in the legacy openOrder layout (API server versions 145 to 202) is matched to its order by the server version instead of a guess at a version field, which took the preview's conId for the order id and let the preview time out.
 
 ## v3.32.1 — 2026-10-31 09:03 CET

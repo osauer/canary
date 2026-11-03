@@ -41,11 +41,13 @@ func (g PaperOrderGate) validateConnection(c *Connection) error {
 		!strings.EqualFold(strings.TrimSpace(c.config.Account), strings.TrimSpace(g.Account)) {
 		return fmt.Errorf("paper order gate account %q does not match connection account %q", g.Account, c.config.Account)
 	}
-	host := strings.TrimSpace(g.Host)
+	// Endpoint takes precedence over Host and Port, as validate() reads it;
+	// an endpoint-only gate must be checked against the connection too.
+	host, port := g.endpointParts()
+	host = strings.TrimSpace(host)
 	if host == "" {
 		host = strings.TrimSpace(c.config.Host)
 	}
-	port := g.Port
 	if port == 0 {
 		port = c.config.Port
 	}
