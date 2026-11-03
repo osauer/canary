@@ -1,0 +1,58 @@
+# canary rules · COLUMNS=80 · colour off
+Trading rulebook · 5 Sep 14:00 TZ · policy rulebook-synthetic v3 (your file)
+  holds rule 3 premium budget at watch or act: orders that add to them are held
+             (advisory)
+  input tape      stale last bar 41 minutes old
+
+ACT    1  Worst-case loss on one issuer  single_name_exposure
+          Worst-case loss on the largest issuer is 13.7% of net liquidation,
+          above the 11.5% act level.
+          • SYNA — act at 13.7% NLV: largest issuer
+          • SYNB — watch at 9.3% NLV
+WATCH  3  Premium budget  cash_sell_only
+          Option premium held is 6.3% of net liquidation, above the 5.75% watch
+          level.
+          Levels: watch 5.75% NLV · act 8.25% NLV
+          • SYNA 20261218 C 47 — largest line
+WATCH 12  Index protection size  hedge_integrity
+          Protection short delta is 17.9% of gross long exposure, below the
+          27.5–46.5% range.
+          exempt: SPY 20261218 P 605 — portfolio protection
+          Thresholds: early-warning set · stage as of 5 Sep 13:37 TZ
+?      5  Options nearing expiry  expiry_runway
+          Option expiries could not be read; the rule stays unknown, never pass.
+--        rule 9 is turned off in the Rulebook policy; rule 17 has no clusters
+          declared to test (--all lists them)
+
+1 act, 2 watch, 1 unknown, 0 info, 1 pass, 2 not evaluated
+Earnings unresolved: SYNB (provider transport failed) — rules 6-8 and 20 stay
+  unknown, never pass.
+# canary rules · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mTrading rulebook\x1b[0m · 5 Sep 14:00 TZ · policy rulebook-synthetic v3 (your file)
+  holds rule 3 premium budget at watch or act: orders that add to them are held
+             (advisory)
+  input tape      stale last bar 41 minutes old
+
+\x1b[31mACT  \x1b[0m  1  Worst-case loss on one issuer  \x1b[2msingle_name_exposure\x1b[0m
+          Worst-case loss on the largest issuer is 13.7% of net liquidation,
+          above the 11.5% act level.
+          • SYNA — act at 13.7% NLV: largest issuer
+          • SYNB — watch at 9.3% NLV
+\x1b[33mWATCH\x1b[0m  3  Premium budget  \x1b[2mcash_sell_only\x1b[0m
+          Option premium held is 6.3% of net liquidation, above the 5.75% watch
+          level.
+          \x1b[2mLevels: watch 5.75% NLV · act 8.25% NLV\x1b[0m
+          • SYNA 20261218 C 47 — largest line
+\x1b[33mWATCH\x1b[0m 12  Index protection size  \x1b[2mhedge_integrity\x1b[0m
+          Protection short delta is 17.9% of gross long exposure, below the
+          27.5–46.5% range.
+          exempt: SPY 20261218 P 605 — portfolio protection
+          \x1b[2mThresholds: early-warning set · stage as of 5 Sep 13:37 TZ\x1b[0m
+\x1b[33m?    \x1b[0m  5  Options nearing expiry  \x1b[2mexpiry_runway\x1b[0m
+          Option expiries could not be read; the rule stays unknown, never pass.
+\x1b[2m--        rule 9 is turned off in the Rulebook policy; rule 17 has no clusters\x1b[0m
+          \x1b[2mdeclared to test (--all lists them)\x1b[0m
+
+\x1b[31m1 act\x1b[0m, \x1b[33m2 watch\x1b[0m, 1 unknown, 0 info, 1 pass, 2 not evaluated
+Earnings unresolved: SYNB (provider transport failed) — rules 6-8 and 20 stay
+  unknown, never pass.

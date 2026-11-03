@@ -1,0 +1,44 @@
+# canary data health · COLUMNS=80 · colour off
+Some sources need attention
+Required 5 · current 4 · limited 2 · unavailable 1 · unverified 0
+1 limited source(s) awaiting the publisher; not counted as source problems.
+Report 2026-09-05 14:00:00 TZ · valid until 2026-09-05 14:05:00 TZ
+Needs attention
+  Option quotes are not arriving [unavailable]
+  Credit spread awaits the publisher [limited]
+
+Account values: updating every few seconds [current]
+
+Option quotes: nothing for 17 minutes [unavailable]
+  Live access: not subscribed (IBKR 354); retry 2026-09-05 14:13 TZ
+  The broker refused the market-data request.
+  Next: Check the option market-data subscription in the broker portal.
+
+High-yield credit spread: last value from 3 Sep [limited]
+  The publisher has not released the 4 Sep value yet.
+  Next: No action; the value arrives when the publisher releases it.
+
+Sources 1–3 of 7; more sources:
+canary data health --offset 3 --revision rev-synthetic-0905
+# canary data health · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[33mSome sources need attention\x1b[0m
+Required 5 · current 4 · limited 2 · unavailable 1 · unverified 0
+1 limited source(s) awaiting the publisher; not counted as source problems.
+Report 2026-09-05 14:00:00 TZ · valid until 2026-09-05 14:05:00 TZ
+\x1b[1mNeeds attention\x1b[0m
+  \x1b[31mOption quotes are not arriving [unavailable]\x1b[0m
+  \x1b[33mCredit spread awaits the publisher [limited]\x1b[0m
+
+\x1b[32mAccount values: updating every few seconds [current]\x1b[0m
+
+\x1b[31mOption quotes: nothing for 17 minutes [unavailable]\x1b[0m
+  Live access: not subscribed (IBKR 354); retry 2026-09-05 14:13 TZ
+  The broker refused the market-data request.
+  Next: Check the option market-data subscription in the broker portal.
+
+\x1b[1mHigh-yield credit spread: last value from 3 Sep [limited]\x1b[0m
+  The publisher has not released the 4 Sep value yet.
+  Next: No action; the value arrives when the publisher releases it.
+
+Sources 1–3 of 7; more sources:
+canary data health --offset 3 --revision rev-synthetic-0905

@@ -1,0 +1,42 @@
+# canary order status canary-20260905-113702 · COLUMNS=80 · colour off
+
+Canary Order Status  WORKING
+Scope          DU0000000 paper
+Latest local event
+               2026-09-05T13:37:00+02:00
+Source         local journal and broker session; not a broker statement
+Order          canary-20260905-113702 BUY 37 SYNA LMT 46.8300 DAY
+Broker ID      417
+Perm ID        900000417
+Account        DU0000000
+Status         Submitted
+Filled         12 / 37
+Message        Partially filled at the limit.
+Updated        2026-09-05T13:37:00+02:00
+
+Events:
+  - 2026-09-05T11:38:00+02:00  submitted  submitted
+  - 2026-09-05T11:39:00+02:00  status  working  Order accepted by the broker.
+  - 2026-09-05T13:37:00+02:00  fill  working  Partially filled at the limit.
+
+# canary order status canary-20260905-113702 · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary Order Status  \x1b[2m\x1b[1mWORKING\x1b[0m\x1b[0m
+\x1b[2mScope         \x1b[0m DU0000000 paper
+\x1b[2mLatest local event\x1b[0m
+\x1b[2m              \x1b[0m 2026-09-05T13:37:00+02:00
+\x1b[2mSource        \x1b[0m local journal and broker session; not a broker statement
+\x1b[2mOrder         \x1b[0m canary-20260905-113702 BUY 37 SYNA LMT 46.8300 DAY
+\x1b[2mBroker ID     \x1b[0m 417
+\x1b[2mPerm ID       \x1b[0m 900000417
+\x1b[2mAccount       \x1b[0m DU0000000
+\x1b[2mStatus        \x1b[0m Submitted
+\x1b[2mFilled        \x1b[0m 12 / 37
+\x1b[2mMessage       \x1b[0m Partially filled at the limit.
+\x1b[2mUpdated       \x1b[0m 2026-09-05T13:37:00+02:00
+
+Events:
+  - 2026-09-05T11:38:00+02:00  submitted  submitted
+  - 2026-09-05T11:39:00+02:00  status  working  Order accepted by the broker.
+  - 2026-09-05T13:37:00+02:00  fill  working  Partially filled at the limit.
+

@@ -1,0 +1,18 @@
+# canary rules history · COLUMNS=80 · colour off
+Rules history  2026-08-29 → 2026-09-05 UTC  4 of 7 rows (truncated; raise --limit)
+  AT (UTC)          RULE                  WAS→STATUS    EVIDENCE
+  2026-09-05 11:37  single_name_exposure  watch→act     Worst-case loss on the .
+  2026-09-04 15:02  cash_sell_only        pass→watch    Option premium held is .
+  2026-09-03 09:48  single_name_exposure  pass→watch    Worst-case loss on the .
+  2026-09-01 13:26  hedge_integrity       watch         Protection short delta .
+  source: daemon.db · direct history read
+  policy rulebook-synthetic v3
+# canary rules history · COLUMNS=80 · colour on, ESC written as \x1b
+Rules history  2026-08-29 → 2026-09-05 UTC  4 of 7 rows (truncated; raise --limit)
+  \x1b[2mAT (UTC)          RULE                  WAS→STATUS    EVIDENCE\x1b[0m
+  2026-09-05 11:37  single_name_exposure  watch→act     Worst-case loss on the .
+  2026-09-04 15:02  cash_sell_only        pass→watch    Option premium held is .
+  2026-09-03 09:48  single_name_exposure  pass→watch    Worst-case loss on the .
+  2026-09-01 13:26  hedge_integrity       watch         Protection short delta .
+  \x1b[2msource: daemon.db · direct history read\x1b[0m
+  \x1b[2mpolicy rulebook-synthetic v3\x1b[0m

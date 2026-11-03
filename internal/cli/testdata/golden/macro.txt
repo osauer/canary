@@ -1,0 +1,42 @@
+# canary macro · COLUMNS=80 · colour off
+Economic calendar · PARTIAL
+2026-09-05 to 2026-09-18
+4 events · 2 publications · 4 sources
+BEA release schedule · available · stale
+  3 failed attempts · last success 2026-09-04 07:00 TZ
+  Coverage: release_calendar · 2026-09-01 to 2026-09-12
+Federal Reserve calendar · unavailable
+  The publisher answered with a server error.
+  2 failed attempts · last success 2026-09-04 12:00 TZ
+
+Scheduled events
+  2026-09-07 14:30 TZ · Employment Situation
+  2026-09-10 14:15 TZ · Monetary policy decision
+  2026-09-11 · 8:30 AM (source label) · Personal Income and Outlays
+  2026-09-15 · time unspecified · FOMC meeting, day one
+
+Official publications
+  Speech on the balance sheet outlook
+  Liberty Street note on reserve demand
+Official source coverage only; missing feeds do not establish an event-free day.
+# canary macro · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[33mEconomic calendar · PARTIAL\x1b[0m
+\x1b[2m2026-09-05 to 2026-09-18\x1b[0m
+4 events · 2 publications · 4 sources
+\x1b[33mBEA release schedule · available · stale\x1b[0m
+  \x1b[33m3 failed attempts · last success 2026-09-04 07:00 TZ\x1b[0m
+  \x1b[2mCoverage: release_calendar · 2026-09-01 to 2026-09-12\x1b[0m
+\x1b[33mFederal Reserve calendar · unavailable\x1b[0m
+  \x1b[33mThe publisher answered with a server error.\x1b[0m
+  \x1b[33m2 failed attempts · last success 2026-09-04 12:00 TZ\x1b[0m
+
+\x1b[1mScheduled events\x1b[0m
+  2026-09-07 14:30 TZ · Employment Situation
+  2026-09-10 14:15 TZ · Monetary policy decision
+  2026-09-11 · 8:30 AM (source label) · Personal Income and Outlays
+  2026-09-15 · time unspecified · FOMC meeting, day one
+
+\x1b[1mOfficial publications\x1b[0m
+  Speech on the balance sheet outlook
+  Liberty Street note on reserve demand
+\x1b[2mOfficial source coverage only; missing feeds do not establish an event-free day.\x1b[0m

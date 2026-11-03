@@ -1,0 +1,78 @@
+# canary account · COLUMNS=80 · colour off
+
+Account  DU0000000 · base=EUR · paper · type=INDIVIDUAL
+────────────────────────────────────────────
+  Net liquidation          € 48,391.17
+  Daily P&L                   € 217.43
+  Balances
+    Buying power             € 61,374.83
+    Available funds          € 15,343.71
+    Excess liquidity         € 17,219.06
+    Total cash                € 9,137.52
+    Gross position value     € 39,253.65
+    Cushion                         0.36 ✓
+  Session P&L
+    Unrealized (open)        +€ 3,184.27
+    Realized (today)            -€ 48.36
+  Margin
+    Initial                  € 33,047.46
+    Maintenance              € 31,172.11
+  Look-ahead margin
+    Initial                  € 33,211.84
+    Maintenance              € 31,309.62
+    Available funds          € 15,179.33
+    Excess liquidity         € 17,081.55
+  Total P&L (reqPnL stream)
+    Unrealized                € 3,184.27
+    Realized                    € 642.91
+
+Currency exposure  (base=EUR)
+────────────────────────────────────────────────────────────
+  CCY       NET LIQ (CCY)        FX→BASE     NET LIQ (BASE)
+  USD         $ 31,942.18         0.8573        € 27,384.03
+  GBP          £ 1,217.36         1.1694         € 1,423.58
+
+Cash interest  (broker rates from the Flex statement's Interest Details (Tiers))
+────────────────────────────────────────────────────────────
+  EUR    credit 1.41% a year (tier 0-10000, value date 2026-09-04) · debit 5.16% a year (tier 0-100000, value date 2026-09-04)
+  USD    credit 3.14% a year (tier 0-10000, value date 2026-09-04) · debit unavailable (no debit tier in the statement)
+  as of 14:00:00 TZ
+# canary account · COLUMNS=80 · colour on, ESC written as \x1b
+
+Account  DU0000000 · base=EUR · paper · type=\x1b[2mINDIVIDUAL\x1b[0m
+\x1b[2m────────────────────────────────────────────\x1b[0m
+  Net liquidation         \x1b[1m € 48,391.17\x1b[0m
+  Daily P&L               \x1b[32m    € 217.43\x1b[0m
+\x1b[2m  Balances\x1b[0m
+    Buying power             € 61,374.83
+    Available funds          € 15,343.71
+    Excess liquidity         € 17,219.06
+    Total cash                € 9,137.52
+    Gross position value     € 39,253.65
+    Cushion                 \x1b[32m        0.36 ✓\x1b[0m
+\x1b[2m  Session P&L\x1b[0m
+    Unrealized (open)       \x1b[32m +€ 3,184.27\x1b[0m
+    Realized (today)        \x1b[31m    -€ 48.36\x1b[0m
+\x1b[2m  Margin\x1b[0m
+    Initial                  € 33,047.46
+    Maintenance              € 31,172.11
+\x1b[2m  Look-ahead margin\x1b[0m
+    Initial                  € 33,211.84
+    Maintenance              € 31,309.62
+    Available funds          € 15,179.33
+    Excess liquidity         € 17,081.55
+\x1b[2m  Total P&L (reqPnL stream)\x1b[0m
+    Unrealized              \x1b[32m  € 3,184.27\x1b[0m
+    Realized                \x1b[32m    € 642.91\x1b[0m
+
+Currency exposure  (base=EUR)
+\x1b[2m────────────────────────────────────────────────────────────\x1b[0m
+  CCY       NET LIQ (CCY)        FX→BASE     NET LIQ (BASE)
+  USD         $ 31,942.18         0.8573        € 27,384.03
+  GBP          £ 1,217.36         1.1694         € 1,423.58
+
+Cash interest  (broker rates from the Flex statement's Interest Details (Tiers))
+\x1b[2m────────────────────────────────────────────────────────────\x1b[0m
+  EUR    credit 1.41% a year (tier 0-10000, value date 2026-09-04) · debit 5.16% a year (tier 0-100000, value date 2026-09-04)
+  USD    credit 3.14% a year (tier 0-10000, value date 2026-09-04) · debit unavailable (no debit tier in the statement)
+  as of 14:00:00 TZ

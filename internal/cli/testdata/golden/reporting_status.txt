@@ -1,0 +1,20 @@
+# canary reporting status · COLUMNS=80 · colour off
+Broker reporting — action_required (flex_query_incomplete)
+  local: enabled=true  query_configured=true  token_present=true  token_private=true
+  broker: current  reachability=reachable  next_attempt=2026-09-05 15:37 TZ
+  evidence: observed  schema=flex_schema_5ynth371c  coverage_to=2026-09-04
+  missing: open_positions.markPrice, open_positions.costBasisMoney
+  absent: transfers (Transfers; section was not returned)
+  empty: cash_transactions (Cash Transactions; section returned with no rows)
+  action: Add the missing fields to the Activity Flex Query, then run canary setup reporting.
+  guide: https://osauer.dev/canary/docs/start/reporting.html
+# canary reporting status · COLUMNS=80 · colour on, ESC written as \x1b
+Broker reporting — action_required (flex_query_incomplete)
+  local: enabled=true  query_configured=true  token_present=true  token_private=true
+  broker: current  reachability=reachable  next_attempt=2026-09-05 15:37 TZ
+  evidence: observed  schema=flex_schema_5ynth371c  coverage_to=2026-09-04
+  missing: open_positions.markPrice, open_positions.costBasisMoney
+  absent: transfers (Transfers; section was not returned)
+  empty: cash_transactions (Cash Transactions; section returned with no rows)
+  action: Add the missing fields to the Activity Flex Query, then run canary setup reporting.
+  guide: https://osauer.dev/canary/docs/start/reporting.html

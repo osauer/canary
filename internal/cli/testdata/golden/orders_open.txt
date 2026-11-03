@@ -1,0 +1,34 @@
+# canary orders open · COLUMNS=80 · colour off
+
+Canary Open Orders  1
+Scope          DU0000000 paper
+Latest local event
+               2026-09-05T13:37:00+02:00
+Source         local journal and broker session; not a broker statement
+Limitations:
+  - Orders placed in another session appear only once the broker reports them.
+  canary-20260905-113702  BUY 37 SYNA LMT 46.8300 DAY
+    working  Submitted  updated 2026-09-05T13:37:00+02:00  origin canary
+    Partially filled at the limit.
+
+Working at the broker, not placed by Canary (inventory 2026-09-05T13:56:00+02:00):
+  perm 900000583  SELL 19 SYNB STP trigger=LAST GTC
+    working  PreSubmitted  origin none  tws-cancel by perm id
+
+# canary orders open · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary Open Orders  \x1b[32m\x1b[1m1\x1b[0m\x1b[0m
+\x1b[2mScope         \x1b[0m DU0000000 paper
+\x1b[2mLatest local event\x1b[0m
+\x1b[2m              \x1b[0m 2026-09-05T13:37:00+02:00
+\x1b[2mSource        \x1b[0m local journal and broker session; not a broker statement
+Limitations:
+  - Orders placed in another session appear only once the broker reports them.
+  canary-20260905-113702  BUY 37 SYNA LMT 46.8300 DAY
+    working  Submitted  updated 2026-09-05T13:37:00+02:00  origin canary
+    Partially filled at the limit.
+
+Working at the broker, not placed by Canary (inventory 2026-09-05T13:56:00+02:00):
+  perm 900000583  SELL 19 SYNB STP trigger=LAST GTC
+    working  PreSubmitted  origin none  tws-cancel by perm id
+

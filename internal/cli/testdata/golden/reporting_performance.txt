@@ -1,0 +1,10 @@
+# canary reporting performance · COLUMNS=80 · colour off
+Statement performance series — observed
+  coverage: 2026-01-02 .. 2026-09-04  equity_days=173  flows=2  unclassified_lines=2  base=EUR
+  year to date 2026-01-02 .. 2026-09-04: realised=1873.29 closes=23 commissions=-61.37 dividends=214.83 interest=37.19 withholding=-32.22 fees=-11.47 other=3.05 unconverted_trades=1
+  The series is statement closes; returns, drawdowns and comparisons are the consumer's to compute.
+# canary reporting performance · COLUMNS=80 · colour on, ESC written as \x1b
+Statement performance series — observed
+  coverage: 2026-01-02 .. 2026-09-04  equity_days=173  flows=2  unclassified_lines=2  base=EUR
+  year to date 2026-01-02 .. 2026-09-04: realised=1873.29 closes=23 commissions=-61.37 dividends=214.83 interest=37.19 withholding=-32.22 fees=-11.47 other=3.05 unconverted_trades=1
+  The series is statement closes; returns, drawdowns and comparisons are the consumer's to compute.
