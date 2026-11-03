@@ -400,3 +400,41 @@ func TestMandateReductionIgnoredRowPassesNoClockOn(t *testing.T) {
 		t.Fatalf("the ignored row's record: %s carry=%t", rec.State, rec.CarryClock)
 	}
 }
+
+// A record an older binary superseded as re-sized carries no CarryClock
+// mark; the row served after a gap still gets the paused clock.
+func TestMandateReductionLegacyResizedRecordPausesTheClock(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticMandateAuthority)
+	a := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
+	rev := rig.install(a)
+	rig.cycle()
+	rig.notice(rig.record(a.Key, rev))
+	first := rig.record(a.Key, rev)
+	rig.advance(10 * time.Minute)
+	resized := rig.mandateProposal(automaticTestStockRow(), 19, 1, 1)
+	resized.State = rpc.TradeProposalStateBlocked
+	resized.Blockers = []rpc.TradingBlocker{{Code: "quote_stale", Message: "synthetic temporary quote gap"}}
+	rig.install(resized)
+	rig.cycle()
+	if err := rig.engine.automatic.update(t.Context(), func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
+		var events []automaticSubmissionEvent
+		for _, rec := range records {
+			rec.CarryClock = false // as an older binary wrote it
+			events = append(events, automaticSubmissionEvent{At: rig.now, Type: automaticEventSuperseded, Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket, State: rec.State, AccountID: rec.AccountID, AccountMode: rec.AccountMode, Reason: rec.Reason})
+		}
+		return events
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if old := rig.record(a.Key, rev); old.State != rpc.TradeProposalAutomaticSuperseded || old.Reason != automaticEpisodeResizedReason || old.CarryClock {
+		t.Fatalf("the standing record: %s %q", old.State, old.Reason)
+	}
+	rig.advance(5 * time.Minute)
+	back := rig.mandateProposal(automaticTestStockRow(), 19, 1, 1)
+	rev2 := rig.install(back)
+	rig.cycle()
+	if rec := rig.record(back.Key, rev2); !rec.SubmitAt.Equal(first.SubmitAt.Add(5 * time.Minute)) {
+		t.Fatalf("the row back after a legacy re-size: due %s, want %s", rec.SubmitAt, first.SubmitAt.Add(5*time.Minute))
+	}
+}

@@ -735,7 +735,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 						// still running, so the usable veto time stays the
 						// whole window and a blip of seconds costs seconds.
 						// Same start and notice: the alert episode re-opens.
-						if prior.CarryClock && prior.ResolvedAt.Before(prior.SubmitAt) && now.After(prior.ResolvedAt) {
+						if (prior.CarryClock || prior.Reason == automaticEpisodeResizedReason) && prior.ResolvedAt.Before(prior.SubmitAt) && now.After(prior.ResolvedAt) {
 							rec.SubmitAt = prior.SubmitAt.Add(now.Sub(prior.ResolvedAt))
 						}
 						rec.SettlingBaseline, rec.SettlingBaselineKnown = slices.Clone(prior.SettlingBaseline), prior.SettlingBaselineKnown

@@ -612,6 +612,9 @@ type Server struct {
 	// orderPreviewSidesQuoteForTest replaces the bid/ask quote a draft priced
 	// from both sides reads (fetchPreviewSidesQuote); nil uses orderPreviewQuote.
 	orderPreviewSidesQuoteForTest func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error)
+	// orderPreviewExactQuoteForTest replaces the exact-session read under a
+	// broker authority, with whether it waits for both sides.
+	orderPreviewExactQuoteForTest func(context.Context, rpc.ContractParams, time.Duration, bool) (rpc.OrderQuoteSnapshot, error)
 	orderPreviewPositionImpact    func(context.Context, rpc.ContractParams, string, int) (rpc.OrderPositionImpact, error)
 	orderRiskAuthorityForTest     func(context.Context, rpc.TradingStatus, rpc.ContractParams, string, int) (orderPositionAuthority, error)
 	orderFXRateForTest            func(context.Context, string, string, time.Duration) (float64, time.Time, error)

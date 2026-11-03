@@ -820,10 +820,7 @@ func (s *Server) fetchPreviewSidesQuote(ctx context.Context, contract rpc.Contra
 	if s.orderPreviewQuote != nil || authority == nil {
 		return s.fetchPreviewQuoteBound(ctx, contract, timeout, authority)
 	}
-	if authority.connector == nil || contract.ConID <= 0 || !s.orderPreviewBrokerAuthorityCurrent(authority) {
-		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact broker quote authority is unavailable", ErrTradingDisabled)
-	}
-	return s.previewExactSessionContractQuote(ctx, authority, contract, timeout, true)
+	return s.exactPreviewQuote(ctx, authority, contract, timeout, true)
 }
 
 func (s *Server) fetchPreviewQuoteBound(ctx context.Context, contract rpc.ContractParams, timeout time.Duration, authority *orderPreviewBrokerAuthority) (rpc.OrderQuoteSnapshot, error) {
@@ -1466,10 +1463,20 @@ func orderQuoteSnapshotFromQuote(q *rpc.Quote) rpc.OrderQuoteSnapshot {
 }
 
 func (s *Server) previewExactSessionQuote(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration) (rpc.OrderQuoteSnapshot, error) {
+	return s.exactPreviewQuote(ctx, authority, contract, timeout, false)
+}
+
+// exactPreviewQuote reads the order's contract on the exact broker session
+// of its authority; requireBidAsk waits for, and dates the quote by, a live
+// bid and ask received after the request.
+func (s *Server) exactPreviewQuote(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration, requireBidAsk bool) (rpc.OrderQuoteSnapshot, error) {
+	if s.orderPreviewExactQuoteForTest != nil {
+		return s.orderPreviewExactQuoteForTest(ctx, contract, timeout, requireBidAsk)
+	}
 	if authority == nil || authority.connector == nil || contract.ConID <= 0 || !s.orderPreviewBrokerAuthorityCurrent(authority) {
 		return rpc.OrderQuoteSnapshot{}, fmt.Errorf("%w: exact broker quote authority is unavailable", ErrTradingDisabled)
 	}
-	return s.previewExactSessionContractQuote(ctx, authority, contract, timeout, false)
+	return s.previewExactSessionContractQuote(ctx, authority, contract, timeout, requireBidAsk)
 }
 
 // previewExactSessionFXQuote captures one direct CASH/IDEALPRO pair from the

@@ -67,3 +67,21 @@ func TestOrderPreviewRoutesABoundedLimitDraftToTheBidAskQuote(t *testing.T) {
 		t.Fatalf("explicit-limit draft read %d bid/ask and %d last-trade quotes, want 1 and 1 in all", sides, trade)
 	}
 }
+
+// Under a broker authority the bid/ask read waits for both sides; the
+// ordinary read does not.
+func TestPreviewSidesQuoteWaitsForBothSides(t *testing.T) {
+	t.Parallel()
+	var asked []bool
+	srv := &Server{orderPreviewExactQuoteForTest: func(_ context.Context, _ rpc.ContractParams, _ time.Duration, requireBidAsk bool) (rpc.OrderQuoteSnapshot, error) {
+		asked = append(asked, requireBidAsk)
+		return rpc.OrderQuoteSnapshot{}, nil
+	}}
+	contract := rpc.ContractParams{ConID: 700001, Symbol: "SYNTH", SecType: "OPT", Currency: "EUR"}
+	authority := &orderPreviewBrokerAuthority{}
+	_, _ = srv.fetchPreviewSidesQuote(t.Context(), contract, time.Second, authority)
+	_, _ = srv.fetchPreviewQuoteBound(t.Context(), contract, time.Second, authority)
+	if len(asked) != 2 || !asked[0] || asked[1] {
+		t.Fatalf("exact reads asked for both sides %v, want [true false]", asked)
+	}
+}
