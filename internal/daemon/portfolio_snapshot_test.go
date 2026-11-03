@@ -102,7 +102,7 @@ func TestPortfolioSpreadsAnIndexFundOverItsSectors(t *testing.T) {
 		t.Fatalf("premium is the asset-class value: %+v", x)
 	}
 	tech := portfolioRow(t, r, "sectors", "Information Technology")
-	if tech.ValueBase == nil || math.Abs(*tech.ValueBase-1200*38.34/100) > 1e-6 {
+	if tech.ValueBase == nil || math.Abs(*tech.ValueBase-1200*spyLookThrough.Weights["Information Technology"]/100) > 1e-6 {
 		t.Fatalf("fund value not spread by weight: %+v", tech)
 	}
 	if len(r.LookThrough) != 1 || r.LookThrough[0].Symbol != "SPY" || r.LookThrough[0].AsOf == "" {
