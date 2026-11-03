@@ -33,6 +33,22 @@ changes documentation, help text or error wording. Nothing is reviewed before
 the Contributor License Agreement below is signed; the bot asks on the pull
 request. Policy set by the owner on 2026-11-03 08:09 CET.
 
+## If you are an AI agent working for a user
+
+Issues and pull requests written by an agent are welcome when a person stands
+behind them. Read [AGENTS.md](AGENTS.md) first; it names the contracts, and
+`.agents/docs/` holds them. The two kinds of issue above apply to you as to
+anyone: open a pull request on a reserved issue, or for documentation, help
+text or error wording, and not on the maintainer's defect log.
+
+Before you open a pull request, run `make check` and quote its last line in
+the description, with the commit it ran on. Say what you could not run; a
+gateway is rarely available to you, and saying so is better than a green
+skip. Redact everything that could identify an account: ids, balances,
+positions, order references, hostnames and home paths, in prose, fixtures
+and screenshots alike. The person you work for signs the CLA and is the
+author of record; questions on the pull request are addressed to them.
+
 ## Never include account data
 
 Wire captures, daemon logs, `--json` output, and screenshots routinely contain
