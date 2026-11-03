@@ -304,17 +304,20 @@ func TestMandateReductionRowBackWithinItsBreachKeepsTheClock(t *testing.T) {
 	if gone := rig.record(a.Key, rev); gone.State != rpc.TradeProposalAutomaticSuperseded {
 		t.Fatalf("the record of the row that dropped out: %s %q", gone.State, gone.Reason)
 	}
+	// The owner could not veto while the row was out of the set: the clock
+	// pauses for the gap, so the usable veto time stays the whole window.
 	rig.advance(5 * time.Minute)
 	back := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
 	rev = rig.install(back)
 	rig.cycle()
 	rec := rig.record(back.Key, rev)
-	if rec.State != rpc.TradeProposalAutomaticPending || !rec.SubmitAt.Equal(first.SubmitAt) || !rec.NoticedAt.Equal(first.NoticedAt) {
-		t.Fatalf("the row back within its breach: %+v, want the clock of %+v", rec, first)
+	if rec.State != rpc.TradeProposalAutomaticPending || !rec.SubmitAt.Equal(first.SubmitAt.Add(5*time.Minute)) || !rec.NoticedAt.Equal(first.NoticedAt) || !rec.CreatedAt.Equal(first.CreatedAt) {
+		t.Fatalf("the row back within its breach: %+v, want the clock of %+v paused 5 minutes", rec, first)
 	}
 
-	// Due, the send is refused because the row moved on; the row served
-	// again at the next cycle keeps the clock and is attempted at once.
+	// Due, the send is refused because the row moved on; its window had run
+	// with the notice open, so the row served again keeps the clock as it
+	// stands and is attempted at once.
 	rig.advance(20 * time.Minute)
 	revalidate := rig.engine.revalidateForTest
 	stale := true
@@ -331,8 +334,52 @@ func TestMandateReductionRowBackWithinItsBreachKeepsTheClock(t *testing.T) {
 		t.Fatalf("the record refused stale_revision: %s %q", refused.State, refused.Reason)
 	}
 	rig.cycle()
-	if rec := rig.record(back.Key, rev); !rec.SubmitAt.Equal(first.SubmitAt) || !rec.NoticedAt.Equal(first.NoticedAt) {
-		t.Fatalf("the row served again after stale_revision: %+v, want the clock of %+v", rec, first)
+	if again := rig.record(back.Key, rev); !again.SubmitAt.Equal(rec.SubmitAt) || !again.NoticedAt.Equal(first.NoticedAt) {
+		t.Fatalf("the row served again after stale_revision: %+v, want the clock of %+v", again, rec)
+	}
+}
+
+// A row out of the set past its deadline is not sent the moment it returns:
+// the owner, who could not veto it while it was out, keeps the rest of the
+// window.
+func TestMandateReductionRowBackAfterItsDeadlineWaitsTheRestOfTheWindow(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticMandateAuthority)
+	a := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
+	rev := rig.install(a)
+	rig.cycle()
+	rig.notice(rig.record(a.Key, rev))
+	first := rig.record(a.Key, rev)
+	rig.advance(10 * time.Minute)
+	rig.install()
+	rig.cycle()
+	rig.advance(35 * time.Minute) // past the old deadline
+	rev = rig.install(rig.mandateProposal(automaticTestStockRow(), 20, 1, 1))
+	rig.cycle()
+	rec := rig.record(a.Key, rev)
+	if rig.revalidations != 0 || rec.State != rpc.TradeProposalAutomaticPending {
+		t.Fatalf("a row back past its deadline was attempted at once: %d attempts, %+v", rig.revalidations, rec)
+	}
+	usable := first.SubmitAt.Sub(first.NoticedAt)
+	if before, after := 10*time.Minute, rec.SubmitAt.Sub(rig.now); before+after != usable {
+		t.Fatalf("usable veto time %s + %s, want the window %s", before, after, usable)
+	}
+}
+
+// Proposals switched off by config is the owner's act: the rows that leave
+// pass no clock on.
+func TestMandateReductionProposalsDisabledPassesNoClockOn(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticMandateAuthority)
+	a := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
+	rev := rig.install(a)
+	rig.cycle()
+	rig.installWith(func(snap *rpc.TradeProposalSnapshot) {
+		snap.Blockers = []rpc.TradingBlocker{{Code: "proposals_disabled", Message: "manual protection proposals are disabled by config"}}
+	})
+	rig.cycle()
+	if rec := rig.record(a.Key, rev); rec.State != rpc.TradeProposalAutomaticSuperseded || rec.CarryClock {
+		t.Fatalf("the record of a row gone with proposals disabled: %s carry=%t", rec.State, rec.CarryClock)
 	}
 }
 

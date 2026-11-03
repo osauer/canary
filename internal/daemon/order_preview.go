@@ -814,6 +814,9 @@ func previewPricesFromSides(p rpc.OrderPreviewParams) bool {
 // both sides: on the exact broker session it waits for a live bid and ask
 // received after the request and dates the quote by them.
 func (s *Server) fetchPreviewSidesQuote(ctx context.Context, contract rpc.ContractParams, timeout time.Duration, authority *orderPreviewBrokerAuthority) (rpc.OrderQuoteSnapshot, error) {
+	if s.orderPreviewSidesQuoteForTest != nil {
+		return s.orderPreviewSidesQuoteForTest(ctx, contract, timeout)
+	}
 	if s.orderPreviewQuote != nil || authority == nil {
 		return s.fetchPreviewQuoteBound(ctx, contract, timeout, authority)
 	}

@@ -608,12 +608,15 @@ type Server struct {
 	// last redialled.
 	answerPath answerPathSupervisor
 	// orderPreview* hooks let tests exercise the full preview gate/token path
-	orderPreviewQuote            func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error)
-	orderPreviewPositionImpact   func(context.Context, rpc.ContractParams, string, int) (rpc.OrderPositionImpact, error)
-	orderRiskAuthorityForTest    func(context.Context, rpc.TradingStatus, rpc.ContractParams, string, int) (orderPositionAuthority, error)
-	orderFXRateForTest           func(context.Context, string, string, time.Duration) (float64, time.Time, error)
-	orderContractResolverForTest func(context.Context, rpc.ContractParams, time.Duration) (rpc.ContractParams, error)
-	orderBondDetailsForTest      func(context.Context, int, string) ([]ibkrlib.BondContractDetails, error)
+	orderPreviewQuote func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error)
+	// orderPreviewSidesQuoteForTest replaces the bid/ask quote a draft priced
+	// from both sides reads (fetchPreviewSidesQuote); nil uses orderPreviewQuote.
+	orderPreviewSidesQuoteForTest func(context.Context, rpc.ContractParams, time.Duration) (rpc.OrderQuoteSnapshot, error)
+	orderPreviewPositionImpact    func(context.Context, rpc.ContractParams, string, int) (rpc.OrderPositionImpact, error)
+	orderRiskAuthorityForTest     func(context.Context, rpc.TradingStatus, rpc.ContractParams, string, int) (orderPositionAuthority, error)
+	orderFXRateForTest            func(context.Context, string, string, time.Duration) (float64, time.Time, error)
+	orderContractResolverForTest  func(context.Context, rpc.ContractParams, time.Duration) (rpc.ContractParams, error)
+	orderBondDetailsForTest       func(context.Context, int, string) ([]ibkrlib.BondContractDetails, error)
 	// orderBondLookupForTest replaces the preview's bond lookup by identifier.
 	orderBondLookupForTest func(context.Context, ibkrlib.BondContractRequest) ([]ibkrlib.BondContractDetails, error)
 	// orderDeltaPositionsForTest replaces the positions read the

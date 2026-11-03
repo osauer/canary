@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"context"
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -34,5 +36,34 @@ func TestBoundedLimitPreviewJudgesTheSidesNotTheLastTrade(t *testing.T) {
 	sides := s.exactBidAskQuoteSnapshot(quote(), contract, now.Add(-3*time.Second), now.Add(-2*time.Second), now.Add(-time.Second))
 	if _, err := boundedLimitPrice(rpc.OrderActionSell, bound, nil, contract, sides); err != nil {
 		t.Fatalf("live sides with an hour-old trade: %v", err)
+	}
+}
+
+// Through the preview: a bounded-limit draft reads the bid/ask quote, and a
+// draft with its own limit the ordinary one.
+func TestOrderPreviewRoutesABoundedLimitDraftToTheBidAskQuote(t *testing.T) {
+	t.Parallel()
+	srv := newOrderPreviewTestServer(t, config.Trading{Mode: config.TradingModePaper})
+	plain := fixedPreviewQuote(2.4, 2.6)
+	var trade, sides int
+	srv.orderPreviewQuote = func(ctx context.Context, c rpc.ContractParams, d time.Duration) (rpc.OrderQuoteSnapshot, error) {
+		trade++
+		return plain(ctx, c, d)
+	}
+	srv.orderPreviewSidesQuoteForTest = func(ctx context.Context, c rpc.ContractParams, d time.Duration) (rpc.OrderQuoteSnapshot, error) {
+		sides++
+		return plain(ctx, c, d)
+	}
+	srv.orderPreviewPositionImpact = fixedPreviewPosition(4, 2, rpc.OrderPositionEffectReduce)
+	contract := rpc.ContractParams{ConID: 700001, Symbol: "SYNTH", SecType: "OPT", Currency: "EUR", Expiry: "20261218", Right: "C", Strike: 50, Multiplier: 100}
+	_, _ = srv.previewOrder(t.Context(), rpc.OrderPreviewParams{Action: "sell", Quantity: 2, Contract: contract, Strategy: rpc.OrderStrategyBoundedLimit,
+		Bounded: &rpc.OrderBoundedLimit{Concession: 0.5, WorstPrice: 1, MaxSpreadPctOfMid: 50}})
+	if sides != 1 || trade != 0 {
+		t.Fatalf("bounded-limit draft read %d bid/ask and %d last-trade quotes, want 1 and 0", sides, trade)
+	}
+	limit := 2.5
+	_, _ = srv.previewOrder(t.Context(), rpc.OrderPreviewParams{Action: "sell", Quantity: 2, Contract: contract, LimitPrice: &limit})
+	if sides != 1 || trade != 1 {
+		t.Fatalf("explicit-limit draft read %d bid/ask and %d last-trade quotes, want 1 and 1 in all", sides, trade)
 	}
 }

@@ -157,9 +157,10 @@ type automaticSubmissionRecord struct {
 	ClockQuantity int    `json:"clock_quantity,omitempty"`
 	// CarryClock marks a mandate record superseded for a reason that is not
 	// the owner's act (re-sized, dropped out of the set, blocked, or refused
-	// at send because the row moved on): the row served again in the same
-	// breach keeps this record's veto clock (owner, 2026-11-03 20:47 CET,
-	// "ok fix them"). A clock started before the session the row would be
+	// at send because the row moved on; never ignored or proposals switched
+	// off): the row served again in the same breach keeps this record's veto
+	// clock, paused for the gap (owner, 2026-11-03 20:47 CET, "ok fix them";
+	// review 21:17 CET). A clock started before the session the row would be
 	// sent in still restarts at that session (automaticNewSessionReason).
 	CarryClock bool `json:"carry_clock,omitempty"`
 }
@@ -626,12 +627,14 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 	queued := e.queuedLiveKeys(snap.Proposals)
 	// A row the owner ignored leaves the set by the owner's act: its record
 	// passes no clock on (CarryClock).
+	// So do the rows of a snapshot the owner's config switched off.
 	ignored := map[string]bool{}
 	e.mu.Lock()
 	for k := range e.ignored {
 		ignored[k] = true
 	}
 	e.mu.Unlock()
+	disabled := slices.ContainsFunc(snap.Blockers, func(b rpc.TradingBlocker) bool { return b.Code == "proposals_disabled" })
 	err := e.automatic.update(ctx, func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
 		var events []automaticSubmissionEvent
 		for _, rec := range records {
@@ -643,7 +646,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			reason, carry := "", false
 			switch {
 			case !ok:
-				reason, carry = "proposal disappeared from the current set", !ignored[scopedIgnoreKey(scope, rec.Key)]
+				reason, carry = "proposal disappeared from the current set", !disabled && !ignored[scopedIgnoreKey(scope, rec.Key)]
 			case prop.Revision != rec.Revision && rec.Episode != "" && prop.Mandate != nil && prop.Mandate.Episode == rec.Episode:
 				reason, carry = automaticEpisodeResizedReason, true
 			case prop.Revision != rec.Revision:
@@ -727,6 +730,14 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 					if !recovering && prior.State == rpc.TradeProposalAutomaticSuperseded && (prior.CarryClock || prior.Reason == automaticEpisodeResizedReason) &&
 						prop.Quantity <= prior.clockQuantity()+max(1, prop.Mandate.Lot) {
 						rec.CreatedAt, rec.SubmitAt, rec.NoticedAt = prior.CreatedAt, prior.SubmitAt, prior.NoticedAt
+						// The owner cannot veto a row out of the set: the
+						// clock pauses for the part of the gap its window was
+						// still running, so the usable veto time stays the
+						// whole window and a blip of seconds costs seconds.
+						// Same start and notice: the alert episode re-opens.
+						if prior.CarryClock && prior.ResolvedAt.Before(prior.SubmitAt) && now.After(prior.ResolvedAt) {
+							rec.SubmitAt = prior.SubmitAt.Add(now.Sub(prior.ResolvedAt))
+						}
 						rec.SettlingBaseline, rec.SettlingBaselineKnown = slices.Clone(prior.SettlingBaseline), prior.SettlingBaselineKnown
 						rec.ClockQuantity = prior.clockQuantity()
 					}

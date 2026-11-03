@@ -377,7 +377,12 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   it dropped out of the set, was blocked, or was refused at send because it
   had moved on (`stale_revision`) keeps its clock by the same rule (owner,
   2026-11-03 20:47 CET: each such blip restarted the 30 minutes and the
-  batch never went). A record whose clock started before the
+  batch never went). The clock pauses while the row is out, for the part of
+  the gap its window was still running, since the owner cannot veto a row
+  out of the set: the usable veto time stays the whole window, and a blip
+  of seconds costs seconds (review, 2026-11-03 21:17 CET). A row the owner
+  ignored, or that left because proposals were switched off, passes no
+  clock on. A record whose clock started before the
   regular session it would be sent in, as after an overnight hold, never
   goes out on it: when that session opens it gets a fresh notice and a full
   window. The owner's veto holds the line for the rest of the episode,

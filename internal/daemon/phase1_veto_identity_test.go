@@ -237,7 +237,7 @@ func TestConditionalVetoHoldsAcrossATransientBlock(t *testing.T) {
 	rig.install(prop)
 	rig.cycle()
 	back := rig.record(prop.Key, revision)
-	if back.State != rpc.TradeProposalAutomaticPending || automaticRecordNoticeID(back) != oldID || !back.SubmitAt.Equal(original.SubmitAt) {
+	if back.State != rpc.TradeProposalAutomaticPending || automaticRecordNoticeID(back) != oldID || !back.SubmitAt.Equal(original.SubmitAt.Add(time.Second)) {
 		t.Fatalf("a transient block changed the notified window: original=%+v back=%+v", original, back)
 	}
 	result, err := rig.engine.Veto(context.Background(), rpc.TradeProposalVetoParams{
