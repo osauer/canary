@@ -11,14 +11,16 @@ Canary is one Go binary, a risk desk that runs beside your IB Gateway or TWS;
 nothing is hosted. It tells you what needs attention today, which of twenty
 discipline checks your positions breach against limits you set, your exposure
 by underlying, and what the price did over the next 1, 5, and 20 sessions after
-each past stock or ETF trade, measured against your broker statements. The same
+your past stock and ETF trades, where they repeat often enough to count,
+measured against your broker statements. The same
 readings come as text, as JSON, in a paired phone app, and as MCP tools for
 Claude Desktop, Claude Code, Cursor, or Zed.
 
 The standard binary does not place, change, or cancel an order, and MCP has no
 order or preview tool in either build. When you want trades, install the
-separate trading binary. It places one explicitly confirmed transaction at a
-time, for you or for an agent, through the CLI.
+separate trading binary. It places only what you authorised, confirmed one
+transaction at a time or pre-authorised within your written policy, for you or
+for an agent, through the CLI and the paired app.
 
 **[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
