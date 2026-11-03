@@ -7,7 +7,7 @@ Data       Healthy; 20 required sources: 20 current, 0 limited, 0 unavailable, 0
 Holdings   masked
 Error      canary: status: order [ref] for [holding] refused by [account]
 
-Open this link to file the report (it opens GitHub's bug form, prefilled; nothing is sent until you submit):
+Open this link to file the report. It opens GitHub's bug form with the text filled in; pick "Where did this happen?" yourself. Nothing is sent until you submit:
 https://github.com/osauer/canary/issues/new?diagnostics=Canary+feedback+report+%28redacted%3A+no+account%2C+position%2C+order%2C+host+or+path+data%29%0ASurface++++CLI%0ACanary+++++v3.33.0%2C+standard+build%2C+darwin%2Farm64%0ADaemon+++++v3.33.0%3B+IB+Gateway+connected%2C+API+server+203%3B+phase+ready%3B+status+READY%3B+paper+account%3B+market+data+live%0AData+++++++Healthy%3B+20+required+sources%3A+20+current%2C+0+limited%2C+0+unavailable%2C+0+unverified%0AHoldings+++masked%0AError++++++canary%3A+status%3A+order+%5Bref%5D+for+%5Bholding%5D+refused+by+%5Baccount%5D%0A&environment=macOS+arm64%2C+IB+Gateway&summary=canary%3A+status%3A+order+%5Bref%5D+for+%5Bholding%5D+refused+by+%5Baccount%5D&surface=CLI&template=bug_report.yml&title=%5BBug%5D%3A+canary%3A+status%3A+order+%5Bref%5D+for+%5Bholding%5D+refused+by+%5Baccount%5D&version=v3.33.0+%28standard+build%29
 
 Read the report before filing. Private or broker-sensitive context goes by email instead: https://osauer.dev/canary/feedback/#private
@@ -20,7 +20,7 @@ Read the report before filing. Private or broker-sensitive context goes by email
 \x1b[2mHoldings  \x1b[0m masked
 \x1b[2mError     \x1b[0m canary: status: order [ref] for [holding] refused by [account]
 
-Open this link to file the report (it opens GitHub's bug form, prefilled; nothing is sent until you submit):
+Open this link to file the report. It opens GitHub's bug form with the text filled in; pick "Where did this happen?" yourself. Nothing is sent until you submit:
 \x1b[36mhttps://github.com/osauer/canary/issues/new?diagnostics=Canary+feedback+report+%28redacted%3A+no+account%2C+position%2C+order%2C+host+or+path+data%29%0ASurface++++CLI%0ACanary+++++v3.33.0%2C+standard+build%2C+darwin%2Farm64%0ADaemon+++++v3.33.0%3B+IB+Gateway+connected%2C+API+server+203%3B+phase+ready%3B+status+READY%3B+paper+account%3B+market+data+live%0AData+++++++Healthy%3B+20+required+sources%3A+20+current%2C+0+limited%2C+0+unavailable%2C+0+unverified%0AHoldings+++masked%0AError++++++canary%3A+status%3A+order+%5Bref%5D+for+%5Bholding%5D+refused+by+%5Baccount%5D%0A&environment=macOS+arm64%2C+IB+Gateway&summary=canary%3A+status%3A+order+%5Bref%5D+for+%5Bholding%5D+refused+by+%5Baccount%5D&surface=CLI&template=bug_report.yml&title=%5BBug%5D%3A+canary%3A+status%3A+order+%5Bref%5D+for+%5Bholding%5D+refused+by+%5Baccount%5D&version=v3.33.0+%28standard+build%29\x1b[0m
 
 \x1b[2mRead the report before filing. Private or broker-sensitive context goes by email instead: https://osauer.dev/canary/feedback/#private\x1b[0m

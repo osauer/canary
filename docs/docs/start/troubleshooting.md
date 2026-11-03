@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Updated: 2026-11-03 14:17 CET
+Updated: 2026-11-03 15:02 CET
 
 Symptom, cause, fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected. For missing or degraded inputs, run `canary data health`.
 
@@ -254,9 +254,11 @@ canary feedback --surface cli --error "the message you saw"
 ```
 
 It prints a short diagnostic report and a link. The link opens the bug report
-form on GitHub with the report filled in; nothing is sent until you read it
-there and submit. `--surface` names where it happened (`cli`, `mcp`, `app`,
-`install`); `--error` is the text to include. The report carries the Canary
+form on GitHub with the report filled in; the "Where did this happen?"
+dropdown is the one field you pick yourself, because GitHub does not fill a
+dropdown from a link. Nothing is sent until you read the form and submit.
+`--surface` names where it happened (`cli`, `mcp`, `app`, `install`) and is
+the option to pick; `--error` is the text to include. The report carries the Canary
 version and build, your OS and architecture, whether the daemon answered,
 the gateway kind and API server version, the data health summary as source
 coverage, and your error text after redaction: account ids, balances,

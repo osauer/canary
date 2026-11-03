@@ -34,8 +34,11 @@ const (
 func Surfaces() []string { return []string{SurfaceCLI, SurfaceMCP, SurfaceApp, SurfaceInstall} }
 
 // formSurface maps a surface to the exact dropdown option of
-// .github/ISSUE_TEMPLATE/bug_report.yml; GitHub prefills a dropdown only
-// from an exact option label.
+// .github/ISSUE_TEMPLATE/bug_report.yml. GitHub fills text fields from the
+// link and leaves a dropdown at "None" whatever the query carries (checked
+// 2026-11-03 with the option label and with its index), so the value is
+// sent for a GitHub that may honour it, and the report's Surface line tells
+// the reader which option to pick by hand.
 var formSurface = map[string]string{
 	SurfaceCLI:     "CLI",
 	SurfaceMCP:     "MCP server",
@@ -333,7 +336,8 @@ func (r Report) Title() string {
 
 // IssueURL is the new-issue page with the bug report form prefilled: title,
 // surface, version, environment and diagnostics from the report, and the
-// error as the summary. Steps to reproduce stay for the human.
+// error as the summary. Steps to reproduce and the surface dropdown stay
+// for the human.
 func (r Report) IssueURL() string {
 	q := url.Values{}
 	q.Set("template", "bug_report.yml")
@@ -383,5 +387,5 @@ type Result struct {
 // Compose pairs the report with its URL and what to do with it.
 func Compose(r Report) Result {
 	return Result{URL: r.IssueURL(), Report: r.Text(), Fields: r, Redacted: true,
-		Next: "Open the URL in a browser to file the issue; nothing has been sent. Read the report first: it is redacted, and a bug report must never carry account, position, order, host or path details."}
+		Next: "Open the URL in a browser to file the issue; nothing has been sent. Pick the \"Where did this happen?\" dropdown by hand (GitHub does not fill it from the link; the report's Surface line says which). Read the report first: it is redacted, and a bug report must never carry account, position, order, host or path details."}
 }

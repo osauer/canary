@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**44 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**45 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_add`
 
@@ -65,7 +65,7 @@ Read Canary's authoritative provider/service health, receiving data modes, cause
 
 ## `canary_feedback`
 
-Compose a redacted diagnostic report for a Canary defect and return the GitHub new-issue URL that opens the bug report form prefilled with it, for the human to open and submit. Use it when an error message ends with "run canary feedback", or when a tool answer looks like a Canary defect (an internal error, a panic, an inconsistency) rather than a configuration, gateway or subscription problem; for those use canary_status and canary_data_health instead. The report names the Canary version and build, OS and architecture, the gateway kind and API server version, the data health summary as source coverage, and the `error` text after redaction; it never carries an account id, balance, position, order reference, host name, user name or home path. Answers without a daemon (the report then says so). Returns the URL and the report text; it files nothing, writes nothing and calls no network.
+Compose a redacted diagnostic report for a Canary defect and return the GitHub new-issue URL that opens the bug report form prefilled with it, for the human to open, pick the "Where did this happen?" dropdown and submit. Use it when an error message ends with "run canary feedback", or when a tool answer looks like a Canary defect (an internal error, a panic, an inconsistency) rather than a configuration, gateway or subscription problem; for those use canary_status and canary_data_health instead. The report names the Canary version and build, OS and architecture, the gateway kind and API server version, the data health summary as source coverage, and the `error` text after redaction; it never carries an account id, balance, position, order reference, host name, user name or home path. Answers without a daemon (the report then says so). Returns the URL and the report text; it files nothing, writes nothing and calls no network.
 
 **Parameters:**
 

@@ -64,7 +64,7 @@ func renderFeedback(env *Env, r feedback.Report) {
 		fmt.Fprintf(out, "%s %s\n", env.dim(fmt.Sprintf("%-10s", label)), strings.TrimLeft(value, " "))
 	}
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Open this link to file the report (it opens GitHub's bug form, prefilled; nothing is sent until you submit):")
+	fmt.Fprintln(out, "Open this link to file the report. It opens GitHub's bug form with the text filled in; pick \"Where did this happen?\" yourself. Nothing is sent until you submit:")
 	fmt.Fprintln(out, env.cyan(r.IssueURL()))
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "%s\n", env.dim("Read the report before filing. Private or broker-sensitive context goes by email instead: https://osauer.dev/"+productidentity.Executable+"/feedback/#private"))
