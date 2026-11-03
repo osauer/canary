@@ -12,8 +12,10 @@ const DefectHint = "; run `canary feedback`"
 // as CodeInternal and its message ends with DefectHint.
 type DefectError struct{ Err error }
 
+// Error is the cause's message with the hint appended.
 func (e *DefectError) Error() string { return e.Err.Error() + DefectHint }
 
+// Unwrap exposes the cause to errors.Is and errors.As.
 func (e *DefectError) Unwrap() error { return e.Err }
 
 // Defect wraps err as a Canary defect; nil stays nil.

@@ -65,7 +65,7 @@ func fixturePositions() rpc.PositionsResult {
 func fixtureData() rpc.DataHealthResult {
 	return rpc.DataHealthResult{AsOf: time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC),
 		Summary:  rpc.DataHealthSummary{State: "attention", Label: "Needs attention", Total: 24, Required: 20, Current: 17, Limited: 2, Unavailable: 1, Unverified: 0, Problems: 2, ExpectedDelays: 1},
-		Concerns: []rpc.DataHealthConcern{{SourceID: "ibkr_history", State: "limited", Label: "IBKR price history for SYNTHQ"}, {SourceID: "nasdaq", State: "unavailable", Label: "Nasdaq earnings"}}}
+		Concerns: []rpc.DataHealthConcern{{SourceID: "broker_history", State: "limited", Label: "IBKR price history for SYNTHQ"}, {SourceID: "nasdaq", State: "unavailable", Label: "Nasdaq earnings"}}}
 }
 
 func TestReportAndURLCarryNoPlantedSecret(t *testing.T) {
