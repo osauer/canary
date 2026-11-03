@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/osauer/canary/v2/internal/redact"
 )
 
 // holdingsSource says where the current-holdings list came from, so a report
@@ -16,14 +18,6 @@ const (
 	holdingsUnavailable = "unavailable"
 )
 
-// unmaskedTickers are single letters and Canary's own market instruments and
-// vocabulary, the gate's unchecked list: the product names them regardless
-// of holdings, so naming them reveals nothing.
-var unmaskedTickers = strings.Fields(`VIX VVIX VIX3M SPX NDX RUT DJI DJX DXY SPY QQQ IWM DIA GLD TLT HYG SMH XLK XLF XLI XLE XLV
-XLY XLP XLU XLB XLRE IBIT IBKR CBOE CME ICE OPT CASH LMT DAY DTE DD ET PATH KEY CI ON AI UI`)
-
-var tickerPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(?:[.][A-Z0-9]+)?$`)
-
 // xdgDir resolves an XDG base directory as the account-data gate does.
 func xdgDir(env, home string, fallback ...string) string {
 	if dir := os.Getenv(env); dir != "" {
@@ -32,13 +26,12 @@ func xdgDir(env, home string, fallback ...string) string {
 	return filepath.Join(append([]string{home}, fallback...)...)
 }
 
-// holdings is the current-holdings list a report must never name. When no
-// list could be read, contract names are withheld rather than checked.
+// holdings is the current-holdings list a report must never name, with
+// where it came from. When no list could be read, contract names are
+// withheld rather than checked.
 type holdings struct {
-	source  string
-	tickers map[string]bool
-	// pattern matches the holdings masked in free text; nil when none are.
-	pattern *regexp.Regexp
+	source string
+	list   redact.Holdings
 }
 
 func (h holdings) available() bool { return h.source != holdingsUnavailable }
@@ -75,34 +68,7 @@ func cacheHoldings(path string) ([]string, bool) {
 }
 
 func newHoldings(source string, raw []string) holdings {
-	h := holdings{source: source, tickers: map[string]bool{}}
-	var words []string
-	for _, t := range raw {
-		// An IBKR class suffix ("BRK B") keeps its root.
-		root, _, _ := strings.Cut(strings.ToUpper(strings.TrimSpace(t)), " ")
-		if !tickerPattern.MatchString(root) || h.tickers[root] {
-			continue
-		}
-		h.tickers[root] = true
-		if len(root) > 1 && !slices.Contains(unmaskedTickers, root) {
-			words = append(words, regexp.QuoteMeta(root))
-		}
-	}
-	if len(words) == 0 {
-		return h
-	}
-	// Longest first so a ticker never masks only the prefix of a longer one.
-	slices.SortFunc(words, func(a, b string) int { return len(b) - len(a) })
-	h.pattern = regexp.MustCompile(`\b(?:` + strings.Join(words, "|") + `)\b`)
-	return h
-}
-
-// mask replaces every current holding named in message.
-func (h holdings) mask(message string) string {
-	if h.pattern == nil {
-		return message
-	}
-	return h.pattern.ReplaceAllString(message, "[holding]")
+	return holdings{source: source, list: redact.NewHoldings(raw)}
 }
 
 // noticeContract matches the contract tag the connector writes on a broker
@@ -126,7 +92,7 @@ func noticeContractLabel(line string) string {
 	switch {
 	case !held.available():
 		symbol = "[contract]"
-	case held.tickers[root] && !slices.Contains(unmaskedTickers, root):
+	case held.list.Holds(root) && !slices.Contains(redact.UnmaskedTickers, root):
 		symbol = "[holding]"
 	}
 	return strings.TrimSpace(symbol + " " + secType)

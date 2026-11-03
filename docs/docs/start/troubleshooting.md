@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Updated: 2026-11-03 08:22 CET
+Updated: 2026-11-03 15:05 CET
 
 Symptom, cause, fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected. For missing or degraded inputs, run `canary data health`.
 
@@ -246,6 +246,28 @@ carries `data_type: "delayed"` in JSON. Canary accepts it only when the spot and
 the option model ticks share that delayed clock; it does not turn a delayed
 quote into real-time data. If the delayed option model ticks also fail, gamma
 stays unavailable and the error still names IBKR 354.
+
+## Report a bug with `canary feedback`
+
+```bash
+canary feedback --surface cli --error "the message you saw"
+```
+
+It prints a short diagnostic report and a link. The link opens the bug report
+form on GitHub with the report filled in; nothing is sent until you read it
+there and submit. `--surface` names where it happened (`cli`, `mcp`, `app`,
+`install`); `--error` is the text to include. The report carries the Canary
+version and build, your OS and architecture, whether the daemon answered,
+the gateway kind and API server version, the data health summary as source
+coverage, and your error text after redaction: account ids, balances,
+holdings, order references, host names, user names and home paths are
+replaced with bracketed words. It works without a daemon running and starts
+none; the report then says so. An error message that ends with
+``run `canary feedback` `` is a Canary defect, not a configuration problem,
+and this is the step it asks for. An AI assistant connected over MCP has the
+same report as the `canary_feedback` tool. Context that is private or
+broker-sensitive goes [by email](https://osauer.dev/canary/feedback/#private)
+instead of a public issue.
 
 ## Claude Desktop does not list the tools
 

@@ -278,7 +278,8 @@ func init() {
 		{"update", "Install the latest Canary release", "canary update [--check] [--force] [--restart|--no-restart]", nil},                                                         // dispatched in cmd/canary/main.go — no daemon contact
 		{"restart", "Restart Canary and any running mobile app server", "canary restart [--app] [--force] [--timeout 15s] [--json]", nil},                                          // dispatched in cmd/canary/main.go — process management
 		{"stop", "Stop Canary and the mobile app server", "canary stop [--app] [--daemon] [--force] [--timeout 15s] [--yes] [--json]", nil},                                        // dispatched in cmd/canary/main.go — process management
-		{"version", "Print version, commit, build date", "canary version", nil},                                                                                                    // version is handled in cmd/canary/main.go before dispatch
+		{"feedback", "Compose a redacted bug report and the GitHub link that files it; sends nothing", "canary feedback [--surface cli|mcp|app|install] [--error TEXT] [--json]", runFeedback},
+		{"version", "Print version, commit, build date", "canary version", nil}, // version is handled in cmd/canary/main.go before dispatch
 	}
 	for i := range commands {
 		commands[i].Usage = strings.ReplaceAll(commands[i].Usage, "canary ", productidentity.Executable+" ")

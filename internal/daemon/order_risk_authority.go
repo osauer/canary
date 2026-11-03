@@ -698,7 +698,7 @@ func validateStrategyReductionDraft(draft rpc.OrderDraft, position rpc.OrderPosi
 			return fmt.Errorf("strategy leg %d has an invalid action", leg.Contract.ConID)
 		}
 		if math.Abs(expectedAfter-leg.After) > 1e-9 {
-			return fmt.Errorf("strategy leg %d has inconsistent before/after quantities", leg.Contract.ConID)
+			return rpc.Defect(fmt.Errorf("strategy leg %d has inconsistent before/after quantities", leg.Contract.ConID))
 		}
 	}
 	return nil

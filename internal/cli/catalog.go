@@ -154,6 +154,7 @@ func catalogExtras() map[string]CommandSpec {
 		"update":   {Group: GroupSystem, Flags: flags(boolFlag("check"), boolFlag("force"), boolFlag("restart"), boolFlag("no-restart")), Guard: GuardConfirm},
 		"restart":  {Group: GroupSystem, Flags: flags(boolFlag("app"), boolFlag("force"), valueFlag("timeout", nil), valueFlag("addr", nil), valueFlag("public-url", nil), boolFlag("remote"), valueFlag("remote-url", nil), valueFlag("state-dir", nil), boolFlag("json")), Guard: GuardConfirm},
 		"stop":     {Group: GroupSystem, Flags: flags(boolFlag("app"), boolFlag("daemon"), boolFlag("force"), boolFlag("yes"), valueFlag("timeout", nil), boolFlag("json")), Guard: GuardConfirm},
+		"feedback": {Group: GroupSystem, Brief: "Redacted bug report and the GitHub link that files it", Flags: flags(valueFlag("surface", []string{"cli", "mcp", "app", "install"}), valueFlag("error", nil), boolFlag("json")), Guard: GuardReadOnly},
 		"version":  {Group: GroupSystem, Guard: GuardLocal},
 	}
 }

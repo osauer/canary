@@ -70,6 +70,7 @@ Run, configure and update Canary
   update          Install the latest Canary release
   restart         Restart Canary and any running mobile app server
   stop            Stop Canary and the mobile app server
+  feedback        Redacted bug report and the GitHub link that files it
   version         Print version, commit, build date
 
 Run canary <command> --help for usage and available actions.
@@ -149,6 +150,7 @@ Start: canary status — check the broker connection
   \x1b[36mupdate          \x1b[0mInstall the latest Canary release
   \x1b[36mrestart         \x1b[0mRestart Canary and any running mobile app server
   \x1b[36mstop            \x1b[0mStop Canary and the mobile app server
+  \x1b[36mfeedback        \x1b[0mRedacted bug report and the GitHub link that files it
   \x1b[36mversion         \x1b[0mPrint version, commit, build date
 
 Run canary <command> --help for usage and available actions.

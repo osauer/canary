@@ -128,6 +128,13 @@ func main() {
 		os.Exit(cli.Run(context.Background(), env, cmd, rest))
 	}
 
+	// `canary feedback` must answer without a daemon and must never start
+	// one: it dials the socket as it stands and otherwise reports that no
+	// daemon was reachable.
+	if cmd == "feedback" {
+		os.Exit(runFeedback(rest, runtimeVersion, color))
+	}
+
 	socketPath := dial.DefaultSocketPath()
 	conn, err := dial.Connect(socketPath)
 	if errors.Is(err, dial.ErrSocketMissing) {
@@ -359,4 +366,19 @@ func isStreamingInvocation(cmd string, args []string) bool {
 		}
 	}
 	return false
+}
+
+// runFeedback runs `canary feedback` against the daemon if one answers on
+// the socket, with a bounded read budget, and without one otherwise.
+func runFeedback(rest []string, runtimeVersion string, color bool) int {
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+	ctx, dlCancel := context.WithTimeout(ctx, unaryInvocationBudget("feedback", rest))
+	defer dlCancel()
+	env := &cli.Env{Stdout: os.Stdout, Stderr: os.Stderr, Version: runtimeVersion, Color: color}
+	if conn, err := dial.Connect(dial.DefaultSocketPath()); err == nil {
+		defer conn.Close()
+		env.Conn = conn
+	}
+	return cli.Run(ctx, env, "feedback", rest)
 }

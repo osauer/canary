@@ -173,7 +173,7 @@ func validateEdgeLearning(result EdgeResult) error {
 				excluded += count
 			}
 			if excluded+h.SampleCount != p.EligibleChanges {
-				return fmt.Errorf("inconsistent Edge pattern coverage")
+				return Defect(fmt.Errorf("inconsistent Edge pattern coverage"))
 			}
 			months := map[string]bool{}
 			count := 0
@@ -185,7 +185,7 @@ func validateEdgeLearning(result EdgeResult) error {
 				count += m.SampleCount
 			}
 			if count != h.SampleCount {
-				return fmt.Errorf("inconsistent Edge month counts")
+				return Defect(fmt.Errorf("inconsistent Edge month counts"))
 			}
 		}
 		if len(horizons) != 3 || len(p.Comparisons) != 2 {
@@ -203,12 +203,12 @@ func validateEdgeLearning(result EdgeResult) error {
 				}
 			}
 			if c.SampleCount > 0 && math.Abs(*c.LaterTotalBase-*c.EarlierTotalBase-*c.DifferenceBase) > 1e-7*math.Max(1, math.Abs(*c.DifferenceBase)) {
-				return fmt.Errorf("inconsistent Edge paired difference")
+				return Defect(fmt.Errorf("inconsistent Edge paired difference"))
 			}
 		}
 	}
 	if len(result.Patterns) > 0 && eligible != result.Coverage.EligibleChanges {
-		return fmt.Errorf("inconsistent Edge pattern population")
+		return Defect(fmt.Errorf("inconsistent Edge pattern population"))
 	}
 	if result.ReviewAction != "" && (!seen[result.ReviewAction+"/"+result.ReviewDirection] || result.ReviewNote == "") {
 		return fmt.Errorf("unknown Edge review pattern")

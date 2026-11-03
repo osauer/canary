@@ -236,6 +236,8 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "recon_basis_pending", argv: []string{"recon", "show"}, conn: goldenConn{"recon.snapshot": &rpc.ReconResult{AsOf: goldenAt, Status: rpc.ReconStatusActive, Equity: &rpc.ReconEquityCheck{StatementDate: goldenAt, StatementTotalBase: 100000, RuntimeEquityBase: new(98000.0), SameDay: true, Comparability: "runtime_basis_missing"}}}},
 		{name: "update-trading-refusal", argv: []string{"update"}, render: func(env *Env) { renderTradingUpdateRefusal(env.Stdout) }},
 		{name: "help", argv: []string{"help"}, render: renderUsage},
+		{name: "feedback", argv: []string{"feedback", "--error", "..."}, render: func(env *Env) { renderFeedback(env, goldenFeedbackReport(true)) }},
+		{name: "feedback_no_daemon", argv: []string{"feedback", "--error", "..."}, render: func(env *Env) { renderFeedback(env, goldenFeedbackReport(false)) }},
 		{name: "help_add", argv: []string{"add", "--help"}},
 		{name: "help_add_market", argv: []string{"add", "market", "--help"}},
 		{name: "help_add_call_plan", argv: []string{"add", "call-plan", "--help"}},

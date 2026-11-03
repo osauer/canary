@@ -1570,10 +1570,10 @@ func ValidateEstablishedAlertProjection(projection EstablishedAlertProjection) e
 		(projection.Severity == risk.SeverityWatch || establishedAlertSeverityAtLeastAct(projection.Severity) || actCondition)
 	wantActOnly := wantOccurrence && actCondition
 	if projection.OccurrenceEligible != wantOccurrence {
-		return errors.New("established alert occurrence eligibility is inconsistent")
+		return Defect(errors.New("established alert occurrence eligibility is inconsistent"))
 	}
 	if projection.ActOnlyEligible != wantActOnly {
-		return errors.New("established alert act-only eligibility is inconsistent")
+		return Defect(errors.New("established alert act-only eligibility is inconsistent"))
 	}
 	return nil
 }

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 const (
@@ -170,7 +171,7 @@ func ensureCoreStoreSchemaCurrentWithOps(
 			return nil, fmt.Errorf("resolve daemon schema upgrade head transition: %w", err)
 		}
 		if inspection.HeadTransition != expectedTransition {
-			return nil, fmt.Errorf("daemon schema inspection returned inconsistent authority-head transition")
+			return nil, rpc.Defect(fmt.Errorf("daemon schema inspection returned inconsistent authority-head transition"))
 		}
 		if err := ensureCoreSchemaUpgradeSpace(path, "candidate preparation", ops.availableBytes); err != nil {
 			return nil, err

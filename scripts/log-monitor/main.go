@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/redact"
 )
 
 const (
@@ -169,37 +171,8 @@ var (
 	// Match only this known startup diagnostic, never arbitrary allocator or
 	// crash text. A panic elsewhere in the same scan remains an ERROR.
 	mallocDisabledDiagnostic = regexp.MustCompile(`^(?:[A-Za-z0-9_.-]+\([0-9]+\) )?MallocStackLogging: can't turn off malloc stack logging because it was not enabled\.$`)
-	accountPattern           = regexp.MustCompile(`\b(?:DU|U)\d{5,}\b`)
-	sensitiveField           = regexp.MustCompile(`(?i)\b(account(?:_id)?|order(?:_id|_?ref)?|preview_token|token|balance|holding|position|symbol|conid|reqid)=("[^"]*"|\S+)`)
-	symbolPhrase             = regexp.MustCompile(`(?i)\bfor [A-Z][A-Z0-9.]{0,9} via\b`)
-	spacePattern             = regexp.MustCompile(`\s+`)
 	statusPattern            = regexp.MustCompile(`(?:^|\s)status=(\d{3})(?:\s|$)`)
 	timePattern              = regexp.MustCompile(`(?:^|\s)time=([^\s]+)`)
-	// Ephemeral values embedded in messages (socket addresses, event
-	// timestamps) would make every occurrence a distinct signal, letting one
-	// reconnect storm fill the whole bounded list with unmergeable
-	// singletons. Normalize them so repeats collapse into one counted signal.
-	addrPattern     = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}:\d{1,5}\b`)
-	inlineTimestamp = regexp.MustCompile(`\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?\b`)
-	// Elapsed times, retry clocks, option expiries, rates, pids and progress
-	// counters vary per attempt too: 172 gamma prewarm failures in one day
-	// were 172 singletons, all cut into the suppressed summary. Codes and
-	// statuses are kept, so distinct broker errors stay distinct signals.
-	durationPattern = regexp.MustCompile(`\b\d+(?:\.\d+)?(?:h|m|s|ms|µs)(?:\d+(?:\.\d+)?(?:m|s|ms|µs))*\b`)
-	expiryPattern   = regexp.MustCompile(`\b20\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\b`)
-	clockPattern    = regexp.MustCompile(`\b\d{2}:\d{2}:\d{2}\b`)
-	ratePattern     = regexp.MustCompile(`\b\d+\.\d{3,}\b`)
-	pidPattern      = regexp.MustCompile(`\bpid \d+\b`)
-	counterPattern  = regexp.MustCompile(`\b([a-z_]+)=\d+(?:[./]\d+)?\b|\(cached \d+ so far\)`)
-	// Broker order references also travel in free text: the WhatIf timeout
-	// names "order 48213", broker notices "OrderId 48213" or "permId =…", the
-	// order wire summary "orderId=…", the modify-token check "permanent ID
-	// …, current order is …". A camelCase identifier ending in Order
-	// ("openOrder 48213") has no word boundary before "order", so it is
-	// matched on its own. The keyword and separator stay; the number does
-	// not. "order 2 of 3" is a position, kept by redactOrderRefs.
-	orderRefPattern = regexp.MustCompile(`\b(?:[A-Za-z]*[a-z]Order|(?i:order|perm(?:anent)?|parent[ _]?id))(?i:[ _]?id)?(?i:\s*[=:#]\s*|\s+(?:is\s+)?#?)(\d+)\b`)
-	ordinalTail     = regexp.MustCompile(`^\s+of\s+\d`)
 )
 
 func main() {
@@ -541,57 +514,15 @@ func safeMessage(line string) string {
 
 // redactMessage applies the report's redaction and normalization to free
 // text that is already known to be the message, such as the first line of a
-// runtime crash dump, which carries no slog fields.
+// runtime crash dump, which carries no slog fields. The rules live in
+// internal/redact, shared with `canary feedback`; the monitor keeps only
+// its sample bound.
 func redactMessage(message string) string {
-	message = accountPattern.ReplaceAllString(message, "[account]")
-	message = sensitiveField.ReplaceAllString(message, "$1=[redacted]")
-	message = symbolPhrase.ReplaceAllString(message, "for [symbol] via")
-	message = addrPattern.ReplaceAllString(message, "[addr]")
-	message = inlineTimestamp.ReplaceAllString(message, "[time]")
-	message = redactOrderRefs(message)
-	message = durationPattern.ReplaceAllString(message, "[duration]")
-	message = expiryPattern.ReplaceAllString(message, "[expiry]")
-	message = clockPattern.ReplaceAllString(message, "[clock]")
-	message = ratePattern.ReplaceAllString(message, "[rate]")
-	message = pidPattern.ReplaceAllString(message, "pid N")
-	message = counterPattern.ReplaceAllStringFunc(message, func(field string) string {
-		key, _, ok := strings.Cut(field, "=")
-		if !ok {
-			return "(cached N so far)"
-		}
-		if strings.HasSuffix(key, "code") || key == "status" {
-			return field
-		}
-		return key + "=N"
-	})
-	message = held.mask(message)
-	message = spacePattern.ReplaceAllString(strings.TrimSpace(message), " ")
+	message = redact.Monitor(held.list).Text(message)
 	if len(message) > 240 {
 		message = message[:240] + "…"
 	}
 	return message
-}
-
-// redactOrderRefs replaces the number of every broker order reference with
-// [ref], keeping the words around it, except an ordinal such as "order 2 of
-// 3". An ordinal has at most two digits: "order 48213 of 100 shares" names a
-// broker order.
-func redactOrderRefs(message string) string {
-	var out strings.Builder
-	last := 0
-	for _, m := range orderRefPattern.FindAllStringSubmatchIndex(message, -1) {
-		if m[3]-m[2] <= 2 && ordinalTail.MatchString(message[m[1]:]) {
-			continue
-		}
-		out.WriteString(message[last:m[2]])
-		out.WriteString("[ref]")
-		last = m[3]
-	}
-	if last == 0 {
-		return message
-	}
-	out.WriteString(message[last:])
-	return out.String()
 }
 
 func extractSlogMessage(line string) string {

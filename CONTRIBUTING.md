@@ -12,7 +12,10 @@ from outside may cut against a deliberate design decision. Ten minutes of
 discussion saves a rejected pull request.
 
 The issue templates are at
-[.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). Security problems go through
+[.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). `canary feedback` composes a
+redacted diagnostic report and prints the link that opens the bug report form
+prefilled with it; it files nothing, and the report is yours to read before
+you submit. Security problems go through
 [SECURITY.md](SECURITY.md) instead, never a public issue.
 
 ## Which issues are open to you

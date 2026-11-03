@@ -143,7 +143,7 @@ func (s *Server) currentDecisionReadyRegimeSnapshot(ctx context.Context) (*rpc.R
 		return view.Snapshot, nil
 	}
 	if pendingRevision <= 0 || view.Revision != pendingRevision {
-		return nil, fmt.Errorf("regime snapshot projection identity is inconsistent")
+		return nil, rpc.Defect(fmt.Errorf("regime snapshot projection identity is inconsistent"))
 	}
 
 	parent := ctx

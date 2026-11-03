@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"slices"
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v2/internal/feedback"
 	"github.com/osauer/canary/v2/internal/rpc"
 	"github.com/osauer/canary/v2/internal/scorecard"
 	"github.com/osauer/canary/v2/internal/stress"
@@ -28,7 +30,11 @@ type Tool struct {
 	// RPCMethods declares every daemon method this handler may invoke. Timing
 	// and parity tests use it to keep adapter deadlines above daemon deadlines.
 	RPCMethods []string
-	Handler    func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error)
+	// DaemonOptional handlers answer without a daemon: when the socket does
+	// not answer, the server passes a nil connection instead of failing the
+	// call, and never starts a daemon for it.
+	DaemonOptional bool
+	Handler        func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error)
 }
 
 // Tools is the canonical inventory exposed over MCP. Order is the same as
@@ -52,6 +58,33 @@ var Tools = []Tool{
 		}
 		return r, nil
 	}},
+	{Name: "canary_feedback", Title: "Canary Bug Report Link", RPCMethods: []string{rpc.MethodStatusHealth, rpc.MethodDataHealth, rpc.MethodPositionsList}, ReadOnlyHint: new(true), DaemonOptional: true,
+		Description: "Compose a redacted diagnostic report for a Canary defect and return the GitHub new-issue URL that opens the bug report form prefilled with it, for the human to open and submit. Use it when an error message ends with \"run canary feedback\", or when a tool answer looks like a Canary defect (an internal error, a panic, an inconsistency) rather than a configuration, gateway or subscription problem; for those use canary_status and canary_data_health instead. The report names the Canary version and build, OS and architecture, the gateway kind and API server version, the data health summary as source coverage, and the `error` text after redaction; it never carries an account id, balance, position, order reference, host name, user name or home path. Answers without a daemon (the report then says so). Returns the URL and the report text; it files nothing, writes nothing and calls no network.",
+		JSONSchema: schemaObject(map[string]json.RawMessage{
+			"surface": json.RawMessage(`{"type":"string","enum":["cli","mcp","app","install"],"description":"Where the defect showed: cli, mcp (this connection; the default), app (the paired app) or install (installing or updating)."}`),
+			"error":   schemaString("The error text to include, verbatim; it is redacted before it enters the report and bounded to a few hundred characters."),
+		}, nil),
+		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+			var p struct {
+				Surface string `json:"surface"`
+				Error   string `json:"error"`
+			}
+			if err := unmarshalArgs(args, &p); err != nil {
+				return nil, err
+			}
+			if p.Surface == "" {
+				p.Surface = feedback.SurfaceMCP
+			}
+			var reader feedback.Conn
+			if conn != nil {
+				reader = conn
+			}
+			report, err := feedback.Collect(ctx, reader, feedback.Host{Version: serverVersion(ctx), Build: buildKind(), OS: runtime.GOOS, Arch: runtime.GOARCH}, feedback.Input{Surface: p.Surface, Error: p.Error})
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(feedback.Compose(report))
+		}},
 	{Name: "canary_data_check", Title: "Canary Required Data Check", RPCMethods: []string{rpc.MethodDataCheck}, ReadOnlyHint: new(true), Description: "Request or inspect a coalesced bounded check of required data sources using reference quote probes, not a holdings inventory. Counts describe sources, not instruments. Reuses Canary subscriptions and existing retry windows; history, options and public sources keep their producer schedules. Returns queued/running or completed coverage; it cannot purchase subscriptions or repair access. Use canary_data_health for the passive canonical report. Does not place orders, change settings or restart the gateway.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 		var r rpc.DataCheckResult
 		if err := conn.Call(ctx, rpc.MethodDataCheck, nil, &r); err != nil {
@@ -1000,4 +1033,13 @@ func unmarshalArgs(raw json.RawMessage, dst any) error {
 		return fmt.Errorf("invalid arguments: %w", err)
 	}
 	return nil
+}
+
+// buildKind names this binary as the CLI's `feedback` does: the trading
+// build is the one that can send orders.
+func buildKind() string {
+	if mcpTradingBuild {
+		return "trading"
+	}
+	return "standard"
 }

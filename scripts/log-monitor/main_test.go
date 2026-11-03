@@ -416,10 +416,10 @@ func TestHoldingsComeFromTheGateCache(t *testing.T) {
 	cache := filepath.Join(dir, "holdings-denylist")
 	writeTestFile(t, cache, "# as of 2026-09-29\nSYNTHQ\nsyntha\n")
 	got := loadHoldings(cache)
-	if got.source != holdingsFromCache || !got.tickers["SYNTHQ"] || !got.tickers["SYNTHA"] || got.mask("refresh SYNTHQ now") != "refresh [holding] now" {
+	if got.source != holdingsFromCache || !got.list.Holds("SYNTHQ") || !got.list.Holds("SYNTHA") || got.list.Mask("refresh SYNTHQ now") != "refresh [holding] now" {
 		t.Fatalf("cache holdings = %+v", got)
 	}
-	if got := loadHoldings(filepath.Join(dir, "missing")); got.available() || got.mask("SYNTHQ") != "SYNTHQ" {
+	if got := loadHoldings(filepath.Join(dir, "missing")); got.available() || got.list.Mask("SYNTHQ") != "SYNTHQ" {
 		t.Fatalf("no source = %+v, want unavailable", got)
 	}
 }

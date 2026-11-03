@@ -34,6 +34,9 @@ type Server struct {
 
 	// dialer opens daemon connections for tools. Nil means operations
 	dialer func(context.Context) (*dial.Conn, error)
+	// probe answers a DaemonOptional tool: it connects to a daemon that is
+	// already serving and never starts one.
+	probe func(context.Context) (*dial.Conn, error)
 }
 
 // NewServer wires the MCP server to an optional daemon connection and the
@@ -61,6 +64,24 @@ func (s *Server) SetProfile(profile Profile) {
 // can abort autospawn waits promptly.
 func (s *Server) SetContextDialer(d func(context.Context) (*dial.Conn, error)) {
 	s.dialer = d
+}
+
+// SetProbeDialer installs the connect-only dialer DaemonOptional tools use.
+// Without one, those tools use the request dialer.
+func (s *Server) SetProbeDialer(d func(context.Context) (*dial.Conn, error)) {
+	s.probe = d
+}
+
+// versionKey carries the binary's version to a handler that reports it.
+type versionKey struct{}
+
+// serverVersion is the version the server was built with, for the handler
+// of a tool call; "dev" where the context carries none.
+func serverVersion(ctx context.Context) string {
+	if v, ok := ctx.Value(versionKey{}).(string); ok && v != "" {
+		return v
+	}
+	return "dev"
 }
 
 // ServeOptions controls optional lifecycle guards for the stdio server.
@@ -418,13 +439,13 @@ func (s *Server) handleToolsCall(ctx context.Context, id, params json.RawMessage
 		return
 	}
 	timeout := mcpToolCallTimeout(p.Name, p.Arguments)
-	conn, closeConn, err := s.dialForRequest(ctx)
+	conn, closeConn, err := s.dialForTool(ctx, tool)
 	if err != nil {
 		s.writeToolError(id, err)
 		return
 	}
 	defer closeConn()
-	callCtx := ctx
+	callCtx := context.WithValue(ctx, versionKey{}, s.version)
 	var cancel context.CancelFunc
 	if timeout > 0 {
 		callCtx, cancel = context.WithTimeout(ctx, timeout)
@@ -446,6 +467,27 @@ func (s *Server) handleToolsCall(ctx context.Context, id, params json.RawMessage
 	}
 	b, _ := json.Marshal(payload)
 	s.writeResult(id, b)
+}
+
+// dialForTool opens the daemon connection a tool call uses. A
+// DaemonOptional tool gets the probe dialer's answer, or a nil connection
+// when no daemon is serving; it never waits for one to start.
+func (s *Server) dialForTool(ctx context.Context, tool Tool) (*dial.Conn, func(), error) {
+	if !tool.DaemonOptional {
+		return s.dialForRequest(ctx)
+	}
+	if s.probe == nil {
+		conn, closeConn, err := s.dialForRequest(ctx)
+		if err != nil {
+			return nil, closeConn, nil
+		}
+		return conn, closeConn, nil
+	}
+	conn, err := s.probe(ctx)
+	if err != nil || conn == nil {
+		return nil, func() {}, nil
+	}
+	return conn, func() { _ = conn.Close() }, nil
 }
 
 // dialForRequest opens the daemon connection a tool call or resource read

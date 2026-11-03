@@ -40,6 +40,10 @@ func runMCP(args []string) int {
 	srv.SetContextDialer(func(ctx context.Context) (*dial.Conn, error) {
 		return dialMCPDaemon(ctx, socketPath)
 	})
+	// canary_feedback answers without a daemon and must never start one.
+	srv.SetProbeDialer(func(context.Context) (*dial.Conn, error) {
+		return dial.Connect(socketPath)
+	})
 	if err := srv.ServeWithOptions(ctx, os.Stdin, os.Stdout, mcpServeOptions()); err != nil && !errors.Is(err, context.Canceled) {
 		fmt.Fprintf(os.Stderr, "%s mcp: %v\n", productidentity.Executable, err)
 		return 1

@@ -645,7 +645,7 @@ func validateEdgeOptionReview(review EdgeOptionReview) error {
 		}
 	}
 	if coverage.ExecutionEpisodes != coverage.OpeningEpisodes+coverage.ClosingEpisodes+coverage.MixedEpisodes+coverage.UnknownEpisodes || coverage.OpeningOnlyZeroEpisodes > coverage.OpeningEpisodes {
-		return fmt.Errorf("inconsistent Edge option coverage")
+		return Defect(fmt.Errorf("inconsistent Edge option coverage"))
 	}
 	realized := review.Realized
 	if realized.TotalCount < 0 || realized.TotalCount != realized.CompleteCount+realized.PartialCount+realized.UnavailableCount || realized.PositiveCount+realized.NegativeCount+realized.FlatCount != realized.CompleteCount+realized.PartialCount || !validEdgeOptionPage(realized.TotalCount, realized.Offset, len(realized.Episodes), realized.NextOffset) || realized.Truncated != (realized.TotalCount > len(realized.Episodes)) {
@@ -845,7 +845,7 @@ func validateEdgeHorizonSelection(result EdgeResult) error {
 	}
 	wantAdequate := selection.ScoredChanges >= selection.MinimumSample && selection.LargestActionSample >= selection.MinimumSample && wantCoverage >= selection.MinimumCoveragePct
 	if math.Abs(selection.CoveragePct-wantCoverage) > 1e-9 || selection.Adequate != wantAdequate || selection.EligibleChanges != result.Coverage.EligibleChanges || selection.ScoredChanges != result.Coverage.ScoredByHorizon[result.HorizonSessions] {
-		return fmt.Errorf("inconsistent Edge horizon selection")
+		return Defect(fmt.Errorf("inconsistent Edge horizon selection"))
 	}
 	if selection.Mode == "automatic" {
 		validReason := selection.Reason == "snapshot_unavailable" || !selection.Adequate && selection.Reason == "best_available" || selection.Adequate && selection.Reason == "longest_adequately_covered"

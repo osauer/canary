@@ -2940,7 +2940,7 @@ func recoverHandler(logger *Logger, enc *json.Encoder, req *rpc.Request) {
 		id = req.ID
 	}
 	logger.Errorf("panic in handler method=%s id=%s: %v\n%s", method, id, rec, debug.Stack())
-	writeError(enc, id, rpc.CodeInternal, fmt.Sprintf("internal panic: %v", rec))
+	writeError(enc, id, rpc.CodeInternal, fmt.Sprintf("internal panic: %v", rec)+rpc.DefectHint)
 }
 
 func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encoder, r *bufio.Reader) (terminal bool) {
@@ -3263,7 +3263,7 @@ func (s *Server) unary(req *rpc.Request, enc *json.Encoder, fn func() (any, erro
 	}
 	buf, err := json.Marshal(res)
 	if err != nil {
-		writeError(enc, req.ID, rpc.CodeInternal, "marshal result: "+err.Error())
+		writeError(enc, req.ID, rpc.CodeInternal, "marshal result: "+err.Error()+rpc.DefectHint)
 		return
 	}
 	_ = enc.Encode(rpc.Response{ID: req.ID, Ok: true, Result: buf})
@@ -3280,6 +3280,9 @@ func classifyError(err error) (string, string) {
 	var mdAbsent *ibkrlib.MarketDataAbsenceError
 	var regimeUnavailable *regimeSnapshotCacheUnavailableError
 	switch {
+	case rpc.IsDefect(err):
+		// Canary's own fault: the message already ends with the hint.
+		return rpc.CodeInternal, err.Error()
 	case errors.As(err, &settingsConflict) && slices.Contains([]string{rpc.CodeSettingsConflict, rpc.CodeWatchlistConflict,
 		rpc.CodePolicyInvalid, rpc.CodePolicyUnwritable, rpc.CodeConfirmationRequired, rpc.CodeRequestReused}, settingsConflict.Code):
 		return settingsConflict.Code, settingsConflict.Message
