@@ -22,7 +22,7 @@ import (
 // daemon gathers the capital state, one current positions read with its
 // premiums and armed stops (mandate_loss.go) and its decision-grade series,
 // runs mandate.Evaluate and keeps the result. The headline is the loss
-// measure against the loss room (spec TM-04.12); the volatility sizes the
+// measure against the loss room; the volatility sizes the
 // sleeve allocations. The additions gate reads the kept verdict (never a
 // broker read on the order path) and refuses a risk-adding order while it
 // is not within, is older than mandateVerdictMaxAge, or the order itself
@@ -757,7 +757,7 @@ func (s *Server) addPutCover(contract rpc.ContractParams) *rpc.AddPutCover {
 // against it (owner decision "1. A", 2026-10-30 09:41 CET). Otherwise, or
 // when the book cannot be measured now, the normal gate applies.
 //
-// The hedge's loss in a 10% rise spends loss room (TM-04.12). A sale
+// The hedge's loss in a 10% rise spends loss room. A sale
 // increasing that measure remains an addition and must pass the normal
 // drawdown, mandate and sleeve gates even when its loss fits the room.
 func (s *Server) indexHedgeReduces(draft rpc.OrderDraft) bool {
@@ -961,8 +961,8 @@ func (s *Server) mandateVolatilityGate(draft rpc.OrderDraft, position rpc.OrderP
 		}
 		return &rpc.TradingBlocker{Code: mandateBudgetCode, Message: "Mandate budget: with this order the book cannot be measured: " + why + "." + open, Action: action}
 	}
-	// The whole book with the order must stay inside the loss room (spec
-	// TM-04.12: the loss measure is the headline the gate reads), unless the
+	// The whole book with the order must stay inside the loss room (the
+	// loss measure is the headline the gate reads), unless the
 	// book is over it already and the order's sleeve adds inside its own
 	// allocation (checked below). The volatility with the order is measured
 	// for the allocation check, never judged against the volatility budget.

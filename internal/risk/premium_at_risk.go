@@ -8,8 +8,8 @@ import (
 // Premium at risk is the one measure of what a long option book can lose:
 // per leg the higher of the price paid and today's value (rule 2's line
 // figure), summed per underlying and over the book, protection legs counted
-// since the owner's decision of 2026-10-27 19:52 CET ("Count it", spec
-// TM-04.12) with their share named beside (rule 2's hedge tier and rule 12
+// since the owner's decision of 2026-10-27 19:52 CET ("Count it")
+// with their share named beside (rule 2's hedge tier and rule 12
 // still govern the hedge's own band). Rule 3 measures the book's total
 // against the premium budget; since the owner's decision of 2026-10-23
 // 18:22 CEST the same figures gate option additions (option_name_act_pct per

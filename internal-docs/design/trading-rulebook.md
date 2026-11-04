@@ -360,7 +360,7 @@ contradiction:
       premium at risk — the higher of price paid and current value in base
       currency, the per-leg figure of rule 2 and the budget governor — as %
       of NLV, protection included since 2026-10-27 19:52 CET (owner: "Count
-      it", spec TM-04.12; until then legs classified as protection by rule
+      it"; until then legs classified as protection by rule
       12 were left out and "protection alone read 0%"). The evidence note
       names the protection share. Rule 4 and rule 12's hedge band are
       unchanged: rule 2's protection tier is tied to rule 12's act tier, not

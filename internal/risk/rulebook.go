@@ -826,7 +826,7 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 // available-funds reserve read the same constraint the other way round and
 // relaxed as the calls lost, so this measures the premium directly.
 // Protection legs count at their premium like every other bought option
-// (owner decision 2026-10-27 19:52 CET, "Count it"; spec TM-04.12; until then
+// (owner decision 2026-10-27 19:52 CET, "Count it"; until then
 // they were left out), their share disclosed in a note; rule 2's hedge tier
 // and rule 12 still govern the hedge's own band.
 func (c *ruleContext) premiumBudget() RuleRow {

@@ -7,7 +7,7 @@ import (
 	"github.com/osauer/canary/v2/internal/core"
 )
 
-// MethodStrategyOne serves strategy one's screen (Desk spec TM-03.01, rule
+// MethodStrategyOne serves strategy one's screen (rule
 // strong-names-v1): the watch list, the leading set, the names that left,
 // the entry plans and the open names' adds and exits, on the latest
 // settled US close. Read-only: the strategy holds no risk allocation until

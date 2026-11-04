@@ -19,7 +19,7 @@ import (
 //     and the book's at most the premium budget's act level of the regime set
 //     in force. Either breach refuses the order with the figure, the limit
 //     and the name (mandate_premium).
-//   - The mandate's additions gate (since 2026-10-27, spec TM-04.12, the
+//   - The mandate's additions gate (since 2026-10-27, the
 //     loss measure against the loss room, the gap caps and the sleeve
 //     allocations; before, the volatility budget) keeps gating stock and ETF
 //     additions. For an option buy its judgement, with the 1-day expected

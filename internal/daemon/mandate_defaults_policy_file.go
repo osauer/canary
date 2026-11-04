@@ -32,11 +32,10 @@ import (
 // record alone: a file whose tables the owner wrote never gets one, and a
 // comment is the owner's to delete.
 //
-// The owner's decisions of 2026-11-03 13:29 CET (Desk spec TM-04.08 and
-// TM-05.18 C4) are the second batch: [mandate.regime_gate] and
-// [mandate.reduction], written once in the same way and recorded under
-// their own key, so a table of the first batch the owner deleted is never
-// written again by the second.
+// The owner's decisions of 2026-11-03 13:29 CET are the second batch:
+// [mandate.regime_gate] and [mandate.reduction], written once in the same
+// way and recorded under their own key, so a table of the first batch the
+// owner deleted is never written again by the second.
 const (
 	mandateDefaultsSource = "owner decision 2026-10-29 07:06 CET"
 	mandateDefaultsNote   = "mandate defaults of 2026-10-29 written once"

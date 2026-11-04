@@ -40,7 +40,7 @@ func premiumInputs(stage string, carried bool) RuleInputs {
 
 // Rule 3 is the premium budget (amendment 17): premium at risk over NLV,
 // the per-leg figure of rule 2, every bought option counted, protection
-// included (owner decision 2026-10-27 19:52 CET, spec TM-04.12; until then
+// included (owner decision 2026-10-27 19:52 CET; until then
 // protection was left out), against the regime set's watch and act levels,
 // with available funds as context only. The protection share is disclosed.
 func TestPremiumBudgetMeasuresPremiumAtRiskProtectionIncluded(t *testing.T) {

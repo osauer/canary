@@ -8,7 +8,7 @@ import (
 )
 
 // When the owner trades by hand while a batch waits, the batch keeps only
-// the cut that is still needed (spec TM-05.18): the verdict on the old book
+// the cut that is still needed: the verdict on the old book
 // holds what it can still stand behind and drops a row whose position
 // moved; the next verdict on the book as it now is serves exactly the cut a
 // fresh batch would, never the standing size.

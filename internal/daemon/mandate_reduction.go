@@ -27,8 +27,8 @@ import (
 // afresh, with the daemon's own evaluator on the book the verdict measured.
 // Cut by cut, the book re-evaluated after each: a gap loser of a name over
 // its gap cap, then the premium at risk left, each time the cheapest relief
-// first, the most of the loss removed per unit of value given up (spec
-// TM-05.18, owner 2026-11-03 10:51 CET, replacing the 27 Oct order by the
+// first, the most of the loss removed per unit of value given up (owner
+// 2026-11-03 10:51 CET, replacing the 27 Oct order by the
 // largest premium per name), each by the
 // smallest whole step (contracts, or share lots) that takes the loss
 // measure to 0.95 × the loss room with every gap cap met, or else by the
@@ -837,8 +837,8 @@ func mandateSizeBatchBy(verdictBook mandate.Input, candidates map[string]*mandat
 	}
 	// Expiry cuts lead the batch; the rest go nearest expiry first, options
 	// before shares, and within an expiry cheapest relief first: the most of
-	// the loss measure removed per unit of market value given up (spec
-	// TM-05.18, owner 2026-11-03 10:51 and 11:21 CET), whatever name or phase
+	// the loss measure removed per unit of market value given up (owner
+	// 2026-11-03 10:51 and 11:21 CET), whatever name or phase
 	// cut them.
 	batch.cuts = slices.DeleteFunc(slices.Clone(z.cuts), func(c *mandateCut) bool { return c.units <= 0 })
 	slices.SortStableFunc(batch.cuts, func(a, b *mandateCut) int {
@@ -916,7 +916,7 @@ func (z *mandateSizer) reset() {
 }
 
 // sizeMain cuts gap breaches first, then the premium at risk left, the
-// cheapest relief first (spec TM-05.18, owner 2026-11-03 10:51 CET), until
+// cheapest relief first (owner 2026-11-03 10:51 CET), until
 // the loss measure reaches the target or nothing reduces further. Inside the target only
 // the owner sleeve's stop can be left, cut in its own sleeve alone by the
 // sleeve's volatility, as before.
@@ -986,7 +986,7 @@ func (z *mandateSizer) sizeMain() {
 
 // cheapestPremium picks the next premium cut: the leg still reducible that
 // removes the most of the loss measure per unit of market value given up
-// (spec TM-05.18, owner 2026-11-03 10:51 CET; it replaces the 27 Oct order
+// (owner 2026-11-03 10:51 CET; it replaces the 27 Oct order
 // of the largest premium per name). The batch then sells its cuts nearest
 // expiry first (mandateCheaperFirst). A deep out-of-the-money option, whose
 // premium at risk is its price paid while it is worth little, goes first;
@@ -1703,7 +1703,7 @@ func (s *Server) mandateReductionView() *rpc.MandateReductionView {
 }
 
 // mandateReductionGive is the price a pre-authorised mandate cut gives after
-// the open (spec TM-05.18): the queued executor's bounded terms, halfway from
+// the open: the queued executor's bounded terms, halfway from
 // the mid toward the touch, never beyond 25% from the row's mark, and only
 // while the spread is within the line's cap (25% of mid for an option, 2% for
 // shares, from the protection policy). Nil for any other row, or a row
@@ -1727,7 +1727,7 @@ func (e *proposalEngine) mandateReductionGive(prop rpc.TradeProposal) *rpc.Order
 const mandateCheapLegSpreadPct = 200
 
 // mandateCheapLeg prices an option cut the spread cap refused at the bid
-// (owner decision 2026-11-03 13:29 CET, spec TM-05.18 C4): the preview at
+// (owner decision 2026-11-03 13:29 CET): the preview at
 // the touch stands when its give, mid minus the limit for every unit in the
 // base currency, is at most cheap_leg_give_pct_of_loss of the loss measure
 // the row removes. Nil, with why, sends the cut to the mid: not an option,

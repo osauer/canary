@@ -73,7 +73,7 @@ func mandateTestLongOptionBook(t *testing.T, srv *Server, calls float64) *rpc.Po
 // the regime set in force (35% by default): a buy that would take the book
 // past it is refused naming the figure, the budget and the room; the
 // protection put counts in the budget at its premium (owner, 2026-10-27
-// 19:52 CET: "Count it"; spec TM-04.12) and its share is named.
+// 19:52 CET: "Count it") and its share is named.
 func TestMandatePremiumGateCapsTheBook(t *testing.T) {
 	srv, _ := mandateTestServer(t, testMandateConstitution())
 	seedMandateHistory(t, srv, 0)
@@ -91,7 +91,7 @@ func TestMandatePremiumGateCapsTheBook(t *testing.T) {
 		t.Fatalf("book premium %+v", e.Book)
 	}
 	// The verdict reads the same premium as its loss measure: over the
-	// 69,000 EUR loss room, so it reads reduce (spec TM-04.12).
+	// 69,000 EUR loss room, so it reads reduce.
 	if v := res.Verdict; v.Status != mandate.StatusReduce || v.Loss == nil || math.Abs(v.Loss.PremiumBase-103150) > 1e-6 {
 		t.Fatalf("verdict %s loss %+v", res.Verdict.Status, res.Verdict.Loss)
 	}

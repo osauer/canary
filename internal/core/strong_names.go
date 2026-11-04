@@ -6,25 +6,23 @@ import (
 	"slices"
 )
 
-// Strategy one, strong names on short dips (Desk's trading-machine spec
-// TM-03.01; owner decisions 2026-11-03 13:29 CET on the decision list's B1
-// to B10, read from the owner's own scored entries). The rule is
-// strong-names-v1, the lab spec s7_strong_names: US common shares liquid
-// enough and calm enough (B1), in a rising trend (B2), ranked by their
-// 126-session return over SPY's into a watch list of 20 and a leading set of
-// 8 (B3, selection only, never an entry gate), entered the session after a
-// close 3% to 12% under the 10-session high while the regime gate is on or
-// half (B4), in shares (B5), sized to lose 0.5% of the risk base at a stop
-// 2.5 average true ranges under the entry, at most 5% of the risk base per
-// name, times the regime gate's scale (B6), with one add at a new 20-session
-// high (B7), held under a 2.5-ATR trailing stop and out on two closes under
-// the 50-session average, at most 8 names (B8), and a name leaving the watch
-// list after 10 sessions outside the top 20 or on a trend break (B9).
+// Strategy one, strong names on short dips (owner decisions 2026-11-03
+// 13:29 CET). The rule is strong-names-v1, the lab spec s7_strong_names: US
+// common shares liquid enough and calm enough, in a rising trend, ranked by
+// their 126-session return over SPY's into a watch list of 20 and a leading
+// set of 8 (selection only, never an entry gate), entered the session after
+// a close 3% to 12% under the 10-session high while the regime gate is on or
+// half, in shares, sized to lose 0.5% of the risk base at a stop 2.5 average
+// true ranges under the entry, at most 5% of the risk base per name, times
+// the regime gate's scale, with one add at a new 20-session high, held under
+// a 2.5-ATR trailing stop and out on two closes under the 50-session
+// average, at most 8 names, and a name leaving the watch list after 10
+// sessions outside the top 20 or on a trend break.
 //
 // The numbers are the rule's, compiled with it like the core's: a change is
 // a new rule and a new spec version, never a policy key. How much of the
 // risk budget the strategy may use is the register's risk allocation, which
-// is zero until the owner writes one (A2).
+// is zero until the owner writes one.
 //
 // Like the rest of the package it holds no state and does no I/O: the
 // watch list is walked from the history, so a restart never changes it.
@@ -194,7 +192,7 @@ type Departure struct {
 	Why    string `json:"why"`
 }
 
-// EntryPlan is the trade plan for one candidate (TM-04.03): the trigger,
+// EntryPlan is the trade plan for one candidate: the trigger,
 // the instrument, the stop, the size and why it is what it is.
 type EntryPlan struct {
 	Symbol string  `json:"symbol"`

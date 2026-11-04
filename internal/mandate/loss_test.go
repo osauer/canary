@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// The loss measure headlines the verdict (spec TM-04.12; owner decision
+// The loss measure headlines the verdict (owner decision
 // 2026-10-27 19:50–19:52 CET): premium at risk on every bought option plus
 // the cash loss to the stop on every share line with an armed stop, against
 // the remaining loss room (max_loss_pct × budget base × room). The

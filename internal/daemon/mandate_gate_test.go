@@ -172,7 +172,7 @@ func mandateTestUngrouped(synaShares float64) *rpc.PositionsResult {
 // (32,400 EUR of value, 35,640 EUR paid, in USD at 0.9), 71,640 EUR of
 // premium at risk against the 69,000 EUR loss room (30% of the 230,000 EUR
 // budget base at full room). With the gap room at 100% no name breaches
-// its gap cap, so the loss measure alone reads reduce (spec TM-04.12).
+// its gap cap, so the loss measure alone reads reduce.
 func mandateTestPositionsOverLoss() *rpc.PositionsResult {
 	pos := mandateTestUngrouped(100)
 	iv := 0.3
@@ -212,7 +212,7 @@ func mandateBuy(shares int) rpc.OrderDraft {
 
 var mandateOpen = rpc.OrderPositionImpact{Before: 0, After: 100, Effect: rpc.OrderPositionEffectOpen}
 
-// A book whose loss measure is over the loss room (spec TM-04.12; owner,
+// A book whose loss measure is over the loss room (owner,
 // 2026-10-27 19:50 CET) refuses a risk-adding order at the preview, at
 // admission and at the wire guard with mandate_budget, naming the measure
 // and the room; a reduction, a close and a hedge entry pass. The share
@@ -1450,7 +1450,7 @@ func TestPolicyCheckMandateFollowsTheConstitution(t *testing.T) {
 }
 
 // An option buy within the premium limits is still judged against the loss
-// room (spec TM-04.12): the book's premium at risk plus the order's, over
+// room: the book's premium at risk plus the order's, over
 // the room, is the buy's warning (an option buy is refused by the premium
 // limits alone, owner 2026-10-23 18:22 CEST), naming the measure with the
 // order, the room and the measure now; a smaller buy inside the room passes

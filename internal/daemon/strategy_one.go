@@ -13,7 +13,7 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-// Strategy one's screen (core.StrongNamesV1; Desk spec TM-03.01). The
+// Strategy one's screen (core.StrongNamesV1). The
 // universe is the S&P 500 constituents the breadth engine already keeps:
 // their last 253 closes, dated on the US calendar back from each window's
 // last bar and checked against its dated bars, with volumes from those

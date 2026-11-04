@@ -247,7 +247,7 @@ func mandateAllocationedFixture(t *testing.T, pos *rpc.PositionsResult, ratio fl
 }
 
 // The reduction is ordered by premium at risk per name, whatever the sleeve
-// (spec TM-04.12, owner decision 2026-10-27 19:50 CET; until then the sleeve
+// (owner decision 2026-10-27 19:50 CET; until then the sleeve
 // furthest over its allocation was cut first, owner 2026-10-18 08:06 CEST):
 // here the core's fund holds the largest loss to its stop and goes first,
 // inside its allocation or not, then the owner's lines by theirs. The sleeve

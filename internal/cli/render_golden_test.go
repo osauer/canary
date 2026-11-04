@@ -705,7 +705,7 @@ func goldenMandateRegister() rpc.MandateRiskResult {
 // goldenMandate is a synthetic mandate verdict: a two-name book with a
 // short call, SYNA stopped and SYNB not, within the maximum loss or, with
 // the quantities scaled up, a reduce on the loss measure with two gap
-// breaches (spec TM-04.12).
+// breaches.
 func goldenMandate(status string) rpc.MandateRiskResult {
 	scale := 1.0
 	if status == mandate.StatusReduce {

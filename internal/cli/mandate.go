@@ -16,7 +16,7 @@ import (
 // runMandate reads the daemon's mandate risk verdict
 // (internal-docs/design/mandate-risk-budget.md): the book's loss measure
 // (premium at risk plus the loss to armed stops) against the mandate's
-// maximum loss (spec TM-04.12), its ex-ante volatility beside it as the
+// maximum loss, its ex-ante volatility beside it as the
 // sizing input, what drives it, the named stresses and the evidence clocks.
 // The daemon evaluates; this renders.
 func runMandate(ctx context.Context, env *Env, args []string) int {
@@ -251,8 +251,8 @@ func renderMandate(env *Env, res rpc.MandateRiskResult) {
 	riskReadLine(env, "", "The mandate refuses stock and ETF additions while the loss measure is over the maximum loss or your sleeve is over its allocation, and option buys outside the premium limits. Its reduction is a set of proposals (canary proposals); the daemon places them itself only when mandate_reduction is pre-authorised, after the veto window.")
 }
 
-// renderMandateLoss prints the loss measure the verdict is judged by (spec
-// TM-04.12): premium at risk plus the cash loss to armed stops against the
+// renderMandateLoss prints the loss measure the verdict is judged by:
+// premium at risk plus the cash loss to armed stops against the
 // loss room, the names counting most and the share lines no stop bounds.
 func renderMandateLoss(env *Env, l *mandate.LossMeasure, ccy string) {
 	if l == nil {
@@ -454,7 +454,7 @@ func renderMandateReduction(env *Env, r *rpc.MandateReductionView, ccy string) {
 	}
 }
 
-// renderRegimeGate prints the regime gate (Desk spec TM-04.08): the state,
+// renderRegimeGate prints the regime gate: the state,
 // the scale it gives the strategies that read it, and each reading.
 func renderRegimeGate(env *Env, g *rpc.RegimeGateView) {
 	if g == nil {

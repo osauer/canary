@@ -749,7 +749,7 @@ const (
 	MandatePhaseGap = "gap"
 	// MandatePhasePremium: the premium at risk left, cheapest relief first
 	// (the most of the loss measure per unit of value given up), until the
-	// loss measure fits the loss room (spec TM-04.12 and TM-05.18, owner
+	// loss measure fits the loss room (owner
 	// 2026-10-27 19:50 CET and 2026-11-03 10:51 CET).
 	MandatePhasePremium = "premium"
 	// MandatePhaseRisk: the largest contributor to the simulated variance,
@@ -1861,7 +1861,7 @@ type IndexLoss struct {
 	IndexRiseLossUnknown    string   `json:"index_rise_loss_unknown,omitempty"`
 }
 
-// PlanLossMeasure is the mandate's loss measure (spec TM-04.12: premium at
+// PlanLossMeasure is the mandate's loss measure (premium at
 // risk on every bought option plus the cash loss to every armed share stop)
 // on the book now and with a plan's orders filled, against the loss room
 // the mandate still allows, in the account base currency (owner, 2026-10-28

@@ -159,8 +159,8 @@ type automaticSubmissionRecord struct {
 	// the owner's act (re-sized, dropped out of the set, blocked, or refused
 	// at send because the row moved on; never ignored or proposals switched
 	// off): the row served again in the same breach keeps this record's veto
-	// clock, paused for the gap (owner, 2026-11-03 20:47 CET, "ok fix them";
-	// review 21:17 CET). A clock started before the session the row would be
+	// clock, paused for the gap (owner, 2026-11-03 20:47 CET; review 21:17
+	// CET). A clock started before the session the row would be
 	// sent in still restarts at that session (automaticNewSessionReason).
 	CarryClock bool `json:"carry_clock,omitempty"`
 }

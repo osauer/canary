@@ -156,7 +156,7 @@ func heldIndexHedge(row rpc.PositionView) bool {
 
 // reduceSingleEligible is reduceEligible plus the held hedge: a percent
 // reduce of one line may buy the hedge back; a portfolio sweep never
-// selects it (closing a hedge is no risk cut: TM-05.18).
+// selects it (closing a hedge is no risk cut).
 func reduceSingleEligible(row rpc.PositionView) bool {
 	return reduceEligible(row) || heldIndexHedge(row)
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// runStrategyOne prints strategy one's screen (Desk spec TM-03.01): the
+// runStrategyOne prints strategy one's screen: the
 // watch list with the leading set marked, the names that left it, the entry
 // plans and the open names' adds and exits. Reads only.
 func runStrategyOne(ctx context.Context, env *Env, args []string) int {

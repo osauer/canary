@@ -11,8 +11,8 @@ import (
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
-// A pre-authorised mandate cut gives a little on price after the open
-// (spec TM-05.18): halfway from the mid toward the bid while the spread is
+// A pre-authorised mandate cut gives a little on price after the open:
+// halfway from the mid toward the bid while the spread is
 // within the line's cap; beyond the cap it gives nothing and goes at the
 // mid, as before.
 func TestMandateReductionGivesHalfTheSpreadWithinTheCap(t *testing.T) {
@@ -61,7 +61,7 @@ func TestPreAuthorisedStopKeepsThePatientMid(t *testing.T) {
 
 // An option cut whose spread is wider than its cap goes at the bid when the
 // give is at most [mandate.reduction] cheap_leg_give_pct_of_loss of the loss
-// the cut removes (owner decision 2026-11-03 13:29 CET, spec TM-05.18 C4);
+// the cut removes (owner decision 2026-11-03 13:29 CET);
 // a give above it, or the bound unwritten, keeps the mid.
 func TestMandateReductionCheapLegGoesAtTheBid(t *testing.T) {
 	t.Parallel()

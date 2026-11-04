@@ -43,7 +43,7 @@ proposal the owner confirms by writing it into the policy file.
   - Volatility target = D/2 = 15% a year of the risk base. Since
     2026-10-27 19:50 CET it sizes the sleeve allocations and the machine
     strategies; the verdict compares the loss measure with the loss room
-    (spec TM-04.12, "The loss measure as the verdict's headline" below).
+    ("The loss measure as the verdict's headline" below).
   - Protection that acts: on a budget breach, a reduce-only batch back to
     budget, largest risk contributor first, pre-authorised with the
     30-minute veto; release when risk is back in budget, not when P&L
@@ -51,9 +51,9 @@ proposal the owner confirms by writing it into the policy file.
     measurement and the additions gate of increment 1. The order of the
     cuts was replaced on 2026-10-18 08:06 CEST (allocations, below): the sleeve
     furthest over its allocation first, within it the largest contributor;
-    and again on 2026-10-27 19:50 CET (spec TM-04.12): the largest premium
+    and again on 2026-10-27 19:50 CET: the largest premium
     at risk per name first, until the book fits the maximum loss; and on
-    2026-11-03 10:51 CET (owner, spec TM-05.18): cheapest relief first, the
+    2026-11-03 10:51 CET (owner): cheapest relief first, the
     most of the loss measure removed per unit of market value given up, in
     the gap and premium phases; the batch is sent nearest expiry first,
     options before shares, the cheaper relief first within one expiry
@@ -311,7 +311,7 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   cap has its largest gap loser cut until the name's gap loss is under the cap
   (a gap cut never leaves the book riskier); with no breach left, the name
   with the most premium at risk is cut first and, within it, its largest leg
-  (2026-10-27, spec TM-04.12, "The loss measure as the verdict's headline"
+  (2026-10-27, "The loss measure as the verdict's headline"
   below; from 2026-10-18 to 2026-10-27 the sleeve furthest over its
   allocation first, "Risk allocations" below), by the smallest whole step
   that reaches the target or, when no step on that line does, by the step
@@ -1014,8 +1014,8 @@ shadow record's paper decision reads the same way.
 
 ### The forced reduction
 
-Superseded 2026-10-27 19:50 CET (spec TM-04.12), and again 2026-11-03
-10:51 CET (spec TM-05.18: cheapest relief first): the premium phase cuts the
+Superseded 2026-10-27 19:50 CET, and again 2026-11-03 10:51 CET (cheapest
+relief first): the premium phase cuts the
 largest premium at risk per name whatever its sleeve ("The loss measure as
 the verdict's headline" below). The allocations' order below held from
 2026-10-18 to 2026-10-27 and is kept as the record of that decision.
@@ -1316,9 +1316,8 @@ force.
 
 ## The loss measure as the verdict's headline
 
-Owner decision 2026-10-27 19:50–19:52 CET, on the trading machine spec's
-callout TM-04.12 (Desk, `docs/design/trading-machine/trading-machine.md`):
-the mandate's verdict is the loss measure against the maximum loss, not the
+Owner decision 2026-10-27 19:50–19:52 CET: the mandate's verdict is the
+loss measure against the maximum loss, not the
 book's yearly volatility against a volatility budget; and protection's
 premium counts in the premium budget ("Count it").
 

@@ -828,7 +828,7 @@ func (e *Engine) SetMembers(members []string) bool {
 
 // Windows returns a copy of every constituent's window: its last closes
 // (the newest dated LastBarAt) and its dated bars with volume. Strategy one
-// screens the constituents on them (Desk spec TM-03.01).
+// screens the constituents on them.
 func (e *Engine) Windows() map[string]ConstituentWindow {
 	e.mu.RLock()
 	defer e.mu.RUnlock()

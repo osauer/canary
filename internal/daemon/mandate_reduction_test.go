@@ -226,7 +226,7 @@ func mandateRowFor(rows []rpc.TradeProposal, conID int) (rpc.TradeProposal, bool
 // The name with the largest premium at risk (here the loss to its stop) is
 // ranked first and cut by the smallest share lot that takes the loss measure
 // to 0.95 × the loss room; the second name gets no row while the first
-// suffices, and does when it does not (spec TM-04.12).
+// suffices, and does when it does not.
 func TestMandateReductionDominantFirstSizedToTargetSecondOnlyWhenNeeded(t *testing.T) {
 	t.Parallel()
 	pos := mandateReductionBook(mandateReductionStock("SYNA", 9001, 3000, 100), mandateReductionStock("SYNB", 9002, 500, 80))
@@ -677,7 +677,7 @@ func mandateRowRelief(in mandateReductionInput, row rpc.TradeProposal) float64 {
 	return 0
 }
 
-// Cheapest relief first (spec TM-05.18, owner 2026-11-03 10:51 CET): a
+// Cheapest relief first (owner 2026-11-03 10:51 CET): a
 // deep out-of-the-money call, whose premium at risk is its price paid while
 // it is worth little, is cut and ranked before a dated call worth about what
 // it cost, and both before shares, whatever name carries the most premium.

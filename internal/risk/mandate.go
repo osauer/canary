@@ -19,7 +19,7 @@ import (
 type ConstitutionMandate struct {
 	// MaxLossPct is D: the largest loss of the budget base the owner
 	// tolerates, in percent. Room runs from 1 at a new high to 0 at D. Since
-	// 2026-10-27 (spec TM-04.12) it is the verdict's measure: the loss room,
+	// 2026-10-27 it is the verdict's measure: the loss room,
 	// D of the budget base at room, bounds the book's loss measure (premium
 	// at risk plus the loss to armed share stops).
 	MaxLossPct *float64 `toml:"max_loss_pct" json:"max_loss_pct"`
@@ -73,13 +73,13 @@ type ConstitutionMandate struct {
 	// without max_contracts, placing one is refused with a blocker naming
 	// the table, and every fingerprint is kept. There is no second switch.
 	IndexHedge *ConstitutionMandateIndexHedge `toml:"index_hedge" json:"index_hedge,omitempty"`
-	// RegimeGate is [mandate.regime_gate] (Desk spec TM-04.08; owner
-	// decision 2026-11-03 13:29 CET): the numbers of the three-reading
+	// RegimeGate is [mandate.regime_gate] (owner decision
+	// 2026-11-03 13:29 CET): the numbers of the three-reading
 	// regime gate that scales the machine strategies declaring it. Absent,
 	// or with a key unwritten, the gate reads off, so a strategy that
 	// declares it adds nothing; every fingerprint is kept.
 	RegimeGate *ConstitutionMandateRegimeGate `toml:"regime_gate" json:"regime_gate,omitempty"`
-	// Reduction is [mandate.reduction] (Desk spec TM-05.18; owner decision
+	// Reduction is [mandate.reduction] (owner decision
 	// 2026-11-03 13:29 CET): how the forced reduction prices a cut. Absent,
 	// a cut the spread cap refuses goes at the mid, as before.
 	Reduction *ConstitutionMandateReduction `toml:"reduction" json:"reduction,omitempty"`

@@ -5,8 +5,7 @@ import (
 	"slices"
 )
 
-// The regime gate (Desk's trading-machine spec TM-04.08; owner decisions
-// 2026-11-03 13:29 CET on the decision list's D1-D6): three readings from
+// The regime gate (owner decisions 2026-11-03 13:29 CET): three readings from
 // daily closes Canary already keeps, and three states from how many hold.
 // The index's trend is the library's trend-sma10m read on every close, not
 // only at month-end: SPY's close above the mean of the current close and the
@@ -17,10 +16,10 @@ import (
 // at half_scale_pct. One or none: off, scale 0, no new entries and no adds.
 //
 // A reading flips only when confirm_closes consecutive observed closes
-// agree (owner, D3: two), so the state is a function of the history alone
+// agree (owner: two), so the state is a function of the history alone
 // and no restart can lose it. A reading with no close within
 // stale_after_sessions sessions of the latest completed session counts as
-// off (D4). The ten months and the 50 days are the spec row's, compiled.
+// off. The ten months and the 50 days are the rule's, compiled.
 
 // Gate reading ids.
 const (

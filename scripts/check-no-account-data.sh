@@ -12,6 +12,9 @@
 #   5. No current holdings and 6. no money figures of the live book (net
 #      liquidation value, cash balances), matched against denylists derived
 #      at run time from private local data and never committed.
+#   7. No terms of the owner's private projects (their documents, requirement
+#      IDs and decision labels), matched against a term list kept outside
+#      the repository; the list is private so the terms stay unpublished.
 set -eu
 
 # Byte-wise grep: the locale-aware path is ~5x slower over the docs tree.
@@ -327,6 +330,53 @@ if [ -e "$state" ]; then
 		printf '%s\n' "$mout" | grep -qE '^cash\|-?[0-9]' ||
 			echo "check-no-account-data: cash balances not checked: the live proposal snapshot reports none (sweep off or ledger unavailable)"
 	fi
+fi
+
+# 7) No terms of the owner's private projects. Canary describes each
+#    mechanism in product terms; the private project that decided it, its
+#    documents, requirement IDs and decision labels never enter the tree,
+#    the changelog or an outgoing commit message. The term list is one POSIX
+#    extended regular expression per line, matched without regard to case,
+#    with # comments and blank lines ignored, and lives outside the
+#    repository so that the terms themselves stay unpublished. Without a
+#    daemon store (CI, contributor machines) a missing list skips with a
+#    notice; a machine with a store never skips: the owner's machine is
+#    where the terms are written. Only path and line leave the script.
+terms_file=${XDG_CONFIG_HOME:-$home/.config}/ibkr/private-terms
+terms=
+[ ! -f "$terms_file" ] || terms=$(grep -v -E '^[[:space:]]*(#|$)' "$terms_file" || true)
+if [ -n "$terms" ]; then
+	patterns=$(mktemp "${TMPDIR:-/tmp}/private-terms.XXXXXX")
+	printf '%s\n' "$terms" >"$patterns"
+	raw=$(git grep --cached -I -n -i -E -f "$patterns" -- .) || [ $? -eq 1 ] || {
+		echo "check-no-account-data: git grep failed; the private terms check did not run" >&2
+		status=1
+	}
+	if [ -n "$messages" ]; then
+		message_hits=$(printf '%s\n' "$messages" | grep -i -E -f "$patterns") || [ $? -eq 1 ] || {
+			echo "check-no-account-data: message grep failed; the private terms check did not run" >&2
+			status=1
+		}
+		raw=$(printf '%s\n%s\n' "$raw" "$message_hits")
+	fi
+	rm -f "$patterns"
+	hits=$(printf '%s\n' "$raw" | awk -F: \
+		'NF > 2 { l[$1] = l[$1] (l[$1] == "" ? "" : ",") $2 }
+		END { for (f in l) print "check-no-account-data: " f " names a private term on line(s) " l[f] }' | sort)
+	if [ -n "$hits" ]; then
+		printf '%s\n' "$hits" >&2
+		echo "                       private projects, their documents, requirement IDs and decision labels stay out of Canary;" >&2
+		echo "                       describe the mechanism in product terms and keep the provenance in the private project" >&2
+		status=1
+	fi
+	echo "check-no-account-data: private terms checked against $(tilde "$terms_file")"
+elif [ -e "$state" ]; then
+	echo "check-no-account-data: no private term list at $(tilde "$terms_file");" >&2
+	echo "                       a machine with a daemon store never skips the private terms check" >&2
+	status=1
+else
+	echo "check-no-account-data: private terms check SKIPPED — no term list at $(tilde "$terms_file");" >&2
+	echo "                       expected on CI and contributor machines" >&2
 fi
 
 [ "$status" -eq 0 ] && echo "check-no-account-data: OK"

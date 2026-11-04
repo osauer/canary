@@ -12,7 +12,7 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-// The loss measure's inputs (spec TM-04.12; owner decision 2026-10-27
+// The loss measure's inputs (owner decision 2026-10-27
 // 19:50–19:52 CET): every bought option counts at its premium at risk, the
 // higher of the price paid and today's value as rule 2 measures a line
 // (risk.PremiumAtRiskLeg), protection included (the owner: "Count it"); a

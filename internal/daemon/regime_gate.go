@@ -17,7 +17,7 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-// The regime gate (core.MeasureGate; Desk spec TM-04.08) is measured on
+// The regime gate (core.MeasureGate) is measured on
 // the mandate's background cadence from the bars the regime engine already
 // keeps (SPY 400 days, HYG 365 days, the same cache entries) and the
 // breadth engine's daily history, and kept here for the mandate result and

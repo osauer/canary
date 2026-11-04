@@ -11,8 +11,8 @@ import (
 // MethodMandateRisk serves the daemon-owned mandate risk verdict
 // (internal-docs/design/mandate-risk-budget.md): the loss measure, premium
 // at risk on every bought option plus the cash loss to every armed share
-// stop, against the loss the mandate still allows (the headline, spec
-// TM-04.12, owner decision 2026-10-27 19:50 CET), and the ex-ante
+// stop, against the loss the mandate still allows (the headline,
+// owner decision 2026-10-27 19:50 CET), and the ex-ante
 // volatility of the book by historical simulation, which sizes the sleeve
 // allocations and reports the daily swing.
 const MethodMandateRisk = "mandate.risk"
@@ -62,7 +62,7 @@ type MandateRiskResult struct {
 	// it: the batch waiting, held or withdrawn. Nil while inactive or before
 	// the engine has generated.
 	Reduction *MandateReductionView `json:"reduction,omitempty"`
-	// RegimeGate is the regime gate (Desk spec TM-04.08) as last measured:
+	// RegimeGate is the regime gate as last measured:
 	// the three readings, the state and the scale it gives the machine
 	// strategies that declare it. Nil before the first measurement.
 	RegimeGate *RegimeGateView `json:"regime_gate,omitempty"`

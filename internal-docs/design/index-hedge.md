@@ -35,7 +35,7 @@ closing everything stays a separate emergency action in Desk.
 
   The key is not the bare symbol: ES is also a listed company, and the
   compiled lists match on symbol and currency.
-- **Loss measure (TM-04.12).** A held hedge counts its loss in the 10%
+- **Loss measure.** A held hedge counts its loss in the 10%
   index rise (`index_hedge_base`), so it spends loss room like every other
   line (owner decision 2026-10-28 20:07 CET; built 2026-10-28). A stop on
   it would count its distance at contract value per point instead. Its

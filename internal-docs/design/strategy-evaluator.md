@@ -400,10 +400,9 @@ until the spec names it; the owner's number, not a defect.
 
 ## 10. The regime gate (2026-11-03)
 
-Written 2026-11-03 13:42 CET. Desk's trading-machine spec TM-04.08, on the
-owner's decisions of 2026-11-03 13:29 CET (the decision list's D1 to D6,
-D3 at two closes). Code: `internal/core/regime_gate.go` (the arithmetic),
-`internal/daemon/regime_gate.go` (inputs, cadence, serving).
+Written 2026-11-03 13:42 CET, on the owner's decisions of 2026-11-03 13:29
+CET (confirmation at two closes). Code: `internal/core/regime_gate.go` (the
+arithmetic), `internal/daemon/regime_gate.go` (inputs, cadence, serving).
 
 - **Readings.** On the latest settled US close (spx.CompletedSessionKey):
   trend, SPY's close above the mean of itself and the nine month-end closes
@@ -428,25 +427,23 @@ D3 at two closes). Code: `internal/core/regime_gate.go` (the arithmetic),
   written once at daemon start as the second defaults batch (the first is
   2026-10-29's), recorded under its own key so a first-batch table the
   owner deleted stays deleted. Absent or half-written, the gate reads off.
-  The ten months and the 50 days are the spec row's, compiled.
+  The ten months and the 50 days are the rule's, compiled.
 - **Scope.** The gate is measured every 15 minutes beside the mandate's
   scheduled verdict and served on `mandate.risk` as `regime_gate`. It
-  scales only rules that declare it: strategy one's rule (TM-03.01) when it
-  lands. The core and s6-trend do not read it; the owner sleeve is never
-  scaled.
+  scales only rules that declare it: strategy one's rule when it lands. The
+  core and s6-trend do not read it; the owner sleeve is never scaled.
 
 ## 11. Strategy one's screen (2026-11-03)
 
-Written 2026-11-03 14:04 CET. Desk's spec TM-03.01, on the owner's
-decisions of 2026-11-03 13:29 CET (the decision list's A2 and B1 to B10).
-Code: `internal/core/strong_names.go` (the rule, `strong-names-v1`),
+Written 2026-11-03 14:04 CET, on the owner's decisions of 2026-11-03 13:29
+CET. Code: `internal/core/strong_names.go` (the rule, `strong-names-v1`),
 `internal/daemon/strategy_one.go` (inputs, served as `strategy.one`).
 
 - **A rule of its own, not a library filter.** The evaluator above holds
   one fund on a trend filter; strategy one screens many names. Its numbers
-  (B1 to B9) are compiled with the rule like the core's, so a change is a
-  new rule and a new lab spec version (`s7_strong_names`), never a policy
-  key. How much budget it may use is the register's risk allocation.
+  are compiled with the rule like the core's, so a change is a new rule and
+  a new lab spec version (`s7_strong_names`), never a policy key. How much
+  budget it may use is the register's risk allocation.
 - **Universe and history.** The S&P 500 constituents the breadth engine
   keeps: 253 closes per name, dated on the US calendar back from the
   window's last bar and checked against its 60 dated bars, which carry the
@@ -460,12 +457,11 @@ Code: `internal/core/strong_names.go` (the rule, `strong-names-v1`),
   only for the names a plan needs.
 - **Stateless.** The watch list is walked from the history, so restarts and
   rebuilds never change who is on it.
-- **Zero allocation (A2).** No register entry names the rule, and the
-  loader refuses an allocation of zero, so the strategy stays out of the
-  register until the TM-01.01 bar is met or the owner writes a number. The
-  screen sizes each plan by the rule and buys nothing; it proposes and
-  sends nothing. Adds and exits (B7, B8) are computed for open names, and
-  there are none.
+- **Zero allocation.** No register entry names the rule, and the loader
+  refuses an allocation of zero, so the strategy stays out of the register
+  until the owner writes a number. The screen sizes each plan by the rule
+  and buys nothing; it proposes and sends nothing. Adds and exits are
+  computed for open names, and there are none.
 - **Not yet built.** The 2.5-ATR trailing stop under the highest close
   since entry needs the entry record a live sleeve keeps; the five-session
   judgement of an add is the scorecard's. Both arrive with a register

@@ -1,8 +1,8 @@
 // Package mandate evaluates the owner's mandate risk budget
 // (internal-docs/design/mandate-risk-budget.md): the loss measure, premium
 // at risk on every bought option plus the cash loss to every armed share
-// stop, against the loss the mandate still allows (the headline, spec
-// TM-04.12); and ex-ante portfolio volatility by historical simulation with
+// stop, against the loss the mandate still allows (the headline); and
+// ex-ante portfolio volatility by historical simulation with
 // full revaluation of every leg, named gap and index stresses, which sizes
 // the sleeve allocations and reports the daily swing.
 //
@@ -42,7 +42,7 @@ const (
 // cap is breached), reduce (it does not), unknown (something the
 // measurement lacks). StatusOver was the volatility headline's middle
 // reading (over the budget, under 1.25 times it); since the loss measure
-// headlines (spec TM-04.12, 2026-10-27) no verdict reads it, and readers
+// headlines (2026-10-27) no verdict reads it, and readers
 // keep the name only for verdicts kept by an older daemon.
 const (
 	StatusWithin  = "within"
@@ -90,7 +90,7 @@ type Leg struct {
 	// position row carries none): Evaluate fills it from Input.LineISINs.
 	ISIN string `json:"isin,omitempty"`
 	// LossPerUnitBase is the leg's share of the loss measure per unit held,
-	// in base currency (spec TM-04.12, owner decision 2026-10-27 19:50 CET):
+	// in base currency (owner decision 2026-10-27 19:50 CET):
 	// for a bought option the premium at risk per contract, the higher of
 	// the price paid and today's value (rule 2's line figure); for a share
 	// line with an armed stop the cash loss to the stop per share. Zero for
@@ -112,7 +112,7 @@ type Leg struct {
 	StoppedUnits float64 `json:"stopped_units,omitempty"`
 }
 
-// LossMeasure is the mandate's headline (spec TM-04.12): what the book can
+// LossMeasure is the mandate's headline: what the book can
 // lose, as the owner measures it, against the loss the mandate still allows.
 type LossMeasure struct {
 	// TotalBase is PremiumBase + StopLossBase + IndexHedgeBase: the premium
@@ -493,8 +493,8 @@ type Verdict struct {
 	AsOf         time.Time `json:"as_of"`
 	BaseCurrency string    `json:"base_currency,omitempty"`
 	Capital      Capital   `json:"capital"`
-	// Loss is the headline: the loss measure against the loss room (spec
-	// TM-04.12). It is measured whenever the legs allow, so an unknown
+	// Loss is the headline: the loss measure against the loss room. It is
+	// measured whenever the legs allow, so an unknown
 	// verdict still shows it.
 	Loss *LossMeasure `json:"loss,omitempty"`
 	// Risk and Stresses are nil while the status is unknown. The risk is
@@ -618,7 +618,7 @@ func Evaluate(in Input) Verdict {
 	} else if budget > 0 {
 		v.Risk.RatioToBudget = sim.risk.SDAnnualBase / budget
 	}
-	// The headline (spec TM-04.12, owner decision 2026-10-27 19:50 CET): the
+	// The headline (owner decision 2026-10-27 19:50 CET): the
 	// loss measure against the loss room, and the gap caps, which are shares
 	// of the same room. The volatility ratio is reported, not judged.
 	switch {

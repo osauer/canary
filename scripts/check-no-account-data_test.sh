@@ -11,7 +11,7 @@ trap cleanup EXIT HUP INT TERM
 
 # Private holdings and money data come only from the synthetic fixtures
 # below, never from this machine's daemon store or cache.
-export XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache"
+export XDG_STATE_HOME="$test_root/state" XDG_CACHE_HOME="$test_root/cache" XDG_CONFIG_HOME="$test_root/config"
 out="$test_root/out"
 gate() { (cd "$repo" && ./scripts/check-no-account-data.sh) >"$out" 2>&1; }
 fail() {
@@ -69,6 +69,25 @@ git -C "$repo" rm --quiet --cached tool
 gate || fail "tree without private holdings data was rejected"
 expect "holdings check SKIPPED"
 ! grep -q money "$out" || fail "the money check spoke without private data"
+expect "private terms check SKIPPED"
+
+# Private terms come from a list outside the repository: one expression per
+# line, comments and blank lines ignored, matched without regard to case.
+# Only path and line leave the script.
+terms_file="$XDG_CONFIG_HOME/ibkr/private-terms"
+mkdir -p "${terms_file%/*}"
+printf '%s\n' '# synthetic private terms' '' 'zq-private-[0-9]+' 'zq[- ]quartz' > "$terms_file"
+stage fixture.txt 'safe fixture DU1234567; quartz, zq-private and zq-public-7 pass'
+gate || fail "text near a private term was flagged"
+expect "private terms checked against"
+stage fixture.txt 'safe fixture DU1234567
+the Zq-Quartz note
+and ZQ-PRIVATE-42'
+! gate || fail "private terms in a staged file were accepted"
+expect "fixture.txt names a private term on line(s) 2,3"
+withheld Zq-Quartz
+withheld ZQ-PRIVATE-42
+stage fixture.txt 'safe fixture DU1234567'
 
 # A synthetic denylist injected through the private cache. Matching is
 # whole-token and case-sensitive; a single letter and Canary's own market
@@ -163,6 +182,13 @@ Account $probe_lower"
 expect "commit $message_sha contains a non-placeholder IBKR account ID on line 3"
 withheld "$probe_lower"
 git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
+message_commit 'Synthetic subject
+
+On the zq quartz note.'
+! gate || fail "an unpublished commit body naming a private term was accepted"
+expect "commit $message_sha names a private term on line(s) 3"
+withheld "zq quartz"
+git -C "$message_repo" update-ref refs/remotes/origin/main HEAD
 message_commit 'SPY, DU1234567, zqxw and ZQXWV are allowed examples'
 gate || fail "commit messages did not preserve the existing ID and holdings allowlists"
 # Enumeration or message reads failing cannot silently drop this scope.
@@ -218,6 +244,12 @@ stage fixture.txt 'safe fixture DU1234567'
 expect "no daemon reachable"
 expect "never skips the holdings check"
 expect "money check SKIPPED — no daemon reachable"
+
+# A machine with a daemon store never skips the private terms check either.
+mv "$terms_file" "$terms_file.away"
+! gate || fail "a daemon store without a private term list skipped the private terms check"
+expect "never skips the private terms check"
+mv "$terms_file.away" "$terms_file"
 
 # The running daemon's positions are the denylist, option roots and
 # underlyings included; the gate keeps a private copy for when the daemon
