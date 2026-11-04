@@ -160,6 +160,12 @@ func (c *connection) request(ctx context.Context, protoID uint32, req proto.Mess
 			return err
 		}
 	}
+	return c.requestUnpaced(ctx, protoID, req, resp)
+}
+
+// requestUnpaced is a request the pacing table does not count: a read OpenD
+// answers from its own cache, or a later page of a paged read.
+func (c *connection) requestUnpaced(ctx context.Context, protoID uint32, req proto.Message, resp envelope) error {
 	body, err := marshalDeterministic(req)
 	if err != nil {
 		return fmt.Errorf("opend protocol %d: encode: %w", protoID, err)

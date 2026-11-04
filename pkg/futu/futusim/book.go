@@ -166,6 +166,12 @@ type Quote struct {
 	Bid    float64
 	Ask    float64
 	Volume int64
+	// DayOpen, High, Low and PrevClose are the day's figures, derived from the
+	// instrument's start and the walk so far.
+	DayOpen   float64
+	High      float64
+	Low       float64
+	PrevClose float64
 	// Open reports whether the instrument's market is in a trading session.
 	Open bool
 }
@@ -203,6 +209,8 @@ type bookFile struct {
 	Accounts          []Account    `json:"accounts"`
 	Instruments       []Instrument `json:"instruments"`
 	Positions         []Position   `json:"positions"`
+	// FX is the book's synthetic rate of one unit of a currency in HKD.
+	FX map[string]float64 `json:"fx"`
 }
 
 // Book is the simulator's state. Every method is safe for concurrent use;
@@ -218,6 +226,7 @@ type Book struct {
 	accounts          []Account
 	instruments       []Instrument
 	positions         []Position
+	fx                map[string]float64
 	orders            []Order
 	fills             []Fill
 	walks             map[string]*walk
@@ -269,6 +278,7 @@ func Parse(raw []byte) (*Book, error) {
 		accounts:          f.Accounts,
 		instruments:       f.Instruments,
 		positions:         f.Positions,
+		fx:                f.FX,
 		walks:             make(map[string]*walk),
 		subscriptions:     make(map[string]time.Time),
 		history:           make(map[string]time.Time),
@@ -302,10 +312,18 @@ func Parse(raw []byte) (*Book, error) {
 func (b *Book) Seed() uint64 { return b.seed }
 
 // SubscriptionQuota is the OpenD-wide subscription quota the book grants.
-func (b *Book) SubscriptionQuota() int { return b.subscriptionQuota }
+func (b *Book) SubscriptionQuota() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.subscriptionQuota
+}
 
 // HistoryQuota is the seven-day historical candlestick quota the book grants.
-func (b *Book) HistoryQuota() int { return b.historyQuota }
+func (b *Book) HistoryQuota() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.historyQuota
+}
 
 // Accounts lists the accounts, in fixture order.
 func (b *Book) Accounts() []Account {
@@ -374,13 +392,17 @@ func (b *Book) quote(code string, now time.Time) (Quote, error) {
 	steps := openSeconds(in.Market(), b.epoch, now)
 	last, volume := w.at(steps)
 	return Quote{
-		Code:   code,
-		At:     now,
-		Last:   last,
-		Bid:    roundTick(last-in.Tick, in.Tick),
-		Ask:    roundTick(last+in.Tick, in.Tick),
-		Volume: volume,
-		Open:   marketOpen(in.Market(), now),
+		Code:      code,
+		At:        now,
+		Last:      last,
+		Bid:       roundTick(last-in.Tick, in.Tick),
+		Ask:       roundTick(last+in.Tick, in.Tick),
+		Volume:    volume,
+		Open:      marketOpen(in.Market(), now),
+		DayOpen:   in.Start,
+		High:      max(in.Start, last),
+		Low:       min(in.Start, last),
+		PrevClose: roundTick(in.Start*prevCloseFactor, in.Tick),
 	}, nil
 }
 

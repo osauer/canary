@@ -53,6 +53,14 @@ type Limit struct {
 	// PerRequest is the largest item count one request may carry; 0 means
 	// the page states none.
 	PerRequest int
+	// CachedReadsFree says the window counts only requests that refresh OpenD's
+	// cache, as the interface page documents; a plain read is not paced.
+	// FirstPageOnly says the window counts only a paged read's first request.
+	CachedReadsFree bool
+	FirstPageOnly   bool
+	// PerAccount says OpenD counts the window per account. This client is pinned
+	// to one account, so one pacer holds; the simulator keeps one per account.
+	PerAccount bool
 	// Source is the documentation page, Read the date it was read.
 	Source string
 	Read   string
@@ -75,19 +83,19 @@ var Limits = []Limit{
 	{ProtoID: ProtoKeepAlive, Name: "KeepAlive", Source: docIntro + "authority.html", Read: "2026-11-04"},
 	{ProtoID: ProtoTrdGetAccList, Name: "Trd_GetAccList", Source: docTrade + "get-acc-list.html", Read: "2026-11-04"},
 	{ProtoID: ProtoTrdSubAccPush, Name: "Trd_SubAccPush", Source: docTrade + "sub-acc-push.html", Read: "2026-11-04"},
-	{ProtoID: ProtoTrdGetFunds, Name: "Trd_GetFunds", Requests: 10, Window: window, Source: docTrade + "get-funds.html", Read: "2026-11-04"},
-	{ProtoID: ProtoTrdGetPositionList, Name: "Trd_GetPositionList", Requests: 10, Window: window, Source: docTrade + "get-position-list.html", Read: "2026-11-04"},
-	{ProtoID: ProtoTrdGetMaxTrdQtys, Name: "Trd_GetMaxTrdQtys", Requests: 10, Window: window, Source: docTrade + "get-max-trd-qtys.html", Read: "2026-11-04"},
-	{ProtoID: ProtoTrdGetOrderList, Name: "Trd_GetOrderList", Requests: 10, Window: window, Source: docTrade + "get-order-list.html", Read: "2026-11-04"},
-	{ProtoID: ProtoTrdGetOrderFillList, Name: "Trd_GetOrderFillList", Requests: 10, Window: window, Source: docTrade + "get-order-fill-list.html", Read: "2026-11-04"},
-	{ProtoID: ProtoTrdGetHistoryOrderList, Name: "Trd_GetHistoryOrderList", Requests: 10, Window: window, Source: docTrade + "get-history-order-list.html", Read: "2026-11-04"},
-	{ProtoID: ProtoTrdGetHistoryFillList, Name: "Trd_GetHistoryOrderFillList", Requests: 10, Window: window, Source: docTrade + "get-history-order-fill-list.html", Read: "2026-11-04"},
+	{ProtoID: ProtoTrdGetFunds, Name: "Trd_GetFunds", Requests: 10, Window: window, PerAccount: true, CachedReadsFree: true, Source: docTrade + "get-funds.html", Read: "2026-11-04"},
+	{ProtoID: ProtoTrdGetPositionList, Name: "Trd_GetPositionList", Requests: 10, Window: window, PerAccount: true, CachedReadsFree: true, Source: docTrade + "get-position-list.html", Read: "2026-11-04"},
+	{ProtoID: ProtoTrdGetMaxTrdQtys, Name: "Trd_GetMaxTrdQtys", Requests: 10, Window: window, PerAccount: true, Source: docTrade + "get-max-trd-qtys.html", Read: "2026-11-04"},
+	{ProtoID: ProtoTrdGetOrderList, Name: "Trd_GetOrderList", Requests: 10, Window: window, PerAccount: true, CachedReadsFree: true, Source: docTrade + "get-order-list.html", Read: "2026-11-04"},
+	{ProtoID: ProtoTrdGetOrderFillList, Name: "Trd_GetOrderFillList", Requests: 10, Window: window, PerAccount: true, CachedReadsFree: true, Source: docTrade + "get-order-fill-list.html", Read: "2026-11-04"},
+	{ProtoID: ProtoTrdGetHistoryOrderList, Name: "Trd_GetHistoryOrderList", Requests: 10, Window: window, PerAccount: true, Source: docTrade + "get-history-order-list.html", Read: "2026-11-04"},
+	{ProtoID: ProtoTrdGetHistoryFillList, Name: "Trd_GetHistoryOrderFillList", Requests: 10, Window: window, PerAccount: true, Source: docTrade + "get-history-order-fill-list.html", Read: "2026-11-04"},
 	{ProtoID: ProtoQotSub, Name: "Qot_Sub", Source: docQuote + "sub.html", Read: "2026-11-04"},
 	{ProtoID: ProtoQotRegQotPush, Name: "Qot_RegQotPush", Source: docQuote + "sub.html", Read: "2026-11-04"},
 	{ProtoID: ProtoQotGetSubInfo, Name: "Qot_GetSubInfo", Source: docQuote + "query-subscription.html", Read: "2026-11-04"},
 	{ProtoID: ProtoQotGetBasicQot, Name: "Qot_GetBasicQot", Source: docQuote + "get-stock-quote.html", Read: "2026-11-04"},
 	{ProtoID: ProtoQotGetKL, Name: "Qot_GetKL", PerRequest: 1000, Source: docQuote + "get-kl.html", Read: "2026-11-04"},
-	{ProtoID: ProtoQotRequestHistoryKL, Name: "Qot_RequestHistoryKL", Requests: 60, Window: window, PerRequest: 1000, Source: docQuote + "request-history-kline.html", Read: "2026-11-04"},
+	{ProtoID: ProtoQotRequestHistoryKL, Name: "Qot_RequestHistoryKL", Requests: 60, Window: window, FirstPageOnly: true, PerRequest: 1000, Source: docQuote + "request-history-kline.html", Read: "2026-11-04"},
 	{ProtoID: ProtoQotRequestHistoryQuota, Name: "Qot_RequestHistoryKLQuota", Source: docQuote + "get-history-kl-quota.html", Read: "2026-11-04"},
 	{ProtoID: ProtoQotGetStaticInfo, Name: "Qot_GetStaticInfo", Source: docQuote + "get-static-info.html", Read: "2026-11-04"},
 	{ProtoID: ProtoQotGetSecuritySnapshot, Name: "Qot_GetSecuritySnapshot", Requests: 60, Window: window, PerRequest: 400, Source: docQuote + "get-market-snapshot.html", Read: "2026-11-04"},

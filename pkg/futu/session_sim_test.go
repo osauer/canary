@@ -381,7 +381,8 @@ func TestSimulatorRefusesTheTradeUnlock(t *testing.T) {
 type fixtureScenario struct {
 	name     string
 	options  futusim.Options
-	requests []uint32
+	setup    func(*futusim.Server)
+	requests []string
 	after    func(*futusim.Server)
 	pushed   int
 }
@@ -389,13 +390,30 @@ type fixtureScenario struct {
 func fixtureScenarios() []fixtureScenario {
 	disclaimer := common.ProgramStatusType_ProgramStatusType_UnAgreeDisclaimer
 	return []fixtureScenario{
-		{name: "init_connect_ok", requests: []uint32{futu.ProtoInitConnect}},
-		{name: "init_connect_rsa_required", options: futusim.Options{RequireRSA: true}, requests: []uint32{futu.ProtoInitConnect}},
-		{name: "init_connect_old_server", options: futusim.Options{ServerVersion: futu.MinServerVersion - 1}, requests: []uint32{futu.ProtoInitConnect}},
-		{name: "keep_alive", requests: []uint32{futu.ProtoInitConnect, futu.ProtoKeepAlive}},
-		{name: "global_state_ready", requests: []uint32{futu.ProtoInitConnect, futu.ProtoGetGlobalState}},
-		{name: "global_state_disclaimer", options: futusim.Options{ProgramStatus: disclaimer}, requests: []uint32{futu.ProtoInitConnect, futu.ProtoGetGlobalState}},
-		{name: "notify_kicked_out", requests: []uint32{futu.ProtoInitConnect}, after: (*futusim.Server).KickOut, pushed: 1},
+		{name: "init_connect_ok", requests: []string{"init_connect"}},
+		{name: "init_connect_rsa_required", options: futusim.Options{RequireRSA: true}, requests: []string{"init_connect"}},
+		{name: "init_connect_old_server", options: futusim.Options{ServerVersion: futu.MinServerVersion - 1}, requests: []string{"init_connect"}},
+		{name: "keep_alive", requests: []string{"init_connect", "keep_alive"}},
+		{name: "global_state_ready", requests: []string{"init_connect", "global_state"}},
+		{name: "global_state_disclaimer", options: futusim.Options{ProgramStatus: disclaimer}, requests: []string{"init_connect", "global_state"}},
+		{name: "notify_kicked_out", requests: []string{"init_connect"}, after: (*futusim.Server).KickOut, pushed: 1},
+		{name: "qot_sub_ok", requests: []string{"init_connect", "qot_sub", "qot_basic"}, after: (*futusim.Server).PushQuotes, pushed: 1},
+		{name: "qot_sub_quota_spent", setup: func(s *futusim.Server) { s.Book().SetSubscriptionQuota(0) }, requests: []string{"init_connect", "qot_sub", "qot_sub_info"}},
+		{name: "qot_snapshot_ok", requests: []string{"init_connect", "qot_snapshot"}},
+		{name: "qot_history_ok", requests: []string{"init_connect", "qot_history", "qot_history_quota"}},
+		{name: "qot_static_ok", requests: []string{"init_connect", "qot_static"}},
+		{name: "trd_funds_ok", requests: []string{"init_connect", "trd_funds"}},
+		{name: "trd_positions_ok", requests: []string{"init_connect", "trd_positions"}},
+		{name: "trd_orders_ok", setup: fixtureOrders, requests: []string{"init_connect", "trd_orders", "trd_fills"}},
+		{name: "trd_max_ok", requests: []string{"init_connect", "trd_max"}},
+		{name: "trd_max_cash_refused", requests: []string{"init_connect", "trd_max_cash"}},
+	}
+}
+
+// fixtureOrders places one filled order on the simulated account.
+func fixtureOrders(s *futusim.Server) {
+	if _, _, err := s.Book().PlaceOrder(simAccount, "HK.00700", futusim.Buy, 100, nil); err != nil {
+		panic(err)
 	}
 }
 
@@ -418,8 +436,11 @@ func TestFixturesTheSimulatorReemitsTheFramesByteExact(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer nc.Close()
-			for i, protoID := range sc.requests {
-				if _, err := nc.Write(futu.FixtureRequest(protoID, uint32(i+1), clock)); err != nil {
+			if sc.setup != nil {
+				sc.setup(srv)
+			}
+			for i, name := range sc.requests {
+				if _, err := nc.Write(futu.FixtureRequest(name, uint32(i+1), clock)); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := futu.ReadFrame(nc); err != nil {

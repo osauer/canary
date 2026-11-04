@@ -1,11 +1,13 @@
 package futusim
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
 	"maps"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -67,6 +69,8 @@ type Server struct {
 	book     *Book
 	listener net.Listener
 	pacer    *futu.Pacer
+	// accountPacers hold the windows OpenD counts per account.
+	accountPacers map[uint64]*futu.Pacer
 
 	mu            sync.Mutex
 	conns         map[*simConn]struct{}
@@ -83,10 +87,20 @@ type Server struct {
 	wg sync.WaitGroup
 }
 
+// line is one held subscription: an instrument and a data type.
+type line struct {
+	code    string
+	subType int32
+}
+
 type simConn struct {
 	nc      net.Conn
 	id      uint64
 	writeMu sync.Mutex
+	// lines, pushes and accounts are guarded by the server's mutex.
+	lines    map[line]bool
+	pushes   map[string]bool
+	accounts map[uint64]bool
 }
 
 // Listen starts a server on its own goroutines; [Server.Close] ends it.
@@ -118,6 +132,7 @@ func Listen(opts Options) (*Server, error) {
 		book:          opts.Book,
 		listener:      listener,
 		pacer:         futu.NewPacer(opts.Book.Clock.Now),
+		accountPacers: make(map[uint64]*futu.Pacer),
 		conns:         make(map[*simConn]struct{}),
 		nextConnID:    firstConnID,
 		programStatus: opts.ProgramStatus,
@@ -264,14 +279,38 @@ func (s *Server) Push(protoID uint32, message proto.Message) {
 	if err != nil {
 		return
 	}
+	for _, conn := range s.connections() {
+		s.write(conn, futu.Frame{ProtoID: protoID, Body: body})
+	}
+}
+
+// connections lists the connected clients in the order they connected, so a
+// scripted session pushes in one order.
+func (s *Server) connections() []*simConn {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	conns := make([]*simConn, 0, len(s.conns))
 	for conn := range s.conns {
 		conns = append(conns, conn)
 	}
-	s.mu.Unlock()
-	for _, conn := range conns {
-		s.write(conn, futu.Frame{ProtoID: protoID, Body: body})
+	slices.SortFunc(conns, func(a, b *simConn) int { return cmp.Compare(a.id, b.id) })
+	return conns
+}
+
+// dropConnection forgets a client and releases the lines only it held: OpenD
+// releases a closed connection's lines itself.
+func (s *Server) dropConnection(conn *simConn) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.conns, conn)
+	for held := range conn.lines {
+		shared := false
+		for other := range s.conns {
+			shared = shared || other.lines[held]
+		}
+		if !shared {
+			s.book.releaseLine(held.code, held.subType)
+		}
 	}
 }
 
@@ -309,7 +348,7 @@ func (s *Server) accept() {
 			_ = nc.Close()
 			return
 		}
-		conn := &simConn{nc: nc, id: s.nextConnID}
+		conn := &simConn{nc: nc, id: s.nextConnID, lines: make(map[line]bool), pushes: make(map[string]bool), accounts: make(map[uint64]bool)}
 		s.nextConnID++
 		s.conns[conn] = struct{}{}
 		s.mu.Unlock()
@@ -320,9 +359,7 @@ func (s *Server) accept() {
 func (s *Server) serve(conn *simConn) {
 	defer func() {
 		_ = conn.nc.Close()
-		s.mu.Lock()
-		delete(s.conns, conn)
-		s.mu.Unlock()
+		s.dropConnection(conn)
 	}()
 	for {
 		frame, err := futu.ReadFrame(conn.nc)
@@ -377,11 +414,12 @@ func marshal(m proto.Message) ([]byte, error) {
 // answer builds the reply to one request. The pacing table in pkg/futu is the
 // one source: a request past its window gets OpenD's frequency refusal.
 func (s *Server) answer(conn *simConn, frame futu.Frame) proto.Message {
-	if err := s.pacer.Admit(frame.ProtoID); err != nil {
-		s.mu.Lock()
-		s.refusals[frame.ProtoID]++
-		s.mu.Unlock()
-		return s.refuseFrequency(frame.ProtoID, err)
+	// A cached read and a later page owe the window nothing; their handlers
+	// decide once they have read the request.
+	if limit, ok := futu.LimitFor(frame.ProtoID); !ok || (!limit.CachedReadsFree && !limit.FirstPageOnly && !limit.PerAccount) {
+		if refusal := s.admit(frame.ProtoID); refusal != nil {
+			return refusal
+		}
 	}
 	switch frame.ProtoID {
 	case futu.ProtoInitConnect:
@@ -393,7 +431,7 @@ func (s *Server) answer(conn *simConn, frame futu.Frame) proto.Message {
 	case futu.ProtoTrdGetAccList:
 		return s.answerAccList()
 	}
-	return s.answerRead(frame)
+	return s.answerRead(conn, frame)
 }
 
 // refuseFrequency is OpenD's answer to a request past its window. Every

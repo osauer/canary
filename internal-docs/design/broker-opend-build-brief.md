@@ -334,9 +334,9 @@ Tests: every read against the simulator with a scripted book; quota
 exhaustion refuses the next subscribe with the typed error and the daemon-
 facing `Load` reports it; the pacer and the simulator agree (one table,
 asserted); a snapshot of 401 instruments is split into two requests; a
-history request inside the seven-day window costs no quota on repeat;
-`PacketID` carries the session's `connID` and an increasing serial on every
-trade request.
+history request inside the seven-day window costs no quota on repeat. The
+`PacketID` assertion moves to phase D: only the order-writing definitions use
+it, none of the reads does (found in the vendored files, 2026-11-04).
 
 Gate: `make test`. Done: coverage at or above 80; `pkg/futu`'s exported API
 is documented (`go-doc-check`).

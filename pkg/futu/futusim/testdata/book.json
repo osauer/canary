@@ -3,6 +3,7 @@
   "clock": "2026-11-04T01:30:00Z",
   "subscription_quota": 100,
   "history_quota": 100,
+  "fx": {"HKD": 1, "USD": 7.81, "SGD": 5.83},
   "accounts": [
     {
       "acc_id": 1000001,

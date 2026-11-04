@@ -56,6 +56,10 @@ type Config struct {
 	RedialDelay time.Duration
 	// HandshakeTimeout bounds InitConnect; zero is ten seconds.
 	HandshakeTimeout time.Duration
+	// OnOrder and OnFill receive the pinned account's pushed updates, on the read
+	// loop: they record and return, and never block or send.
+	OnOrder func(Order)
+	OnFill  func(Fill)
 }
 
 // SessionBinding names one session of one connector. The zero value is never
@@ -131,6 +135,8 @@ type Health struct {
 	HistoryQuota      int
 	SubscriptionsUsed int
 	HistoryUsed       int
+	// SpendPushed is true once OpenD has pushed the Used figures.
+	SpendPushed bool
 	// LastError is why the last session ended or failed to start.
 	LastError error
 	// LastGatewayEvent is OpenD's last event that left the session open,
@@ -164,6 +170,17 @@ type Connector struct {
 	epoch   uint64
 	health  Health
 	scope   scope
+	// accountPushed is true once this session asked for the order and fill pushes.
+	accountPushed bool
+
+	// quotesMu guards the streaming lines, their cache and the quota readings.
+	// It nests inside no other lock.
+	quotesMu      sync.Mutex
+	lines         map[string]time.Time
+	quotes        map[string]Quote
+	load          Load
+	lastRefusalAt time.Time
+	lastRefusal   string
 }
 
 // NewConnector builds a connector; [Connector.Start] runs it.
@@ -187,6 +204,8 @@ func NewConnector(cfg Config) *Connector {
 		pacer:   NewPacer(now),
 		refresh: make(chan struct{}, 1),
 		health:  Health{Phase: PhaseStopped, Account: cfg.Account},
+		lines:   make(map[string]time.Time),
+		quotes:  make(map[string]Quote),
 	}
 }
 
@@ -275,7 +294,12 @@ func (c *Connector) runSession(ctx context.Context) error {
 	c.health.Session = info
 	c.health.LastError = nil
 	c.scope = scope{}
+	c.accountPushed = false
 	c.mu.Unlock()
+	c.quotesMu.Lock()
+	clear(c.lines)
+	clear(c.quotes)
+	c.quotesMu.Unlock()
 	defer c.endSession(conn)
 
 	c.startRefresh(ctx, conn)
@@ -369,6 +393,17 @@ func (c *Connector) refreshSession(ctx context.Context, conn *connection) {
 		if end, ok := errors.AsType[*SessionEndError](err); ok {
 			conn.close(end)
 		}
+		return
+	}
+	c.mu.Lock()
+	subscribe := c.conn == conn && c.scope.known && !c.accountPushed
+	c.mu.Unlock()
+	if subscribe && subscribeAccountPush(ctx, conn, c.cfg.Account) == nil {
+		c.mu.Lock()
+		if c.conn == conn {
+			c.accountPushed = true
+		}
+		c.mu.Unlock()
 	}
 }
 
@@ -576,6 +611,10 @@ func (c *Connector) signalRefresh() {
 // loop, so it records and signals and never sends.
 func (c *Connector) handlePush(conn *connection, frame Frame) {
 	switch frame.ProtoID {
+	case ProtoQotUpdateBasicQot:
+		c.handleBasicQuotePush(conn, frame)
+	case ProtoTrdUpdateOrder, ProtoTrdUpdateOrderFill:
+		c.handleTradePush(conn, frame)
 	case ProtoNotify:
 		var resp notify.Response
 		if err := proto.Unmarshal(frame.Body, &resp); err != nil {
@@ -617,6 +656,7 @@ func (c *Connector) handleNotify(conn *connection, s2c *notify.S2C) {
 		c.mu.Lock()
 		c.health.SubscriptionsUsed = int(s2c.GetUsedQuota().GetUsedSubQuota())
 		c.health.HistoryUsed = int(s2c.GetUsedQuota().GetUsedKLineQuota())
+		c.health.SpendPushed = true
 		c.mu.Unlock()
 	}
 }

@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 20:40 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 20:38 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -11,7 +11,7 @@ work package so a fresh session resumes without the conversation.
 
 - The multi-broker review of 2026-11-04 (owner decision 16:01 CET: one
   daemon per broker, aggregation and routing in Desk) was applied to the
-  design and the brief at 17:55 CET; WP8 builds to `Broker.Scope()`, the
+  design and the brief at 17:54 CET; WP8 builds to `Broker.Scope()`, the
   policy files on the XDG config root and the kind-neutral key helpers,
   WP10 to the symbol-and-venue join, WP12 to the dual-daemon witness with
   the autospawn proof. The review record lists the seven items.
@@ -38,7 +38,8 @@ work package so a fresh session resumes without the conversation.
 | WP4 `pkg/futu` frames, limits, errors, the simulator book and the test legs | `939c4e6c` | `make test` on the tree before the commit; `make test-pkg` (floor line `test-pkg: pkg/futu statement coverage 98.7% (floor 80%)`); `make ci-gate-scope-check`; account-data gate on the staged fixture (OK) | `gate test at canary--v3.33.1-13-g685871bb-dirty exit 0` |
 | the multi-broker review applied to the design and brief (seven items; the review record lists them) | `12fc8efe` | `make account-data-check product-identity-check`, `make docs-check` on the staged tree | `check-no-account-data: OK`, `check-product-identity: OK` |
 | WP5 protobuf: vendored, generated, manifest, gate, the owner's acceptance recorded | `09f3ee8c` | `make test` on the tree before the commit; `make futu-proto-regen` twice, manifest unchanged; the release CI contract checks | `gate test at canary--v3.33.1-15-g12fc8efe-dirty exit 0`; `futu-proto: OK (28 definitions; protoc-gen-go v1.36.12; protoc v6.32.1)` |
-| WP6 `pkg/futu` session and the simulator server | the commit carrying this note | `make test` on the tree before the commit | see the commit body |
+| WP6 `pkg/futu` session and the simulator server | `ef3ae1e2` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-16-g09f3ee8c-dirty exit 0`; `test-pkg: pkg/futu statement coverage 94.4% (floor 80%)` |
+| WP7 `pkg/futu` reads and their simulator handlers | the commit carrying this note | `make test` on the tree before the commit | see the commit body |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -164,16 +165,25 @@ and design carry these; WP5 and WP8 build to them.
 - Fixtures: `pkg/futu/testdata/frames/*.hex`, `>` client and `<` simulator. `TestFixtures...` in `futu_test` holds the simulator to them byte for byte and re-records with `-record`; `TestReplay...` in `futu` plays them at the client over a pipe and holds its bytes to them.
 - Finding for WP7: `Common.PacketID` appears in no vendored definition, only in `Common.proto`; the order-writing definitions that use it arrive in phase D. The brief's "PacketID on every trade request" has nothing to exercise until then.
 
+## How WP7 is wired
+
+- Every read has a lower half on `*connection` (`readFunds`, `readSnapshots` and so on, which the frame fixtures replay against) and a `Connector` method that adds the session or the pin. No protobuf type leaves `pkg/futu`.
+- Pacing follows each interface page: funds, positions, orders and fills count the 30-second window only when they refresh OpenD's cache (`CachedReadsFree`); history candles count only the first page (`FirstPageOnly`); the 10-per-30-second rows are per account (`PerAccount`), which the simulator keeps per account and the client, pinned to one, does not need to. A plain read goes through `requestUnpaced`.
+- `TrdHeader` per authorised market; positions, orders and fills are one request per market, merged by id. A code on a trade row is rebuilt from its bare code and `secMarket`.
+- A subscribe refusal is `ErrQuotaExhausted` only when `Qot_GetSubInfo` after it reports nothing remaining; the free text is never read. A release inside the hold is refused locally (`SubscriptionHeldError`) and the caller defers it (WP11). Lines belong to a session, and a new session starts empty.
+- Finding for WP8: `Qot_UpdateBasicQot` and `Qot_GetBasicQot` carry no bid or ask, only a snapshot does, so a streaming line has last, open, high, low and volume with bid and ask zero.
+- Funds are read in the currency of the first authorised market (`marketCurrency`): a universal account requires one. Real behaviour with several markets is proof pending at the first real session.
+
 ## In progress
 
 Nothing between packages.
 
 ## Next
 
-WP7 per the brief: quotes, quota, bars, instruments, accounts, positions, orders, the maximum quantity read, each with its simulator handler; then the phase B report to the parent session.
+The phase B report to the parent session, then WP8 per the brief.
 
 ## Not done
 
-Everything from WP7 on. No live proof (no Gateway in this session): every
+Everything from WP8 on. No live proof (no Gateway in this session): every
 IBKR-path package reports "proof pending: next live session". Phase D is
 out of scope.

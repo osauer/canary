@@ -749,7 +749,7 @@ prefix is a kind when it equals a known non-IBKR kind name. The design and
 the brief say both.
 
 One correction to item 2 of the protobuf read, from WP5's first generation
-(2026-11-04 20:15 CET): the generated header for `libprotoc 32.1` reads
+(2026-11-04 20:05 CET): the generated header for `libprotoc 32.1` reads
 `protoc v6.32.1`, not `v5.32.1`. The manifest carries what the plugin
 reported, and the design and the brief are corrected. The rule, two version
 strings with each check reading its own, stands.
@@ -765,8 +765,7 @@ decided on 2026-11-04 16:01 CET: one daemon per broker, with aggregation
 and routing in Desk (the review's option A). The review's section on
 phases A to C named the changes that keep that option cheap and the
 alternatives open; the parent session relayed them to the build session
-at 17:48 CET and they were applied to the design and the brief at 17:55
-CET, in the work packages named. Each item, with its disposition:
+at 17:48 CET and they were applied to the design and the brief at 17:54CET, in the work packages named. Each item, with its disposition:
 
 1. **The topology decision.** Recorded in the design's "Owner decisions"
    table with the time; the table had no topology row.
