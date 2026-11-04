@@ -261,7 +261,10 @@ func TestAutoBackendLossDrivesRediscoveryThroughGatewayRead(t *testing.T) {
 	s := newTestServer(t)
 	s.cfg.Gateway.Port = nil
 	s.endpoint = discover.Endpoint{Host: "127.0.0.1", Port: port, ClientID: 91, PortOrigin: discover.OriginDiscovered}
-	c := s.newConnector(s.endpoint)
+	c, err := s.newConnector(s.endpoint)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = c.Stop() })
 	if err := c.Start(t.Context()); err != nil {
 		t.Fatal(err)

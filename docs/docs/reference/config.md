@@ -10,10 +10,11 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 |---------|-------|------|-------------|
 | `[auto_trade]` | `fast_path_enabled` | `*bool` | FastPathEnabled allows manual proposal preview/submit to use the immediate revalidation path; default true so paper protection stops remain usable. |
 | `[auto_trade]` | `hot_reload` | `*bool` | HotReload controls whether policy changes are reloaded while the daemon runs; default true. |
-| `[auto_trade]` | `policy_file` | `string` | PolicyFile points to the local protection-policy TOML; default ~/.config/ibkr/policies/protection-policy.toml. |
+| `[auto_trade]` | `policy_file` | `string` | PolicyFile points to the local protection-policy TOML; default $1.toml in the policies directory under the XDG config root (~/.config/ibkr/policies). |
 | `[auto_trade]` | `proposal_cadence` | `duration` | ProposalCadence controls how often the daemon refreshes protection proposals; default 30s. |
 | `[auto_trade]` | `proposals_enabled` | `*bool` | ProposalsEnabled controls whether the daemon may produce advisory protection proposals; default true, and proposals are not broker orders unless separately submitted by an explicitly enabled trading path — the `[auto_trade]` section name is historical: nothing auto-trades, and the policy's auto_submit stays false. |
 | `[auto_trade]` | `reload_interval` | `duration` | ReloadInterval controls how often the daemon checks policy-file changes; default 30s. |
+| `[broker]` | `kind` | `string` | Kind is the broker: "ibkr" (the default) or "opend". |
 | `[cash_ledger]` | `bearer_token_file` | `string` | BearerTokenFile optionally names a private file containing a final SSO bearer token for an already authenticated supported session. |
 | `[cash_ledger]` | `ca_cert_file` | `string` | CACertFile optionally trusts the operator's local Gateway certificate; hostname and certificate validation remain enabled. |
 | `[cash_ledger]` | `url` | `string` | URL is the existing authenticated Web API root ending /v1/api. |
@@ -36,12 +37,16 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[gateway]` | `restart_time` | `string` | RestartTime declares the owner-configured daily Gateway restart in 24-hour HH:MM. |
 | `[gateway]` | `restart_timezone` | `string` | RestartTimezone is the owner-confirmed Gateway IANA timezone (for example America/New_York). |
 | `[gateway]` | `tls` | `*bool` | TLS pins TLS mode for the API socket: absent (nil) auto-tries plain first then TLS, `true` forces TLS-only with no plain fallback, `false` forces plain — setting the field disables fallback in either direction. |
+| `[opend]` | `account` | `string` | Account is the Futu account id (accID) the daemon is scoped to. |
+| `[opend]` | `client_id` | `string` | ClientID is the clientID string sent in InitConnect; default "canary". |
+| `[opend]` | `host` | `string` | Host is the OpenD host; empty is loopback. |
+| `[opend]` | `port` | `*int` | Port is OpenD's api_port; absent is 11111. |
 | `[opportunities]` | `enabled` | `*bool` | Enabled controls whether the daemon may produce advisory opportunities; default true, and opportunities are not broker writes unless separately submitted by an explicitly enabled trading path. |
 | `[opportunities]` | `hot_reload` | `*bool` | HotReload controls whether opportunity policy changes are reloaded while the daemon runs; default true. |
-| `[opportunities]` | `policy_file` | `string` | PolicyFile points to the local opportunity-policy TOML; default ~/.config/ibkr/policies/opportunity-policy.toml. |
+| `[opportunities]` | `policy_file` | `string` | PolicyFile points to the local opportunity-policy TOML; default $1.toml in the policies directory under the XDG config root (~/.config/ibkr/policies). |
 | `[opportunities]` | `refresh_cadence` | `duration` | RefreshCadence controls how often the daemon refreshes opportunities; default 2m. |
 | `[opportunities]` | `reload_interval` | `duration` | ReloadInterval controls how often the daemon checks the opportunity policy file for changes; default 30s. |
-| `[rulebook]` | `policy_file` | `string` | PolicyFile points to the owner's Rulebook policy TOML (thresholds and rule modes); default ~/.config/ibkr/policies/rulebook-policy.toml. |
+| `[rulebook]` | `policy_file` | `string` | PolicyFile points to the owner's Rulebook policy TOML (thresholds and rule modes); default $1.toml in the policies directory under the XDG config root (~/.config/ibkr/policies). |
 | `[rulebook]` | `terminal_evidence_file` | `string` | TerminalEvidenceFile points to an optional JSON document of reviewed, exact-contract terminal/non-reporting issuer evidence for rules 6-8 and 20. |
 | `[spx]` | `members_auto_refresh` | `*bool` | MembersAutoRefresh controls whether the daemon refreshes the S&P 500 constituent list from Wikipedia daily at 02:30 ET (default true; set false to pin the embedded baseline) — overridden symmetrically by the `CANARY_SPX_MEMBERS_AUTO_REFRESH` env var (`1` force-on, `0` force-off). |
 | `[trading]` | `allow_option_sell_to_open` | `*bool` | AllowOptionSellToOpen is retired (owner decision 2026-10-05 19:56 CEST): risk-policy.toml [order_limits].allow_option_sell_to_open decides. |

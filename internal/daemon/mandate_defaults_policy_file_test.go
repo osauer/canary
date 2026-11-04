@@ -136,6 +136,7 @@ func TestMigrationRaisesPolicyVersionOnceForBoth(t *testing.T) {
 func startWithConstitution(t *testing.T, home, db string) string {
 	t.Helper()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	set := policyTestSet(t)
 	core := openTestCoreStore(t, db)
 	defer core.Close()

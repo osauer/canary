@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 20:38 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 21:27 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -39,7 +39,8 @@ work package so a fresh session resumes without the conversation.
 | the multi-broker review applied to the design and brief (seven items; the review record lists them) | `12fc8efe` | `make account-data-check product-identity-check`, `make docs-check` on the staged tree | `check-no-account-data: OK`, `check-product-identity: OK` |
 | WP5 protobuf: vendored, generated, manifest, gate, the owner's acceptance recorded | `09f3ee8c` | `make test` on the tree before the commit; `make futu-proto-regen` twice, manifest unchanged; the release CI contract checks | `gate test at canary--v3.33.1-15-g12fc8efe-dirty exit 0`; `futu-proto: OK (28 definitions; protoc-gen-go v1.36.12; protoc v6.32.1)` |
 | WP6 `pkg/futu` session and the simulator server | `ef3ae1e2` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-16-g09f3ee8c-dirty exit 0`; `test-pkg: pkg/futu statement coverage 94.4% (floor 80%)` |
-| WP7 `pkg/futu` reads and their simulator handlers | the commit carrying this note | `make test` on the tree before the commit | see the commit body |
+| WP7 `pkg/futu` reads and their simulator handlers | `2928cd46` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-17-g621b17f1-dirty exit 0`; `test-pkg: pkg/futu statement coverage 93.2% (floor 80%)` |
+| WP8 the daemon on OpenD | the commit carrying this note | `make test` on the tree before the commit; spine on the landed revision | see the commit body |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -174,16 +175,29 @@ and design carry these; WP5 and WP8 build to them.
 - Finding for WP8: `Qot_UpdateBasicQot` and `Qot_GetBasicQot` carry no bid or ask, only a snapshot does, so a streaming line has last, open, high, low and volume with bid and ask zero.
 - Funds are read in the currency of the first authorised market (`marketCurrency`): a universal account requires one. Real behaviour with several markets is proof pending at the first real session.
 
+## How WP8 is wired
+
+- `s.opend` is non-nil exactly under kind `opend`, set in `New` and never replaced. `gatewayConnector` returns nil and `triggerReconnect` false under it, which is what keeps all 63 connector callers answering their typed unavailable reason. `newConnector` returning an error is the backstop.
+- `brokerReads()` returns `broker.Reads`. Under `opend` it is the adapter; under IBKR the per-connector adapter. A site that needs the IBKR connector itself takes `gatewayConnector` and `adapterFor`, as `setup_options.go` now does.
+- Scope: `brokerStateScope.Kind`, zero meaning IBKR. `keyAccount` for keys and hashes, `brokerField` for record bodies, `recordScope` to rebuild from a body, `scopeFromKeyAccount` to rebuild from a key. `currentBrokerStateScope` reads `scopeSource().Scope()`. `scopeFromSnapshot` replaces the snapshot form outside the IBKR-only write and evidence paths.
+- `broker_scope_fixture_test.go` pinned 18 families' IBKR bytes before any scope site moved. If it goes red, an IBKR key changed.
+- OpenD reads fork at the top of three handlers: `opendAccountSummary`, `opendPositions`, `opendQuote` in `broker_opend.go`. They are smaller than the IBKR paths on purpose: no daily P&L stream, no options, no Greeks, no lending. WP9 names what is missing.
+- `runOpenDSession` holds the connector, polls state and quota every 30 seconds, and publishes the last attempt's verdict in words into `lastConnectError`. The process list is read only when the phase changes.
+- The IBKR hosts are off by kind: `disableIBKRHosts` clears Flex and the cash ledger on the daemon's copy, `noIBKRHosts` stops the borrow-fee FTP dial.
+- Mapping decisions: a bare symbol is its own code if prefixed, Hong Kong if all digits, else US; a Singapore name needs its code, venue or currency. The US venue is the literal `US`, since OpenD names no primary exchange in these reads. `observeQuoteHealth` has no OpenD source: OpenD has no absence table, so WP9 should not look for one.
+- A streaming line has no bid or ask, so `opendQuote` prefers a line for `last` and gets bid and ask only from a snapshot.
+- Release note needed at release time, not now: an operator whose daemon sets `XDG_CONFIG_HOME` elsewhere finds the policy files move.
+
 ## In progress
 
 Nothing between packages.
 
 ## Next
 
-The phase B report to the parent session, then WP8 per the brief.
+WP9 per the brief: the OpenD status rows, data health `not_applicable`, the capability field, MCP descriptions, the app and SPA copy, docs.
 
 ## Not done
 
-Everything from WP8 on. No live proof (no Gateway in this session): every
+Everything from WP9 on. No live proof (no Gateway in this session): every
 IBKR-path package reports "proof pending: next live session". Phase D is
 out of scope.

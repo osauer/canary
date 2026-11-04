@@ -47,6 +47,9 @@ type BrokerReadSession struct {
 // An aggregate managedAccounts inventory and the literal "All" are not valid
 // account IDs and must never be published here as a selected account.
 type AccountDataScope struct {
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker      string `json:"broker,omitempty"`
 	AccountID   string `json:"account_id"`
 	AccountMode string `json:"account_mode"`
 }

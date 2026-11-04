@@ -79,8 +79,7 @@ func (e *proposalEngine) persistCashSweepTrace(ctx context.Context, policy prote
 	}
 	digestBytes := sha256.Sum256(raw)
 	digest := hex.EncodeToString(digestBytes[:])
-	scopeHash := sha256.Sum256([]byte(scope.Account + "|" + scope.Mode))
-	scopeKey := "cash_sweep:" + hex.EncodeToString(scopeHash[:])
+	scopeKey := cashSweepTraceScopeKey(scope)
 	for range 3 {
 		doc, exists, err := e.store.core.GetStateDocument(ctx, scopeKey, cashSweepTraceKind)
 		if err != nil {
@@ -123,4 +122,10 @@ func (e *proposalEngine) persistCashSweepTrace(ctx context.Context, policy prote
 		return nil
 	}
 	return errors.New("sweep decision trace revision conflict")
+}
+
+// cashSweepTraceScopeKey is the state document key of one scope's trace.
+func cashSweepTraceScopeKey(scope brokerStateScope) string {
+	scopeHash := sha256.Sum256([]byte(scope.keyAccount() + "|" + scope.Mode))
+	return "cash_sweep:" + hex.EncodeToString(scopeHash[:])
 }

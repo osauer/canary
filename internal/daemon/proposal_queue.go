@@ -228,7 +228,7 @@ func decodeQueuedRecord(raw json.RawMessage) (queuedAuthRecord, error) {
 }
 
 func (r queuedAuthRecord) scope() brokerStateScope {
-	return brokerStateScope{Account: r.Terms.AccountID, Mode: r.Terms.AccountMode}
+	return recordScope(r.Terms.Broker, r.Terms.AccountID, r.Terms.AccountMode)
 }
 
 // waiting reports a record that may still send: armed, or held inside or
@@ -663,7 +663,7 @@ func (e *proposalEngine) queuedTerms(prop rpc.TradeProposal, policy protectionPo
 	}
 	action := strings.ToUpper(strings.TrimSpace(prop.Action))
 	return rpc.QueuedAuthTerms{
-		Version: queuedTermsVersion, AccountID: scope.Account, AccountMode: scope.Mode, Key: prop.Key, Bucket: prop.Bucket,
+		Version: queuedTermsVersion, Broker: scope.brokerField(), AccountID: scope.Account, AccountMode: scope.Mode, Key: prop.Key, Bucket: prop.Bucket,
 		RevisionAtQueue: prop.Revision, Contract: prop.Contract, Action: action, PositionEffect: prop.PositionEffect,
 		PositionQuantity: prop.PositionQuantity, MaxQuantity: maxQty, Style: rpc.QueuedAuthStyleBoundedLimit,
 		Concession: queuedConcession, WorstPrice: queuedDefaultWorstPrice(action, mark, prop.Contract), ReferenceMark: mark,
@@ -748,7 +748,7 @@ func (e *proposalEngine) automaticIntentBlockersFor(key, side string, scope brok
 		served[row.Key] = row
 	}
 	for _, rec := range e.automatic.list() {
-		if !(rec.waiting() || rec.State == rpc.TradeProposalAutomaticSubmitting) || !sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
+		if !(rec.waiting() || rec.State == rpc.TradeProposalAutomaticSubmitting) || !sameBrokerScope(recordScope(rec.Broker, rec.AccountID, rec.AccountMode), scope) {
 			continue
 		}
 		row, ok := served[rec.Key]
@@ -1195,7 +1195,7 @@ func (e *proposalEngine) decorateQueued(snap *rpc.TradeProposalSnapshot) {
 	if e == nil || snap == nil || !e.queued.attached() {
 		return
 	}
-	scope := brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode}
+	scope := recordScope(snap.Broker, snap.AccountID, snap.AccountMode)
 	if !brokerScopeConcrete(scope) {
 		return
 	}

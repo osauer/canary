@@ -29,7 +29,7 @@ const dailyPnLCloseCaptureWindow = 10 * time.Minute
 // observation authority and the close-capture authority. It is persisted only
 // as an opaque fingerprint (dailyPnLObservationSourceKey).
 func dailyPnLScopeSource(scope brokerStateScope) string {
-	return scope.Mode + "|" + strings.TrimSpace(scope.Account)
+	return scope.Mode + "|" + strings.TrimSpace(scope.keyAccount())
 }
 
 type dailyPnLCloseCaptureDocument struct {

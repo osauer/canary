@@ -69,7 +69,7 @@ func (s *Server) handleDeskOverridePrepare(_ context.Context, req *rpc.Request) 
 	if err != nil {
 		return rpc.DeskOverridePrepared{}, err
 	}
-	terms := rpc.DeskOverrideTerms{Version: 1, Kind: rpc.DeskOverrideTermsKind, ID: id, AccountID: scope.Account, AccountMode: scope.Mode,
+	terms := rpc.DeskOverrideTerms{Version: 1, Kind: rpc.DeskOverrideTermsKind, ID: id, Broker: scope.brokerField(), AccountID: scope.Account, AccountMode: scope.Mode,
 		Control: control, Reason: reason, Hours: in.Hours, ConfirmBefore: s.nowUTC().Add(deskOverrideConfirmWindow)}
 	raw, err := json.Marshal(terms)
 	if err != nil {
@@ -104,7 +104,7 @@ func (s *Server) handleDeskOverrideConfirm(_ context.Context, req *rpc.Request) 
 		return nil, &rpc.Error{Code: rpc.CodeConfirmationUnverifiable, Message: "Canary could not verify your device's confirmation: " + err.Error() + ". No override was granted."}
 	}
 	scope := s.currentBrokerStateScope()
-	if !sameBrokerScope(scope, brokerStateScope{Account: terms.AccountID, Mode: terms.AccountMode}) {
+	if !sameBrokerScope(scope, recordScope(terms.Broker, terms.AccountID, terms.AccountMode)) {
 		return nil, errBadRequest("the selected broker account differs from the one the override names; review it again")
 	}
 	p := rpc.OverrideParams{Control: terms.Control, Reason: terms.Reason, Hours: terms.Hours}

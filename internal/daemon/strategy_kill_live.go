@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/core"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/register"
@@ -134,6 +135,7 @@ func nonZero(v, fallback float64) float64 {
 // A's month suppress account B's drawdown). The binding is the frozen
 // month's (coreScope): one account, one mode, one contract.
 type liveMarkBinding struct {
+	kind     broker.Kind
 	strategy string
 	account  string
 	mode     string
@@ -149,12 +151,12 @@ func liveMarkBindingFor(id string, scope brokerStateScope, conID int) (liveMarkB
 	if id == "" || conID <= 0 {
 		return liveMarkBinding{}, errors.New("the strategy's line is not resolved")
 	}
-	return liveMarkBinding{strategy: id, account: strings.ToUpper(strings.TrimSpace(scope.Account)), mode: scope.Mode, conID: conID}, nil
+	return liveMarkBinding{kind: scope.Kind, strategy: id, account: strings.ToUpper(strings.TrimSpace(scope.Account)), mode: scope.Mode, conID: conID}, nil
 }
 
 // scopeKey is the event-log scope the binding's marks are kept under.
 func (b liveMarkBinding) scopeKey() string {
-	return "strategy/" + b.strategy + "/" + coreScope(brokerStateScope{Account: b.account, Mode: b.mode}, b.conID)
+	return "strategy/" + b.strategy + "/" + coreScope(brokerStateScope{Kind: b.kind, Account: b.account, Mode: b.mode}, b.conID)
 }
 
 // holds reports whether a decoded mark names this binding.

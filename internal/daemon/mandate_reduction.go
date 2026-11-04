@@ -189,7 +189,7 @@ func (e *proposalEngine) standingMandateRows(scope brokerStateScope) ([]rpc.Trad
 	e.mu.Lock()
 	snap := e.snapshot
 	e.mu.Unlock()
-	if snap.Kind == "" || !sameBrokerScope(brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode}, scope) {
+	if snap.Kind == "" || !sameBrokerScope(recordScope(snap.Broker, snap.AccountID, snap.AccountMode), scope) {
 		return nil, ""
 	}
 	episode := ""

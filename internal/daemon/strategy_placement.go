@@ -69,7 +69,7 @@ func (s *Server) strategyOwnFills(ctx context.Context, id string, conID int) str
 		if ev.Type != "submitted" || ev.Bucket != rpc.TradeProposalBucketStrategyRebalance || ev.Strategy != id || ev.ConID != conID || ev.OrderRef == "" {
 			continue
 		}
-		if !sameBrokerScope(scope, brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode}) || slices.Contains(refs, ev.OrderRef) {
+		if !sameBrokerScope(scope, recordScope(ev.Broker, ev.AccountID, ev.AccountMode)) || slices.Contains(refs, ev.OrderRef) {
 			continue
 		}
 		refs = append(refs, ev.OrderRef)

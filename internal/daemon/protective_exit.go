@@ -399,7 +399,7 @@ func (s *Server) captureProtectiveExitInventory(ctx context.Context, status rpc.
 	if s == nil || ctx == nil || (!protectiveStockExitCandidate(draft, position) && !deltaReductionCandidate(draft, position)) {
 		return protectiveExitInventory{}
 	}
-	want := brokerStateScope{Account: status.Account, Mode: status.Mode}
+	want := recordScope(status.Broker, status.Account, status.Mode)
 	journal, journaled := s.journalOrderViewsForInventory()
 	snapshot, scope, err := s.brokerOpenOrderInventory(ctx, !journaled)
 	if err != nil || !sameBrokerScope(scope, want) {

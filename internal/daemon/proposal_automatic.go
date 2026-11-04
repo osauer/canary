@@ -101,6 +101,7 @@ const (
 // automaticSubmissionRecord is one durable automatic-submission intent, keyed
 // by proposal key and revision. Timestamps are UTC.
 type automaticSubmissionRecord struct {
+	Broker       string `json:"broker,omitempty"`
 	Version      int    `json:"version"`
 	Key          string `json:"key"`
 	Revision     string `json:"revision"`
@@ -228,6 +229,7 @@ func (r automaticSubmissionRecord) view(preAuthorised bool, now time.Time) *rpc.
 }
 
 type automaticSubmissionEvent struct {
+	Broker      string    `json:"broker,omitempty"`
 	Version     int       `json:"version"`
 	At          time.Time `json:"at"`
 	Type        string    `json:"type"`
@@ -698,7 +700,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			rec := &automaticSubmissionRecord{
 				Version: automaticDocumentVersion, Key: prop.Key, Revision: prop.Revision, Bucket: bucket, EngineBucket: prop.Bucket,
 				Symbol: prop.Symbol, SecType: prop.SecType, Action: prop.Action, Quantity: prop.Quantity,
-				AccountID: snap.AccountID, AccountMode: snap.AccountMode, State: rpc.TradeProposalAutomaticPending,
+				Broker: snap.Broker, AccountID: snap.AccountID, AccountMode: snap.AccountMode, State: rpc.TradeProposalAutomaticPending,
 				VetoWindow: window.String(), CreatedAt: now, SubmitAt: now.Add(window),
 				SettlingBaseline: slices.Clone(baseline), SettlingBaselineKnown: baselineKnown,
 			}
@@ -906,7 +908,7 @@ func (e *proposalEngine) automaticPendingNotices(scope brokerStateScope) []autom
 	}
 	var out []automaticNoticeKey
 	for _, rec := range e.automatic.list() {
-		if !rec.waiting() || !sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
+		if !rec.waiting() || !sameBrokerScope(recordScope(rec.Broker, rec.AccountID, rec.AccountMode), scope) {
 			continue
 		}
 		notice := automaticNoticeKey{Key: rec.Key, Revision: rec.Revision, Episode: rec.Episode, ClockStart: rec.CreatedAt, ClockQuantity: rec.clockQuantity(),
@@ -979,7 +981,7 @@ func (e *proposalEngine) submitDueAutomatic(ctx context.Context) {
 		}
 		// A record of another scope cannot fire here: revalidation against
 		// the current proposal set refuses it and the refusal supersedes it.
-		if brokerScopeConcrete(scope) && sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
+		if brokerScopeConcrete(scope) && sameBrokerScope(recordScope(rec.Broker, rec.AccountID, rec.AccountMode), scope) {
 			if cached == nil {
 				book := e.automaticSettlingBook(ctx, scope, false)
 				cached = &book
@@ -1746,7 +1748,7 @@ func (e *proposalEngine) Veto(ctx context.Context, p rpc.TradeProposalVetoParams
 			rec = &automaticSubmissionRecord{
 				Version: automaticDocumentVersion, Key: key, Revision: served.Revision, Bucket: bucket, EngineBucket: served.Bucket,
 				Symbol: served.Symbol, SecType: served.SecType, Action: served.Action, Quantity: served.Quantity,
-				AccountID: snap.AccountID, AccountMode: snap.AccountMode, State: rpc.TradeProposalAutomaticPending,
+				Broker: snap.Broker, AccountID: snap.AccountID, AccountMode: snap.AccountMode, State: rpc.TradeProposalAutomaticPending,
 				VetoWindow: policy.Authority.vetoWindow().String(), CreatedAt: now, SubmitAt: now,
 			}
 			if served.Mandate != nil {
@@ -1825,7 +1827,7 @@ func (e *proposalEngine) automaticCount(scope brokerStateScope, match func(autom
 	}
 	n := 0
 	for _, rec := range e.automatic.list() {
-		if match(rec) && sameBrokerScope(brokerStateScope{Account: rec.AccountID, Mode: rec.AccountMode}, scope) {
+		if match(rec) && sameBrokerScope(recordScope(rec.Broker, rec.AccountID, rec.AccountMode), scope) {
 			n++
 		}
 	}

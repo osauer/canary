@@ -179,9 +179,10 @@ reader strips `strategy|<id>|` before it splits, reads
 episode key (`core_rebalance.go:271`), whose reader at `281` trims
 `core:` first, reads `core:<kind>:<account>:<mode>:<month>`; the broker
 permissions, proposal and opportunity snapshots and desk executions keys
-the same way. A hashed identity with a format validator takes the kind as
-an extra hash input only for a non-IBKR kind, empty for IBKR so the bytes
-are unchanged and no validator changes: the fee-rate fingerprint
+the same way. A hashed identity with a format validator takes the kind
+inside the account it already hashes, only for a non-IBKR kind, so IBKR's input
+and bytes are unchanged and no validator changes (`keyAccount`, the one helper
+the string keys use too; WP8, 2026-11-04): the fee-rate fingerprint
 (`market_events_fee_rate.go:1021`, `sha256:<hex>` validated at
 `market_events_fee_rate_store.go:131-132` and `172-174`),
 `risk.BuildAlertAuthorityScope` (`internal/risk/alert_candidate.go:309-342`),
@@ -304,8 +305,9 @@ starts the app-watch poller, whose poll triggers the reconnect again.
 `newConnector` is the backstop: its signature becomes `(*ibkrlib.Connector,
 error)`, because a nil connector wrapped in `connectAttempter` is a typed
 nil that `tryOneHandshake` would call, and both callers handle the error.
-The breadth flow is unreachable because `s.breadth` is not constructed
-under `opend`. Three IBKR hosts on other ports remain and are gated by
+The breadth flow is unreachable because `breadthGatewayConnector` and
+`triggerBreadthConnect` return early under `opend`; the engine itself stays
+built, because `Start` attaches its store (corrected in WP8, 2026-11-04). Three IBKR hosts on other ports remain and are gated by
 kind: the Flex fetch (HTTP, behind `cfg.Flex.Enabled`), the borrow-fee
 FTP dial and the Web API cash ledger; so the claim is "never opens the
 IBKR API socket and never dials an IBKR host", and the IBKR-only features
@@ -1177,6 +1179,7 @@ OpenD contact:
 
 | Decision | State |
 | --- | --- |
+| The `broker` field on `rpc.QueuedAuthTerms` in Desk's and the companion's allowlists | Needed before a queued authorisation is signed under OpenD (phase D). The field is absent on every IBKR term, so nothing changes until then; `TestQueuedTermsFieldsAreTheSignedContract` names it (found in WP8, 2026-11-04). |
 | Topology: one daemon per broker, with aggregation and routing in Desk (the multi-broker review's option A) | Decided by the owner, 2026-11-04 16:01 CET. Phases A to C stay as written plus the two C1 changes the review named: the policy files on the XDG config root and the scope on the broker instance (applied to this design and the brief 2026-11-04 17:54 CET). The route is a term of every Desk order; a cross-book measure is a later policy decision, after a real Futu book exists. |
 | The owner's Futu account and the OpenD build to run | Open, the owner's; nothing here depends on it until phase D's paper proof. |
 | Whether the OpenAPI agreement permits Canary | Open, the owner's, after reading it inside OpenD; the build against the simulator does not touch OpenD. |

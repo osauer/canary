@@ -1019,7 +1019,7 @@ func marketEventFeeRateIdentityFingerprint(contract ibkrlib.Contract) string {
 }
 
 func marketEventFeeRateScopeFingerprint(scope brokerStateScope) string {
-	payload := strings.ToUpper(strings.TrimSpace(scope.Account)) + "\x00" + strings.ToLower(strings.TrimSpace(scope.Mode))
+	payload := strings.ToUpper(strings.TrimSpace(scope.keyAccount())) + "\x00" + strings.ToLower(strings.TrimSpace(scope.Mode))
 	digest := sha256.Sum256([]byte("market-event-fee-rate-scope-v1\x00" + payload))
 	return "sha256:" + hex.EncodeToString(digest[:])
 }

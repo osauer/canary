@@ -497,7 +497,7 @@ func edgeScopeFingerprint(scope brokerStateScope) string {
 	h := sha256.New()
 	h.Write([]byte("canary.edge.scope.v1"))
 	h.Write([]byte{0})
-	h.Write([]byte(strings.ToUpper(strings.TrimSpace(scope.Account))))
+	h.Write([]byte(strings.ToUpper(strings.TrimSpace(scope.keyAccount()))))
 	h.Write([]byte{0})
 	h.Write([]byte(strings.ToLower(strings.TrimSpace(scope.Mode))))
 	return "scope_" + hex.EncodeToString(h.Sum(nil)[:16])

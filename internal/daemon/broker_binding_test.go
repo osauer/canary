@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -19,7 +20,7 @@ import (
 func TestBrokerBindingIsNotCurrentAcrossSessionLossAndRebuild(t *testing.T) {
 	f := startFakeTWS(t)
 	s, _ := sessionLossServer(t, f, "2026-10-07T18:00:00Z")
-	first := s.brokerReads()
+	first := ibkrAdapterReads(s)
 	if first == nil || !first.Wraps(s.gatewayConnectorForTest()) {
 		t.Fatal("no adapter over the seated connector")
 	}
@@ -44,7 +45,7 @@ func TestBrokerBindingIsNotCurrentAcrossSessionLossAndRebuild(t *testing.T) {
 	}
 
 	reconnectForTest(t, s)
-	second := s.brokerReads()
+	second := ibkrAdapterReads(s)
 	if second == nil || second == first || !second.Wraps(s.gatewayConnectorForTest()) {
 		t.Fatal("the rebuilt connector has no adapter of its own")
 	}
@@ -82,7 +83,7 @@ func TestSubscriptionLineFollowsTheSessionAcrossARebuild(t *testing.T) {
 	s, _ := sessionLossServer(t, f, "2026-10-07T18:00:00Z")
 	s.subs.coalesce = 5 * time.Millisecond
 	t.Cleanup(s.subs.Close)
-	first := s.brokerReads()
+	first := ibkrAdapterReads(s)
 
 	frames, release, err := s.subs.Subscribe(t.Context(), "SPY")
 	if err != nil {
@@ -114,7 +115,7 @@ func TestSubscriptionLineFollowsTheSessionAcrossARebuild(t *testing.T) {
 	}
 
 	reconnectForTest(t, s)
-	second := s.brokerReads()
+	second := ibkrAdapterReads(s)
 	if second == first {
 		t.Fatal("no new adapter after the rebuild")
 	}
@@ -129,4 +130,11 @@ func TestSubscriptionLineFollowsTheSessionAcrossARebuild(t *testing.T) {
 	if entry == nil || entry.owner != second || !second.Current(entry.binding) || first.Current(entry.binding) {
 		t.Fatalf("the new line %+v is not bound to the rebuilt session", entry)
 	}
+}
+
+// ibkrAdapterReads is the seam accessor's IBKR adapter, nil exactly when the
+// accessor is.
+func ibkrAdapterReads(s *Server) *brokerIBKR.Adapter {
+	a, _ := s.brokerReads().(*brokerIBKR.Adapter)
+	return a
 }

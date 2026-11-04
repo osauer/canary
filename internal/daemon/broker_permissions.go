@@ -60,7 +60,7 @@ type brokerPermissionStore struct {
 }
 
 func brokerPermissionKey(scope brokerStateScope, class string) string {
-	return scope.Account + "|" + scope.Mode + "|" + class
+	return scope.keyAccount() + "|" + scope.Mode + "|" + class
 }
 
 func (p *brokerPermissionStore) bindCore(ctx context.Context, core *corestore.Store) error {
@@ -307,7 +307,7 @@ func (s *Server) noteBoundBrokerPermissionPreview(ctx context.Context, status rp
 	if brokerPermissionClass(draft.Contract) == "" {
 		return
 	}
-	scope := brokerStateScope{Account: strings.TrimSpace(status.Account), Mode: accountModeForStatus(status.GatewayPort, status.Account)}
+	scope := recordScope(status.Broker, strings.TrimSpace(status.Account), statusMode(status))
 	keep := func() error {
 		s.noteBrokerPermissionPreview(ctx, scope, draft, position.Impact.Effect, w, at)
 		return nil
@@ -406,7 +406,7 @@ func (s *Server) checkBrokerPermissions(ctx context.Context, status rpc.TradingS
 		return unanswered("the broker account or session changed before the permission check")
 	}
 	if authority != nil {
-		statusScope := brokerStateScope{Account: strings.TrimSpace(status.Account), Mode: accountModeForStatus(status.GatewayPort, status.Account)}
+		statusScope := recordScope(status.Broker, strings.TrimSpace(status.Account), statusMode(status))
 		if authority.connector != checkBinding.connector || authority.connectorEpoch != checkBinding.connectorEpoch || authority.session != checkBinding.session || !sameBrokerScope(scope, statusScope) {
 			return unanswered("the broker account or session changed before the permission check")
 		}

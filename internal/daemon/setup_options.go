@@ -24,15 +24,15 @@ func (s *Server) handleSetupOptions(ctx context.Context, req *rpc.Request) (*rpc
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
-	a := s.brokerReads()
-	if a == nil {
+	c := s.gatewayConnector()
+	if c == nil {
 		return nil, s.gatewayUnavailableError()
 	}
+	a := s.adapterFor(c)
 	// The option listing below is an IBKR-only read on the connector, in
 	// the connector's own session; the underlying is resolved through the
 	// seam, in the same session, so the setup resolution memo is shared
 	// with the evaluation path.
-	c := a.Connector()
 	binding, ok := c.CaptureHistoricalSession()
 	if !ok {
 		return nil, s.gatewayUnavailableError()

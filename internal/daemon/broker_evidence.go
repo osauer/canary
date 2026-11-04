@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -204,15 +205,100 @@ func writeAuthorityWatermark(path string, head corestore.AuthorityHead) error {
 	return nil
 }
 
+// brokerStateScope is the identity scoped state binds to. A zero Kind means
+// IBKR, so a record written before the second broker keeps its meaning, and
+// every comparison normalises it.
 type brokerStateScope struct {
+	Kind    broker.Kind
 	Account string
 	Mode    string
+}
+
+// brokerField is what a record body stores in its omitempty broker field: nothing
+// for IBKR, so its bytes never change, and the kind for any other broker.
+func (s brokerStateScope) brokerField() string {
+	if s.Kind.Normalized() == broker.KindIBKR {
+		return ""
+	}
+	return s.Kind.String()
+}
+
+// keyAccount is the account as a persisted key or fingerprint names it: IBKR's
+// bare, so its bytes never change, and any other broker's behind its kind, inside
+// the account field and never in front of a family prefix, because readers parse
+// by prefix first. An IBKR account never contains a colon.
+func (s brokerStateScope) keyAccount() string {
+	if field := s.brokerField(); field != "" {
+		return field + ":" + s.Account
+	}
+	return s.Account
+}
+
+// recordScope rebuilds a scope from a record body's broker, account and mode. An
+// IBKR body names no broker, and the zero kind reads as IBKR.
+func recordScope(kind, account, mode string) brokerStateScope {
+	return brokerStateScope{Kind: broker.Kind(kind), Account: account, Mode: mode}
+}
+
+// scopeFromKeyAccount rebuilds a scope from a key's account field: the field is
+// cut at its first colon when what precedes it is a broker this build knows.
+func scopeFromKeyAccount(field, mode string) brokerStateScope {
+	if kind, account, found := strings.Cut(field, ":"); found && broker.Kind(kind).Valid() {
+		return brokerStateScope{Kind: broker.Kind(kind), Account: account, Mode: mode}
+	}
+	return brokerStateScope{Account: field, Mode: mode}
+}
+
+// statusMode is the account mode a trading status carries: IBKR's derived from
+// its port and account, any other broker's as the session reported it.
+func statusMode(status rpc.TradingStatus) string {
+	if status.Broker != "" {
+		return status.AccountMode
+	}
+	return accountModeForStatus(status.GatewayPort, status.Account)
 }
 
 func (s *Server) currentBrokerStateScope() brokerStateScope {
 	if s == nil {
 		return brokerStateScope{}
 	}
+	return scopeOfSeam(s.scopeSource().Scope())
+}
+
+// scopeOfSeam reads the seam's scope; IBKR keeps its zero kind.
+func scopeOfSeam(scope broker.Scope) brokerStateScope {
+	out := brokerStateScope{Account: scope.Account, Mode: scope.Mode}
+	if scope.Kind.Normalized() != broker.KindIBKR {
+		out.Kind = scope.Kind
+	}
+	return out
+}
+
+// scopeSource is the daemon's one source of its scope: the broker instance's.
+func (s *Server) scopeSource() broker.Scoper {
+	if s.opend != nil {
+		return s.opend
+	}
+	return ibkrScope{s}
+}
+
+// scopeFromSnapshot is the scope a caller's own snapshot of the IBKR identity
+// yields, or the broker instance's under any other broker, which has no such
+// snapshot to read.
+func (s *Server) scopeFromSnapshot(configuredAccount, endpointAccount string, port int, connectedAccount string) brokerStateScope {
+	if s != nil && s.opend != nil {
+		return scopeOfSeam(s.opend.Scope())
+	}
+	return brokerStateScopeFromSnapshot(configuredAccount, endpointAccount, port, connectedAccount)
+}
+
+// ibkrScope is the IBKR broker's scope: it outlives every connector, because a
+// rebuilt connector invalidates a session binding and never the identity.
+type ibkrScope struct{ s *Server }
+
+// Scope reads the configured pin, the endpoint and the connected account.
+func (i ibkrScope) Scope() broker.Scope {
+	s := i.s
 	s.mu.Lock()
 	ep := s.endpoint
 	c := s.connector
@@ -230,7 +316,8 @@ func (s *Server) currentBrokerStateScope() brokerStateScope {
 	if port == 0 && s.cfg != nil && s.cfg.Gateway.Port != nil {
 		port = *s.cfg.Gateway.Port
 	}
-	return brokerStateScopeFromSnapshot(configuredAccount, ep.Account, port, connectedAccount)
+	scope := brokerStateScopeFromSnapshot(configuredAccount, ep.Account, port, connectedAccount)
+	return broker.Scope{Kind: broker.KindIBKR, Account: scope.Account, Mode: scope.Mode}
 }
 
 func brokerStateScopeFromSnapshot(configuredAccount, endpointAccount string, port int, connectedAccount string) brokerStateScope {
@@ -277,7 +364,7 @@ func brokerScopeConcrete(scope brokerStateScope) bool {
 }
 
 func sameBrokerScope(a, b brokerStateScope) bool {
-	return strings.EqualFold(strings.TrimSpace(a.Account), strings.TrimSpace(b.Account)) &&
+	return a.Kind.Normalized() == b.Kind.Normalized() && strings.EqualFold(strings.TrimSpace(a.Account), strings.TrimSpace(b.Account)) &&
 		strings.EqualFold(strings.TrimSpace(a.Mode), strings.TrimSpace(b.Mode))
 }
 

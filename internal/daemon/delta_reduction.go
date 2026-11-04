@@ -640,5 +640,5 @@ func (s *Server) captureDeltaReductionEvidence(ctx context.Context, status rpc.T
 	if err != nil {
 		return deltaReductionEvidence{Underlying: underlying, Reason: "Canary cannot read the positions right now; preview again"}
 	}
-	return measureDeltaReduction(pos, brokerStateScope{Account: status.Account, Mode: status.Mode}, draft)
+	return measureDeltaReduction(pos, recordScope(status.Broker, status.Account, status.Mode), draft)
 }

@@ -357,6 +357,9 @@ const (
 // reader must keep verbatim and never re-encode. A reader refuses a field it
 // does not know rather than show the owner less than is signed.
 type LevelingBundleTerms struct {
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker          string                   `json:"broker,omitempty"`
 	AccountID       string                   `json:"account_id"`
 	AccountMode     string                   `json:"account_mode"`
 	BaseCurrency    string                   `json:"base_currency"`

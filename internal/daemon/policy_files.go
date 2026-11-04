@@ -95,10 +95,10 @@ type PolicyFileSet struct {
 // every default.
 func PolicyFileSetFor(cfg *config.Resolved) PolicyFileSet {
 	set := PolicyFileSet{
-		Rulebook:     config.DefaultRulebookPolicyFile,
+		Rulebook:     config.DefaultRulebookPolicyFile(),
 		Protection:   config.AutoTrade{}.WithDefaults().PolicyFile,
 		Opportunity:  config.Opportunities{}.WithDefaults().PolicyFile,
-		Constitution: riskPolicyDefaultPath,
+		Constitution: riskPolicyDefaultPath(),
 	}
 	if cfg != nil {
 		set.Rulebook = cfg.Rulebook.PolicyFilePath()

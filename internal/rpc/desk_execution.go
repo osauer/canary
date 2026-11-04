@@ -155,6 +155,9 @@ type DeskExecutionPrepareBatchParams struct {
 // proposals were named. The terms are compact JSON in this field order;
 // TermsDigest is "sha256:" and the hex SHA-256 of those exact bytes.
 type DeskExecutionBatchTerms struct {
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker      string                   `json:"broker,omitempty"`
 	Kind        string                   `json:"kind"`
 	Version     int                      `json:"version"`
 	BatchID     string                   `json:"batch_id"`

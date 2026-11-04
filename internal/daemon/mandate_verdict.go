@@ -176,7 +176,7 @@ func (s *Server) keepMandateVerdict(binding daemonBrokerEvidenceBinding, result 
 			port = *s.cfg.Gateway.Port
 		}
 	}
-	scope := brokerStateScopeFromSnapshot(configuredAccount, s.endpoint.Account, port, "")
+	scope := s.scopeFromSnapshot(configuredAccount, s.endpoint.Account, port, "")
 	if s.connector != nil || s.connectorEpoch != binding.connectorEpoch || !sameBrokerScope(scope, binding.scope) {
 		return false
 	}

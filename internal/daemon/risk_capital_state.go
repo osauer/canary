@@ -46,6 +46,7 @@ var errRiskCapitalScopeUnresolved = errors.New("risk capital state requires one 
 var errLegacyRiskCapitalScopeUnresolved = errors.New("legacy risk capital safety state has no account binding; refusing to assign it to an account")
 
 type riskCapitalStateFileV1 struct {
+	Broker    string    `json:"broker,omitempty"`
 	Version   int       `json:"version"`
 	GenesisAt time.Time `json:"genesis_at,omitzero"`
 	Seeded    bool      `json:"seeded"`
@@ -234,7 +235,7 @@ func riskCapitalDocumentScope(doc riskCapitalSQLiteDocument) brokerStateScope {
 		// live state only, so this legacy value has one safe interpretation.
 		mode = rpc.AccountModeLive
 	}
-	return brokerStateScope{Account: strings.ToUpper(strings.TrimSpace(doc.State.AccountID)), Mode: mode}
+	return recordScope(doc.State.Broker, strings.ToUpper(strings.TrimSpace(doc.State.AccountID)), mode)
 }
 
 func riskCapitalScopeKey(scope brokerStateScope) (string, error) {
@@ -242,7 +243,7 @@ func riskCapitalScopeKey(scope brokerStateScope) (string, error) {
 		return "", errRiskCapitalScopeUnresolved
 	}
 	return riskCapitalScopeVersion + ":" + strings.TrimPrefix(opaqueIdentity(riskCapitalScopeVersion,
-		strings.ToUpper(strings.TrimSpace(scope.Account)), strings.ToLower(strings.TrimSpace(scope.Mode))), "sha256:"), nil
+		strings.ToUpper(strings.TrimSpace(scope.keyAccount())), strings.ToLower(strings.TrimSpace(scope.Mode))), "sha256:"), nil
 }
 
 func riskCapitalAuthorityHasSafetyContinuity(doc riskCapitalSQLiteDocument, events []capitalEventV1) bool {
@@ -419,7 +420,7 @@ func (st *riskCapitalStore) selectScopeLocked(scope brokerStateScope) error {
 	doc := riskCapitalSQLiteDocument{
 		Version: riskCapitalSQLiteDocVer,
 		State: riskCapitalStateFileV1{
-			Version: riskCapitalStateVer, AccountID: strings.ToUpper(strings.TrimSpace(scope.Account)),
+			Version: riskCapitalStateVer, Broker: scope.brokerField(), AccountID: strings.ToUpper(strings.TrimSpace(scope.Account)),
 			AccountMode: strings.ToLower(strings.TrimSpace(scope.Mode)),
 		},
 	}
@@ -453,7 +454,7 @@ func (st *riskCapitalStore) selectScopeLocked(scope brokerStateScope) error {
 		}
 		capitalEvents = append(capitalEvents, capital)
 	}
-	st.scope = brokerStateScope{Account: strings.ToUpper(strings.TrimSpace(scope.Account)), Mode: strings.ToLower(strings.TrimSpace(scope.Mode))}
+	st.scope = brokerStateScope{Kind: scope.Kind, Account: strings.ToUpper(strings.TrimSpace(scope.Account)), Mode: strings.ToLower(strings.TrimSpace(scope.Mode))}
 	st.scopeKey = scopeKey
 	st.revision = revision
 	st.capitalEvents = append([]capitalEventV1(nil), capitalEvents...)
@@ -795,6 +796,7 @@ func (st *riskCapitalStore) observeWithValuation(equityBase float64, pnl mandate
 		// The binding must hit disk immediately: until it persists, a
 		st.state.AccountID = scope.Account
 		st.state.AccountMode = scope.Mode
+		st.state.Broker = scope.brokerField()
 		force = true
 		st.appendRiskPolicyJournal(map[string]any{
 			"version": 1, "at": now.UTC(), "kind": "capital_state_scoped",

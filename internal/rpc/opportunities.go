@@ -101,6 +101,9 @@ type OpportunitySourceFingerprints struct {
 // LoadedFromState identifies retained output; callers must still honor status
 // and blockers rather than treating persistence as freshness.
 type OpportunitySnapshot struct {
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker        string    `json:"broker,omitempty"`
 	Kind          string    `json:"kind"`
 	SchemaVersion string    `json:"schema_version"`
 	AsOf          time.Time `json:"as_of"`
@@ -524,6 +527,9 @@ type TradeProposalSourceFingerprints struct {
 
 // TradeProposalSnapshot is one daemon-authored, account-and-mode-scoped
 type TradeProposalSnapshot struct {
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker string `json:"broker,omitempty"`
 	// PlanningEvidence binds the original complete book to a read-only portfolio
 	// plan. Old persisted generations have no evidence and cannot admit additions.
 	PlanningEvidence          string                `json:"planning_evidence,omitempty"`

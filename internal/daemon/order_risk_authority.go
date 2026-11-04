@@ -233,7 +233,7 @@ func (s *Server) captureBoundOrderPositionAuthority(ctx context.Context, connect
 	if !ok {
 		return orderPositionAuthority{}, brokerWriteTransactionDriftError()
 	}
-	scope := brokerStateScope{Account: status.Account, Mode: status.Mode}
+	scope := recordScope(status.Broker, status.Account, status.Mode)
 	if err := confirmedPositionProjection(scope, projection, s.orderNow()); err != nil {
 		return orderPositionAuthority{}, err
 	}
@@ -325,7 +325,7 @@ func (s *Server) captureWireOrderPositionAuthority(binding brokerWriteTransactio
 	if !ok {
 		return orderPositionAuthority{}, brokerWriteTransactionDriftError()
 	}
-	scope := brokerStateScope{Account: status.Account, Mode: status.Mode}
+	scope := recordScope(status.Broker, status.Account, status.Mode)
 	if err := confirmedPositionProjection(scope, projection, s.orderNow()); err != nil {
 		return orderPositionAuthority{}, err
 	}

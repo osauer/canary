@@ -27,6 +27,7 @@ import (
 	"github.com/osauer/canary/v2/internal/breadth/spx"
 	"github.com/osauer/canary/v2/internal/broker"
 	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
+	brokerOpenD "github.com/osauer/canary/v2/internal/broker/opend"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/dial"
@@ -81,10 +82,15 @@ type Server struct {
 	setupProfiles setupProfileCache
 	setupCoverage setupCoverageRecorder
 	cfg           *config.Resolved
-	socketPath    string
-	startedAt     time.Time
-	version       string
-	now           func() time.Time
+	// opend is the daemon's broker under kind opend, nil under IBKR. It is set at
+	// construction and never replaced: the client redials on its own.
+	opend             *brokerOpenD.Adapter
+	opendWasReady     atomic.Bool
+	opendVerdictPhase atomic.Value
+	socketPath        string
+	startedAt         time.Time
+	version           string
+	now               func() time.Time
 	// setupSourceForTest replaces the gateway connector behind setup
 	// evaluations; nil reads the live connector.
 	setupSourceForTest setupBarSource
@@ -773,7 +779,8 @@ func New(opts Options) *Server {
 		configIssuesAt:      time.Now().UTC(),
 		ensurePolicyFiles:   opts.EnsurePolicyFiles,
 		disableMacroSources: opts.DisableMacroSources,
-		cfg:                 opts.Config,
+		cfg:                 disableIBKRHosts(opts.Config),
+		opend:               newOpenDBroker(opts.Config, opts.Version),
 		socketPath:          opts.SocketPath,
 		version:             opts.Version,
 		now:                 time.Now,
@@ -1134,6 +1141,9 @@ func (s *Server) installMembersRefresher() {
 // read pattern so handlers reading the pointer never see it mid-Stop.
 // historical sweep off the lane that serves interactive RPCs; failing
 func (s *Server) breadthGatewayConnector() *ibkrlib.Connector {
+	if s.opend != nil {
+		return nil
+	}
 	s.mu.Lock()
 	c := s.breadthConnector
 	s.mu.Unlock()
@@ -1253,6 +1263,11 @@ func (s *Server) breadthConnectWarnf(format string, args ...any) {
 // resolved. Returns true iff a fresh attempt was started. Never blocks:
 // discovery — when the primary migrates from IB Gateway on 4001 to TWS
 func (s *Server) triggerBreadthConnect() bool {
+	if s.opend != nil {
+		// The breadth lane is an IBKR connector of its own; the engine stays built
+		// for its store, and under another broker it never gets a connection.
+		return false
+	}
 	if s.breadth == nil {
 		return false
 	}
@@ -1299,7 +1314,11 @@ func (s *Server) breadthConnectFlow(ctx context.Context, primaryEp discover.Endp
 	bulkEp := primaryEp
 	bulkEp.ClientID = s.cfg.Gateway.BreadthClientIDOrDefault()
 
-	attempter := s.newConnector(bulkEp)
+	attempter, err := s.newConnector(bulkEp)
+	if err != nil {
+		s.breadthConnectWarnf("breadth bulk connector: %v", err)
+		return
+	}
 
 	startDone := make(chan struct{})
 	go func() {
@@ -1578,7 +1597,16 @@ func (s *Server) Start(ctx context.Context) error {
 		return fmt.Errorf("attach alert registry authority: %w", err)
 	}
 
-	ep, derr := discover.Resolve(serverCtx, partialFromConfig(s.cfg.Gateway))
+	var (
+		ep   discover.Endpoint
+		derr error
+	)
+	if s.opend != nil {
+		// No IBKR discovery or connect: the client dials OpenD and no other port.
+		ep = opendEndpoint(s.cfg)
+	} else {
+		ep, derr = discover.Resolve(serverCtx, partialFromConfig(s.cfg.Gateway))
+	}
 	s.mu.Lock()
 	s.endpoint = ep
 	if derr != nil {
@@ -1617,7 +1645,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.prunePolicyBackupsAfterStart()
 	// Skip the connect goroutine when discovery already failed — there's
 	// and no attempt in flight, starts reconnectFlow, and races the initial
-	if derr == nil {
+	if derr == nil && s.opend == nil {
 		s.mu.Lock()
 		s.connectInFlight = true
 		s.mu.Unlock()
@@ -1646,7 +1674,9 @@ func (s *Server) Start(ctx context.Context) error {
 	if s.initialAcceptLoopStartedForTest != nil {
 		s.initialAcceptLoopStartedForTest()
 	}
-	if derr == nil {
+	if s.opend != nil {
+		go s.runOpenDSession(serverCtx)
+	} else if derr == nil {
 		go s.runConnectAttempt(serverCtx, ep)
 	}
 	if s.protectionPolicies != nil {
@@ -1821,7 +1851,10 @@ func sessionStartVerdict(a connectAttempter, ep discover.Endpoint) string {
 // pinned tls (true or false) → strict, no fallback (issue #3). Auto →
 // fallback enabled so the SDK retries the alternate mode if the primary
 // gets no handshake response.
-func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
+func (s *Server) newConnector(ep discover.Endpoint) (*ibkrlib.Connector, error) {
+	if s.opend != nil {
+		return nil, errNoIBKRConnector
+	}
 	conn := ibkrlib.DefaultConfig()
 	conn.Host = ep.Host
 	conn.Port = ep.Port
@@ -1847,7 +1880,7 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	if s.cfg != nil && s.cfg.Daemon.LogCalendarMode == "scheduled" {
 		connector.SetBackendLogRequired(s.gatewayLogRequired)
 	}
-	return connector
+	return connector, nil
 }
 
 // resolveMaintenanceWindows parses [gateway] maintenance_windows once for
@@ -1877,8 +1910,33 @@ func (s *Server) resolveMaintenanceWindows() error {
 
 // buildAttempter is the production attempter factory. Tests replace
 func (s *Server) buildAttempter(ep discover.Endpoint) connectAttempter {
-	return s.newConnector(ep)
+	c, err := s.newConnector(ep)
+	if err != nil {
+		// A nil connector in this interface would be a typed nil that
+		// tryOneHandshake calls. triggerReconnect keeps this path unreachable.
+		return refusedAttempter{err}
+	}
+	return c
 }
+
+// refusedAttempter stands in for a connector the backstop refused: every call
+// fails, so a path that somehow reached it connects to nothing.
+type refusedAttempter struct{ err error }
+
+func (r refusedAttempter) Start(context.Context) error { return r.err }
+func (r refusedAttempter) Stop() error                 { return nil }
+func (r refusedAttempter) IsConnected() bool           { return false }
+func (r refusedAttempter) AccountID() string           { return "" }
+func (r refusedAttempter) BackendLink() ibkrlib.BackendLinkReport {
+	return ibkrlib.BackendLinkReport{}
+}
+func (r refusedAttempter) UsingTLS() bool                     { return false }
+func (r refusedAttempter) SetMarketDataType(int) error        { return r.err }
+func (r refusedAttempter) RequestAccountUpdates(string) error { return r.err }
+func (r refusedAttempter) SubscribeAccountPnL(string) error   { return r.err }
+
+// errNoIBKRConnector is the backstop refusal under another broker.
+var errNoIBKRConnector = errors.New("this daemon serves another broker and holds no IBKR connector")
 
 // runConnectAttempt is the single entry point for "do one full connect
 // flow (including handshake failover across alternates) and clear
@@ -2569,6 +2627,11 @@ func (s *Server) reconnectAllowed(now time.Time) bool {
 // (4001) and starts TWS (7496) instead, the daemon would render
 // for a verdict — exactly the same UX as the initial connect path.
 func (s *Server) triggerReconnect() bool {
+	if s.opend != nil {
+		// The one gate for all six callers: reconnectFlow probes the IBKR ports
+		// before any connector exists, so it must never start under another broker.
+		return false
+	}
 	s.mu.Lock()
 	if s.connectInFlight {
 		s.mu.Unlock()
@@ -2811,6 +2874,9 @@ func (s *Server) stopConnector() {
 // The current handler still returns ErrIBKRUnavailable to its caller —
 // pinned to a stale port after the user moved between Gateway and TWS.
 func (s *Server) gatewayConnector() *ibkrlib.Connector {
+	if s.opend != nil {
+		return nil
+	}
 	s.mu.Lock()
 	c := s.connector
 	s.mu.Unlock()
@@ -2830,7 +2896,13 @@ func (s *Server) gatewayConnector() *ibkrlib.Connector {
 // first use rather than at the publication site, because tests seat
 // s.connector directly; a rebuilt connector gets a new adapter with the
 // next generation, so a binding of the old one is never current on it.
-func (s *Server) brokerReads() *brokerIBKR.Adapter {
+func (s *Server) brokerReads() broker.Reads {
+	if s.opend != nil {
+		if !s.opend.Connector().IsReady() {
+			return nil
+		}
+		return s.opend
+	}
 	c := s.gatewayConnector()
 	if c == nil {
 		return nil

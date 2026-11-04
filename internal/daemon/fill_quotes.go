@@ -198,7 +198,7 @@ func (rt *fillQuoteRuntime) recordPoll(p fillQuotePoll) {
 // mode and client scope, and a blank poll otherwise.
 func (rt *fillQuoteRuntime) pollFor(status rpc.TradingStatus) fillQuotePoll {
 	poll := rt.pollStatus()
-	if !sameBrokerScope(poll.scope, brokerStateScope{Account: status.Account, Mode: status.Mode}) || poll.clientID != status.ClientID {
+	if !sameBrokerScope(poll.scope, recordScope(status.Broker, status.Account, status.Mode)) || poll.clientID != status.ClientID {
 		return fillQuotePoll{}
 	}
 	return poll
@@ -655,7 +655,7 @@ func (s *Server) captureQueuedFillQuotes(ctx context.Context) {
 // authority. Auto-discovered accounts use the same scope rule as broker state.
 func (s *Server) fillQuoteAccountStatus(ep discover.Endpoint) rpc.TradingStatus {
 	status := s.tradingStatus(ep)
-	scope := brokerStateScopeFromSnapshot(status.Account, ep.Account, status.GatewayPort, s.connectedGatewayAccount())
+	scope := s.scopeFromSnapshot(status.Account, ep.Account, status.GatewayPort, s.connectedGatewayAccount())
 	status.Account, status.Mode = scope.Account, scope.Mode
 	return status
 }
@@ -673,7 +673,7 @@ func (s *Server) pollAccountExecutions(ctx context.Context) {
 	ep := s.endpoint
 	s.mu.Unlock()
 	status := s.fillQuoteAccountStatus(ep)
-	outcome := fillQuotePoll{at: now, scope: brokerStateScope{Account: status.Account, Mode: status.Mode}, clientID: status.ClientID}
+	outcome := fillQuotePoll{at: now, scope: recordScope(status.Broker, status.Account, status.Mode), clientID: status.ClientID}
 	if !brokerScopeAccountConcrete(status.Account) {
 		outcome.err = "account_unknown"
 		rt.recordPoll(outcome)

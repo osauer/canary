@@ -34,7 +34,7 @@ func (s *Server) protectiveOCABeforePlace(ctx context.Context, status rpc.Tradin
 	if err != nil {
 		return protectiveOCALink{}, fmt.Errorf("%w: the order journal cannot be read, so Canary cannot rule out its own stop on this line: %v", ErrTradingDisabled, err)
 	}
-	scope := brokerStateScope{Account: status.Account, Mode: status.Mode}
+	scope := recordScope(status.Broker, status.Account, status.Mode)
 	var snapshot *ibkrlib.OpenOrderSnapshot
 	readCtx, cancel := context.WithTimeout(ctx, ordersOpenInventoryWait)
 	if snap, inventoryScope, err := s.brokerOpenOrderInventory(readCtx, false); err == nil && sameBrokerScope(inventoryScope, scope) {

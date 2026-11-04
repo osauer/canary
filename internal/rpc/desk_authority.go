@@ -14,6 +14,9 @@ const (
 
 // DeskAuthorityTerms binds the exact account, scope and execution semantics signed by the owner.
 type DeskAuthorityTerms struct {
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker         string    `json:"broker,omitempty"`
 	AuthorityEpoch string    `json:"authority_epoch"`
 	Version        int       `json:"version"`
 	Kind           string    `json:"kind"`

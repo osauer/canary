@@ -461,7 +461,7 @@ func (s *Server) observeProtectionAlertShadowHeartbeatOnce(ctx context.Context, 
 	if c != nil {
 		connectedAccount = c.AccountID()
 	}
-	scope := brokerStateScopeFromSnapshot(configuredAccount, ep.Account, port, connectedAccount)
+	scope := s.scopeFromSnapshot(configuredAccount, ep.Account, port, connectedAccount)
 	shadowScope, err := newAlertShadowBrokerScope(scope)
 	if err != nil {
 		return true

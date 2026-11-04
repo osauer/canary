@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -81,6 +82,19 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 		MCPTrading:     rpc.TradingMCPDisabled,
 		LiveOverride:   rpc.TradingLiveOverrideBlocked,
 	}
+	if s != nil && s.opend != nil {
+		status.Broker = string(broker.KindOpenD)
+		status.Account = strings.TrimSpace(cfg.OpenD.Account)
+		status.AccountOrigin = originPinnedOrAuto(status.Account != "")
+		status.AccountMode = s.opend.Scope().Mode
+		status.GatewayHost = cfg.OpenD.HostOrDefault()
+		status.GatewayPort = cfg.OpenD.PortOrDefault()
+		status.Endpoint = endpointString(status.GatewayHost, status.GatewayPort)
+		status.PortOrigin = string(discover.OriginFor(cfg.OpenD.Port != nil))
+		status.ClientID = 0
+		status.ClientIDOrigin = ""
+		account = status.Account
+	}
 	if status.PortOrigin == "" {
 		if cfg.Gateway.Port != nil {
 			status.PortOrigin = string(discover.OriginPinned)
@@ -122,7 +136,12 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 		status.OpenOrders = summary.OpenOrders
 		status.LastOrderEvent = summary.LastEvent
 	}
-	if !s.tradingGatewayReady() {
+	opend := s != nil && s.opend != nil
+	if opend {
+		if !s.opend.Connector().IsReady() {
+			add("gateway_unavailable", "order preview and broker writes require a connected OpenD session", "Run `canary status` and wait for OpenD to be ready.")
+		}
+	} else if !s.tradingGatewayReady() {
 		add("gateway_unavailable", "order preview and broker writes require a connected IBKR Gateway/TWS session", "Run `canary status` and wait for the gateway handshake to complete.")
 	}
 
@@ -135,14 +154,24 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 	if strings.TrimSpace(connectedAccount) == "" || strings.EqualFold(strings.TrimSpace(connectedAccount), "All") {
 		add("gateway_account_unconfirmed", "the broker session has not confirmed the authorized account", "Wait for the broker account handshake before trading.")
 	}
-	if cfg.Gateway.Account == "" {
+	pin := cfg.Gateway.Account
+	if opend {
+		pin = strings.TrimSpace(cfg.OpenD.Account)
+		// The session's account list either reports the pin or it does not;
+		// OpenD assigns the connection itself, so there is no client id to pin.
+		if strings.TrimSpace(connectedAccount) == "" && s.opend.Connector().Health().Connected {
+			add("gateway_account_mismatch", fmt.Sprintf("OpenD's account list does not report [opend] account %q", pin), "Set [opend] account to an accID OpenD lists.")
+		}
+	} else if cfg.Gateway.Account == "" {
 		add("gateway_account_unpinned", "order submission requires a pinned account", "Set [gateway].account.")
 	} else if strings.EqualFold(strings.TrimSpace(cfg.Gateway.Account), "All") {
 		add("gateway_account_not_concrete", "order preview requires a concrete IBKR account, not the aggregate account \"All\"", "Pin the paper/live account code shown by TWS, such as a DU paper account.")
 	} else if accountMismatchesConnected(cfg.Gateway.Account, connectedAccount) {
 		add("gateway_account_mismatch", fmt.Sprintf("configured account %q does not match connected account %q", cfg.Gateway.Account, connectedAccount), "Pin [gateway].account to the account advertised by the connected TWS/Gateway session.")
 	}
-	if cfg.Gateway.ClientID == nil {
+	if opend {
+		// OpenD assigns connID itself; [opend] client_id is only a label.
+	} else if cfg.Gateway.ClientID == nil {
 		add("gateway_client_id_unpinned", "order submission requires a pinned client ID", "Set [gateway].client_id.")
 	} else if ep.ClientID != 0 && ep.ClientID != *cfg.Gateway.ClientID {
 		add("gateway_client_id_mismatch", "connected client ID differs from the pinned client ID", "Stop the conflicting API client or choose a free [gateway].client_id.")
@@ -150,11 +179,11 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 
 	switch tr.Mode {
 	case config.TradingModePaper:
-		if cfg.Gateway.Account != "" && accountModeForStatus(0, account) != rpc.AccountModePaper {
+		if pin != "" && s.brokerAccountMode(account) != rpc.AccountModePaper {
 			add("paper_endpoint_unconfirmed", "paper trading requires a paper account", "Select the authorized paper account.")
 		}
 	case config.TradingModeLive:
-		if cfg.Gateway.Account != "" && accountModeForStatus(0, account) != rpc.AccountModeLive {
+		if pin != "" && s.brokerAccountMode(account) != rpc.AccountModeLive {
 			add("live_endpoint_unconfirmed", "live trading requires a live account", "Select the authorized live account in [gateway].account.")
 		}
 	}
@@ -356,6 +385,9 @@ func (s *Server) connectedGatewayAccount() string {
 	if s.gatewayAccountForTrading != nil {
 		return s.gatewayAccountForTrading()
 	}
+	if s.opend != nil {
+		return s.opend.Health().Account
+	}
 	s.mu.Lock()
 	c := s.connector
 	s.mu.Unlock()
@@ -432,6 +464,15 @@ func originPinnedOrDefault(pinned bool) string {
 
 // A concrete broker account determines mode; port conventions are only a
 // display fallback before identity arrives, never trading authorization.
+// brokerAccountMode is the mode of the daemon's account under its broker: IBKR's
+// from the account's own prefix, any other broker's as the session reported it.
+func (s *Server) brokerAccountMode(account string) string {
+	if s != nil && s.opend != nil {
+		return s.opend.Scope().Mode
+	}
+	return accountModeForStatus(0, account)
+}
+
 func accountModeForStatus(port int, account string) string {
 	account = strings.TrimSpace(account)
 	if brokerScopeAccountConcrete(account) {

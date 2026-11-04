@@ -52,6 +52,7 @@ type opportunityRefreshHealth struct {
 }
 
 type opportunityEvent struct {
+	Broker             string                            `json:"broker,omitempty"`
 	Version            int                               `json:"version"`
 	At                 time.Time                         `json:"at"`
 	Type               string                            `json:"type"`
@@ -290,6 +291,7 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		snap.Trading = status.Trading
 		snap.AccountID = scope.Account
 		snap.AccountMode = scope.Mode
+		snap.Broker = scope.brokerField()
 		snap.Blockers = blockers
 		if installErr := e.installSnapshot(snap, show); installErr != nil {
 			return e.Snapshot(false), installErr
@@ -309,6 +311,7 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		snap.Trading = status.Trading
 		snap.AccountID = scope.Account
 		snap.AccountMode = scope.Mode
+		snap.Broker = scope.brokerField()
 		snap.Blockers = blockers
 		if installErr := e.installSnapshot(snap, show); installErr != nil {
 			return e.Snapshot(false), installErr
@@ -327,6 +330,7 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		snap.Trading = status.Trading
 		snap.AccountID = scope.Account
 		snap.AccountMode = scope.Mode
+		snap.Broker = scope.brokerField()
 		snap.Blockers = blockers
 		if err := e.installSnapshot(snap, show); err != nil {
 			return e.Snapshot(false), err
@@ -367,6 +371,7 @@ func (e *opportunityEngine) refresh(ctx context.Context, show bool) (rpc.Opportu
 		EffectiveRevision:          effectiveRevision,
 		AccountID:                  scope.Account,
 		AccountMode:                scope.Mode,
+		Broker:                     scope.brokerField(),
 		PolicyID:                   policy.PolicyID,
 		PolicyVersion:              policy.PolicyVersion,
 		PolicyFingerprint:          policyStatus.Fingerprint,
@@ -390,7 +395,7 @@ func (e *opportunityEngine) installScoped(snap rpc.OpportunitySnapshot, scope br
 		shell.Status = snap.Status
 		shell.PolicyStatus = snap.PolicyStatus
 		shell.Trading = snap.Trading
-		shell.Blockers = opportunityScopeBlockers(scope.Account, scope.Mode, current)
+		shell.Blockers = opportunityScopeBlockers(scope.brokerField(), scope.Account, scope.Mode, current)
 		if err := e.installSnapshot(shell, show); err != nil {
 			return e.Snapshot(false), err
 		}
@@ -906,7 +911,8 @@ func (e *opportunityEngine) Ignore(p rpc.OpportunityIgnoreParams) rpc.Opportunit
 	}
 	ev := opportunityEvent{At: now, Type: "ignored", Key: key, Revision: strings.TrimSpace(p.Revision), Reason: strings.TrimSpace(p.Reason), Message: "opportunity ignored",
 		AccountID:   scope.Account,
-		AccountMode: scope.Mode}
+		AccountMode: scope.Mode,
+		Broker:      scope.brokerField()}
 	if err := e.appendEvent(ev); err != nil {
 		return rpc.OpportunityIgnoreResult{Accepted: false, Key: key, Revision: strings.TrimSpace(p.Revision), Message: "opportunity ignore was not persisted", AsOf: now}
 	}
@@ -983,7 +989,7 @@ func (e *opportunityEngine) preserveSnapshotOnRefreshFailure(scope brokerStateSc
 	}
 	// Preserving last-good opportunities through a transient fetch failure
 	// is only safe when they were generated for the same session: a paper
-	if !sameBrokerScope(brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode}, scope) {
+	if !sameBrokerScope(recordScope(snap.Broker, snap.AccountID, snap.AccountMode), scope) {
 		if e.server != nil {
 			e.server.warnf("opportunities: dropping preserved snapshot on refresh failure: snapshot scope %q/%q does not match connected session %q/%q", snap.AccountID, snap.AccountMode, scope.Account, scope.Mode)
 		}
@@ -1045,7 +1051,7 @@ func (e *opportunityEngine) replaceSnapshot(snap rpc.OpportunitySnapshot) {
 }
 
 func opportunitySnapshotPersistable(snap rpc.OpportunitySnapshot) bool {
-	return snap.Kind == rpc.OpportunitySnapshotKind && snap.Revision != "" && snap.Revision != "empty" && brokerScopeConcrete(brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode})
+	return snap.Kind == rpc.OpportunitySnapshotKind && snap.Revision != "" && snap.Revision != "empty" && brokerScopeConcrete(recordScope(snap.Broker, snap.AccountID, snap.AccountMode))
 }
 
 func (e *opportunityEngine) appendShownEvents(snap rpc.OpportunitySnapshot) {
@@ -1065,6 +1071,7 @@ func (e *opportunityEngine) appendEvent(ev opportunityEvent) error {
 		}
 		if ev.AccountMode == "" {
 			ev.AccountMode = e.snapshot.AccountMode
+			ev.Broker = e.snapshot.Broker
 		}
 		e.mu.Unlock()
 	}
@@ -1131,7 +1138,7 @@ func opportunityRevision(policy rpc.Fingerprint, sources rpc.OpportunitySourceFi
 		Mode        string                            `json:"mode"`
 		Sources     rpc.OpportunitySourceFingerprints `json:"sources"`
 		Opportunity []string                          `json:"opportunity"`
-	}{Policy: policy, Account: strings.ToUpper(strings.TrimSpace(scope.Account)), Mode: strings.ToLower(strings.TrimSpace(scope.Mode)), Sources: sources}
+	}{Policy: policy, Account: strings.ToUpper(strings.TrimSpace(scope.keyAccount())), Mode: strings.ToLower(strings.TrimSpace(scope.Mode)), Sources: sources}
 	for _, row := range rows {
 		risk := ""
 		if row.PostExerciseRisk != nil {
@@ -1155,14 +1162,14 @@ func opportunityKey(bucket string, contract rpc.ContractParams, action string) s
 }
 
 func opportunityIgnoreKey(scope brokerStateScope, key string) string {
-	return strings.ToUpper(strings.TrimSpace(scope.Account)) + "|" + strings.ToLower(strings.TrimSpace(scope.Mode)) + "|" + strings.TrimSpace(key)
+	return strings.ToUpper(strings.TrimSpace(scope.keyAccount())) + "|" + strings.ToLower(strings.TrimSpace(scope.Mode)) + "|" + strings.TrimSpace(key)
 }
 
-func opportunityScopeBlockers(snapAccount, snapMode string, scope brokerStateScope) []rpc.TradingBlocker {
+func opportunityScopeBlockers(snapBroker, snapAccount, snapMode string, scope brokerStateScope) []rpc.TradingBlocker {
 	if !brokerScopeConcrete(scope) {
 		return []rpc.TradingBlocker{opportunityScopeUnscopedBlocker(scope)}
 	}
-	if !sameBrokerScope(brokerStateScope{Account: snapAccount, Mode: snapMode}, scope) {
+	if !sameBrokerScope(recordScope(snapBroker, snapAccount, snapMode), scope) {
 		return []rpc.TradingBlocker{{
 			Code:    "opportunity_scope_mismatch",
 			Message: fmt.Sprintf("opportunity snapshot was generated for account %q mode %q but the connected session is account %q mode %q", snapAccount, snapMode, scope.Account, scope.Mode),

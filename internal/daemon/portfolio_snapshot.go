@@ -43,7 +43,7 @@ func (s *Server) handlePortfolioSnapshot(ctx context.Context) (*rpc.PortfolioSna
 		return nil, errors.New("broker session changed during portfolio observation")
 	}
 	// Account selection is distinct from connector lifetime.
-	if !sameBrokerScope(brokerStateScope{Account: a.Authority.Scope.AccountID, Mode: a.Authority.Scope.AccountMode}, s.currentBrokerStateScope()) {
+	if !sameBrokerScope(recordScope(a.Authority.Scope.Broker, a.Authority.Scope.AccountID, a.Authority.Scope.AccountMode), s.currentBrokerStateScope()) {
 		return nil, errors.New("portfolio scope changed")
 	}
 	return projectPortfolio(a, p, classes), nil

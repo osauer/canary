@@ -176,7 +176,7 @@ func (s *Server) handleOpportunitiesReconcileExercise(ctx context.Context, req *
 		return nil, err
 	}
 	for _, resolved := range resolutions.Resolutions {
-		if resolved.RequestRef == p.RequestRef && sameBrokerScope(brokerStateScope{Account: resolved.Account, Mode: resolved.Mode}, scope) {
+		if resolved.RequestRef == p.RequestRef && sameBrokerScope(recordScope(resolved.Broker, resolved.Account, resolved.Mode), scope) {
 			if resolved.Revision != p.Revision || resolved.EvidenceID != p.EvidenceID {
 				return nil, errBadRequest("exercise was resolved with different evidence or revision")
 			}
@@ -222,7 +222,7 @@ func (s *Server) handleOpportunitiesReconcileExercise(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
-	resolution := exerciseResolution{Account: scope.Account, Mode: scope.Mode, RequestRef: p.RequestRef, Revision: p.Revision, EvidenceID: p.EvidenceID, EvidenceKey: evidence[0].Key, At: s.orderNow(), Provenance: exerciseHumanEvidenceProvenance}
+	resolution := exerciseResolution{Broker: scope.brokerField(), Account: scope.Account, Mode: scope.Mode, RequestRef: p.RequestRef, Revision: p.Revision, EvidenceID: p.EvidenceID, EvidenceKey: evidence[0].Key, At: s.orderNow(), Provenance: exerciseHumanEvidenceProvenance}
 	resolutions.Resolutions[selected.Event.PreviewTokenID] = resolution
 	raw, err := json.Marshal(resolutions)
 	if err != nil {

@@ -395,8 +395,24 @@ type Instruments interface {
 	Resolve(ctx context.Context, binding SessionBinding, in Instrument, timeout time.Duration) (Instrument, error)
 }
 
-// Broker is every read seam together, with the kind it serves.
-type Broker interface {
+// Scope is the identity scoped state binds to: the broker kind, the account and
+// the account's paper or live mode, read from the instance's own current
+// observation.
+type Scope struct {
+	Kind    Kind
+	Account string
+	Mode    string
+}
+
+// Scoper yields the current scope. It lives as long as the daemon: a site with no
+// session still has one, and a daemon holding N brokers later changes this one
+// source and none of the code that reads a scope.
+type Scoper interface {
+	Scope() Scope
+}
+
+// Reads is every read seam together, with the kind it serves.
+type Reads interface {
 	Kind() Kind
 	Session
 	Account
@@ -404,4 +420,12 @@ type Broker interface {
 	Quotes
 	Bars
 	Instruments
+}
+
+// Broker is one broker as a daemon holds it: its reads and its scope. The IBKR
+// reads are served per connector and its scope per daemon, because a rebuilt
+// connector invalidates a session binding and never the identity.
+type Broker interface {
+	Reads
+	Scoper
 }

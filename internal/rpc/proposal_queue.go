@@ -48,7 +48,10 @@ const QueuedAuthStyleBoundedLimit = "bounded_limit"
 // stored terms. TermsDigest is the lowercase hex SHA-256 of their JSON
 // encoding as Canary serves it.
 type QueuedAuthTerms struct {
-	Version int `json:"version"`
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker  string `json:"broker,omitempty"`
+	Version int    `json:"version"`
 	// OwnerOrder is present only in v2. V1 remains a rule-dependent reduction;
 	// v2 is an exact owner order, or an explicitly position-following stop.
 	OwnerOrder  *QueuedOwnerOrder `json:"owner_order,omitempty"`

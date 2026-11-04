@@ -16,7 +16,9 @@ import (
 func TestLifecycle_FreshInstallWritesPolicyFilesAndRestartsKeepThem(t *testing.T) {
 	t.Parallel()
 	env, socketPath, _ := lifecycleEnv(t)
-	policies := filepath.Join(filepath.Dir(socketPath), "home", ".config", "ibkr", "policies")
+	// An isolated stack keeps its policy files under its own XDG config root; the
+	// home directory is the operator default, for a daemon that sets no XDG root.
+	policies := filepath.Join(filepath.Dir(socketPath), "config", "ibkr", "policies")
 	names := []string{"rulebook-policy.toml", "protection-policy.toml", "opportunity-policy.toml", "risk-policy.toml"}
 
 	out, code := runCLI(t, env, 30*time.Second, "status", "--json")
@@ -26,6 +28,9 @@ func TestLifecycle_FreshInstallWritesPolicyFilesAndRestartsKeepThem(t *testing.T
 		if err != nil || !strings.HasPrefix(string(data), "# Canary defaults, not yet reviewed.\n") {
 			t.Fatalf("fresh install did not write %s: %v\n%s", name, err, data)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(socketPath), "home", ".config", "ibkr", "policies")); !os.IsNotExist(err) {
+		t.Fatalf("the stack wrote policies under its home directory: %v", err)
 	}
 	stopLifecycleDaemon(t, socketPath)
 

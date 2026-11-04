@@ -268,7 +268,7 @@ func coreEpisode(scope brokerStateScope, decision string) string {
 	if len(decision) >= 7 {
 		month = decision[:7]
 	}
-	return fmt.Sprintf("core:%s:%s:%s", strings.TrimSpace(scope.Account), scope.Mode, month)
+	return fmt.Sprintf("core:%s:%s:%s", strings.TrimSpace(scope.keyAccount()), scope.Mode, month)
 }
 
 // strategyEpisode keys a month's rows of the input's entry: the core's
@@ -864,6 +864,6 @@ func coreDecisionEventMatchesScope(ev proposalEvent, scope string) bool {
 		}
 	}
 	parts := strings.SplitN(scope, "|", 3)
-	return len(parts) == 3 && brokerScopeAccountConcrete(parts[0]) &&
-		sameBrokerScope(brokerStateScope{Account: parts[0], Mode: parts[1]}, brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode})
+	return len(parts) == 3 && brokerScopeAccountConcrete(scopeFromKeyAccount(parts[0], parts[1]).Account) &&
+		sameBrokerScope(scopeFromKeyAccount(parts[0], parts[1]), recordScope(ev.Broker, ev.AccountID, ev.AccountMode))
 }

@@ -117,7 +117,7 @@ func (s *Server) handleDeskAuthorityPrepare(ctx context.Context, req *rpc.Reques
 	if err != nil {
 		return rpc.DeskAuthorityPrepared{}, err
 	}
-	terms := rpc.DeskAuthorityTerms{AuthorityEpoch: head.AuthorityEpoch, Version: 1, Kind: "desk_automatic_authority", ID: id, AccountID: status.Account, AccountMode: status.Mode, MaximumScope: in.Scope, ControllerHash: in.ControllerHash, Generation: current.Generation, ConfirmBefore: s.orderNow().Add(queuedArmWindow), Pricing: "fixed-midpoint", Algorithm: "Adaptive", TIF: "DAY", Protection: "existing-policy", Capacity: "existing-policy-reuse-confirmed-funds", Selection: "desk-deterministic-controller"}
+	terms := rpc.DeskAuthorityTerms{AuthorityEpoch: head.AuthorityEpoch, Version: 1, Kind: "desk_automatic_authority", ID: id, Broker: status.Broker, AccountID: status.Account, AccountMode: status.Mode, MaximumScope: in.Scope, ControllerHash: in.ControllerHash, Generation: current.Generation, ConfirmBefore: s.orderNow().Add(queuedArmWindow), Pricing: "fixed-midpoint", Algorithm: "Adaptive", TIF: "DAY", Protection: "existing-policy", Capacity: "existing-policy-reuse-confirmed-funds", Selection: "desk-deterministic-controller"}
 	if !validDeskAuthorityTerms(terms) {
 		return rpc.DeskAuthorityPrepared{}, errBadRequest("a current account, armed scope and private controller identity are required")
 	}
@@ -176,7 +176,7 @@ func (s *Server) handleDeskAuthorityConfirm(ctx context.Context, req *rpc.Reques
 		return rpc.DeskAuthorityStatus{}, errBadRequest("authority changed or confirmation expired; review again")
 	}
 	status := s.currentTradingStatus()
-	if status.Account != terms.AccountID || status.Mode != terms.AccountMode {
+	if !sameBrokerScope(recordScope(status.Broker, status.Account, status.Mode), recordScope(terms.Broker, terms.AccountID, terms.AccountMode)) {
 		return rpc.DeskAuthorityStatus{}, errBadRequest("the current account differs from the confirmed mandate")
 	}
 	if s.riskPolicies == nil {

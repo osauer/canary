@@ -161,7 +161,7 @@ func (e *proposalEngine) bindCore(ctx context.Context, core *corestore.Store) er
 		if ev.Key == "" {
 			continue
 		}
-		scope := brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode}
+		scope := recordScope(ev.Broker, ev.AccountID, ev.AccountMode)
 		if !brokerScopeConcrete(scope) {
 			continue
 		}
@@ -207,7 +207,7 @@ func (e *opportunityEngine) bindCore(ctx context.Context, core *corestore.Store)
 	ignored := map[string]struct{}{}
 	for _, ev := range events {
 		if ev.Type == "ignored" && ev.Key != "" {
-			scope := brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode}
+			scope := recordScope(ev.Broker, ev.AccountID, ev.AccountMode)
 			if brokerScopeConcrete(scope) {
 				ignored[opportunityIgnoreKey(scope, ev.Key)] = struct{}{}
 			}
@@ -366,6 +366,7 @@ func (s *proposalStore) SaveCurrentWithEvents(ctx context.Context, snap rpc.Trad
 		}
 		if events[i].AccountMode == "" {
 			events[i].AccountMode = snap.AccountMode
+			events[i].Broker = snap.Broker
 		}
 	}
 	inputs, normalized, err := proposalEventInputs(ctx, s.core, events)
@@ -412,6 +413,7 @@ func (s *opportunityStore) SaveCurrentWithEvents(ctx context.Context, snap rpc.O
 		}
 		if events[i].AccountMode == "" {
 			events[i].AccountMode = snap.AccountMode
+			events[i].Broker = snap.Broker
 		}
 	}
 	inputs, normalized, err := opportunityEventInputs(ctx, s.core, events)
@@ -655,7 +657,7 @@ func proposalEventValid(ev proposalEvent) bool {
 		return false
 	}
 	if ev.Type == "ignored" || ev.Type == "unignored" {
-		return strings.TrimSpace(ev.Key) != "" && brokerScopeConcrete(brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode})
+		return strings.TrimSpace(ev.Key) != "" && brokerScopeConcrete(recordScope(ev.Broker, ev.AccountID, ev.AccountMode))
 	}
 	return true
 }
@@ -665,7 +667,7 @@ func opportunityEventValid(ev opportunityEvent) bool {
 		return false
 	}
 	if ev.Type == "ignored" {
-		return strings.TrimSpace(ev.Key) != "" && brokerScopeConcrete(brokerStateScope{Account: ev.AccountID, Mode: ev.AccountMode})
+		return strings.TrimSpace(ev.Key) != "" && brokerScopeConcrete(recordScope(ev.Broker, ev.AccountID, ev.AccountMode))
 	}
 	return true
 }

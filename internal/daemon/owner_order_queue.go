@@ -220,7 +220,7 @@ func (e *proposalEngine) prepareOwnerQueue(ctx context.Context, p rpc.TradePropo
 		if !ok {
 			return block("queue_session_unknown", "The contract market could not be identified.")
 		}
-		terms = rpc.QueuedAuthTerms{Version: 2, AccountID: scope.Account, AccountMode: scope.Mode, Key: prop.Key, Bucket: prop.Bucket, RevisionAtQueue: prop.Revision, Contract: contract, Action: order.Action, PositionEffect: "close", PositionQuantity: position.Impact.Before, MaxQuantity: int(position.Impact.Before), Style: "broker_trail", Currency: contract.Currency, Market: string(market), NotBefore: now, ArmDeadline: now.Add(queuedArmWindow), TIF: order.TIF, PolicyFingerprint: status.EffectiveFingerprint}
+		terms = rpc.QueuedAuthTerms{Version: 2, Broker: scope.brokerField(), AccountID: scope.Account, AccountMode: scope.Mode, Key: prop.Key, Bucket: prop.Bucket, RevisionAtQueue: prop.Revision, Contract: contract, Action: order.Action, PositionEffect: "close", PositionQuantity: position.Impact.Before, MaxQuantity: int(position.Impact.Before), Style: "broker_trail", Currency: contract.Currency, Market: string(market), NotBefore: now, ArmDeadline: now.Add(queuedArmWindow), TIF: order.TIF, PolicyFingerprint: status.EffectiveFingerprint}
 	} else {
 		var blockers []rpc.TradingBlocker
 		terms, blockers = e.queuedTerms(prop, policy, status, order.Quantity, scope, now)

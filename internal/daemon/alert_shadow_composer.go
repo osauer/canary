@@ -350,7 +350,7 @@ func newAlertShadowBrokerScope(scope brokerStateScope) (alertShadowBrokerScope, 
 	}
 	account := strings.ToUpper(strings.TrimSpace(scope.Account))
 	mode := strings.ToLower(strings.TrimSpace(scope.Mode))
-	authority, err := rpc.BuildAlertAuthorityScope(account, mode)
+	authority, err := rpc.BuildAlertAuthorityScope(strings.ToUpper(strings.TrimSpace(scope.keyAccount())), mode)
 	if err != nil {
 		return alertShadowBrokerScope{}, err
 	}

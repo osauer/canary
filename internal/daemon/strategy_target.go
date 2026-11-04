@@ -457,7 +457,7 @@ func (s *Server) refreshStrategyTarget(ctx context.Context, r register.Resolved)
 
 // coreScope keys a frozen month by account, mode and the core's contract.
 func coreScope(scope brokerStateScope, conID int) string {
-	return fmt.Sprintf("%s|%s|%d", strings.TrimSpace(scope.Account), scope.Mode, conID)
+	return fmt.Sprintf("%s|%s|%d", strings.TrimSpace(scope.keyAccount()), scope.Mode, conID)
 }
 
 // frozenScopeFor keys a resolved entry's frozen month: the core's scope as

@@ -47,7 +47,7 @@ type RulebookPolicyEdit struct {
 // DefaultRulebookPolicyPath resolves the owner's Rulebook policy path from
 // the loaded config, or the documented default when no config is present.
 func DefaultRulebookPolicyPath() string {
-	path := config.DefaultRulebookPolicyFile
+	path := config.DefaultRulebookPolicyFile()
 	if cfg, _, err := config.LoadForDaemon(""); err == nil && cfg != nil {
 		path = cfg.Rulebook.PolicyFilePath()
 	}

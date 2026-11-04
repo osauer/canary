@@ -38,7 +38,7 @@ func (s *Server) lockDeskAuthorityForWire(ctx context.Context, fence *deskAuthor
 		return nil, err
 	}
 	if current.Terms == nil || current.Terms.ID != fence.ID || current.Generation != fence.Generation || !current.Running || current.Scope == "off" ||
-		current.Terms.AccountID != status.Account || current.Terms.AccountMode != status.Mode || current.PreferencesHash != fence.PreferencesHash ||
+		!sameBrokerScope(recordScope(current.Terms.Broker, current.Terms.AccountID, current.Terms.AccountMode), recordScope(status.Broker, status.Account, status.Mode)) || current.PreferencesHash != fence.PreferencesHash ||
 		current.AdaptivePriority != fence.AdaptivePriority || fence.ValidUntil.IsZero() || !s.orderNow().Before(fence.ValidUntil) {
 		return fail()
 	}

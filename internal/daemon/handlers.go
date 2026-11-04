@@ -60,6 +60,9 @@ func (s *Server) buildAccountSummary(ctx context.Context, observe bool) (*rpc.Ac
 // buildAccountSummaryWithAuthority preserves display fallback while returning
 // typed provenance. Cached fallback is never fresh Rulebook evidence.
 func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe bool) (healthResult *rpc.AccountResult, healthAuthority accountSummaryAuthority, healthErr error) {
+	if s.opend != nil {
+		return s.opendAccountSummary(ctx)
+	}
 	c := s.gatewayConnector()
 	a := s.adapterFor(c)
 	var healthBinding ibkrlib.ConnectorSessionBinding
@@ -454,6 +457,9 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	if err := decodeParams(req.Params, &p); err != nil {
 		return nil, err
 	}
+	if s.opend != nil {
+		return s.opendPositions(ctx, p, portfolioHealth, expectedScope)
+	}
 	c := s.gatewayConnector()
 	a := s.adapterFor(c)
 	var healthBinding ibkrlib.ConnectorSessionBinding
@@ -715,7 +721,7 @@ func positionsResultDataAuthority(scope brokerStateScope, health ibkrlib.Portfol
 }
 
 func accountDataScope(scope brokerStateScope) rpc.AccountDataScope {
-	out := rpc.AccountDataScope{AccountMode: scope.Mode}
+	out := rpc.AccountDataScope{Broker: scope.brokerField(), AccountMode: scope.Mode}
 	if brokerScopeAccountConcrete(scope.Account) {
 		out.AccountID = strings.TrimSpace(scope.Account)
 	}
@@ -2065,6 +2071,9 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (res
 	}
 	if p.Contract.Symbol == "" {
 		return nil, errBadRequest("contract.symbol required")
+	}
+	if s.opend != nil {
+		return s.opendQuote(ctx, p)
 	}
 	c := s.gatewayConnector()
 	a := s.adapterFor(c)
@@ -3705,6 +3714,19 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 			PID:   rejection.App.PID,
 		}
 	}
+	if s.opend != nil {
+		// OpenD's session in the same fields: what a surface reads as connected,
+		// account and server version means the same under either broker.
+		health := s.opend.Health()
+		res.Broker = string(broker.KindOpenD)
+		advertisedAccount = health.Account
+		res.ConnectedAccount = health.Account
+		accountForMode = health.Account
+		res.Connected = health.Ready
+		res.ServerVersion = health.ServerVersion
+		localConnected, apiReady, backendDown = health.Connected, health.Ready, health.BackendDown
+		setupComplete = health.Ready
+	}
 	res.GatewayPhase = statusGatewayPhase(
 		localConnected,
 		apiReady,
@@ -3716,6 +3738,9 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 		time.Since(s.startedAt),
 	)
 	res.AccountMode = accountModeForStatus(ep.Port, accountForMode)
+	if s.opend != nil {
+		res.AccountMode = s.opend.Scope().Mode
+	}
 
 	// BackgroundTasks lists daemon-internal long-running computes
 	// contention message ride, so the three surfaces never diverge.
@@ -3736,7 +3761,7 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 			port = *s.cfg.Gateway.Port
 		}
 	}
-	shadowScope := brokerStateScopeFromSnapshot(configuredAccount, ep.Account, port, advertisedAccount)
+	shadowScope := s.scopeFromSnapshot(configuredAccount, ep.Account, port, advertisedAccount)
 	// connected_account names one account or nothing. A login holding several
 	// advertises the comma-joined managedAccounts list, which is a session
 	// inventory rather than an account code, and every consumer that reads this

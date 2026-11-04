@@ -819,3 +819,26 @@ mandate with its own, whether one freeze and mode switch cover both books,
 and whether one device key is enrolled in both constitutions. Nothing in
 phases A to C depends on them; the review's recommendation is option A as
 written, which the owner chose.
+
+## Corrections from building WP8
+
+Written 2026-11-04 while the daemon went onto the seam. Each changes a mechanism
+the documents stated, and none changes what they promise.
+
+1. **The hashed identities take the kind inside the account.** The documents had
+   an extra hash input. One helper, `keyAccount`, feeds both the string keys and
+   the hashes: IBKR's input is byte-identical, and a non-IBKR kind differs. A test
+   pins the bytes of 18 families and fails if any two brokers collide.
+2. **The IBKR scope is per daemon and its reads per connector.** `broker.Broker`
+   is `Reads` plus `Scoper`. The OpenD adapter is both; IBKR's adapter stays per
+   connector, because a binding needs that, and a small per-daemon `ibkrScope`
+   supplies the scope. A daemon holding N brokers changes that source only.
+3. **The breadth engine stays built under OpenD.** `Start` attaches its store, so
+   the gate is on its connector and its connect trigger, not its construction.
+4. **Order-path readers stay for phase D.** `fill_quotes.go` still derives a mode
+   from a stored account, and `proposal_prepared.go` builds a scope without a
+   kind. Under OpenD no order or fill exists, and the second fails closed.
+5. **`rpc.QueuedAuthTerms` is a signed contract with Desk.** Its allowlist test
+   now lists `broker`, absent on every IBKR term. Desk's and the companion's lists
+   need it before phase D signs a term under OpenD; the design's owner table says so.
+

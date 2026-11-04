@@ -270,7 +270,7 @@ func reconScopeIdentity(scope brokerStateScope) string {
 	if !brokerScopeConcrete(scope) {
 		return ""
 	}
-	return opaqueIdentity("reconciliation-scope-v1", strings.ToUpper(strings.TrimSpace(scope.Account)), strings.ToLower(strings.TrimSpace(scope.Mode)))
+	return opaqueIdentity("reconciliation-scope-v1", strings.ToUpper(strings.TrimSpace(scope.keyAccount())), strings.ToLower(strings.TrimSpace(scope.Mode)))
 }
 
 func (s *Server) nudgeScanCheck(ctx context.Context, stage string) error {

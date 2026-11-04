@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -145,7 +146,7 @@ type Trading struct {
 // Rulebook configures the owner's Rulebook policy file and operator-owned
 // evidence inputs for the advisory trading live authority.
 type Rulebook struct {
-	// PolicyFile points to the owner's Rulebook policy TOML (thresholds and rule modes); default ~/.config/ibkr/policies/rulebook-policy.toml. An absent file runs the compiled baseline.
+	// PolicyFile points to the owner's Rulebook policy TOML (thresholds and rule modes); default $1.toml in the policies directory under the XDG config root (~/.config/ibkr/policies). An absent file runs the compiled baseline.
 	PolicyFile string `toml:"policy_file"`
 	// TerminalEvidenceFile points to an optional JSON document of reviewed,
 	// exact-contract terminal/non-reporting issuer evidence for rules 6-8 and 20. An
@@ -158,7 +159,7 @@ type Rulebook struct {
 type AutoTrade struct {
 	// ProposalsEnabled controls whether the daemon may produce advisory protection proposals; default true, and proposals are not broker orders unless separately submitted by an explicitly enabled trading path — the `[auto_trade]` section name is historical: nothing auto-trades, and the policy's auto_submit stays false.
 	ProposalsEnabled *bool `toml:"proposals_enabled"`
-	// PolicyFile points to the local protection-policy TOML; default ~/.config/ibkr/policies/protection-policy.toml.
+	// PolicyFile points to the local protection-policy TOML; default $1.toml in the policies directory under the XDG config root (~/.config/ibkr/policies).
 	PolicyFile string `toml:"policy_file"`
 	// HotReload controls whether policy changes are reloaded while the daemon runs; default true.
 	HotReload *bool `toml:"hot_reload"`
@@ -177,7 +178,7 @@ type AutoTrade struct {
 type Opportunities struct {
 	// Enabled controls whether the daemon may produce advisory opportunities; default true, and opportunities are not broker writes unless separately submitted by an explicitly enabled trading path.
 	Enabled *bool `toml:"enabled"`
-	// PolicyFile points to the local opportunity-policy TOML; default ~/.config/ibkr/policies/opportunity-policy.toml.
+	// PolicyFile points to the local opportunity-policy TOML; default $1.toml in the policies directory under the XDG config root (~/.config/ibkr/policies).
 	PolicyFile string `toml:"policy_file"`
 	// RefreshCadence controls how often the daemon refreshes opportunities; default 2m.
 	RefreshCadence duration `toml:"refresh_cadence"`
@@ -198,20 +199,32 @@ const (
 // other policy files.
 func (r Rulebook) PolicyFilePath() string {
 	if r.PolicyFile == "" {
-		return DefaultRulebookPolicyFile
+		return DefaultRulebookPolicyFile()
 	}
 	return r.PolicyFile
 }
 
+// PolicyDir is where the four policy files live: under the XDG config root
+// config.toml resolves through, so an isolated stack keeps its own, and under
+// the home directory otherwise, spelled with its tilde as these defaults always
+// have been. A CANARY_CONFIG file override names one file, not a root, and moves
+// nothing.
+func PolicyDir() string {
+	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+		return filepath.Join(v, "ibkr", "policies")
+	}
+	return "~/.config/ibkr/policies"
+}
+
 // DefaultRulebookPolicyFile is where the owner's Rulebook policy lives unless
 // [rulebook] policy_file says otherwise.
-const DefaultRulebookPolicyFile = "~/.config/ibkr/policies/rulebook-policy.toml"
+func DefaultRulebookPolicyFile() string { return PolicyDir() + "/rulebook-policy.toml" }
 
 // WithDefaults returns the protection-proposal configuration with missing
 // operational values resolved. It does not enable broker submission.
 func (a AutoTrade) WithDefaults() AutoTrade {
 	if a.PolicyFile == "" {
-		a.PolicyFile = "~/.config/ibkr/policies/protection-policy.toml"
+		a.PolicyFile = PolicyDir() + "/protection-policy.toml"
 	}
 	if a.HotReload == nil {
 		v := true
@@ -299,7 +312,7 @@ func (a AutoTrade) ProposalCadenceDuration() time.Duration {
 // values resolved. It does not enable broker submission.
 func (o Opportunities) WithDefaults() Opportunities {
 	if o.PolicyFile == "" {
-		o.PolicyFile = "~/.config/ibkr/policies/opportunity-policy.toml"
+		o.PolicyFile = PolicyDir() + "/opportunity-policy.toml"
 	}
 	if o.HotReload == nil {
 		v := true
@@ -378,6 +391,78 @@ func (s SPX) MembersAutoRefreshEnabled() bool {
 	return *s.MembersAutoRefresh
 }
 
+// Broker selects the one broker this daemon serves.
+type Broker struct {
+	// Kind is the broker: "ibkr" (the default) or "opend". A daemon serves one; two brokers side by side are two daemons with their own XDG roots and sockets.
+	Kind string `toml:"kind"`
+}
+
+// OpenD configures the Futu OpenD gateway, read only when [broker] kind is "opend".
+type OpenD struct {
+	// Host is the OpenD host; empty is loopback.
+	Host string `toml:"host"`
+	// Port is OpenD's api_port; absent is 11111.
+	Port *int `toml:"port"`
+	// Account is the Futu account id (accID) the daemon is scoped to. Required under kind "opend": a Futu login carries several account ids across both environments, and the client is built with its scope before it connects.
+	Account string `toml:"account"`
+	// ClientID is the clientID string sent in InitConnect; default "canary".
+	ClientID string `toml:"client_id"`
+}
+
+// IsOpenD reports whether this daemon serves OpenD.
+func (r *Resolved) IsOpenD() bool {
+	return r != nil && strings.EqualFold(strings.TrimSpace(r.Broker.Kind), "opend")
+}
+
+// HostOrDefault is the OpenD host, loopback when unset.
+func (o OpenD) HostOrDefault() string {
+	if host := strings.TrimSpace(o.Host); host != "" {
+		return host
+	}
+	return "127.0.0.1"
+}
+
+// PortOrDefault is OpenD's API port.
+func (o OpenD) PortOrDefault() int {
+	if o.Port != nil {
+		return *o.Port
+	}
+	return DefaultOpenDPort
+}
+
+// ClientIDOrDefault is the label sent to OpenD.
+func (o OpenD) ClientIDOrDefault() string {
+	if id := strings.TrimSpace(o.ClientID); id != "" {
+		return id
+	}
+	return "canary"
+}
+
+// DefaultOpenDPort is the API port OpenD listens on unless configured otherwise.
+const DefaultOpenDPort = 11111
+
+// ErrOpenDAccountRequired is the refusal of a daemon with kind "opend" and no pin.
+var ErrOpenDAccountRequired = errors.New(`[broker] kind = "opend" requires [opend] account: set it to the Futu account id (accID) this daemon is scoped to`)
+
+// ValidateBroker refuses a broker configuration a daemon cannot start with.
+func (c *Config) ValidateBroker() error {
+	switch kind := strings.ToLower(strings.TrimSpace(c.Broker.Kind)); kind {
+	case "", "ibkr":
+		return nil
+	case "opend":
+		account := strings.TrimSpace(c.OpenD.Account)
+		if account == "" {
+			return ErrOpenDAccountRequired
+		}
+		if _, err := strconv.ParseUint(account, 10, 64); err != nil {
+			return fmt.Errorf("[opend] account %q is not a Futu account id: it must be the number OpenD lists as accID", account)
+		}
+		return nil
+	default:
+		return fmt.Errorf("[broker] kind %q is not a broker this build serves: use \"ibkr\" or \"opend\"", c.Broker.Kind)
+	}
+}
+
 // Config is the on-disk shape of ~/.config/ibkr/config.toml.
 type Config struct {
 	Gateway       Gateway       `toml:"gateway"`
@@ -389,6 +474,8 @@ type Config struct {
 	Flex          Flex          `toml:"flex"`
 	SPX           SPX           `toml:"spx"`
 	CashLedger    CashLedger    `toml:"cash_ledger"`
+	Broker        Broker        `toml:"broker"`
+	OpenD         OpenD         `toml:"opend"`
 }
 
 // Resolved is the validated, defaults-applied view a daemon actually uses.
@@ -402,6 +489,8 @@ type Resolved struct {
 	Flex          Flex
 	SPX           SPX
 	CashLedger    CashLedger
+	Broker        Broker
+	OpenD         OpenD
 }
 
 // duration is a time.Duration that decodes from a TOML string ("5m").
@@ -487,6 +576,9 @@ var removedKeys = map[string]string{
 
 // Resolve applies daemon-level defaults and returns the Resolved view.
 func (c *Config) Resolve() (*Resolved, error) {
+	if err := c.ValidateBroker(); err != nil {
+		return nil, err
+	}
 	dae := c.Daemon
 	if err := dae.validateLogging(); err != nil {
 		return nil, err
@@ -509,6 +601,8 @@ func (c *Config) Resolve() (*Resolved, error) {
 		Flex:          c.Flex.WithDefaults(),
 		SPX:           c.SPX,
 		CashLedger:    c.CashLedger,
+		Broker:        c.Broker,
+		OpenD:         c.OpenD,
 	}, nil
 }
 

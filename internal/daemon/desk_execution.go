@@ -44,7 +44,7 @@ type deskExecutionOutcomeRow struct {
 }
 
 func deskExecutionKey(scope brokerStateScope, kind, id string, suffix ...string) string {
-	return strings.Join(append([]string{deskExecutionKeyPrefix, scope.Account, scope.Mode, kind, id}, suffix...), ":")
+	return strings.Join(append([]string{deskExecutionKeyPrefix, scope.keyAccount(), scope.Mode, kind, id}, suffix...), ":")
 }
 
 func (s *Server) deskExecutionScope() (brokerStateScope, error) {
@@ -52,7 +52,7 @@ func (s *Server) deskExecutionScope() (brokerStateScope, error) {
 	if status.Account == "" || (status.Mode != rpc.AccountModeLive && status.Mode != rpc.AccountModePaper) {
 		return brokerStateScope{}, errors.New("no current account; Desk execution is unavailable")
 	}
-	return brokerStateScope{Account: status.Account, Mode: status.Mode}, nil
+	return recordScope(status.Broker, status.Account, status.Mode), nil
 }
 
 func (s *Server) deskExecutionEvent(ctx context.Context, key string, out any) (bool, error) {

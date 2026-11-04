@@ -46,7 +46,7 @@ func (s *Server) installRulebookPolicyManager() {
 	if s == nil {
 		return
 	}
-	path := config.DefaultRulebookPolicyFile
+	path := config.DefaultRulebookPolicyFile()
 	if s.cfg != nil {
 		path = s.cfg.Rulebook.PolicyFilePath()
 	}

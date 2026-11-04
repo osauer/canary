@@ -252,6 +252,7 @@ func readPolicyTestFile(t *testing.T, path string) []byte {
 func TestEnsurePolicyFilesFreshInstallUnderHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	set := PolicyFileSetFor(nil)
 	policies := filepath.Join(home, ".config", "ibkr", "policies")
 	want := PolicyFileSet{
@@ -653,6 +654,7 @@ func TestProtectionMigrationLeavesARetiredKeyItCannotEditAlone(t *testing.T) {
 func TestEnsurePolicyFilesOnStartReloadsTheManagers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	set := policyTestSet(t)
 	cfg := &config.Resolved{
 		Rulebook:      config.Rulebook{PolicyFile: set.Rulebook},
@@ -690,6 +692,7 @@ func TestEnsurePolicyFilesOnStartReloadsTheManagers(t *testing.T) {
 	// A server built without the option (every test server) never writes.
 	quiet := t.TempDir()
 	t.Setenv("HOME", quiet)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	(&Server{cfg: &config.Resolved{Rulebook: config.Rulebook{PolicyFile: filepath.Join(quiet, "rb.toml")}}, logger: NewLogger(&logs, "debug")}).ensurePolicyFilesOnStart()
 	if entries, _ := os.ReadDir(quiet); len(entries) != 0 {
 		t.Fatalf("a server without EnsurePolicyFiles wrote %v", entries)
@@ -701,6 +704,7 @@ func TestEnsurePolicyFilesOnStartReloadsTheManagers(t *testing.T) {
 func TestPolicyFileStatusesNameReviewAndMissingNumbers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
 	set := policyTestSet(t)
 	cfg := &config.Resolved{
 		Rulebook:      config.Rulebook{PolicyFile: set.Rulebook},
@@ -716,7 +720,7 @@ func TestPolicyFileStatusesNameReviewAndMissingNumbers(t *testing.T) {
 	s.protectionPolicies.reload()
 	s.rulebookPolicies.reload()
 	s.opportunityPolicies.reload()
-	rm := newRiskPolicyManager(riskPolicyDefaultPath, time.Minute, time.Now)
+	rm := newRiskPolicyManager(riskPolicyDefaultPath(), time.Minute, time.Now)
 	rm.reload()
 	rows := map[string]rpc.PolicyFileStatus{}
 	for _, row := range s.policyFileStatuses(rm.snapshot()) {

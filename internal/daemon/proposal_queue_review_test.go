@@ -320,7 +320,7 @@ func TestQueuedTermsFieldsAreTheSignedContract(t *testing.T) {
 		typ  reflect.Type
 		want []string
 	}{
-		{reflect.TypeFor[rpc.QueuedAuthTerms](), []string{"version", "owner_order", "queue_id", "account_id", "account_mode", "key", "bucket", "revision_at_queue",
+		{reflect.TypeFor[rpc.QueuedAuthTerms](), []string{"broker", "version", "owner_order", "queue_id", "account_id", "account_mode", "key", "bucket", "revision_at_queue",
 			"contract", "action", "position_effect", "position_quantity", "max_quantity", "style", "concession", "worst_price",
 			"reference_mark", "reference_mark_at", "max_spread_pct_of_mid", "currency", "market", "session_date", "not_before",
 			"not_after", "tif", "arm_deadline", "row_terms_digest", "policy_fingerprint", "rulebook_fingerprint"}},

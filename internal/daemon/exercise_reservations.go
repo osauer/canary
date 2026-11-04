@@ -32,6 +32,7 @@ type pendingExerciseRecord struct {
 }
 
 type exerciseResolution struct {
+	Broker      string    `json:"broker,omitempty"`
 	Account     string    `json:"account"`
 	Mode        string    `json:"mode"`
 	RequestRef  string    `json:"request_ref"`
@@ -63,7 +64,7 @@ func (s *Server) exerciseResolutions(ctx context.Context) (exerciseResolutionDoc
 			return fmt.Errorf("invalid exercise reconciliation document")
 		}
 		for key, resolved := range out.Resolutions {
-			if strings.TrimSpace(key) == "" || strings.TrimSpace(resolved.RequestRef) == "" || strings.TrimSpace(resolved.Revision) == "" || len(resolved.EvidenceID) != 64 || strings.TrimSpace(resolved.EvidenceKey) == "" || resolved.At.IsZero() || resolved.Provenance != exerciseHumanEvidenceProvenance || !brokerScopeConcrete(brokerStateScope{Account: resolved.Account, Mode: resolved.Mode}) {
+			if strings.TrimSpace(key) == "" || strings.TrimSpace(resolved.RequestRef) == "" || strings.TrimSpace(resolved.Revision) == "" || len(resolved.EvidenceID) != 64 || strings.TrimSpace(resolved.EvidenceKey) == "" || resolved.At.IsZero() || resolved.Provenance != exerciseHumanEvidenceProvenance || !brokerScopeConcrete(recordScope(resolved.Broker, resolved.Account, resolved.Mode)) {
 				return fmt.Errorf("invalid exercise reconciliation entry")
 			}
 		}
@@ -106,7 +107,7 @@ func (s *Server) pendingExercises(ctx context.Context, scope brokerStateScope) (
 		raw, _ := json.Marshal(event)
 		revision := shortStableHash(string(raw))
 		if resolved, ok := resolutions.Resolutions[event.PreviewTokenID]; ok {
-			if resolved.RequestRef != event.OrderRef || resolved.Revision != revision || !sameBrokerScope(brokerStateScope{Account: resolved.Account, Mode: resolved.Mode}, scope) {
+			if resolved.RequestRef != event.OrderRef || resolved.Revision != revision || !sameBrokerScope(recordScope(resolved.Broker, resolved.Account, resolved.Mode), scope) {
 				return nil, fmt.Errorf("exercise resolution does not match reserved request")
 			}
 			continue
@@ -138,7 +139,7 @@ func exerciseReservationConflicts(event orderJournalEvent, contract rpc.Contract
 }
 
 func (s *Server) pendingExerciseOrderBlocker(ctx context.Context, status rpc.TradingStatus, draft rpc.OrderDraft) error {
-	pending, err := s.pendingExercises(ctx, brokerStateScope{Account: status.Account, Mode: status.Mode})
+	pending, err := s.pendingExercises(ctx, recordScope(status.Broker, status.Account, status.Mode))
 	if err != nil {
 		return fmt.Errorf("%w: read exercise reservations: %v", ErrTradingDisabled, err)
 	}

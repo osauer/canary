@@ -11,6 +11,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/register"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -20,7 +21,7 @@ import (
 // Deliberately not a config key in v1: the constitution is the authority
 // over risk numbers, and making its own location configurable before the
 // surface has burned in just adds a second thing to audit.
-const riskPolicyDefaultPath = "~/.config/ibkr/policies/risk-policy.toml"
+func riskPolicyDefaultPath() string { return config.PolicyDir() + "/risk-policy.toml" }
 
 // riskPolicyManager mirrors protectionPolicyManager's load/drift semantics
 // without a fallback constitution: a missing file is status "absent".
@@ -59,7 +60,7 @@ func (s *Server) installRiskPolicyManager() {
 	if s == nil {
 		return
 	}
-	m := newRiskPolicyManager(riskPolicyDefaultPath, 30*time.Second, s.now)
+	m := newRiskPolicyManager(riskPolicyDefaultPath(), 30*time.Second, s.now)
 	m.onTransition = func(prev, next string, c *risk.Constitution) {
 		s.journalRiskPolicyTransition(prev, next, c)
 		if next == rpc.RiskPolicyStatusActive {

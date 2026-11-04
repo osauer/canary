@@ -120,7 +120,13 @@ var ibkrBorrowFeeFTP = borrowFeeFTPSource{
 	transferTimeout: marketEventsFTPTransferTimeout,
 }
 
+// errBorrowFeesNotServed answers the borrow-fee read under a broker whose daemon
+// never dials an IBKR host.
+var errBorrowFeesNotServed = errors.New("borrow fees are not served on this broker")
+
 type marketEventCache struct {
+	// noIBKRHosts keeps the IBKR borrow-fee FTP dial off under another broker.
+	noIBKRHosts               bool
 	mu                        sync.Mutex
 	borrowFeesRefreshGate     chan struct{}
 	borrowInventoryGate       chan struct{}
@@ -325,6 +331,7 @@ func newMarketEventCache(now func() time.Time) *marketEventCache {
 func (s *Server) installMarketEventCache() {
 	s.marketEvents = newMarketEventCache(s.now)
 	s.marketEvents.logger = s.logger
+	s.marketEvents.noIBKRHosts = s.opend != nil
 }
 
 func (s *Server) handleMarketEventsSnapshot(ctx context.Context, req *rpc.Request) (*rpc.MarketEventsResult, error) {
@@ -629,7 +636,15 @@ func (c *marketEventCache) loadBorrowFees(ctx context.Context) (marketEventBorro
 	c.mu.Unlock()
 
 	attemptedAt := now.UTC()
-	entry, err := fetchIBKRBorrowFees(ctx, cached.SourceURL)
+	var (
+		entry marketEventBorrowFeeEntry
+		err   error
+	)
+	if c.noIBKRHosts {
+		err = errBorrowFeesNotServed
+	} else {
+		entry, err = fetchIBKRBorrowFees(ctx, cached.SourceURL)
+	}
 	if ctx.Err() != nil {
 		return c.canceledBorrowFeeRefresh(ctx.Err(), c.now().UTC())
 	}

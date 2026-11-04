@@ -119,3 +119,24 @@ func listProcesses(ctx context.Context) []string {
 	}
 	return strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 }
+
+// OpenDProcessRunning reports whether OpenD appears in the process list. Absence
+// from a failed lookup reads the same way, so a caller words it as "not found".
+func OpenDProcessRunning(ctx context.Context) bool {
+	for _, line := range ProcessLister(ctx) {
+		if strings.Contains(strings.ToLower(line), "opend") {
+			return true
+		}
+	}
+	return false
+}
+
+// OpenDPortDownHint is the verdict for an OpenD port nothing listens on. It is
+// the only thing this package does under the OpenD kind: it reads the process
+// list and dials no port.
+func OpenDPortDownHint(ctx context.Context, host string, port int) string {
+	if OpenDProcessRunning(ctx) {
+		return "OpenD is running but its API port " + host + ":" + strconv.Itoa(port) + " is closed: it is still logging in, or api_port in its configuration differs"
+	}
+	return "no OpenD process found and nothing listens on " + host + ":" + strconv.Itoa(port) + ": start OpenD"
+}

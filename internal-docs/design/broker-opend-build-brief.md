@@ -377,7 +377,9 @@ no listener starts the app-watch poller; `newConnector` at
 `connectAttempter` is a typed nil that `tryOneHandshake` would call) and
 both callers, `buildAttempter` and `breadthConnectFlow`, handle the error;
 the breadth flow (`1128`, `1247`, `1285`) is unreachable because
-`s.breadth` is not constructed under `opend`; `gatewayConnector()` returns
+`breadthGatewayConnector` and `triggerBreadthConnect` return early under
+`opend`, the engine staying built because `Start` attaches its store
+(corrected in WP8, 2026-11-04); `gatewayConnector()` returns
 the typed unavailable reason without arming the trigger for its 46
 callers; the TWS order control's own client-0 dial at
 `tws_order_control.go:245-265` is unreachable because its write
@@ -438,9 +440,9 @@ format validator (`marketEventFeeRateScopeFingerprint` at
 `riskCapitalScopeKey`, `risk_capital_state.go:240-245`;
 `recon_engine.go:273`; `cash_sweep_trace.go:82-83`; `dailyPnLScopeSource`,
 `daily_pnl_close_capture.go:31-33`; `edgeScopeFingerprint`,
-`edge_authority.go:496-504`) takes the kind as an extra hash input only
-for a non-IBKR kind (any such kind, not `opend` by name), empty for IBKR
-so the bytes are unchanged, formats and validators untouched; and the `omitempty` `Broker` field written for
+`edge_authority.go:496-504`) takes the kind inside the account it
+already hashes, for any non-IBKR kind (`keyAccount`, WP8, 2026-11-04), so
+IBKR's input and bytes are unchanged, formats and validators untouched; and the `omitempty` `Broker` field written for
 any non-`ibkr` kind (never for `opend` by name; same bytes today) on
 `rpc.DeskAuthorityTerms` (its field-wise account and mode
 checks at `desk_execution_submit.go:204`, `desk_authority_fence.go:41` and

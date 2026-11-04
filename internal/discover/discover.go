@@ -337,3 +337,12 @@ func probeAll(ctx context.Context, host string, ports []int, perPortTimeout time
 	}
 	return hits, rejections, nil
 }
+
+// OriginFor names where a port came from: the configuration when pinned, the
+// documented default otherwise.
+func OriginFor(pinned bool) Origin {
+	if pinned {
+		return OriginPinned
+	}
+	return OriginDiscovered
+}

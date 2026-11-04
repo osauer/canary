@@ -61,7 +61,7 @@ func proposalPolicyRevision(previous rpc.TradeProposalSnapshot, status rpc.Prote
 	legacySources := sources
 	legacySources.EffectiveRulebook = rpc.Fingerprint{}
 	legacy := proposalRevision(status.Fingerprint, legacySources, scope, rows)
-	scoped := previous.Kind == rpc.TradeProposalSnapshotKind && sameBrokerScope(brokerStateScope{Account: previous.AccountID, Mode: previous.AccountMode}, scope) && previous.PolicyID == status.PolicyID
+	scoped := previous.Kind == rpc.TradeProposalSnapshotKind && sameBrokerScope(recordScope(previous.Broker, previous.AccountID, previous.AccountMode), scope) && previous.PolicyID == status.PolicyID
 	current := scoped && sameEffectivePolicy(previous.EffectivePolicyFingerprint, status.EffectiveFingerprint)
 	exactLegacy := scoped && previous.EffectivePolicyFingerprint.Key == "" && previous.PolicyVersion == status.PolicyVersion && previous.PolicyFingerprint.Key != "" && previous.PolicyFingerprint == status.Fingerprint
 	revision := retainedPolicyRevision(effective, legacy, previous.Revision, previous.EffectiveRevision, current, exactLegacy)
@@ -90,7 +90,7 @@ func hasCashSweepProposal(rows []rpc.TradeProposal) bool {
 func opportunityPolicyRevision(previous rpc.OpportunitySnapshot, status rpc.OpportunityPolicyStatus, sources rpc.OpportunitySourceFingerprints, scope brokerStateScope, rows []rpc.Opportunity) (string, string) {
 	effective := opportunityRevision(status.EffectiveFingerprint, sources, scope, rows)
 	legacy := opportunityRevision(status.Fingerprint, sources, scope, rows)
-	scoped := previous.Kind == rpc.OpportunitySnapshotKind && sameBrokerScope(brokerStateScope{Account: previous.AccountID, Mode: previous.AccountMode}, scope) && previous.PolicyID == status.PolicyID
+	scoped := previous.Kind == rpc.OpportunitySnapshotKind && sameBrokerScope(recordScope(previous.Broker, previous.AccountID, previous.AccountMode), scope) && previous.PolicyID == status.PolicyID
 	current := scoped && sameEffectivePolicy(previous.EffectivePolicyFingerprint, status.EffectiveFingerprint)
 	exactLegacy := scoped && previous.EffectivePolicyFingerprint.Key == "" && previous.PolicyVersion == status.PolicyVersion && previous.PolicyFingerprint.Key != "" && previous.PolicyFingerprint == status.Fingerprint
 	return retainedPolicyRevision(effective, legacy, previous.Revision, previous.EffectiveRevision, current, exactLegacy), effective

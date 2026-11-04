@@ -1,0 +1,398 @@
+package daemon
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerOpenD "github.com/osauer/canary/v2/internal/broker/opend"
+	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/pkg/futu"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+)
+
+// opendStatusPoll is how often the daemon re-reads OpenD's state and account
+// list; both are free of the pacing table's windows.
+const opendStatusPoll = 30 * time.Second
+
+// newOpenDBroker builds the one broker of a daemon whose kind is opend, nil
+// under any other kind. The configuration was validated when it was resolved,
+// so an account that does not parse cannot arrive here from a real start.
+func newOpenDBroker(cfg *config.Resolved, version string) *brokerOpenD.Adapter {
+	if cfg == nil || !cfg.IsOpenD() {
+		return nil
+	}
+	account, err := strconv.ParseUint(strings.TrimSpace(cfg.OpenD.Account), 10, 64)
+	if err != nil {
+		return nil
+	}
+	conn := futu.NewConnector(futu.Config{
+		Addr:          fmt.Sprintf("%s:%d", cfg.OpenD.HostOrDefault(), cfg.OpenD.PortOrDefault()),
+		Account:       account,
+		ClientID:      cfg.OpenD.ClientIDOrDefault(),
+		ClientVersion: clientVersionFor(version),
+	})
+	return brokerOpenD.New(conn, account, nil)
+}
+
+// clientVersionFor is the daemon's own version as InitConnect wants it:
+// major*100+minor. A build without a release version reports zero's successor,
+// which OpenD treats like any low version.
+func clientVersionFor(version string) int32 {
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	major, rest, _ := strings.Cut(version, ".")
+	minor, _, _ := strings.Cut(rest, ".")
+	a, errA := strconv.Atoi(major)
+	b, errB := strconv.Atoi(minor)
+	if errA != nil || errB != nil {
+		return 1
+	}
+	return int32(a*100 + b)
+}
+
+// disableIBKRHosts turns off the features that dial an IBKR host other than the
+// API socket, on the daemon's private copy of the resolved configuration: the
+// Flex statement fetch, and the Web API cash ledger. The borrow-fee FTP dial is
+// gated where it runs.
+func disableIBKRHosts(cfg *config.Resolved) *config.Resolved {
+	if cfg == nil || !cfg.IsOpenD() {
+		return cfg
+	}
+	clone := *cfg
+	clone.Flex.Enabled = false
+	clone.CashLedger.URL = ""
+	return &clone
+}
+
+// opendEndpoint names the OpenD session the way status reads an endpoint.
+func opendEndpoint(cfg *config.Resolved) discover.Endpoint {
+	return discover.Endpoint{
+		Host:       cfg.OpenD.HostOrDefault(),
+		Port:       cfg.OpenD.PortOrDefault(),
+		Account:    strings.TrimSpace(cfg.OpenD.Account),
+		PortOrigin: discover.OriginFor(cfg.OpenD.Port != nil),
+	}
+}
+
+// runOpenDSession holds the OpenD session for the daemon's life: it starts the
+// connector, re-reads the state, the account list and the quota on the status
+// poll, and keeps the last connect's verdict in the words the status surface
+// shows.
+func (s *Server) runOpenDSession(ctx context.Context) {
+	conn := s.opend.Connector()
+	conn.Start(ctx)
+	defer conn.Stop()
+	tick := time.NewTicker(opendStatusPoll)
+	defer tick.Stop()
+	verdict := time.NewTicker(time.Second)
+	defer verdict.Stop()
+	ep := opendEndpoint(s.cfg)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-verdict.C:
+			s.recordOpenDVerdict(ctx, conn, ep)
+		case <-tick.C:
+			if conn.Health().Connected {
+				poll, cancel := context.WithTimeout(ctx, 10*time.Second)
+				_ = conn.RefreshSession(poll)
+				_, _ = conn.RefreshLoad(poll)
+				cancel()
+			}
+		}
+	}
+}
+
+// recordOpenDVerdict publishes why the session is not ready, once per phase, so
+// the process list is read only when the verdict changes.
+func (s *Server) recordOpenDVerdict(ctx context.Context, conn *futu.Connector, ep discover.Endpoint) {
+	health := conn.Health()
+	wasReady := s.opendWasReady.Load()
+	s.opendWasReady.Store(health.Ready)
+	if health.Ready && !wasReady {
+		s.postConnectSetupDone.Store(true)
+		s.mu.Lock()
+		s.lastConnectError = ""
+		s.mu.Unlock()
+		if _, err := conn.RefreshLoad(ctx); err != nil {
+			s.logger.Debugf("opend: quota read: %v", err)
+		}
+	}
+	if health.Ready {
+		return
+	}
+	if !health.Ready && wasReady {
+		s.postConnectSetupDone.Store(false)
+	}
+	phase, _ := s.opendVerdictPhase.Swap(string(health.Phase)).(string)
+	verdictText := opendVerdict(ctx, health, ep, phase != string(health.Phase))
+	if verdictText == "" {
+		return
+	}
+	s.mu.Lock()
+	s.lastConnectError = verdictText
+	s.mu.Unlock()
+}
+
+// opendVerdict is the last attempt in the reader's words.
+func opendVerdict(ctx context.Context, health futu.Health, ep discover.Endpoint, phaseChanged bool) string {
+	var version *futu.ServerVersionError
+	var handshake *futu.HandshakeError
+	var end *futu.SessionEndError
+	switch {
+	case errors.As(health.LastError, &version):
+		return fmt.Sprintf("OpenD %d is below the %d this Canary was built against: update OpenD", version.Server, version.Minimum)
+	case errors.As(health.LastError, &handshake):
+		return fmt.Sprintf("OpenD refused the connection (%s); OpenD refuses unencrypted connections while it has an RSA key: remove the RSA key from its configuration", handshake.Reply.Message)
+	case errors.As(health.LastError, &end):
+		switch end.Reason {
+		case futu.EndForceUpdate:
+			return "OpenD requires a newer Canary"
+		case futu.EndKickedOut:
+			return "the Futu account logged in elsewhere and OpenD dropped this session"
+		case futu.EndPasswordChanged, futu.EndLoginBanned, futu.EndDeviceLock:
+			return "OpenD lost its login: log in to OpenD again"
+		case futu.EndScopeLost:
+			return "OpenD's account list no longer reports [opend] account"
+		case futu.EndHeartbeat:
+			return "OpenD stopped answering"
+		}
+	}
+	switch health.Phase {
+	case futu.PhasePortDown:
+		if phaseChanged {
+			return discover.OpenDPortDownHint(ctx, ep.Host, ep.Port)
+		}
+	case futu.PhaseProgramStatus:
+		return "OpenD is not ready: its program status is " + health.State.ProgramStatus
+	case futu.PhaseNotLoggedIn:
+		return "OpenD is up but its quote or trade server is not logged in"
+	case futu.PhaseUnscoped:
+		return "OpenD's account list does not report [opend] account"
+	}
+	return ""
+}
+
+// opendAccountSummary serves the account read from OpenD's funds.
+func (s *Server) opendAccountSummary(ctx context.Context) (*rpc.AccountResult, accountSummaryAuthority, error) {
+	scope := s.currentBrokerStateScope()
+	binding, ok := s.opend.Capture()
+	if !ok {
+		return nil, accountSummaryAuthority{}, s.gatewayUnavailableError()
+	}
+	if !brokerScopeConcrete(scope) {
+		return nil, accountSummaryAuthority{}, errors.New("account summary requires the account list to report [opend] account")
+	}
+	snapshot, err := s.readAccountSnapshot(ctx, s.opend)
+	if err != nil {
+		return nil, accountSummaryAuthority{}, err
+	}
+	raw := snapshot.raw
+	if raw == nil {
+		return nil, accountSummaryAuthority{}, errors.New("account summary unavailable")
+	}
+	authority := accountSummaryAuthority{
+		Provenance: snapshot.provenance, AsOf: snapshot.observedAt.UTC(),
+		NetLiquidationAvailable:    raw.NetLiquidation != nil,
+		TotalCashAvailable:         raw.TotalCashValue != nil,
+		AvailableFundsAvailable:    raw.AvailableFunds != nil,
+		BaseCurrencyAvailable:      raw.BaseCurrencyProvenance.Proven() && strings.TrimSpace(raw.BaseCurrency) != "",
+		InitialMarginAvailable:     raw.InitMarginReq != nil,
+		MaintenanceMarginAvailable: raw.MaintenanceMargin != nil,
+	}
+	res := &rpc.AccountResult{
+		AccountID:    raw.AccountID,
+		AccountType:  raw.AccountType,
+		BaseCurrency: normCcy(raw.BaseCurrency),
+		AsOf:         accountResultAuthorityAsOf(authority, time.Now().UTC()),
+	}
+	assign := func(dst *float64, src *float64) {
+		if src != nil {
+			*dst = *src
+		}
+	}
+	assign(&res.NetLiquidation, raw.NetLiquidation)
+	assign(&res.BuyingPower, raw.BuyingPower)
+	assign(&res.AvailableFunds, raw.AvailableFunds)
+	assign(&res.TotalCash, raw.TotalCashValue)
+	assign(&res.MaintenanceMargin, raw.MaintenanceMargin)
+	assign(&res.InitialMargin, raw.InitMarginReq)
+	assign(&res.GrossPositionValue, raw.GrossPositionValue)
+	assign(&res.UnrealizedPnL, raw.UnrealizedPnL)
+	assign(&res.RealizedPnL, raw.RealizedPnL)
+	if res.BaseCurrency != "" {
+		res.CurrencyExposure = buildCurrencyExposure(raw.CurrencyLedger, res.BaseCurrency)
+		annotateLedgerCash(res, raw.CurrencyLedger, raw.Raw)
+	}
+	res.Authority = accountResultDataAuthority(scope, raw, snapshot.provenance, res)
+	current := s.opend.Current(binding) && sameBrokerScope(scope, s.currentBrokerStateScope())
+	authority = finalizeAccountSummarySession(res, authority, current)
+	s.observeAccountRPC(res, s.opend, binding)
+	return res, authority, nil
+}
+
+// opendPositions serves the positions read from OpenD's position list.
+func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, portfolioHealth *ibkrlib.PortfolioStreamHealth, expectedScope brokerStateScope) (*rpc.PositionsResult, error) {
+	binding, ok := s.opend.Capture()
+	if !ok {
+		return nil, s.gatewayUnavailableError()
+	}
+	positions, receipt, err := s.opend.Positions()
+	if err != nil {
+		return nil, err
+	}
+	health := ibkrlib.PortfolioStreamHealth(receipt)
+	if portfolioHealth != nil {
+		*portfolioHealth = health
+	}
+	res := newPositionsResult(expectedScope, health, time.Now().UTC())
+	if !brokerScopeConcrete(expectedScope) {
+		return res, nil
+	}
+	wantSym := normSym(p.Symbol)
+	for _, pos := range positions {
+		in := pos.Instrument
+		if wantSym != "" && wantSym != strings.ToUpper(in.Symbol) {
+			continue
+		}
+		if strings.EqualFold(strings.TrimSpace(p.Type), "opt") {
+			continue
+		}
+		res.Stocks = append(res.Stocks, rpc.PositionView{
+			Symbol:        in.Symbol,
+			SecType:       positionSecType(in.SecType),
+			Exchange:      in.Venue,
+			Currency:      in.Currency,
+			Quantity:      pos.Quantity,
+			Multiplier:    positionViewMultiplier(in.SecType, in.Multiplier),
+			AvgCost:       pos.AverageCost,
+			Mark:          pos.MarketPrice,
+			ValuationMark: pos.MarketPrice,
+			MarketValue:   pos.MarketValue,
+			UnrealizedPnL: pos.UnrealizedPnL,
+			RealizedPnL:   pos.RealizedPnL,
+		})
+	}
+	flagZeroValueStockPositions(res.Stocks)
+	baseCcy := ""
+	var netLiquidationBase *float64
+	var ledger map[string]broker.CurrencyLedger
+	refresh, cancel := context.WithTimeout(ctx, 3*time.Second)
+	snapshot, snapErr := s.readAccountSnapshot(refresh, s.opend)
+	cancel()
+	if raw := snapshot.raw; snapErr == nil && raw != nil {
+		baseCcy = normCcy(raw.BaseCurrency)
+		netLiquidationBase = raw.NetLiquidation
+		ledger = raw.CurrencyLedger
+	}
+	fillBaseValues(res.Stocks, baseCcy)
+	res.ByUnderlying = groupByUnderlying(res.Stocks, res.Options, baseCcy, netLiquidationBase)
+	res.Portfolio = buildPortfolioAggregatesWithBase(res.Stocks, res.Options, baseCcy)
+	addPortfolioBaseContext(res.Portfolio, res.ByUnderlying, baseCcy, netLiquidationBase)
+	addFXSensitivity(res.Portfolio, ledger, baseCcy)
+	completedAt := time.Now().UTC()
+	res.Authority = positionsResultDataAuthority(expectedScope, health, completedAt)
+	res.Authority.PortfolioComplete = wantSym == "" && strings.TrimSpace(p.Type) == "" && currentPortfolioAuthority(res.Authority)
+	authorityScope := expectedScope
+	if !s.opend.Current(binding) || !sameBrokerScope(expectedScope, s.currentBrokerStateScope()) {
+		authorityScope = brokerStateScope{}
+		res.Authority.Availability = rpc.AccountDataUnavailable
+		res.Authority.Freshness = rpc.AccountDataFreshnessUnknown
+		res.Authority.Reason = rpc.AccountDataReasonSessionChanged
+	}
+	res.AsOf = positionsResultAuthorityAsOf(authorityScope, health, completedAt)
+	s.observeAccountRPC(res, s.opend, binding)
+	return res, nil
+}
+
+// opendQuote serves one quote: the streaming line when the session holds one,
+// else one snapshot request.
+func (s *Server) opendQuote(ctx context.Context, p rpc.QuoteSnapshotParams) (*rpc.Quote, error) {
+	binding, ok := s.opend.Capture()
+	if !ok {
+		return nil, s.gatewayUnavailableError()
+	}
+	code, err := s.opend.CodeFor(instrumentOfContract(p.Contract))
+	if err != nil {
+		return nil, err
+	}
+	line := s.opend.Snapshot()[code]
+	if line == nil {
+		read, err := s.opend.ReadSnapshots(ctx, []string{code})
+		if err != nil {
+			return nil, err
+		}
+		line = read[code]
+	}
+	if line == nil {
+		return nil, fmt.Errorf("OpenD has no quote for %s", code)
+	}
+	if !s.opend.Current(binding) {
+		return nil, s.gatewayUnavailableError()
+	}
+	return rpcQuoteOf(p.Contract, line), nil
+}
+
+// instrumentOfContract reads a request's contract as the seam's identity.
+func instrumentOfContract(contract rpc.ContractParams) broker.Instrument {
+	return broker.Instrument{
+		Symbol:   contract.Symbol,
+		SecType:  contract.SecType,
+		Market:   contract.Market,
+		Venue:    contract.Exchange,
+		Primary:  contract.PrimaryExch,
+		Currency: contract.Currency,
+	}
+}
+
+// rpcQuoteOf maps a seam quote to the wire. A value OpenD did not send stays nil.
+func rpcQuoteOf(contract rpc.ContractParams, q *broker.Quote) *rpc.Quote {
+	positive := func(v float64) *float64 {
+		if v > 0 {
+			return &v
+		}
+		return nil
+	}
+	out := &rpc.Quote{
+		Symbol:       contract.Symbol,
+		Contract:     contract,
+		IVStatus:     "unavailable",
+		DataType:     "live",
+		FeedType:     "live",
+		ReceivedAt:   q.Timestamp,
+		AsOf:         q.Timestamp,
+		Bid:          positive(q.Bid),
+		Ask:          positive(q.Ask),
+		Last:         positive(q.Last),
+		Price:        positive(q.Last),
+		PriceSource:  "last",
+		PriceAt:      q.LastAt,
+		QuotePrice:   positive(q.Last),
+		QuotePriceAt: q.LastAt,
+		PrevClose:    positive(q.Close),
+		DayHigh:      positive(q.High),
+		DayLow:       positive(q.Low),
+	}
+	if q.VolumeObserved {
+		out.Volume = new(q.Volume)
+	}
+	if q.BidSize > 0 {
+		out.BidSize = new(q.BidSize)
+	}
+	if q.AskSize > 0 {
+		out.AskSize = new(q.AskSize)
+	}
+	if out.Last != nil && out.PrevClose != nil {
+		change := *out.Last - *out.PrevClose
+		out.Change = &change
+		out.ChangePct = new(change / *out.PrevClose * 100)
+	}
+	return out
+}

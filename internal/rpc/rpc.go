@@ -2449,6 +2449,9 @@ const (
 // HealthResult is the response to MethodStatusHealth.
 // ports that responded during discovery but lost the first-hit race.
 type HealthResult struct {
+	// Broker is the kind of broker this daemon serves, absent for IBKR; a client of
+	// two daemons binds it as the order route.
+	Broker        string            `json:"broker,omitempty"`
 	Verdict       HealthVerdict     `json:"verdict"`
 	DataHealth    *DataHealthResult `json:"data_health,omitempty"`
 	DaemonVersion string            `json:"daemon_version"`
@@ -2545,6 +2548,12 @@ type TradingBlocker struct {
 // TradingStatus is the local order-entry readiness surface. It is deliberately
 // separate from broker permission: TWS / IB Gateway can still reject writes
 type TradingStatus struct {
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker string `json:"broker,omitempty"`
+	// AccountMode is the paper or live mode the broker session reported for the
+	// account, under a broker whose mode a port and a prefix cannot tell.
+	AccountMode    string           `json:"account_mode,omitempty"`
 	Mode           string           `json:"mode"`
 	Endpoint       string           `json:"endpoint,omitempty"`
 	GatewayHost    string           `json:"gateway_host,omitempty"`

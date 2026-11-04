@@ -201,7 +201,7 @@ func (s *Server) deskAutomaticAuthority(ctx context.Context, in rpc.DeskAutomati
 	if !current.Running {
 		return refuse("the controller is not confirmed running under this daemon process")
 	}
-	if current.Terms.AccountID != scope.Account || current.Terms.AccountMode != scope.Mode {
+	if !sameBrokerScope(recordScope(current.Terms.Broker, current.Terms.AccountID, current.Terms.AccountMode), scope) {
 		return refuse("the confirmed mandate names another account")
 	}
 	return current, nil, nil

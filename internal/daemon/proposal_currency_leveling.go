@@ -726,7 +726,7 @@ func (e *proposalEngine) currencyLevelingInput(ctx context.Context, acct *rpc.Ac
 	e.mu.Lock()
 	previous := e.snapshot
 	e.mu.Unlock()
-	if sameBrokerScope(brokerStateScope{Account: previous.AccountID, Mode: previous.AccountMode}, scope) {
+	if sameBrokerScope(recordScope(previous.Broker, previous.AccountID, previous.AccountMode), scope) {
 		for _, p := range previous.Proposals {
 			if b := p.CurrencyLeveling; p.Bucket == rpc.TradeProposalBucketCurrencyLeveling && b != nil {
 				in.Previous[currencyLevelingIdentity(b.Currency, b.Pair, p.Action)] = p.Quantity

@@ -143,7 +143,7 @@ func twsOrderModifyEligible(row rpc.OrderView) bool {
 }
 
 func twsOrderControlKey(scope brokerStateScope, kind, id string) string {
-	return strings.Join([]string{twsOrderControlKeyPrefix, scope.Account, scope.Mode, kind, id}, ":")
+	return strings.Join([]string{twsOrderControlKeyPrefix, scope.keyAccount(), scope.Mode, kind, id}, ":")
 }
 
 func (s *Server) handleOrderTWSCancel(ctx context.Context, req *rpc.Request) (*rpc.OrderTWSControlResult, error) {
@@ -200,7 +200,7 @@ func (s *Server) twsOrderControl(ctx context.Context, action string, p rpc.Order
 	if !avail.Available {
 		return refuse(rpc.TWSOrderControlBlockerOff, "orders placed in TWS cannot be changed from here: "+avail.Status)
 	}
-	scope := brokerStateScope{Account: status.Account, Mode: status.Mode}
+	scope := recordScope(status.Broker, status.Account, status.Mode)
 	if !brokerScopeConcrete(scope) {
 		return refuse(rpc.TWSOrderControlBlockerGate, "no concrete account and mode; nothing was sent")
 	}

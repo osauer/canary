@@ -82,7 +82,7 @@ func (s *Server) currentProtectionOrderSnapshotBinding() protectionOrderSnapshot
 		port = *s.cfg.Gateway.Port
 	}
 	binding := protectionOrderSnapshotBinding{
-		scope:     brokerStateScopeFromSnapshot(configuredAccount, ep.Account, port, connectedAccount),
+		scope:     s.scopeFromSnapshot(configuredAccount, ep.Account, port, connectedAccount),
 		connector: connector, connectorEpoch: connectorEpoch,
 	}
 	if connector != nil {

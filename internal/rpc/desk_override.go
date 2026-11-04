@@ -36,6 +36,9 @@ type DeskOverridePrepareParams struct {
 // account they apply to, the control, the reason and hours, and when the
 // confirmation must arrive by.
 type DeskOverrideTerms struct {
+	// Broker is the broker kind of the account below, absent for IBKR so a record
+	// written before the second broker keeps its bytes.
+	Broker        string    `json:"broker,omitempty"`
 	Version       int       `json:"version"`
 	Kind          string    `json:"kind"`
 	ID            string    `json:"id"`

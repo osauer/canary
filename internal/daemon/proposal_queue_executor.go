@@ -534,7 +534,7 @@ func (e *proposalEngine) queuedResolve(ctx context.Context, rec queuedAuthRecord
 	if len(snap.AutoTrade.Blockers) > 0 {
 		return rpc.TradeProposal{}, snap.AutoTrade.Blockers, "", ""
 	}
-	if !sameBrokerScope(brokerStateScope{Account: snap.AccountID, Mode: snap.AccountMode}, rec.scope()) {
+	if !sameBrokerScope(recordScope(snap.Broker, snap.AccountID, snap.AccountMode), rec.scope()) {
 		return rpc.TradeProposal{}, nil, queuedReasonAccountChanged, "the proposals now belong to a different account or paper/live mode"
 	}
 	i := slices.IndexFunc(snap.Proposals, func(p rpc.TradeProposal) bool { return p.Key == rec.Terms.Key })
