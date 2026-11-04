@@ -1,6 +1,6 @@
 # Build brief: Futu OpenD as a second broker
 
-Updated: 2026-11-04 12:55 CET (after four cold reviews on 2026-11-04)
+Updated: 2026-11-04 15:55 CET (after four cold reviews on 2026-11-04)
 Status: brief for the implementing session; follows
 [broker-opend.md](broker-opend.md), which is the design and the contract.
 Owner decision 2026-11-03 09:49 CET. Nothing is built.
@@ -113,6 +113,14 @@ different generations are not equal); `Instrument` canonical string per broker (
 list -deps` in the test).
 
 Gate: `make test`. Done: the package builds and is imported by nobody.
+
+Before the first edit: read cold the fourth review's five responses in
+[the review record](../reviews/2026-11-04-broker-opend-design-review.md)
+(the witness stack's own `HOME`, the per-kind account accessor, the
+key-form constructor for `core_rebalance.go`, the `CI_ONLY_TARGETS` line,
+the TWS order-control dial path) against the code they name, and record
+what you find in that file. No fifth reviewer read them (owner decision
+2026-11-04 15:53 CET).
 
 ### WP2 IBKR adapter: session, quotes, bars (A2)
 

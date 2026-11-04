@@ -506,6 +506,8 @@ witness stack's CLI leg, with the third review's record. Review delivered
 
 The reviewer named finding 1 the most severe. The responses above add
 one variable, one accessor, one constructor form, one `CI_ONLY_TARGETS`
-line and one named path; they were not cold-read by a fifth reviewer. The
-parent session decides whether to run one before the build starts.
+line and one named path; they were not cold-read by a fifth reviewer.
+Owner decision 2026-11-04 15:53 CET: no fifth review. The build session
+reads those five responses cold as its first step in WP1 and records what
+it finds in this file.
 
