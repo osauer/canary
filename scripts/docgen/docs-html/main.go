@@ -435,32 +435,39 @@ type headingInfo struct {
 }
 
 type templateData struct {
+	Lang            string
 	Title           string
 	Description     string
 	Canonical       string
 	RootPrefix      string
 	Layout          string
 	GeneratorNotice template.HTML
-	Nav             template.HTML
-	SideNav         template.HTML
-	Body            template.HTML
-	JSONLD          template.JS
-	SocialHead      template.HTML
+	// Alternates holds the hreflang links of a page that exists in more than
+	// one language; empty otherwise, so lang.js has nothing to switch to.
+	Alternates template.HTML
+	Nav        template.HTML
+	SideNav    template.HTML
+	Body       template.HTML
+	JSONLD     template.JS
+	SocialHead template.HTML
+	HubHref    string
+	UI         uiStrings
 }
 
 var documentTemplate = template.Must(template.New("document").Parse(`<!doctype html>
 {{.GeneratorNotice}}
-<html lang="en">
+<html lang="{{.Lang}}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} | Canary</title>
   <meta name="description" content="{{.Description}}">
   <link rel="canonical" href="{{.Canonical}}">
-  <link rel="icon" type="image/png" href="{{.RootPrefix}}social/canary-icon.png">
+{{.Alternates}}  <link rel="icon" type="image/png" href="{{.RootPrefix}}social/canary-icon.png">
 {{.SocialHead}}
   <script type="application/ld+json">{{.JSONLD}}</script>
   <link rel="stylesheet" href="{{.RootPrefix}}shared.css">
+  <script src="{{.RootPrefix}}lang.js"></script>
 </head>
 <body class="docpage layout-{{.Layout}}">
   <div class="topline"></div>
@@ -472,8 +479,8 @@ var documentTemplate = template.Must(template.New("document").Parse(`<!doctype h
 {{.Body}}    </main>
   </div>
   <footer>
-    <div class="wrap"><a href="{{.RootPrefix}}index.html">Canary</a><a href="{{.RootPrefix}}docs/">Documentation</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">Security</a></div>
-    <div class="wrap fineprint">Not financial advice. Canary is analysis software; nothing here is a recommendation to buy or sell any security.</div>
+    <div class="wrap"><a href="{{.RootPrefix}}index.html">Canary</a><a href="{{.RootPrefix}}{{.HubHref}}">{{.UI.FooterDocs}}</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">{{.UI.FooterPrivacy}}</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">{{.UI.FooterSecurity}}</a></div>
+    <div class="wrap fineprint">{{.UI.Fineprint}}</div>
   </footer>
 </body>
 </html>
@@ -502,43 +509,145 @@ type siteRenderer struct {
 	generated map[string]string
 	tracked   map[string]bool
 	markdown  goldmark.Markdown
+	// english maps an English source path to its manifest entry;
+	// translations holds every translated page by language and source.
+	english      map[string]pageSpec
+	translations translationSet
 	// unresolved collects relative links that point at nothing tracked, so the
 	// run can fail with the whole list rather than one at a time.
 	unresolved []string
 }
 
-func newSiteRenderer(root string, tracked map[string]bool) *siteRenderer {
+func newSiteRenderer(root string, tracked map[string]bool) (*siteRenderer, error) {
 	generated := make(map[string]string, len(pages))
+	english := make(map[string]pageSpec, len(pages))
 	for _, page := range pages {
 		if page.planned() {
 			continue
 		}
 		generated[filepath.ToSlash(page.Source)] = filepath.ToSlash(page.output())
+		english[filepath.ToSlash(page.Source)] = page
 	}
-	return &siteRenderer{
+	r := &siteRenderer{
 		root:      root,
 		generated: generated,
 		tracked:   tracked,
+		english:   english,
 		markdown: goldmark.New(
 			goldmark.WithExtensions(extension.GFM),
-			goldmark.WithParserOptions(parser.WithAutoHeadingID()),
+			// Attributes let a translated heading keep the English anchor
+			// (`## 開始之前 {#before-you-start}`): the automatic id of a
+			// Chinese heading is the bare word "heading", which no cross-page
+			// link can reach.
+			goldmark.WithParserOptions(parser.WithAutoHeadingID(), parser.WithAttribute()),
 		),
 	}
+	translations, err := discoverTranslations(tracked, english, r.read)
+	if err != nil {
+		return nil, err
+	}
+	r.translations = translations
+	return r, nil
 }
 
-// navHTML renders the shared navigation for a page at the given root prefix.
-func navHTML(rootPrefix string) string {
+func (r *siteRenderer) read(repoPath string) ([]byte, error) {
+	return os.ReadFile(filepath.Join(r.root, filepath.FromSlash(repoPath)))
+}
+
+// pageVersions lists the output path of a page in every language it exists
+// in, keyed by language tag; english is the English source path, or "" for
+// the hub. A page that exists in one language only gets no hreflang links.
+func (r *siteRenderer) pageVersions(englishSource string) map[string]string {
+	versions := map[string]string{}
+	for _, lang := range languages {
+		if englishSource == "" {
+			versions[lang.Tag] = lang.hubOutput()
+			continue
+		}
+		if lang.isEnglish() {
+			versions[lang.Tag] = r.generated[englishSource]
+		} else if t := r.translations.lookup(lang, englishSource); t != nil {
+			versions[lang.Tag] = t.output()
+		}
+	}
+	return versions
+}
+
+// alternatesHTML renders the hreflang links that let a search engine send a
+// reader straight to the page in their language. x-default is English, the
+// master.
+func alternatesHTML(versions map[string]string) string {
+	if len(versions) < 2 {
+		return ""
+	}
+	var out strings.Builder
+	for _, lang := range languages {
+		output, ok := versions[lang.Tag]
+		if !ok {
+			continue
+		}
+		fmt.Fprintf(&out, "  <link rel=\"alternate\" hreflang=\"%s\" href=\"%s\">\n", lang.Tag, template.HTMLEscapeString(siteURL(output)))
+	}
+	fmt.Fprintf(&out, "  <link rel=\"alternate\" hreflang=\"x-default\" href=\"%s\">\n", template.HTMLEscapeString(siteURL(versions[english.Tag])))
+	return out.String()
+}
+
+// siteURL is the public URL of a repository output path. Directory indexes
+// publish as the directory.
+func siteURL(output string) string {
+	rel := strings.TrimPrefix(filepath.ToSlash(output), "docs/")
+	return publicBaseURL + strings.TrimSuffix(rel, "index.html")
+}
+
+// navHTML renders the shared navigation for a page, with the language
+// selector after it. versions says where this page exists in each language;
+// a language the page is missing in links to that language's hub, so the
+// selector is always complete and never a dead end.
+func navHTML(lang *langSpec, rootPrefix, current string, versions map[string]string) (string, error) {
+	currentDir := filepath.Dir(current)
 	var out strings.Builder
 	out.WriteString("    <nav class=\"nav-links\" aria-label=\"Site\">\n")
-	for _, item := range navItems {
+	for i, item := range navItems {
 		href := item.Href
+		if i == 0 {
+			href = lang.hubHref()
+		}
 		if !strings.Contains(href, "://") {
 			href = rootPrefix + href
 		}
-		fmt.Fprintf(&out, "      <a href=\"%s\">%s</a>\n", template.HTMLEscapeString(href), template.HTMLEscapeString(item.Label))
+		label := item.Label
+		if i < len(lang.ui.Nav) {
+			label = lang.ui.Nav[i]
+		}
+		fmt.Fprintf(&out, "      <a href=\"%s\">%s</a>\n", template.HTMLEscapeString(href), template.HTMLEscapeString(label))
 	}
 	out.WriteString("    </nav>\n")
-	return out.String()
+	out.WriteString("    <nav class=\"lang-links\" aria-label=\"Language\">\n")
+	for _, other := range languages {
+		target, ok := versions[other.Tag]
+		if !ok {
+			target = other.hubOutput()
+		}
+		href, err := filepath.Rel(currentDir, filepath.ToSlash(target))
+		if err != nil {
+			return "", err
+		}
+		href = filepath.ToSlash(href)
+		if strings.HasSuffix(href, "index.html") {
+			href = strings.TrimSuffix(href, "index.html")
+			if href == "" {
+				href = "./"
+			}
+		}
+		mark := ""
+		if other.Tag == lang.Tag {
+			mark = " aria-current=\"true\""
+		}
+		fmt.Fprintf(&out, "      <a href=\"%s\" hreflang=\"%s\" lang=\"%s\" data-lang=\"%s\"%s>%s</a>\n",
+			template.HTMLEscapeString(href), other.Tag, other.Tag, other.Tag, mark, template.HTMLEscapeString(other.Name))
+	}
+	out.WriteString("    </nav>\n")
+	return out.String(), nil
 }
 
 // sideNavHTML renders the between-page navigation tree that every generated
@@ -556,39 +665,49 @@ func navHTML(rootPrefix string) string {
 // expanded the tree runs about 1100px against a 720px laptop viewport, so a
 // reader on the last section could not see their own position without
 // scrolling the sidebar, which is the question the tree exists to answer.
-func sideNavHTML(rootPrefix, current string) (string, error) {
+//
+// In a translated language the tree links the translated page where one
+// exists and the English page otherwise, marked EN, so the tree always shows
+// the whole handbook.
+func (r *siteRenderer) sideNavHTML(lang *langSpec, rootPrefix, current string) (string, error) {
 	currentDir := filepath.Dir(current)
 
 	here, hereTitle := "", ""
 	for _, page := range pages {
-		if !page.planned() && filepath.ToSlash(page.output()) == current {
+		if page.planned() {
+			continue
+		}
+		source := filepath.ToSlash(page.Source)
+		output := filepath.ToSlash(page.output())
+		if t := r.translations.lookup(lang, source); t != nil {
+			output = t.output()
+		}
+		if output == current {
 			here = page.Section
 		}
 	}
-	for _, section := range sections {
-		if section.Slug == here {
-			hereTitle = section.Title
-		}
+	if here != "" {
+		hereTitle = lang.section(here).Title
 	}
 
 	var out strings.Builder
 	out.WriteString("    <details class=\"sidenav\">\n")
-	out.WriteString("      <summary class=\"sidenav-summary\">Documentation")
+	out.WriteString("      <summary class=\"sidenav-summary\">" + template.HTMLEscapeString(lang.ui.Documentation))
 	if hereTitle != "" {
 		// The closed control on a phone says which section the reader is in,
 		// so the tree does not have to be opened to answer "where am I".
 		fmt.Fprintf(&out, "<span class=\"sidenav-here\">%s</span>", template.HTMLEscapeString(hereTitle))
 	}
 	out.WriteString("</summary>\n")
-	out.WriteString("      <nav class=\"sidenav-tree\" aria-label=\"Documentation\">\n")
+	fmt.Fprintf(&out, "      <nav class=\"sidenav-tree\" aria-label=\"%s\">\n", template.HTMLEscapeString(lang.ui.Documentation))
 
 	overview, overviewMark := "sidenav-overview", ""
-	if current == hubOutput {
+	if current == lang.hubOutput() {
 		overview += " is-current"
 		overviewMark = " aria-current=\"page\""
 	}
-	fmt.Fprintf(&out, "        <a class=\"%s\" href=\"%s\"%s>Overview</a>\n",
-		overview, template.HTMLEscapeString(rootPrefix+hubHref), overviewMark)
+	fmt.Fprintf(&out, "        <a class=\"%s\" href=\"%s\"%s>%s</a>\n",
+		overview, template.HTMLEscapeString(rootPrefix+lang.hubHref()), overviewMark, template.HTMLEscapeString(lang.ui.Overview))
 
 	out.WriteString("        <ul class=\"sidenav-sections\">\n")
 	for _, section := range sections {
@@ -598,7 +717,7 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 		}
 		fmt.Fprintf(&out, "          <li class=\"%s\">\n", class)
 		fmt.Fprintf(&out, "            <details class=\"sidenav-group\"%s>\n", open)
-		fmt.Fprintf(&out, "              <summary class=\"sidenav-heading\">%s</summary>\n", template.HTMLEscapeString(section.Title))
+		fmt.Fprintf(&out, "              <summary class=\"sidenav-heading\">%s</summary>\n", template.HTMLEscapeString(lang.section(section.Slug).Title))
 		out.WriteString("              <ul>\n")
 		for _, page := range pages {
 			if page.Section != section.Slug {
@@ -610,6 +729,13 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 				continue
 			}
 			output := filepath.ToSlash(page.output())
+			englishOnly := ""
+			if t := r.translations.lookup(lang, filepath.ToSlash(page.Source)); t != nil {
+				output = t.output()
+				title = template.HTMLEscapeString(t.navTitle)
+			} else if !lang.isEnglish() {
+				englishOnly = fmt.Sprintf("<span class=\"sidenav-lang\" lang=\"en\">%s</span>", template.HTMLEscapeString(lang.ui.EnglishOnly))
+			}
 			href, err := filepath.Rel(currentDir, output)
 			if err != nil {
 				return "", err
@@ -618,8 +744,8 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 			if output == current {
 				mark = " class=\"is-current\" aria-current=\"page\""
 			}
-			fmt.Fprintf(&out, "                <li><a href=\"%s\"%s>%s</a></li>\n",
-				template.HTMLEscapeString(filepath.ToSlash(href)), mark, title)
+			fmt.Fprintf(&out, "                <li><a href=\"%s\"%s>%s%s</a></li>\n",
+				template.HTMLEscapeString(filepath.ToSlash(href)), mark, title, englishOnly)
 		}
 		out.WriteString("              </ul>\n")
 		out.WriteString("            </details>\n")
@@ -631,7 +757,7 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 	// the index, which opens nothing), and a legend with no referent is noise.
 	for _, page := range pages {
 		if page.Section == here && page.planned() {
-			out.WriteString("        <p class=\"sidenav-note\">Dimmed entries are not written yet.</p>\n")
+			fmt.Fprintf(&out, "        <p class=\"sidenav-note\">%s</p>\n", template.HTMLEscapeString(lang.ui.DimmedNote))
 			break
 		}
 	}
@@ -640,24 +766,46 @@ func sideNavHTML(rootPrefix, current string) (string, error) {
 	return out.String(), nil
 }
 
+// render builds the English page.
 func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
-	sourcePath := filepath.Join(r.root, filepath.FromSlash(page.Source))
-	source, err := os.ReadFile(sourcePath)
+	source, err := r.read(filepath.ToSlash(page.Source))
 	if err != nil {
 		return nil, err
 	}
+	return r.renderDoc(english, page, nil, source)
+}
+
+// renderTranslation builds one translated page from its Markdown body.
+func (r *siteRenderer) renderTranslation(t *translation) ([]byte, error) {
+	return r.renderDoc(t.lang, t.page, t, t.body)
+}
+
+// renderDoc renders a page's Markdown in one language. page is always the
+// English manifest entry; t is nil for the English page itself. Relative links
+// in the Markdown are written against the English source in both cases, so a
+// translator copies them verbatim.
+func (r *siteRenderer) renderDoc(lang *langSpec, page pageSpec, t *translation, source []byte) ([]byte, error) {
+	englishSource := filepath.ToSlash(page.Source)
+	output := filepath.ToSlash(page.output())
+	description := page.Description
+	label := englishSource
+	if t != nil {
+		output = t.output()
+		description = t.description
+		label = t.source
+	}
 
 	doc := r.markdown.Parser().Parse(text.NewReader(source))
-	headings, err := r.transform(doc, source, page)
+	headings, err := r.transform(doc, source, page, lang, output)
 	if err != nil {
 		return nil, err
 	}
 	if len(headings) == 0 || headings[0].Level != 1 || headings[0].Text == "" {
-		return nil, fmt.Errorf("%s must start with one H1 title", page.Source)
+		return nil, fmt.Errorf("%s must start with one H1 title", label)
 	}
 	for _, heading := range headings[1:] {
 		if heading.Level == 1 {
-			return nil, fmt.Errorf("%s has more than one H1", page.Source)
+			return nil, fmt.Errorf("%s has more than one H1", label)
 		}
 	}
 
@@ -667,19 +815,27 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 	}
 	bodyHTML := wrapTables(body.String())
 	if page.Layout == "architecture" {
-		bodyHTML = decorateArchitecture(bodyHTML, headings)
+		bodyHTML = decorateArchitecture(bodyHTML, headings, lang.ui.OnThisPage)
+	}
+	versions := r.pageVersions(englishSource)
+	if t != nil {
+		note, err := translationNoteHTML(t, output, versions[english.Tag])
+		if err != nil {
+			return nil, err
+		}
+		bodyHTML = insertAfterH1(bodyHTML, note)
 	}
 
-	output := filepath.ToSlash(page.output())
-	canonical := publicBaseURL + strings.TrimPrefix(output, "docs/")
+	canonical := siteURL(output)
 	rootPrefix := relativeRootPrefix(output)
 
-	jsonLD, err := json.Marshal(map[string]any{
+	ld := map[string]any{
 		"@context":    "https://schema.org",
 		"@type":       "TechArticle",
 		"headline":    headings[0].Text,
-		"description": page.Description,
+		"description": description,
 		"url":         canonical,
+		"inLanguage":  lang.Tag,
 		"author": map[string]string{
 			"@type": "Person",
 			"name":  "Oliver Sauer",
@@ -690,7 +846,14 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 			"name":  "Canary",
 			"url":   publicBaseURL,
 		},
-	})
+	}
+	if t != nil {
+		ld["translationOfWork"] = map[string]string{
+			"@type": "TechArticle",
+			"url":   siteURL(versions[english.Tag]),
+		}
+	}
+	jsonLD, err := json.Marshal(ld)
 	if err != nil {
 		return nil, err
 	}
@@ -699,21 +862,29 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 	if layout == "" {
 		layout = "standard"
 	}
-	sideNav, err := sideNavHTML(rootPrefix, output)
+	sideNav, err := r.sideNavHTML(lang, rootPrefix, output)
+	if err != nil {
+		return nil, err
+	}
+	nav, err := navHTML(lang, rootPrefix, output, versions)
 	if err != nil {
 		return nil, err
 	}
 	data := templateData{
+		Lang:            lang.Tag,
 		Title:           headings[0].Text,
-		Description:     page.Description,
+		Description:     description,
 		Canonical:       canonical,
 		RootPrefix:      rootPrefix,
 		Layout:          layout,
 		GeneratorNotice: generatorNotice,
-		Nav:             template.HTML(navHTML(rootPrefix)),
+		Alternates:      template.HTML(alternatesHTML(versions)),
+		Nav:             template.HTML(nav),
 		SideNav:         template.HTML(sideNav),
 		Body:            template.HTML(bodyHTML), // Goldmark escapes source HTML by default.
 		JSONLD:          template.JS(jsonLD),     // json.Marshal produces valid script data.
+		HubHref:         lang.hubHref(),
+		UI:              lang.ui,
 	}
 	if page.SocialImage != "" {
 		data.SocialHead = template.HTML(fmt.Sprintf(
@@ -729,24 +900,59 @@ func (r *siteRenderer) render(page pageSpec) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+// translationNoteHTML is the line under a translated page's title: which
+// version is authoritative, and, when the English source has moved on since
+// the translation was made, that the page may be behind. The link carries
+// data-lang so lang.js records the reader's choice instead of sending them
+// back.
+func translationNoteHTML(t *translation, output, englishOutput string) (string, error) {
+	href, err := filepath.Rel(filepath.Dir(output), englishOutput)
+	if err != nil {
+		return "", err
+	}
+	class, text := "translation-note", t.lang.ui.Translated
+	if t.stale {
+		class, text = "translation-note is-stale", t.lang.ui.Stale
+	}
+	return fmt.Sprintf("<p class=\"%s\">%s<a href=\"%s\" hreflang=\"en\" data-lang=\"en\">%s</a></p>\n",
+		class, template.HTMLEscapeString(text), template.HTMLEscapeString(filepath.ToSlash(href)), template.HTMLEscapeString(t.lang.ui.ReadEnglish)), nil
+}
+
+func insertAfterH1(body, note string) string {
+	end := strings.Index(body, "</h1>")
+	if end < 0 {
+		return note + body
+	}
+	end += len("</h1>\n")
+	if end > len(body) {
+		end = len(body)
+	}
+	return body[:end] + note + body[end:]
+}
+
 const generatorNotice = template.HTML("<!-- Generated from Markdown by scripts/docgen/docs-html. DO NOT EDIT. -->")
 
 const hubDescription = "The Canary handbook: install and first run, the daily desk routine, how to read each measurement, generated command and tool references, and the system design underneath."
 
-// renderHub builds the handbook index from the manifest. Planned pages appear
-// while only finished pages are reachable and indexable.
-func (r *siteRenderer) renderHub() ([]byte, error) {
-	rootPrefix := relativeRootPrefix(hubOutput)
-	hubDir := filepath.Dir(filepath.ToSlash(hubOutput))
+// renderHub builds the handbook index of one language from the manifest.
+// Planned pages appear while only finished pages are reachable and indexable.
+// A translated hub lists every page: translated ones under their translated
+// title, the rest under the English title with an EN mark, linking to the
+// English page.
+func (r *siteRenderer) renderHub(lang *langSpec) ([]byte, error) {
+	output := lang.hubOutput()
+	rootPrefix := relativeRootPrefix(output)
+	hubDir := filepath.Dir(filepath.ToSlash(output))
 
 	var body strings.Builder
-	body.WriteString("<h1>Documentation</h1>\n")
-	body.WriteString("<p class=\"hub-lead\">How to install, operate, and understand Canary against your own Interactive Brokers account. Start at the top if Canary is new to you; later sections move closer to the code.</p>\n")
+	fmt.Fprintf(&body, "<h1>%s</h1>\n", template.HTMLEscapeString(lang.ui.Documentation))
+	fmt.Fprintf(&body, "<p class=\"hub-lead\">%s</p>\n", template.HTMLEscapeString(lang.ui.HubLead))
 
 	for _, section := range sections {
+		localised := lang.section(section.Slug)
 		fmt.Fprintf(&body, "<section class=\"hub-section\" id=\"%s\">\n", section.Slug)
-		fmt.Fprintf(&body, "<h2>%s</h2>\n", template.HTMLEscapeString(section.Title))
-		fmt.Fprintf(&body, "<p class=\"hub-blurb\">%s</p>\n", template.HTMLEscapeString(section.Blurb))
+		fmt.Fprintf(&body, "<h2>%s</h2>\n", template.HTMLEscapeString(localised.Title))
+		fmt.Fprintf(&body, "<p class=\"hub-blurb\">%s</p>\n", template.HTMLEscapeString(localised.Blurb))
 		body.WriteString("<ul class=\"hub-list\">\n")
 		for _, page := range pages {
 			if page.Section != section.Slug {
@@ -755,26 +961,36 @@ func (r *siteRenderer) renderHub() ([]byte, error) {
 			title := template.HTMLEscapeString(page.NavTitle)
 			summary := template.HTMLEscapeString(page.Summary)
 			if page.planned() {
-				fmt.Fprintf(&body, "<li class=\"hub-item is-planned\"><span class=\"hub-title\">%s</span><span class=\"hub-summary\">%s</span><span class=\"hub-flag\">Not written yet</span></li>\n", title, summary)
+				fmt.Fprintf(&body, "<li class=\"hub-item is-planned\"><span class=\"hub-title\">%s</span><span class=\"hub-summary\">%s</span><span class=\"hub-flag\">%s</span></li>\n", title, summary, template.HTMLEscapeString(lang.ui.NotWrittenYet))
 				continue
 			}
-			href, err := filepath.Rel(hubDir, filepath.ToSlash(page.output()))
+			target := filepath.ToSlash(page.output())
+			englishOnly := ""
+			if t := r.translations.lookup(lang, filepath.ToSlash(page.Source)); t != nil {
+				target = t.output()
+				title = template.HTMLEscapeString(t.navTitle)
+				summary = template.HTMLEscapeString(t.summary)
+			} else if !lang.isEnglish() {
+				englishOnly = fmt.Sprintf("<span class=\"hub-lang\" lang=\"en\">%s</span>", template.HTMLEscapeString(lang.ui.EnglishOnly))
+			}
+			href, err := filepath.Rel(hubDir, target)
 			if err != nil {
 				return nil, err
 			}
-			fmt.Fprintf(&body, "<li class=\"hub-item\"><a href=\"%s\"><span class=\"hub-title\">%s</span><span class=\"hub-summary\">%s</span></a></li>\n",
-				template.HTMLEscapeString(filepath.ToSlash(href)), title, summary)
+			fmt.Fprintf(&body, "<li class=\"hub-item\"><a href=\"%s\"><span class=\"hub-title\">%s%s</span><span class=\"hub-summary\">%s</span></a></li>\n",
+				template.HTMLEscapeString(filepath.ToSlash(href)), title, englishOnly, summary)
 		}
 		body.WriteString("</ul>\n</section>\n")
 	}
 
-	canonical := publicBaseURL + hubHref
+	canonical := siteURL(output)
 	jsonLD, err := json.Marshal(map[string]any{
 		"@context":    "https://schema.org",
 		"@type":       "CollectionPage",
 		"name":        "Canary documentation",
-		"description": hubDescription,
+		"description": lang.ui.HubDescription,
 		"url":         canonical,
+		"inLanguage":  lang.Tag,
 		"isPartOf": map[string]string{
 			"@type": "SoftwareApplication",
 			"name":  "Canary",
@@ -785,23 +1001,32 @@ func (r *siteRenderer) renderHub() ([]byte, error) {
 		return nil, err
 	}
 
-	sideNav, err := sideNavHTML(rootPrefix, hubOutput)
+	sideNav, err := r.sideNavHTML(lang, rootPrefix, output)
+	if err != nil {
+		return nil, err
+	}
+	versions := r.pageVersions("")
+	nav, err := navHTML(lang, rootPrefix, output, versions)
 	if err != nil {
 		return nil, err
 	}
 
 	var out bytes.Buffer
 	err = documentTemplate.Execute(&out, templateData{
-		Title:           "Documentation",
-		Description:     hubDescription,
+		Lang:            lang.Tag,
+		Title:           lang.ui.Documentation,
+		Description:     lang.ui.HubDescription,
 		Canonical:       canonical,
 		RootPrefix:      rootPrefix,
 		Layout:          "hub",
 		GeneratorNotice: generatorNotice,
-		Nav:             template.HTML(navHTML(rootPrefix)),
+		Alternates:      template.HTML(alternatesHTML(versions)),
+		Nav:             template.HTML(nav),
 		SideNav:         template.HTML(sideNav),
 		Body:            template.HTML(body.String()),
 		JSONLD:          template.JS(jsonLD),
+		HubHref:         lang.hubHref(),
+		UI:              lang.ui,
 	})
 	if err != nil {
 		return nil, err
@@ -831,7 +1056,10 @@ func renderRedirect(from string, page pageSpec) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func (r *siteRenderer) transform(doc ast.Node, source []byte, page pageSpec) ([]headingInfo, error) {
+// transform collects the headings and rewrites links. lang and output say
+// which language and output path the page renders to, so a translated page's
+// links reach translated targets where they exist.
+func (r *siteRenderer) transform(doc ast.Node, source []byte, page pageSpec, lang *langSpec, output string) ([]headingInfo, error) {
 	var headings []headingInfo
 	err := ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
@@ -849,9 +1077,9 @@ func (r *siteRenderer) transform(doc ast.Node, source []byte, page pageSpec) ([]
 			}
 			headings = append(headings, headingInfo{Level: n.Level, ID: string(id), Text: headingText(n, source)})
 		case *ast.Link:
-			n.Destination = r.rewriteDestination(page, n.Destination)
+			n.Destination = r.rewriteDestination(page, lang, output, n.Destination)
 		case *ast.Image:
-			n.Destination = r.rewriteDestination(page, n.Destination)
+			n.Destination = r.rewriteDestination(page, lang, output, n.Destination)
 		}
 		return ast.WalkContinue, nil
 	})
@@ -871,7 +1099,11 @@ func headingText(heading *ast.Heading, source []byte) string {
 }
 
 // rewriteDestination maps a relative Markdown link onto the published site.
-func (r *siteRenderer) rewriteDestination(page pageSpec, destination []byte) []byte {
+// Links are written against the English source's directory in every language;
+// output is where the page being rendered lands, which for a translation is a
+// different directory, so each link is re-based onto it. A translated page
+// prefers the translated version of a linked page when one exists.
+func (r *siteRenderer) rewriteDestination(page pageSpec, lang *langSpec, output string, destination []byte) []byte {
 	raw := string(destination)
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.Path == "" || strings.HasPrefix(raw, "#") {
@@ -879,16 +1111,26 @@ func (r *siteRenderer) rewriteDestination(page pageSpec, destination []byte) []b
 	}
 
 	sourceDir := filepath.Dir(filepath.ToSlash(page.Source))
+	outputDir := filepath.Dir(filepath.ToSlash(output))
 	resolved := filepath.ToSlash(filepath.Clean(filepath.Join(sourceDir, filepath.FromSlash(parsed.Path))))
 
-	if output, ok := r.generated[resolved]; ok {
-		if rel, err := filepath.Rel(sourceDir, output); err == nil {
+	if target, ok := r.generated[resolved]; ok {
+		if t := r.translations.lookup(lang, resolved); t != nil {
+			target = t.output()
+		}
+		if rel, err := filepath.Rel(outputDir, target); err == nil {
 			parsed.Path = filepath.ToSlash(rel)
 			return []byte(parsed.String())
 		}
 	}
 	if strings.HasPrefix(resolved, "docs/") && !strings.HasSuffix(resolved, ".md") && r.tracked[resolved] {
-		return destination
+		if outputDir == sourceDir {
+			return destination
+		}
+		if rel, err := filepath.Rel(outputDir, resolved); err == nil {
+			parsed.Path = filepath.ToSlash(rel)
+			return []byte(parsed.String())
+		}
 	}
 	if r.tracked[resolved] {
 		github := &url.URL{
@@ -911,9 +1153,10 @@ func wrapTables(body string) string {
 	return body
 }
 
-func decorateArchitecture(body string, headings []headingInfo) string {
+func decorateArchitecture(body string, headings []headingInfo, onThisPage string) string {
 	var toc strings.Builder
-	toc.WriteString("<nav class=\"toc\" aria-label=\"On this page\">\n<span class=\"toc-label\">On this page</span>\n<ul>\n")
+	label := template.HTMLEscapeString(onThisPage)
+	fmt.Fprintf(&toc, "<nav class=\"toc\" aria-label=\"%s\">\n<span class=\"toc-label\">%s</span>\n<ul>\n", label, label)
 	section := 0
 	for _, heading := range headings {
 		if heading.Level != 2 {
@@ -1095,16 +1338,49 @@ func (r *siteRenderer) artifacts() ([]artifact, error) {
 			}
 			out = append(out, artifact{filepath.ToSlash(legacy), stub})
 		}
+		for _, lang := range languages {
+			t := r.translations.lookup(lang, filepath.ToSlash(page.Source))
+			if t == nil {
+				continue
+			}
+			data, err := r.renderTranslation(t)
+			if err != nil {
+				return nil, fmt.Errorf("render %s: %w", t.source, err)
+			}
+			out = append(out, artifact{t.output(), data})
+		}
 	}
-	hub, err := r.renderHub()
-	if err != nil {
-		return nil, fmt.Errorf("render hub: %w", err)
+	for _, lang := range languages {
+		hub, err := r.renderHub(lang)
+		if err != nil {
+			return nil, fmt.Errorf("render %s hub: %w", lang.Tag, err)
+		}
+		out = append(out, artifact{lang.hubOutput(), hub})
 	}
 	if len(r.unresolved) > 0 {
 		sort.Strings(r.unresolved)
 		return nil, fmt.Errorf("relative links resolve to nothing tracked:\n  %s", strings.Join(r.unresolved, "\n  "))
 	}
-	return append(out, artifact{hubOutput, hub}), nil
+	return out, nil
+}
+
+// translationsReport lists every translation and whether it is behind its
+// English source, for the docs-translations gate.
+func translationsReport(root string) (string, int, error) {
+	tracked, err := trackedFiles(root)
+	if err != nil {
+		return "", 0, err
+	}
+	if err := validateManifest(tracked); err != nil {
+		return "", 0, err
+	}
+	renderer, err := newSiteRenderer(root, tracked)
+	if err != nil {
+		return "", 0, err
+	}
+	var out strings.Builder
+	behind := renderer.translations.report(&out)
+	return out.String(), behind, nil
 }
 
 func run(root, outputRoot string) (int, error) {
@@ -1115,7 +1391,10 @@ func run(root, outputRoot string) (int, error) {
 	if err := validateManifest(tracked); err != nil {
 		return 0, err
 	}
-	renderer := newSiteRenderer(root, tracked)
+	renderer, err := newSiteRenderer(root, tracked)
+	if err != nil {
+		return 0, err
+	}
 	items, err := renderer.artifacts()
 	if err != nil {
 		return 0, err
@@ -1135,14 +1414,23 @@ func run(root, outputRoot string) (int, error) {
 
 func main() {
 	root := flag.String("root", ".", "repository root")
-	outputRoot := flag.String("output-root", "", "site build directory (required)")
+	outputRoot := flag.String("output-root", "", "site build directory (required unless -translations)")
+	translations := flag.Bool("translations", false, "list every translation and whether it is behind its English source, then exit")
 	flag.Parse()
-	if *outputRoot == "" {
-		fatal(errors.New("-output-root is required"))
-	}
 	absRoot, err := filepath.Abs(*root)
 	if err != nil {
 		fatal(err)
+	}
+	if *translations {
+		report, _, err := translationsReport(absRoot)
+		if err != nil {
+			fatal(err)
+		}
+		fmt.Print(report)
+		return
+	}
+	if *outputRoot == "" {
+		fatal(errors.New("-output-root is required"))
 	}
 	absOutputRoot, err := filepath.Abs(*outputRoot)
 	if err != nil {

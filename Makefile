@@ -92,7 +92,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help ci-gate-scope-check reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-smoke-read-only release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members refresh-fund-sectors hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build pages-coverage account-data-check hook-behavior-check agent-config-check
+.PHONY: help ci-gate-scope-check reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-smoke-read-only release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members refresh-fund-sectors hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check docs-translations-check pages-build pages-coverage account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -648,10 +648,20 @@ docs-check: ## Verify checked-in docs/reference/*.md match what the generators e
 # the Git tree. Structural and link checks inspect the exact artifact deployed.
 docs-html-check: ## Build and verify the complete Pages artifact
 	@go -C scripts/docgen/docs-html test ./...
+	@$(MAKE) docs-translations-check
 	@node --test scripts/copy-lint_test.mjs
 	@node scripts/render-architecture.mjs --check
 	@$(MAKE) pages-build
 	@node scripts/copy-lint.mjs --claims-only dist/pages/index.html --skip /reference/ dist/pages
+
+# English is the master of every documentation page. A translation records
+# the git blob of the English source it was made from; this lists each one and
+# whether the English has moved on since. A translation that is behind renders
+# with a notice pointing readers at the English page, so the list informs and
+# does not block: a typo fix in English must not wait for a native reader.
+# Malformed provenance (a missing source, a bad revision) fails the build.
+docs-translations-check: ## List documentation translations and which are behind their English source
+	@go -C scripts/docgen/docs-html run . -root ../../.. -translations
 
 pages-build: ## Build the deployable Pages artifact from tracked sources
 	@rm -rf dist/pages

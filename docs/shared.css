@@ -40,6 +40,18 @@ a { color: var(--green-dark); text-underline-offset: 0.18em; }
 .brand img { width: 34px; height: 34px; border-radius: 8px; box-shadow: 0 8px 18px rgba(16, 24, 39, 0.12); }
 .nav-links { display: flex; align-items: center; gap: 22px; color: var(--muted); font-size: 15px; font-weight: 650; }
 .nav-links a { color: var(--muted); text-decoration: none; }
+/* The language selector sits after the site links. Each language is named in
+   itself, so a reader who cannot read the page can still find their own. */
+.lang-links { display: flex; align-items: center; gap: 4px; margin-left: auto; font-size: 13px; font-weight: 650; }
+.lang-links a { padding: 3px 9px; border: 1px solid transparent; border-radius: 999px; color: var(--muted); text-decoration: none; }
+.lang-links a[aria-current="true"] { border-color: var(--line); color: var(--ink); background: var(--paper-strong); }
+.lang-links a:hover { color: var(--green-dark); }
+.sidenav-lang, .hub-lang {
+  margin-left: 7px; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px;
+  color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: .04em; vertical-align: 2px;
+}
+.translation-note { margin: -6px 0 24px; color: var(--muted); font-size: 14.5px; }
+.translation-note.is-stale { padding: 10px 14px; border-left: 3px solid var(--green); background: var(--paper-strong); color: var(--ink); }
 .doc {
   min-width: 0;
   padding: 28px 0 70px;
@@ -126,6 +138,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 18px; }
 @media (max-width: 760px) {
   .nav { align-items: flex-start; flex-direction: column; }
   .nav-links { flex-wrap: wrap; gap: 12px; }
+  .lang-links { margin-left: 0; }
   .wrap { width: min(100% - 28px, 1040px); }
 }
   
