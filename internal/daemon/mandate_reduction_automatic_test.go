@@ -438,3 +438,62 @@ func TestMandateReductionLegacyResizedRecordPausesTheClock(t *testing.T) {
 		t.Fatalf("the row back after a legacy re-size: due %s, want %s", rec.SubmitAt, first.SubmitAt.Add(5*time.Minute))
 	}
 }
+
+// The decided send order (nearest expiry first, owner 2026-11-03 11:21 CET)
+// holds across veto clocks: a row whose own clock has run waits for a
+// better-ranked row still inside its window, so a newer row cannot beat an
+// older, nearer one (2026-11-04: a December line went an hour ahead of November
+// lines). A better row that is refused or far off never jams the batch.
+func TestMandateReductionLaterRankWaitsForAnEarlierRankOnItsClock(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		setFirst func(rec *automaticSubmissionRecord, now time.Time)
+		waits    bool
+	}{
+		"inside its window":      {func(rec *automaticSubmissionRecord, now time.Time) { rec.SubmitAt = now.Add(40 * time.Minute) }, true},
+		"beyond one window":      {func(rec *automaticSubmissionRecord, now time.Time) { rec.SubmitAt = now.Add(90 * time.Minute) }, false},
+		"refused, retrying soon": {func(rec *automaticSubmissionRecord, now time.Time) { rec.ResubmitAt = now.Add(40 * time.Minute) }, false},
+		"held by a hand order":   {func(rec *automaticSubmissionRecord, now time.Time) { rec.HeldAt = now }, false},
+	} {
+		rig := newAutomaticTestRig(t, automaticMandateAuthority)
+		var order []string
+		revalidate := rig.engine.revalidateForTest
+		rig.engine.revalidateForTest = func(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error) {
+			order = append(order, key)
+			return revalidate(ctx, key, revision)
+		}
+		first := rig.mandateProposal(automaticTestStockRow(), 40, 1, 2)
+		second := rig.mandateProposal(automaticTestStockRowB(), 40, 2, 2)
+		revision := rig.install(first, second)
+		rig.cycle()
+		rig.notice(rig.record(first.Key, revision))
+		rig.notice(rig.record(second.Key, revision))
+		start := rig.now
+		if err := rig.engine.automatic.update(t.Context(), func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
+			rec := records[automaticRecordKey(first.Key, revision)]
+			tc.setFirst(rec, start)
+			return []automaticSubmissionEvent{{At: start, Type: automaticEventNoticed, Key: rec.Key, Revision: rec.Revision}}
+		}); err != nil {
+			t.Fatal(err)
+		}
+		rig.advance(31 * time.Minute)
+		rig.cycle()
+		if tc.waits {
+			if len(order) != 0 {
+				t.Fatalf("%s: the later rank went ahead: %v", name, order)
+			}
+			if rec := rig.record(second.Key, revision); rec.State != rpc.TradeProposalAutomaticPending {
+				t.Fatalf("%s: the waiting row's record changed: %+v", name, rec)
+			}
+			rig.advance(10 * time.Minute)
+			rig.cycle()
+			if want := []string{first.Key, second.Key}; !slices.Equal(order, want) {
+				t.Fatalf("%s: dispatch order %v, want %v", name, order, want)
+			}
+			continue
+		}
+		if !slices.Contains(order, second.Key) {
+			t.Fatalf("%s: the later rank was jammed: %v", name, order)
+		}
+	}
+}

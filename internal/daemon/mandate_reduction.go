@@ -1658,6 +1658,35 @@ func prioritizeMandateRecords(records []automaticSubmissionRecord, proposals []r
 	}
 }
 
+// mandateWaitsForBetterRank holds a due mandate record behind a better-ranked
+// row of its batch still inside its veto window, so the decided send order
+// (owner, 2026-11-03 11:21 CET) binds across clocks and not only within one
+// dispatch pass. It delays a row by at most one window. A better row that was
+// refused, is held behind a hand order or stands more than a window away does
+// not hold it: nothing proves that row goes first, and the batch must not jam.
+func mandateWaitsForBetterRank(rec automaticSubmissionRecord, records []automaticSubmissionRecord, proposals []rpc.TradeProposal, now time.Time, window time.Duration) bool {
+	if rec.Bucket != preAuthorisedBucketMandateReduction {
+		return false
+	}
+	ranks := map[string]int{}
+	for _, p := range proposals {
+		if p.Bucket == rpc.TradeProposalBucketMandateReduction && p.Mandate != nil && p.Mandate.Rank > 0 {
+			ranks[automaticRecordKey(p.Key, p.Revision)] = p.Mandate.Rank
+		}
+	}
+	rank := ranks[automaticRecordKey(rec.Key, rec.Revision)]
+	if rank == 0 {
+		return false
+	}
+	return slices.ContainsFunc(records, func(better automaticSubmissionRecord) bool {
+		betterRank := ranks[automaticRecordKey(better.Key, better.Revision)]
+		return better.Bucket == preAuthorisedBucketMandateReduction && betterRank > 0 && betterRank < rank &&
+			better.AccountID == rec.AccountID && better.AccountMode == rec.AccountMode &&
+			better.pending() && better.HeldAt.IsZero() && !better.ResubmitAt.After(now) &&
+			better.SubmitAt.After(now) && !better.SubmitAt.After(now.Add(window))
+	})
+}
+
 // mandateReductionView is the forced reduction in brief for the mandate
 // surface: the served batch, how many rows the daemon will place and until
 // when the veto runs.

@@ -952,8 +952,9 @@ func (e *proposalEngine) automaticPendingNotices(scope brokerStateScope) []autom
 // after the record was created, or modified since, is still working at the
 // broker; the record fires as soon as that order fills or is cancelled, on
 // its original window. A held mandate row (no verdict confirms its sizing)
-// holds its record the same way. The mandate batch goes in rank order; a
-// refusal of one row never holds the others.
+// holds its record the same way. The mandate batch goes in rank order, a row
+// waiting at most one window for a better-ranked row on its clock; a refusal
+// of one row never holds the others.
 func (e *proposalEngine) submitDueAutomatic(ctx context.Context) {
 	now := e.clock()
 	frozen := e.server != nil && e.server.tradingFrozen()
@@ -967,12 +968,21 @@ func (e *proposalEngine) submitDueAutomatic(ctx context.Context) {
 	ordered := e.Snapshot(false).Proposals
 	prioritizeCashSweepRecords(records, ordered)
 	prioritizeMandateRecords(records, ordered)
+	window := time.Duration(0)
+	if policy, ok := e.automaticPolicy(); ok {
+		window = policy.Authority.vetoWindow()
+	}
 	for _, rec := range records {
 		if !rec.due(now, frozen) {
 			continue
 		}
 		if ctx.Err() != nil {
 			return
+		}
+		// Its record keeps waiting, on its own clock, and goes in the pass
+		// where the better row goes.
+		if mandateWaitsForBetterRank(rec, records, ordered, now, window) {
+			continue
 		}
 		// A record that fell due while its row's session is closed, or
 		// inside the opening window, waits for the open plus the offset.
