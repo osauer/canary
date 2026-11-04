@@ -66,7 +66,9 @@ func renderTradingStatusText(env *Env, st *rpc.TradingStatus) {
 	statusRow(env, out, "Mode", formatTradingMode(env, *st))
 	statusRow(env, out, "Endpoint", nonEmpty(st.Endpoint, "auto-detect"))
 	statusRow(env, out, "Account", nonEmpty(st.Account, "auto-detect")+" ("+nonEmpty(st.AccountOrigin, "auto")+")")
-	statusRow(env, out, "Client ID", fmt.Sprintf("%d (%s)", st.ClientID, nonEmpty(st.ClientIDOrigin, "default")))
+	if st.Broker == "" {
+		statusRow(env, out, "Client ID", fmt.Sprintf("%d (%s)", st.ClientID, nonEmpty(st.ClientIDOrigin, "default")))
+	}
 	statusRow(env, out, "MCP trading", nonEmpty(st.MCPTrading, rpc.TradingMCPDisabled))
 	statusRow(env, out, "Capabilities", formatTradingCapabilities(*st))
 	statusRow(env, out, "Freeze", formatTradingFreeze(env, *st))
@@ -128,7 +130,16 @@ func formatTradingFreeze(env *Env, st rpc.TradingStatus) string {
 }
 
 func formatTradingCapabilities(st rpc.TradingStatus) string {
-	return fmt.Sprintf("preview=%v write=%v", st.CanPreview, st.CanWrite)
+	preview := fmt.Sprintf("%v", st.CanPreview)
+	if caps := st.BrokerCapabilities; caps != nil {
+		switch caps.Preview {
+		case rpc.BrokerPreviewWhatIf:
+			preview += " (what-if)"
+		case rpc.BrokerPreviewMaxQuantity:
+			preview += " (maximum quantity, no what-if)"
+		}
+	}
+	return fmt.Sprintf("preview=%s write=%v", preview, st.CanWrite)
 }
 
 func tradingStatusVerdict(st rpc.TradingStatus) statusConcern {

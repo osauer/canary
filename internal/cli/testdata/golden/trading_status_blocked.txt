@@ -7,7 +7,7 @@ Endpoint       127.0.0.1:4001
 Account        DU0000000 (config)
 Client ID      7 (config)
 MCP trading    disabled
-Capabilities   preview=true write=false
+Capabilities   preview=true (what-if) write=false
 Freeze         on (generation 4)
 Open orders    0
 Live override  blocked
@@ -30,7 +30,7 @@ Canary Trading  \x1b[33m\x1b[1mBLOCKED\x1b[0m\x1b[0m
 \x1b[2mAccount       \x1b[0m DU0000000 (config)
 \x1b[2mClient ID     \x1b[0m 7 (config)
 \x1b[2mMCP trading   \x1b[0m disabled
-\x1b[2mCapabilities  \x1b[0m preview=true write=false
+\x1b[2mCapabilities  \x1b[0m preview=true (what-if) write=false
 \x1b[2mFreeze        \x1b[0m \x1b[33mon (generation 4)\x1b[0m
 \x1b[2mOpen orders   \x1b[0m 0
 \x1b[2mLive override \x1b[0m blocked

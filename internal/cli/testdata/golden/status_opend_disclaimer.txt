@@ -1,0 +1,52 @@
+# canary status · COLUMNS=80 · colour off
+
+Canary  STARTING
+Reason         Broker API handshake is incomplete
+
+Session        1000001 (PAPER) via 127.0.0.1:11111, conn 5000
+Market data    unavailable until connected
+Daemon         v0.0.0-golden, up 2h0m0s
+OpenD          waiting for the disclaimer in OpenD
+Protocol       serverVer 1010 · Canary minimum 1010
+Not on OpenD   Edge, reconciliation, statement reporting, borrow availability,
+               earnings (WSH), breadth, cash sweep
+Last attempt   OpenD is not ready: its program status is UnAgreeDisclaimer
+Subsystems     all 3 ready
+Trading        paper ready
+Strategies     core live · row BUY 908 SYNX for 2026-09-04 · generated, opening
+               window
+               trend-fund (sleeve trend) live · no row: the 5-session window
+               after 2026-08-31 ended with 2026-09-07; what is left waits for
+               the next decision
+SPX members    fixture:2026-09-01, 500 names
+Data health    12 of 12 sources current
+
+  Daemon log: /synthetic/state/ibkr/ibkr-daemon.log
+Colors         Amber = row needs attention; headline = overall Canary status.
+
+# canary status · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary  \x1b[2m\x1b[1mSTARTING\x1b[0m\x1b[0m
+\x1b[2mReason        \x1b[0m \x1b[2mBroker API handshake is incomplete\x1b[0m
+
+\x1b[2mSession       \x1b[0m 1000001 (\x1b[1mPAPER\x1b[0m) via 127.0.0.1:11111, conn 5000
+\x1b[2mMarket data   \x1b[0m \x1b[2munavailable until connected\x1b[0m
+\x1b[2mDaemon        \x1b[0m v0.0.0-golden, up 2h0m0s
+\x1b[2mOpenD         \x1b[0m \x1b[33mwaiting for the disclaimer in OpenD\x1b[0m
+\x1b[2mProtocol      \x1b[0m serverVer 1010 · Canary minimum 1010
+\x1b[2mNot on OpenD  \x1b[0m Edge, reconciliation, statement reporting, borrow availability,
+               earnings (WSH), breadth, cash sweep
+\x1b[2mLast attempt  \x1b[0m OpenD is not ready: its program status is UnAgreeDisclaimer
+\x1b[2mSubsystems    \x1b[0m \x1b[32mall 3 ready\x1b[0m
+\x1b[2mTrading       \x1b[0m \x1b[32mpaper ready\x1b[0m
+\x1b[2mStrategies    \x1b[0m core live · row BUY 908 SYNX for 2026-09-04 · generated, opening
+               window
+\x1b[2m              \x1b[0m trend-fund (sleeve trend) live · no row: the 5-session window
+               after 2026-08-31 ended with 2026-09-07; what is left waits for
+               the next decision
+\x1b[2mSPX members   \x1b[0m fixture:2026-09-01, 500 names
+\x1b[2mData health   \x1b[0m 12 of 12 sources current
+
+\x1b[2m  Daemon log: /synthetic/state/ibkr/ibkr-daemon.log\x1b[0m
+\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; headline = overall Canary status.\x1b[0m
+

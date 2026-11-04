@@ -3082,6 +3082,10 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		writeError(enc, req.ID, rpc.CodeUnknownMethod, "unknown method: "+req.Method)
 		return false
 	}
+	if s.opend != nil && ibkrOnlyMethods[req.Method] {
+		writeError(enc, req.ID, rpc.CodeNotApplicable, "IBKR only: this daemon serves OpenD")
+		return false
+	}
 	var cancel context.CancelFunc
 	ctx, cancel = requestCtx(ctx, req.Method)
 	defer cancel()

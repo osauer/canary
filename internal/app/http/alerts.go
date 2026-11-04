@@ -113,7 +113,7 @@ type AlertDeliveryHealthDTO struct {
 
 func (h *handler) alertDTO() AlertDTO {
 	now := time.Now().UTC()
-	dto := newAlertDTO(h.deps.Store.AlertDelivery(now), now)
+	dto := newAlertDTOForBroker(h.deps.Store.AlertDelivery(now), now, bootstrapBroker(h.deps.Live.Snapshot()))
 	// Delivery evidence is transport fact, not alert authority: it is served
 	// whether or not the ledger is initialized.
 	dto.PushDelivery = newAlertPushDeliveryDTO(h.deps.Store.PushDeliveryProof(now))
@@ -138,7 +138,7 @@ func alertDeliveryHealthDTO(view state.AlertDeliveryView) AlertDeliveryHealthDTO
 	return health
 }
 
-func newAlertDTO(view state.AlertDeliveryView, now time.Time) AlertDTO {
+func newAlertDTOForBroker(view state.AlertDeliveryView, now time.Time, broker string) AlertDTO {
 	quarantined := view.DeliveryHealth.State == state.AlertDeliveryHealthUnavailable &&
 		view.DeliveryHealth.Class == state.AlertDeliveryHealthClassInvalidPersistedState
 	health := alertDeliveryHealthDTO(view)
@@ -182,7 +182,7 @@ func newAlertDTO(view state.AlertDeliveryView, now time.Time) AlertDTO {
 			Covered:        source.Covered,
 		})
 	}
-	dto.Occurrences = newAlertOccurrenceDTOs(view.Occurrences)
+	dto.Occurrences = newAlertOccurrenceDTOs(view.Occurrences, broker)
 	dto.Attention = newAlertAttentionDTO(view.Attention, dto.Occurrences)
 	return dto
 }
@@ -223,7 +223,7 @@ func alertViewCanBeClear(view state.AlertDeliveryView, now time.Time) bool {
 	return len(seen) == len(expected)
 }
 
-func newAlertOccurrenceDTOs(occurrences []state.AlertDeliveryOccurrenceView) []AlertOccurrenceDTO {
+func newAlertOccurrenceDTOs(occurrences []state.AlertDeliveryOccurrenceView, broker string) []AlertOccurrenceDTO {
 	active := make([]state.AlertDeliveryOccurrenceView, 0, len(occurrences))
 	for _, occurrence := range occurrences {
 		// A durable episode may be held open while its producer evidence is
@@ -243,7 +243,7 @@ func newAlertOccurrenceDTOs(occurrences []state.AlertDeliveryOccurrenceView) []A
 	// cross the public HTTP boundary.
 	out := make([]AlertOccurrenceDTO, 0, len(active))
 	for _, occurrence := range active {
-		presentation, ok := appalerts.PresentationFor(occurrence.PresentationCode, occurrence.State)
+		presentation, ok := appalerts.PresentationForBroker(occurrence.PresentationCode, occurrence.State, broker)
 		if !ok {
 			presentation = appalerts.Presentation{
 				Title: "Alert unavailable",

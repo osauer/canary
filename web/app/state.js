@@ -2,6 +2,7 @@
 
 const state = {
   snapshot: null,
+  broker: "",
   marketTapeResult: null,
   marketTapeBusy: false,
   marketTapeError: "",
@@ -106,4 +107,9 @@ function normalizedPositionsSort(sort) {
   return ["impact", "winners", "losers", "exposure", "name"].includes(sort) ? sort : "impact";
 }
 
-export { normalizedPositionsSort, normalizedTab, state };
+// brokerProcessName is the desktop process a person checks for broker status.
+function brokerProcessName() {
+  return state.broker === "opend" ? "OpenD" : "TWS";
+}
+
+export { brokerProcessName, normalizedPositionsSort, normalizedTab, state };

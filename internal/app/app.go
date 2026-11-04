@@ -97,6 +97,12 @@ func New(opts Options) (*App, error) {
 	}
 	pushSender := push.WebPushSender{Subscriber: push.Subscriber}
 	dispatcher := &alerts.Dispatcher{Store: store, Sender: pushSender, URL: opts.PublicURL}
+	dispatcher.Broker = func() string {
+		if status := liveSvc.Snapshot().Status; status != nil {
+			return status.Broker
+		}
+		return ""
+	}
 	var proofRelay *alerts.ProofRelay
 	if !opts.PreviewReadGrant {
 		proofRelay = alerts.NewProofRelay(store, daemonClient)

@@ -385,6 +385,7 @@ func (s *Server) handleDataHealth(p rpc.DataHealthParams) (rpc.DataHealthResult,
 			return rpc.DataHealthResult{}, errBadRequest("health revision expired; restart pagination")
 		}
 		rows, scope := s.collectDataHealth(now)
+		rows, scope = s.opendDataHealth(rows, scope, now)
 		var err error
 		full, err = finalizeDataHealth(rows, scope, now, rpc.DataHealthParams{})
 		if err != nil {

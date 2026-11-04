@@ -6,6 +6,7 @@ package alerts
 
 import (
 	"github.com/osauer/canary/v2/internal/rpc"
+	"strings"
 )
 
 // Presentation is fixed app-authored copy selected only by the daemon's
@@ -81,6 +82,18 @@ var presentations = map[rpc.AlertPresentationCode]Presentation{
 	rpc.AlertPresentationRiskPolicyLegacyCondition:     {Title: "Risk policy", Body: "A risk-policy condition needs attention."},
 	rpc.AlertPresentationReconciliationLegacyCondition: {Title: "Reconciliation", Body: "A reconciliation condition needs attention."},
 	rpc.AlertPresentationGovernanceLegacyCondition:     {Title: "Desk process", Body: "A desk-process condition needs attention."},
+}
+
+// PresentationForBroker is PresentationFor with the copy that names a broker's
+// process naming the broker the alert came from.
+func PresentationForBroker(code rpc.AlertPresentationCode, state rpc.AlertEpisodeState, broker string) (Presentation, bool) {
+	presentation, ok := PresentationFor(code, state)
+	if !ok || broker != "opend" {
+		return presentation, ok
+	}
+	presentation.Title = strings.ReplaceAll(presentation.Title, "TWS", "OpenD")
+	presentation.Body = strings.ReplaceAll(presentation.Body, "TWS", "OpenD")
+	return presentation, true
 }
 
 // PresentationFor returns fixed copy for a closed code and lifecycle state.

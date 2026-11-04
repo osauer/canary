@@ -86,7 +86,11 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		statusHealthRow(env, out, "Market access", formatMarketDataAccessStatus(env, res.MarketDataAccess))
 	}
 	statusHealthRow(env, out, "Daemon", formatDaemonValue(*res))
+	if res.OpenD != nil {
+		renderOpenDRows(env, out, res)
+	}
 	switch {
+	case res.OpenD != nil:
 	case res.Connected:
 		statusHealthRow(env, out, "TWS", formatTWSValue(*res))
 	case isHandshakeInFlight(*res):
@@ -475,6 +479,13 @@ func formatSessionValue(env *Env, res rpc.HealthResult) string {
 		account += " (" + mode + ")"
 	}
 	endpoint := formatGatewayAddress(res)
+	if res.OpenD != nil {
+		value := fmt.Sprintf("%s via %s", account, endpoint)
+		if res.OpenD.ConnID != 0 {
+			value += fmt.Sprintf(", conn %d", res.OpenD.ConnID)
+		}
+		return value
+	}
 	value := fmt.Sprintf("%s via %s %s, client %d", account, endpoint, formatGatewayBadge(res), res.ClientID)
 	if len(res.Alternates) > 0 {
 		value += "; also up: " + joinPorts(res.Alternates)
@@ -820,6 +831,10 @@ func membersRefreshNeedsAttention(m rpc.MembersHealth) bool {
 // successful connection nor a connect error yet — i.e. the gateway
 // handshake goroutine started but hasn't produced a verdict.
 func isHandshakeInFlight(res rpc.HealthResult) bool {
+	if res.OpenD != nil && res.OpenD.ProgramStatus != "" && res.OpenD.ProgramStatus != "Ready" {
+		// OpenD answered and is waiting for its operator; polling cannot help.
+		return false
+	}
 	switch res.GatewayPhase {
 	case rpc.GatewayPhaseConnecting, rpc.GatewayPhaseAPINotReady:
 		return !res.Connected
@@ -866,7 +881,11 @@ func waitForStatusVerdict(ctx context.Context, progress io.Writer, jsonOut bool,
 
 // waitForHandshake polls fetch until it returns a verdict (Connected, or
 func waitForHandshake(ctx context.Context, w io.Writer, fetch healthFetcher, initial rpc.HealthResult, budget, pollInterval time.Duration) rpc.HealthResult {
-	fmt.Fprintf(w, "canary: waiting for IB Gateway handshake (up to %s)", budget)
+	if initial.OpenD != nil {
+		fmt.Fprintf(w, "canary: waiting for OpenD (up to %s)", budget)
+	} else {
+		fmt.Fprintf(w, "canary: waiting for IB Gateway handshake (up to %s)", budget)
+	}
 	defer fmt.Fprintln(w)
 
 	res := initial

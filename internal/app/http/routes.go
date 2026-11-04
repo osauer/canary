@@ -370,12 +370,22 @@ func (h *handler) handleAuthSession(w nethttp.ResponseWriter, r *nethttp.Request
 	writeJSON(w, sess)
 }
 
+// bootstrapBroker is the broker the SPA words its strings for: "opend", or empty
+// for IBKR and before the first status.
+func bootstrapBroker(snapshot live.Snapshot) string {
+	if snapshot.Status == nil {
+		return ""
+	}
+	return snapshot.Status.Broker
+}
+
 func (h *handler) handleBootstrap(w nethttp.ResponseWriter, r *nethttp.Request) {
 	vapid, _ := h.deps.Store.VAPID()
 	writeJSON(w, map[string]any{
 		"version":          h.deps.Version,
 		"public_url":       h.deps.PublicURL,
 		"snapshot":         h.deps.Live.Snapshot(),
+		"broker":           bootstrapBroker(h.deps.Live.Snapshot()),
 		"settings":         h.settingsSnapshot(r.Context()),
 		"alert_settings":   h.deps.Store.AlertSettings(),
 		"alerts":           h.alertDTO(),

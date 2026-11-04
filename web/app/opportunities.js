@@ -2,7 +2,7 @@ import { protectionEmptyRow } from "./protection-coverage.js";
 import { goDurationMinutes, protectionContractLabel } from "./protection.js";
 import { renderAll } from "./render-runtime.js";
 import { $, blockerText, hasNumericValue, labelize, money, normalizeSymbol, numberRead, protectionWriteConfirmation, readJSONOrText, renderFreshnessTimestamp, shortPreviewMessage } from "./shared.js";
-import { state } from "./state.js";
+import { brokerProcessName, state } from "./state.js";
 
 // Opportunities are exception-shaped: no standing surface. The advisory bar
 // exists only while the daemon serves exercises, and it exists at the top of
@@ -307,7 +307,7 @@ function opportunitySubmitStateClass({ result = null, gate = {}, busy = false } 
 function opportunitySubmitResultText(result = {}) {
 	const blocker = (result.blockers || [])[0];
 	if (blocker) return `Exercise not submitted · ${blocker.code}: ${blocker.message}`;
-	return result.accepted ? "Exercise instruction sent · verify broker status in TWS" : "Exercise not submitted";
+	return result.accepted ? `Exercise instruction sent · verify broker status in ${brokerProcessName()}` : "Exercise not submitted";
 }
 
 function opportunityBlockerText(blockers = []) {

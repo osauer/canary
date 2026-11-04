@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 21:27 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 21:52 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -40,7 +40,8 @@ work package so a fresh session resumes without the conversation.
 | WP5 protobuf: vendored, generated, manifest, gate, the owner's acceptance recorded | `09f3ee8c` | `make test` on the tree before the commit; `make futu-proto-regen` twice, manifest unchanged; the release CI contract checks | `gate test at canary--v3.33.1-15-g12fc8efe-dirty exit 0`; `futu-proto: OK (28 definitions; protoc-gen-go v1.36.12; protoc v6.32.1)` |
 | WP6 `pkg/futu` session and the simulator server | `ef3ae1e2` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-16-g09f3ee8c-dirty exit 0`; `test-pkg: pkg/futu statement coverage 94.4% (floor 80%)` |
 | WP7 `pkg/futu` reads and their simulator handlers | `2928cd46` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-17-g621b17f1-dirty exit 0`; `test-pkg: pkg/futu statement coverage 93.2% (floor 80%)` |
-| WP8 the daemon on OpenD | the commit carrying this note | `make test` on the tree before the commit; spine on the landed revision | see the commit body |
+| WP8 the daemon on OpenD | `3c922e70` | `make test` on the tree before the commit; `make regression-spine-check` on `3c922e70` | `gate test at canary--v3.33.1-18-g2928cd46-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)` |
+| WP9 surfaces | the commit carrying this note | `make test` on the tree before the commit | `gate test at canary--v3.33.1-19-g3c922e70-dirty exit 0` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -188,16 +189,24 @@ and design carry these; WP5 and WP8 build to them.
 - A streaming line has no bid or ask, so `opendQuote` prefers a line for `last` and gets bid and ask only from a snapshot.
 - Release note needed at release time, not now: an operator whose daemon sets `XDG_CONFIG_HOME` elsewhere finds the policy files move.
 
+## How WP9 is wired
+
+- `rpc.CodeNotApplicable` is the typed answer; `ibkrOnlyMethods` in `broker_opend_surfaces.go` gates them at the top of `dispatch`. MCP turns the code into a result in `handleToolsCall`.
+- `opendDataHealth` rewrites the rows after collection; `dataHealthIBKROnly` names the sources by id prefix. A new IBKR-only source needs its prefix there.
+- The status rows are `renderOpenDRows` in `internal/cli/status_opend.go`.
+- Held for the owner: the handbook edit, drafted in the shared notes folder as `architecture-handbook-draft-wp9.md`.
+- Owed by WP12: inspect the app on the simulator stack at real size and name the screenshot.
+
 ## In progress
 
 Nothing between packages.
 
 ## Next
 
-WP9 per the brief: the OpenD status rows, data health `not_applicable`, the capability field, MCP descriptions, the app and SPA copy, docs.
+WP10, the additive instrument identity, then WP11 and WP12. WP10 still needs the owner's ack of the identity; the build asks at that point if none has arrived.
 
 ## Not done
 
-Everything from WP9 on. No live proof (no Gateway in this session): every
+Everything from WP10 on. No live proof (no Gateway in this session): every
 IBKR-path package reports "proof pending: next live session". Phase D is
 out of scope.

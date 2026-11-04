@@ -60,6 +60,10 @@ const (
 // partial dashboard as if it were current state.
 const CodeRegimeUnavailable = "regime_unavailable"
 
+// CodeNotApplicable answers a method this daemon's broker does not serve: off for
+// this broker, not broken. An MCP tool returns it as a result, never an error.
+const CodeNotApplicable = "not_applicable"
+
 // MarketDataType values carried on Quote.DataType, Frame.DataType, and
 // ChainResult.DataType. IBKR's tickMarketDataType message (58) maps
 // based on the value. HealthResult.DataType remains on the wire shape
@@ -2446,9 +2450,54 @@ const (
 	AccountModeLive    = "live"
 )
 
+// OpenDHealth is what OpenD says about itself, for the status rows.
+type OpenDHealth struct {
+	// ProgramStatus is OpenD's program status in OpenD's words; ProgramDetail its
+	// description when it gave one.
+	ProgramStatus string `json:"program_status,omitempty"`
+	ProgramDetail string `json:"program_detail,omitempty"`
+	ServerVersion int    `json:"server_version,omitempty"`
+	BuildNo       int    `json:"build_no,omitempty"`
+	// MinServerVersion is the lowest serverVer this build accepts.
+	MinServerVersion int    `json:"min_server_version"`
+	QuoteLoggedIn    bool   `json:"quote_logged_in"`
+	TradeLoggedIn    bool   `json:"trade_logged_in"`
+	Environment      string `json:"environment,omitempty"`
+	ConnID           uint64 `json:"conn_id,omitempty"`
+	// Markets are the markets the account list authorises for the pin.
+	Markets []string `json:"markets,omitempty"`
+	// QuoteRights is OpenD's last quote-right push: market to level.
+	QuoteRights map[string]string `json:"quote_rights,omitempty"`
+	// Quotas are OpenD-wide, and zero until OpenD has said.
+	SubscriptionsUsed int `json:"subscriptions_used"`
+	SubscriptionQuota int `json:"subscription_quota"`
+	HistoryUsed       int `json:"history_used"`
+	HistoryQuota      int `json:"history_quota"`
+	// NotServed names, in words, what this broker does not serve.
+	NotServed []string `json:"not_served,omitempty"`
+}
+
+// BrokerCapabilities says what the daemon's broker can do, per broker.
+type BrokerCapabilities struct {
+	Broker         string `json:"broker"`
+	Preview        string `json:"preview"`
+	Unlock         string `json:"unlock"`
+	Statements     string `json:"statements"`
+	Reconciliation bool   `json:"reconciliation"`
+	Edge           bool   `json:"edge"`
+}
+
+// Broker preview forms.
+const (
+	BrokerPreviewWhatIf      = "whatif"
+	BrokerPreviewMaxQuantity = "max_quantity"
+)
+
 // HealthResult is the response to MethodStatusHealth.
 // ports that responded during discovery but lost the first-hit race.
 type HealthResult struct {
+	// OpenD is OpenD's own state, present only under that broker.
+	OpenD *OpenDHealth `json:"opend,omitempty"`
 	// Broker is the kind of broker this daemon serves, absent for IBKR; a client of
 	// two daemons binds it as the order route.
 	Broker        string            `json:"broker,omitempty"`
@@ -2548,6 +2597,8 @@ type TradingBlocker struct {
 // TradingStatus is the local order-entry readiness surface. It is deliberately
 // separate from broker permission: TWS / IB Gateway can still reject writes
 type TradingStatus struct {
+	// BrokerCapabilities is what this broker can do; the Capabilities row reads it.
+	BrokerCapabilities *BrokerCapabilities `json:"broker_capabilities,omitempty"`
 	// Broker is the broker kind of the account below, absent for IBKR so a record
 	// written before the second broker keeps its bytes.
 	Broker string `json:"broker,omitempty"`

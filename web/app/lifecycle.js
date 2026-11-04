@@ -69,6 +69,7 @@ async function fetchBootstrap() {
 
 function applyBootstrap(data) {
   state.snapshot = data.snapshot;
+  state.broker = String(data.broker || "");
   state.appVersion = String(data.version || "");
   const updateCompleted = observeAppVersion(state.appVersion);
   state.authenticated = Boolean(data.auth?.authenticated);

@@ -208,7 +208,7 @@ func compareGolden(t *testing.T, path, got string) {
 func renderGoldenCases() []renderGoldenCase {
 	fresh := rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityFresh, LastSuccessAt: new(goldenAt), LastSuccessAgeSeconds: new(int64(60))}
 	stale := rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityStale, LastSuccessAt: new(goldenAt.Add(-2 * time.Hour)), LastSuccessAgeSeconds: new(int64(7200)), FailureCode: rpc.RegimeAuthorityFailureRefreshTimeout}
-	readyTrading := rpc.TradingStatus{Mode: config.TradingModePaper, Endpoint: "127.0.0.1:4002", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, CanWrite: true, OpenOrders: 2, LastOrderEvent: "order 1 Submitted", TradingControlGeneration: 3,
+	readyTrading := rpc.TradingStatus{BrokerCapabilities: &rpc.BrokerCapabilities{Broker: "ibkr", Preview: rpc.BrokerPreviewWhatIf}, Mode: config.TradingModePaper, Endpoint: "127.0.0.1:4002", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, CanWrite: true, OpenOrders: 2, LastOrderEvent: "order 1 Submitted", TradingControlGeneration: 3,
 		OrderLimits: &risk.OrderLimitsInForce{Complete: true, BaseCurrency: "EUR", CapBase: 12000, CapBound: risk.OrderCapBoundPctNLV, Summary: "12,000 EUR (5% of NLV 240,000 EUR; [order_limits])",
 			MaxOptionContracts: 5, MaxBondMaturityYears: 30},
 		BrokerPermissions: []rpc.BrokerPermission{
@@ -216,7 +216,7 @@ func renderGoldenCases() []renderGoldenCase {
 				Action: "Enable futures under Settings › Trading Permissions in IBKR's account settings; Canary checks again at its next start or within a day."},
 			{Class: rpc.BrokerPermissionOptions, State: rpc.BrokerPermissionEnabled, CheckedAt: goldenAt, Source: "your preview"},
 		}}
-	blockedTrading := rpc.TradingStatus{Mode: config.TradingModeLive, Endpoint: "127.0.0.1:4001", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, LiveOverride: rpc.TradingLiveOverrideBlocked, Blocked: true, Freeze: true, TradingControlGeneration: 4,
+	blockedTrading := rpc.TradingStatus{BrokerCapabilities: &rpc.BrokerCapabilities{Broker: "ibkr", Preview: rpc.BrokerPreviewWhatIf}, Mode: config.TradingModeLive, Endpoint: "127.0.0.1:4001", Account: "DU0000000", AccountOrigin: "config", ClientID: 7, ClientIDOrigin: "config", MCPTrading: rpc.TradingMCPDisabled, CanPreview: true, LiveOverride: rpc.TradingLiveOverrideBlocked, Blocked: true, Freeze: true, TradingControlGeneration: 4,
 		Blockers:      []rpc.TradingBlocker{{Code: "live_override_missing", Message: "live trading needs the live override", Action: "set the live override in config.toml"}},
 		WriteBlockers: []rpc.TradingBlocker{{Code: "trading_frozen", Message: "trading.freeze is on; only cancels pass"}},
 		BrokerPermissions: []rpc.BrokerPermission{{Class: rpc.BrokerPermissionFutures, State: rpc.BrokerPermissionUnknown,
@@ -335,6 +335,9 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "status_offline_refused_pinned", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: statusOfflineCases()[1].res}, exit: 1},
 		{name: "status_offline_rejecting", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: statusOfflineCases()[4].res}, exit: 1},
 		{name: "trading_status", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: readyTrading}},
+		{name: "status_opend", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenD()}},
+		{name: "status_opend_disclaimer", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenDDisclaimer()}, exit: 1},
+		{name: "trading_status_opend", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: goldenTradingOpenD()}},
 		{name: "trading_status_blocked", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: blockedTrading}, exit: 1},
 		{name: "settings_show", argv: []string{"settings", "show"}, conn: goldenConn{rpc.MethodSettingsGet: goldenSettings()}},
 		{name: "chains_recorded", argv: []string{"chains", "recorded"}, conn: goldenConn{rpc.MethodChainsRecorded: goldenChainsRecorded()}},
@@ -986,6 +989,44 @@ func goldenHealthReady(trading rpc.TradingStatus) rpc.HealthResult {
 			{ID: "trend-fund", Sleeve: "trend", State: "live", Why: "the 5-session window after 2026-08-31 ended with 2026-09-07; what is left waits for the next decision"},
 		},
 	}
+}
+
+func goldenTradingOpenD() rpc.TradingStatus {
+	return rpc.TradingStatus{
+		Broker: "opend", Mode: config.TradingModePaper, GatewayHost: "127.0.0.1", GatewayPort: 11111, Endpoint: "127.0.0.1:11111",
+		Account: "1000001", AccountMode: rpc.AccountModePaper, AccountOrigin: "pinned", PortOrigin: "configured", CanPreview: true,
+		BrokerCapabilities: &rpc.BrokerCapabilities{Broker: "opend", Preview: rpc.BrokerPreviewMaxQuantity, Unlock: "owner_in_opend", Statements: "none"},
+	}
+}
+
+func goldenHealthOpenD() rpc.HealthResult {
+	res := goldenHealthReady(goldenTradingOpenD())
+	res.Broker = "opend"
+	res.Account, res.ConnectedAccount = "1000001", "1000001"
+	res.GatewayPort = 11111
+	res.ClientID = 0
+	res.ServerVersion = 1010
+	res.GatewayAPI, res.GatewaySetup, res.Executions = nil, nil, nil
+	res.OpenD = &rpc.OpenDHealth{
+		ProgramStatus: "Ready", ServerVersion: 1010, BuildNo: 7008, MinServerVersion: 1010, QuoteLoggedIn: true, TradeLoggedIn: true,
+		Environment: "simulate", ConnID: 5000, Markets: []string{"HK", "US", "SG"},
+		QuoteRights:       map[string]string{"HK": "Level2", "US": "Level1", "SG": "No"},
+		SubscriptionsUsed: 37, SubscriptionQuota: 100, HistoryUsed: 12, HistoryQuota: 100,
+		NotServed: []string{"Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "cash sweep"},
+	}
+	return res
+}
+
+func goldenHealthOpenDDisclaimer() rpc.HealthResult {
+	res := goldenHealthOpenD()
+	res.Verdict = rpc.HealthVerdict{State: "STARTING", Reason: "Broker API handshake is incomplete"}
+	res.Connected = false
+	res.GatewayPhase = rpc.GatewayPhaseAPINotReady
+	res.LastError = "OpenD is not ready: its program status is UnAgreeDisclaimer"
+	res.OpenD.ProgramStatus = "UnAgreeDisclaimer"
+	res.OpenD.Markets, res.OpenD.QuoteRights = nil, nil
+	res.OpenD.SubscriptionQuota, res.OpenD.HistoryQuota = 0, 0
+	return res
 }
 
 func goldenHealthAttention() rpc.HealthResult {

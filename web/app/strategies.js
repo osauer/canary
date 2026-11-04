@@ -1,6 +1,6 @@
 import { refreshOpenOrders } from "./orders.js";
 import { $, calendarDate, labelize, money, protectionWriteConfirmation, readJSONOrText, renderFreshnessTimestamp } from "./shared.js";
-import { state } from "./state.js";
+import { brokerProcessName, state } from "./state.js";
 
 function strategyKey(strategy = {}) {
   return `${strategy.id || ""}@${strategy.revision || ""}`;
@@ -413,10 +413,10 @@ async function submitStrategy(strategy) {
 }
 
 function strategySubmitResultText(result, busy) {
-  if (busy) return "Sending the combo order. Check TWS before trying again.";
+  if (busy) return `Sending the combo order. Check ${brokerProcessName()} before trying again.`;
   if (!result) return "";
   if (result.error) return `Order not sent: ${result.error}`;
-  if (result.accepted) return "Combo order sent. Check Open Orders and TWS for broker status.";
+  if (result.accepted) return `Combo order sent. Check Open Orders and ${brokerProcessName()} for broker status.`;
   return result.message ? `Order not sent: ${result.message}` : "The combo order was not accepted.";
 }
 

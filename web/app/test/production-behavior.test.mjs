@@ -26,7 +26,7 @@ Object.defineProperty(globalThis, "navigator", {
 Object.defineProperty(globalThis, "Notification", { configurable: true, value: undefined });
 Object.defineProperty(globalThis, "EventSource", { configurable: true, value: undefined });
 
-const { normalizedPositionsSort, normalizedTab, state } = await import("../state.js");
+const { brokerProcessName, normalizedPositionsSort, normalizedTab, state } = await import("../state.js");
 const { installRenderAll } = await import("../render-runtime.js");
 const moduleNames = [
   "alerts", "alert-inbox", "brief", "chrome", "edge", "financing", "lifecycle", "market-events", "market-tape", "opportunities", "orders",
@@ -2230,4 +2230,18 @@ test("a safe test with no subscription on this device says what to do", async ()
     assert.match(state.safeNotificationTest.state, /Tap the notification/);
     assert.equal(state.safeNotificationTest.error, false);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("order result strings name the process of the daemon's broker", () => {
+  const previous = state.broker;
+  try {
+    state.broker = "";
+    assert.equal(brokerProcessName(), "TWS");
+    state.broker = "ibkr";
+    assert.equal(brokerProcessName(), "TWS");
+    state.broker = "opend";
+    assert.equal(brokerProcessName(), "OpenD");
+  } finally {
+    state.broker = previous;
+  }
 });

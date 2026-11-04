@@ -93,6 +93,10 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	// The narrative is a deterministic projection of the two movements above
 	// only, so revised prose can never invalidate the brief identity.
 	res.Narrative = composeBriefNarrative(res)
+	if s.opend != nil && res.Narrative != nil && res.Narrative.Overview != nil {
+		res.Narrative.Overview.Coverage = append(res.Narrative.Overview.Coverage,
+			briefOverviewLine("Not on OpenD", strings.Join(opendNotServed, ", ")))
+	}
 	// Bind v4 brief identity to the current constitution even when a policy-only
 	if constitution != nil && constitution.Semantics().ProcessReminders {
 		res.BriefFingerprint = opaqueIdentity("v4-brief", res.BriefFingerprint, renderAuthority.policyIdentity)

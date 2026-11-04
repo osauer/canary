@@ -33,6 +33,8 @@ const (
 	SourceStatusStale    = "stale"
 	SourceStatusUnknown  = "unknown"
 	SourceStatusDegraded = "degraded"
+	// SourceStatusNotApplicable is a source this broker does not serve: never stale.
+	SourceStatusNotApplicable = "not_applicable"
 )
 
 // Regime tones are presentation classifications derived from lifecycle state.

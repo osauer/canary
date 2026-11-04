@@ -95,6 +95,7 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 		status.ClientIDOrigin = ""
 		account = status.Account
 	}
+	status.BrokerCapabilities = s.brokerCapabilities()
 	if status.PortOrigin == "" {
 		if cfg.Gateway.Port != nil {
 			status.PortOrigin = string(discover.OriginPinned)

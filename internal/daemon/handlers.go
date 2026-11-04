@@ -3727,6 +3727,10 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 		localConnected, apiReady, backendDown = health.Connected, health.Ready, health.BackendDown
 		setupComplete = health.Ready
 	}
+	if s.opend != nil {
+		res.OpenD = s.opendHealth()
+		res.GatewayAPI = nil
+	}
 	res.GatewayPhase = statusGatewayPhase(
 		localConnected,
 		apiReady,

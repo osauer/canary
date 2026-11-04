@@ -18,6 +18,9 @@ import (
 // single-threaded while the store remains the durable authority at every
 // transition.
 type Dispatcher struct {
+	// Broker names the broker of this daemon, for the copy that names its process; nil
+	// or empty reads as IBKR.
+	Broker      func() string
 	Store       *state.Store
 	Sender      push.Sender
 	URL         string
@@ -116,7 +119,7 @@ func (d *Dispatcher) dispatchLocked(ctx context.Context) (state.AlertDeliveryVie
 				}
 				return d.Store.AlertDelivery(d.now()), fmt.Errorf("alert display authority changed before send")
 			}
-			presentation, ok := PresentationFor(confirmed.Candidate.PresentationCode, confirmed.Candidate.State)
+			presentation, ok := PresentationForBroker(confirmed.Candidate.PresentationCode, confirmed.Candidate.State, d.broker())
 			if !ok {
 				if _, err := d.Store.CompleteAlertDelivery(confirmed.AttemptID, state.AlertDeliveryCompletionRejected, d.now()); err != nil {
 					return d.Store.AlertDelivery(d.now()), err
@@ -236,4 +239,12 @@ func classifyAlertCompletion(result state.PushAttempt) (state.AlertDeliveryCompl
 	default:
 		return state.AlertDeliveryCompletionRejected, false
 	}
+}
+
+// broker is the broker the copy names; nil reads as IBKR.
+func (d *Dispatcher) broker() string {
+	if d.Broker == nil {
+		return ""
+	}
+	return d.Broker()
 }
