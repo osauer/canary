@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/broker"
+	brokerOpenD "github.com/osauer/canary/v2/internal/broker/opend"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -153,6 +154,14 @@ func startOpenDServer(t *testing.T, sim *futusim.Server, account string) (*Serve
 		Logger: NewLogger(&bytes.Buffer{}, "error"), StateDatabasePath: filepath.Join(dir, "daemon.db"),
 		DisableMacroSources: true,
 	})
+	// The client reads the simulator's clock, so a test can move a line past its hold.
+	if pinned, err := strconv.ParseUint(account, 10, 64); err == nil {
+		srv.opend = brokerOpenD.New(futu.NewConnector(futu.Config{
+			Addr: sim.Addr(), Account: pinned, ClientID: "canary-test", ClientVersion: 333,
+			RedialDelay: 50 * time.Millisecond, Now: sim.Book().Clock.Now,
+		}), pinned, nil)
+		srv.opend.SetLineBudget(srv.opendBudget.allowed)
+	}
 	serving := make(chan struct{}, 1)
 	srv.initialAcceptLoopStartedForTest = func() { serving <- struct{}{} }
 	ctx, cancel := context.WithCancel(context.Background())

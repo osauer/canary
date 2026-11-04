@@ -32,6 +32,41 @@ type Adapter struct {
 	conn    *futu.Connector
 	account uint64
 	now     func() time.Time
+	// allowLine is the daemon's line budget; nil admits every line.
+	allowLine func(code string) bool
+}
+
+// SetLineBudget gives the adapter the daemon's line budget. Set once, before the
+// session starts.
+func (a *Adapter) SetLineBudget(allow func(code string) bool) { a.allowLine = allow }
+
+// subscribe takes a line the budget admits; a name outside it, or past OpenD's
+// quota, is served by snapshot.
+func (a *Adapter) subscribe(ctx context.Context, code string) (string, broker.SessionBinding, error) {
+	if a.allowLine != nil && !a.allowLine(code) {
+		return code, a.currentBinding(), fmt.Errorf("%w: %s", broker.ErrSnapshotOnly, code)
+	}
+	session, err := a.conn.Subscribe(ctx, code)
+	if errors.Is(err, futu.ErrQuotaExhausted) {
+		return code, bindingOf(session), fmt.Errorf("%w: %w", broker.ErrSnapshotOnly, err)
+	}
+	return code, bindingOf(session), err
+}
+
+func (a *Adapter) currentBinding() broker.SessionBinding {
+	session, ok := a.conn.CaptureSession()
+	if !ok {
+		return broker.SessionBinding{}
+	}
+	return bindingOf(session)
+}
+
+// heldRelease is the seam's form of a release inside the minimum hold.
+func heldRelease(err error) error {
+	if held, ok := errors.AsType[*futu.SubscriptionHeldError](err); ok {
+		return &broker.ReleaseHeldError{Key: held.Code, RetryAfter: held.RetryAfter}
+	}
+	return err
 }
 
 // New builds the adapter over a connector pinned to the account.
@@ -302,9 +337,7 @@ func (a *Adapter) Key(in broker.Instrument) string {
 // SubscribeSymbol takes a line for a bare symbol or a code. OpenD has no default
 // route, so the adapter resolves the symbol by the rule on [codeOf].
 func (a *Adapter) SubscribeSymbol(ctx context.Context, symbol string, _ []string) (string, broker.SessionBinding, error) {
-	code := bareSymbolCode(strings.ToUpper(strings.TrimSpace(symbol)))
-	session, err := a.conn.Subscribe(ctx, code)
-	return code, bindingOf(session), err
+	return a.subscribe(ctx, bareSymbolCode(strings.ToUpper(strings.TrimSpace(symbol))))
 }
 
 // Subscribe takes a line for an exact instrument.
@@ -313,14 +346,13 @@ func (a *Adapter) Subscribe(ctx context.Context, in broker.Instrument, _ []strin
 	if err != nil {
 		return "", broker.SessionBinding{}, err
 	}
-	session, err := a.conn.Subscribe(ctx, code)
-	return code, bindingOf(session), err
+	return a.subscribe(ctx, code)
 }
 
-// Unsubscribe releases a line. Inside the documented minimum hold the client
-// refuses with [futu.SubscriptionHeldError], for the caller to defer.
+// Unsubscribe releases a line. Inside the documented minimum hold it answers
+// [broker.ReleaseHeldError], for the caller to defer.
 func (a *Adapter) Unsubscribe(ctx context.Context, key string) error {
-	return a.conn.Unsubscribe(ctx, key)
+	return heldRelease(a.conn.Unsubscribe(ctx, key))
 }
 
 // UnsubscribeForSession releases a line only while the binding is still the
@@ -329,7 +361,7 @@ func (a *Adapter) UnsubscribeForSession(ctx context.Context, binding broker.Sess
 	if !a.Current(binding) {
 		return nil
 	}
-	return a.conn.Unsubscribe(ctx, key)
+	return heldRelease(a.conn.Unsubscribe(ctx, key))
 }
 
 // Snapshot is the cache of every held line, keyed by subscription key.

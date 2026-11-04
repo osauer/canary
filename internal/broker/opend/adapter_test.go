@@ -212,8 +212,8 @@ func TestStreamingLinesAndTheirHold(t *testing.T) {
 		t.Fatalf("snapshot %+v %v", snap, err)
 	}
 
-	if err := a.Unsubscribe(ctx, "HK.00700"); !errors.Is(err, futu.ErrSubscriptionHeld) {
-		t.Fatalf("inside the hold: %v", err)
+	if _, held := errors.AsType[*broker.ReleaseHeldError](a.Unsubscribe(ctx, "HK.00700")); !held {
+		t.Fatal("a release inside the hold was not refused")
 	}
 	sim.Book().Clock.Advance(futu.SubscriptionMinimumHold)
 	if err := a.Unsubscribe(ctx, "HK.00700"); err != nil {

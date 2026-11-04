@@ -2534,6 +2534,10 @@ func (s *Server) handleQuoteSubscribe(ctx context.Context, req *rpc.Request, enc
 			writeError(enc, req.ID, rpc.CodeGatewayUnavailable, err.Error())
 			return
 		}
+		if errors.Is(err, broker.ErrSnapshotOnly) {
+			writeError(enc, req.ID, errStreamingNotAvailable.Code, errStreamingNotAvailable.Message)
+			return
+		}
 		writeError(enc, req.ID, rpc.CodeInternal, err.Error())
 		return
 	}

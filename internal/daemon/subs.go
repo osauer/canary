@@ -359,7 +359,29 @@ func (m *subManager) teardownContext(ctx context.Context, e *subEntry, sym strin
 		if c := e.owner; c != nil && c.Current(e.binding) {
 			cleanup, cancel := context.WithTimeout(ctx, 3*time.Second)
 			defer cancel()
-			_ = c.UnsubscribeForSession(cleanup, e.binding, sym)
+			err := c.UnsubscribeForSession(cleanup, e.binding, sym)
+			if held, ok := errors.AsType[*broker.ReleaseHeldError](err); ok {
+				m.deferRelease(c, e.binding, sym, held.RetryAfter)
+			}
+		}
+	})
+}
+
+// deferRelease releases a line after its minimum hold, unless the session ended or
+// a new reference took the line back. A retry that is itself refused waits again.
+func (m *subManager) deferRelease(c marketQuotes, binding broker.SessionBinding, sym string, after time.Duration) {
+	time.AfterFunc(after, func() {
+		m.subsMu.Lock()
+		_, active := m.subs[sym]
+		m.subsMu.Unlock()
+		if active || !c.Current(binding) {
+			return
+		}
+		cleanup, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		err := c.UnsubscribeForSession(cleanup, binding, sym)
+		if held, ok := errors.AsType[*broker.ReleaseHeldError](err); ok {
+			m.deferRelease(c, binding, sym, held.RetryAfter)
 		}
 	})
 }

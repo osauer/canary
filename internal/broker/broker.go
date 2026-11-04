@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"strings"
 	"time"
@@ -321,6 +322,22 @@ type Quote struct {
 	LastTickAt     time.Time
 	LastPriceTick  time.Time
 	LastTradeTime  time.Time
+}
+
+// ErrSnapshotOnly is an instrument the broker's budget gives no streaming line:
+// it reads as one snapshot. It is a delivery, not a failure.
+var ErrSnapshotOnly = errors.New("no streaming line for this instrument: it is served by snapshot")
+
+// ReleaseHeldError is a release the broker refuses inside its minimum hold; the
+// manager releases the line again after RetryAfter.
+type ReleaseHeldError struct {
+	Key        string
+	RetryAfter time.Duration
+}
+
+// Error names the line and the wait.
+func (e *ReleaseHeldError) Error() string {
+	return "line " + e.Key + " is inside its minimum hold for another " + e.RetryAfter.String()
 }
 
 // Load is the broker's line and quota usage as the status surface reads it.

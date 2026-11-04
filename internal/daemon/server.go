@@ -87,6 +87,7 @@ type Server struct {
 	opend             *brokerOpenD.Adapter
 	opendWasReady     atomic.Bool
 	opendVerdictPhase atomic.Value
+	opendBudget       opendLineBudget
 	socketPath        string
 	startedAt         time.Time
 	version           string
@@ -804,6 +805,9 @@ func New(opts Options) *Server {
 	}
 	if s.coreStorePathErr == nil {
 		s.decisions = newDecisionLog(s.coreStorePath)
+	}
+	if s.opend != nil {
+		s.opend.SetLineBudget(s.opendBudget.allowed)
 	}
 	s.attempterFactory = s.buildAttempter
 	s.installSubs()

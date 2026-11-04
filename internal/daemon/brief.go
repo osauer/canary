@@ -96,6 +96,9 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	if s.opend != nil && res.Narrative != nil && res.Narrative.Overview != nil {
 		res.Narrative.Overview.Coverage = append(res.Narrative.Overview.Coverage,
 			briefOverviewLine("Not on OpenD", strings.Join(opendNotServed, ", ")))
+		if sentence := s.opendQuoteSentence(); sentence != "" {
+			res.Narrative.Overview.Coverage = append(res.Narrative.Overview.Coverage, briefOverviewLine("Quotes", sentence))
+		}
 	}
 	// Bind v4 brief identity to the current constitution even when a policy-only
 	if constitution != nil && constitution.Semantics().ProcessReminders {

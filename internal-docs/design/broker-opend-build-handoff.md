@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 21:52 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 22:04 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -41,7 +41,8 @@ work package so a fresh session resumes without the conversation.
 | WP6 `pkg/futu` session and the simulator server | `ef3ae1e2` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-16-g09f3ee8c-dirty exit 0`; `test-pkg: pkg/futu statement coverage 94.4% (floor 80%)` |
 | WP7 `pkg/futu` reads and their simulator handlers | `2928cd46` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-17-g621b17f1-dirty exit 0`; `test-pkg: pkg/futu statement coverage 93.2% (floor 80%)` |
 | WP8 the daemon on OpenD | `3c922e70` | `make test` on the tree before the commit; `make regression-spine-check` on `3c922e70` | `gate test at canary--v3.33.1-18-g2928cd46-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)` |
-| WP9 surfaces | the commit carrying this note | `make test` on the tree before the commit | `gate test at canary--v3.33.1-19-g3c922e70-dirty exit 0` |
+| WP9 surfaces | `18512599` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-19-g3c922e70-dirty exit 0` |
+| WP11 quota budgeting and snapshot delivery (WP10 waits for the identity ack) | the commit carrying this note | `make test` on the tree before the commit; spine on the landed revision | `gate test at canary--v3.33.1-20-g18512599-dirty exit 0` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -197,16 +198,23 @@ and design carry these; WP5 and WP8 build to them.
 - Held for the owner: the handbook edit, drafted in the shared notes folder as `architecture-handbook-draft-wp9.md`.
 - Owed by WP12: inspect the app on the simulator stack at real size and name the screenshot.
 
+## How WP11 is wired
+
+- `refreshOpenDLines` in `broker_opend_quotes.go` moves lines toward the wants: `orderedLineWants` is the book then `opendRegimeCodes`, and OpenD's quota sets the reach. It runs on every unfiltered positions read.
+- The adapter's `SetLineBudget` limits ad hoc streams to that set; outside it, and past the quota, `broker.ErrSnapshotOnly`. `broker.ReleaseHeldError` is the seam's form of the hold, and `subManager.deferRelease` retries it.
+- A line has no quote until a push, so marks fall through to the batch until then.
+- Tests that move a hold give the connector the book's clock in `startOpenDServer`; the adapter stays on the wall clock for receipts.
+
 ## In progress
 
 Nothing between packages.
 
 ## Next
 
-WP10, the additive instrument identity, then WP11 and WP12. WP10 still needs the owner's ack of the identity; the build asks at that point if none has arrived.
+WP12: `cmd/opend-sim`, the witness stack, the dual-daemon witness with the autospawn proof, the app inspected on the simulator stack. WP10 waits for the owner's ack of the identity, asked of the parent session 2026-11-04 21:53 CET.
 
 ## Not done
 
-Everything from WP10 on. No live proof (no Gateway in this session): every
+WP10 and WP12. No live proof (no Gateway in this session): every
 IBKR-path package reports "proof pending: next live session". Phase D is
 out of scope.

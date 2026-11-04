@@ -257,8 +257,27 @@ func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, 
 		return res, nil
 	}
 	wantSym := normSym(p.Symbol)
+	codes := make([]string, 0, len(positions))
+	for _, pos := range positions {
+		codes = append(codes, pos.Instrument.ID)
+	}
+	if wantSym == "" {
+		s.refreshOpenDLines(ctx, codes)
+	}
+	marks, fromBatch := s.opendMarks(ctx, codes)
+	if wantSym == "" {
+		s.opendBudget.recordMarks(len(codes), len(fromBatch))
+	}
 	for _, pos := range positions {
 		in := pos.Instrument
+		priceSource := ""
+		if quote := marks[in.ID]; quote != nil && quote.Last > 0 {
+			pos.MarketPrice = quote.Last
+			pos.MarketValue = quote.Last * pos.Quantity
+			if fromBatch[in.ID] {
+				priceSource = "snapshot"
+			}
+		}
 		if wantSym != "" && wantSym != strings.ToUpper(in.Symbol) {
 			continue
 		}
@@ -278,6 +297,7 @@ func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, 
 			MarketValue:   pos.MarketValue,
 			UnrealizedPnL: pos.UnrealizedPnL,
 			RealizedPnL:   pos.RealizedPnL,
+			PriceSource:   priceSource,
 		})
 	}
 	flagZeroValueStockPositions(res.Stocks)
@@ -366,6 +386,7 @@ func rpcQuoteOf(contract rpc.ContractParams, q *broker.Quote) *rpc.Quote {
 		IVStatus:     "unavailable",
 		DataType:     "live",
 		FeedType:     "live",
+		Delivery:     quoteDeliveryOf(q),
 		ReceivedAt:   q.Timestamp,
 		AsOf:         q.Timestamp,
 		Bid:          positive(q.Bid),

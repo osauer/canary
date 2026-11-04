@@ -1611,10 +1611,13 @@ type Quote struct {
 	ReceivedAt time.Time      `json:"received_at,omitzero"`
 	Symbol     string         `json:"symbol"`
 	Contract   ContractParams `json:"contract"`
-	Bid        *float64       `json:"bid"`
-	Ask        *float64       `json:"ask"`
-	Last       *float64       `json:"last"`
-	Mark       *float64       `json:"mark,omitempty"`
+	// Delivery says how the quote arrived, stream or snapshot, on a broker with
+	// both; absent otherwise.
+	Delivery string   `json:"delivery,omitempty"`
+	Bid      *float64 `json:"bid"`
+	Ask      *float64 `json:"ask"`
+	Last     *float64 `json:"last"`
+	Mark     *float64 `json:"mark,omitempty"`
 	// Price is the legacy selected price: QuotePrice when the gateway has a
 	// current indication, otherwise RegularClose. PriceSource names the
 	// selected input so consumers can avoid treating a close-only fallback
