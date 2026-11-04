@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func historyFixture(t *testing.T) (*Server, rpc.MarketHistoryParams, string, time.Time, rpc.MarketHistoryResult) {
@@ -560,14 +560,14 @@ func TestMarketHistoryFuturesReconciliationKeepsSessionsBeyondServedDepth(t *tes
 	clock := roll
 	s.now = func() time.Time { return clock }
 	var requested []int
-	broker := func(_ context.Context, c ibkrlib.Contract, days int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
+	broker := func(_ context.Context, c broker.Instrument, days int, _ string, _ time.Duration) (broker.BarSeries, error) {
 		requested = append(requested, days)
-		series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
+		series := broker.BarSeries{Instrument: c, WhatToShow: "TRADES"}
 		for d := listed; !d.Add(20 * time.Hour).After(clock); d = d.AddDate(0, 0, 1) {
 			if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday || d.Before(clock.Add(-depth)) {
 				continue
 			}
-			series.Bars = append(series.Bars, ibkrlib.HistoricalBar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10})
+			series.Bars = append(series.Bars, broker.Bar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10})
 		}
 		return series, nil
 	}
@@ -686,11 +686,11 @@ func TestMarketHistoryReconciliationMergesPatchyFuturesAndRefusesThinReads(t *te
 			first := time.Date(2026, 6, 19, 0, 2, 0, 0, time.UTC)
 			var omit []time.Time
 			fetch := func(ctx context.Context, p rpc.MarketHistoryParams, tail int, now time.Time) (*rpc.MarketHistoryResult, error) {
-				return fetchMarketHistory(ctx, p, tail, now, func(_ context.Context, c ibkrlib.Contract, _ int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
-					series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
+				return fetchMarketHistory(ctx, p, tail, now, func(_ context.Context, c broker.Instrument, _ int, _ string, _ time.Duration) (broker.BarSeries, error) {
+					series := broker.BarSeries{Instrument: c, WhatToShow: "TRADES"}
 					for d := session(2025, 3, 21); !d.Add(20 * time.Hour).After(now); d = d.AddDate(0, 0, 1) {
 						if d.Weekday() != time.Saturday && d.Weekday() != time.Sunday && !slices.Contains(omit, d) {
-							series.Bars = append(series.Bars, ibkrlib.HistoricalBar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10})
+							series.Bars = append(series.Bars, broker.Bar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10})
 						}
 					}
 					return series, nil
@@ -783,17 +783,17 @@ func TestMarketHistoryFuturesTradelessSessionsNeverMakeAReadThin(t *testing.T) {
 			}
 			var omit []time.Time
 			fetch := func(ctx context.Context, p rpc.MarketHistoryParams, tail int, now time.Time) (*rpc.MarketHistoryResult, error) {
-				return fetchMarketHistory(ctx, p, tail, now, func(_ context.Context, c ibkrlib.Contract, _ int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
-					series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
+				return fetchMarketHistory(ctx, p, tail, now, func(_ context.Context, c broker.Instrument, _ int, _ string, _ time.Duration) (broker.BarSeries, error) {
+					series := broker.BarSeries{Instrument: c, WhatToShow: "TRADES"}
 					for i, d := range sessions {
 						if d.Add(20*time.Hour).After(now) || slices.Contains(omit, d) {
 							continue
 						}
-						bar := ibkrlib.HistoricalBar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10}
+						bar := broker.Bar{Time: d, Open: 100, High: 101, Low: 99, Close: 100.5, Volume: 10}
 						if tradeless(i) {
-							bar = ibkrlib.HistoricalBar{Time: d, Open: 100.25, High: 100.25, Low: 100.25, Close: 100.25} // a settlement, no trades
+							bar = broker.Bar{Time: d, Open: 100.25, High: 100.25, Low: 100.25, Close: 100.25} // a settlement, no trades
 							if i < 20 {
-								bar = ibkrlib.HistoricalBar{Time: d, Close: 100.25} // as recorded before open, high and low were kept
+								bar = broker.Bar{Time: d, Close: 100.25} // as recorded before open, high and low were kept
 							}
 						}
 						series.Bars = append(series.Bars, bar)

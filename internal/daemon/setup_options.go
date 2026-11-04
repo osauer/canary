@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -23,10 +24,15 @@ func (s *Server) handleSetupOptions(ctx context.Context, req *rpc.Request) (*rpc
 	if err != nil {
 		return nil, errBadRequest(err.Error())
 	}
-	c := s.gatewayConnector()
-	if c == nil {
+	a := s.brokerReads()
+	if a == nil {
 		return nil, s.gatewayUnavailableError()
 	}
+	// The option listing below is an IBKR-only read on the connector, in
+	// the connector's own session; the underlying is resolved through the
+	// seam, in the same session, so the setup resolution memo is shared
+	// with the evaluation path.
+	c := a.Connector()
 	binding, ok := c.CaptureHistoricalSession()
 	if !ok {
 		return nil, s.gatewayUnavailableError()
@@ -35,11 +41,11 @@ func (s *Server) handleSetupOptions(ctx context.Context, req *rpc.Request) (*rpc
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := s.resolveSetupContract(ctx, c, binding, requested)
+	resolved, err := s.resolveSetupContract(ctx, a, a.BindingFor(binding), brokerIBKR.Instrument(requested))
 	if err != nil {
 		return nil, err
 	}
-	u := resolved.Contract
+	u := brokerIBKR.Contract(resolved)
 	if u.ConID != p.Underlying.ConID || u.Symbol != p.Underlying.Symbol || u.SecType != "STK" || u.Currency != "USD" || u.Exchange != "SMART" || !usChartCalendar(rpc.ContractParams{SecType: u.SecType, Currency: u.Currency, Exchange: u.Exchange, PrimaryExch: u.PrimaryExch}) {
 		return nil, errBadRequest("unsupported or mismatched underlying")
 	}

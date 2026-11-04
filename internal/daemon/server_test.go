@@ -14,6 +14,9 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -896,49 +899,62 @@ func mustLocation(t *testing.T, name string) *time.Location {
 	return loc
 }
 
+// fakeConnector is the subscription manager's quote seam with one session
+// that is always current (fakeSession); the manager's own session handling
+// is proven against the fake TWS elsewhere.
 type fakeConnector struct {
 	mu             sync.Mutex
-	cache          map[string]*ibkrlib.MarketData
-	dataType       int
+	cache          map[string]*broker.Quote
 	subscribed     map[string]int
-	contracts      map[string]ibkrlib.Contract
+	contracts      map[string]broker.Instrument
 	unsubscribed   map[string]int
 	subscribeError error
 
 	subscribeDelay time.Duration
 }
 
+// fakeSession is the one binding a fake seam issues; a zero binding is never
+// current by the seam's contract, so fakes issue this one.
+var fakeSession = broker.SessionBinding{Kind: broker.KindIBKR, Generation: 1, Epoch: 1}
+
 func newFakeConnector() *fakeConnector {
 	return &fakeConnector{
-		cache:        map[string]*ibkrlib.MarketData{},
+		cache:        map[string]*broker.Quote{},
 		subscribed:   map[string]int{},
-		contracts:    map[string]ibkrlib.Contract{},
+		contracts:    map[string]broker.Instrument{},
 		unsubscribed: map[string]int{},
-		dataType:     1,
 	}
 }
 
-func (f *fakeConnector) SubscribeMarketData(ctx context.Context, symbol string, _ []string) error {
+func (f *fakeConnector) Key(in broker.Instrument) string {
+	return ibkrlib.MarketDataKeyForContract(brokerIBKR.Contract(in))
+}
+
+func (f *fakeConnector) Current(b broker.SessionBinding) bool { return b == fakeSession }
+
+func (f *fakeConnector) SubscribeSymbol(ctx context.Context, symbol string, _ []string) (string, broker.SessionBinding, error) {
 	if err := f.awaitSubscription(ctx); err != nil {
-		return err
+		return "", fakeSession, err
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.subscribed[symbol]++
-	return nil
+	return symbol, fakeSession, nil
 }
 
-func (f *fakeConnector) SubscribeMarketDataWithContract(ctx context.Context, contract ibkrlib.Contract, _ []string) (string, error) {
+func (f *fakeConnector) Subscribe(ctx context.Context, in broker.Instrument, _ []string) (string, broker.SessionBinding, error) {
 	if err := f.awaitSubscription(ctx); err != nil {
-		return "", err
+		return "", fakeSession, err
 	}
-	key := ibkrlib.MarketDataKeyForContract(contract)
+	key := f.Key(in)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.subscribed[key]++
-	f.contracts[key] = contract
-	return key, nil
+	f.contracts[key] = in
+	return key, fakeSession, nil
 }
+
+func (f *fakeConnector) Load() (broker.Load, bool) { return broker.Load{}, false }
 
 func (f *fakeConnector) awaitSubscription(ctx context.Context) error {
 	if f.subscribeError != nil {
@@ -955,17 +971,24 @@ func (f *fakeConnector) awaitSubscription(ctx context.Context) error {
 	}
 }
 
-func (f *fakeConnector) UnsubscribeMarketData(symbol string) error {
+func (f *fakeConnector) Unsubscribe(_ context.Context, symbol string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.unsubscribed[symbol]++
 	return nil
 }
 
-func (f *fakeConnector) MarketDataSnapshot() map[string]*ibkrlib.MarketData {
+func (f *fakeConnector) UnsubscribeForSession(ctx context.Context, b broker.SessionBinding, symbol string) error {
+	if b != fakeSession {
+		return nil
+	}
+	return f.Unsubscribe(ctx, symbol)
+}
+
+func (f *fakeConnector) Snapshot() map[string]*broker.Quote {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make(map[string]*ibkrlib.MarketData, len(f.cache))
+	out := make(map[string]*broker.Quote, len(f.cache))
 	for k, v := range f.cache {
 		copy := *v
 		out[k] = &copy
@@ -973,16 +996,10 @@ func (f *fakeConnector) MarketDataSnapshot() map[string]*ibkrlib.MarketData {
 	return out
 }
 
-func (f *fakeConnector) MarketDataTypeForSymbol(_ string) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.dataType
-}
-
 func (f *fakeConnector) putTick(symbol string, bid, ask, last float64) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.cache[symbol] = &ibkrlib.MarketData{Bid: bid, Ask: ask, Last: last}
+	f.cache[symbol] = &broker.Quote{Bid: bid, Ask: ask, Last: last}
 }
 
 func (f *fakeConnector) subCount(symbol string) int {
@@ -1002,7 +1019,7 @@ func newTestManager(fake *fakeConnector) *testManager {
 	m := &subManager{
 		subs:     map[string]*subEntry{},
 		coalesce: 5 * time.Millisecond,
-		connector: func() ibkrMarketConnector {
+		connector: func() marketQuotes {
 			if !gatewayUp.Load() {
 				return nil
 			}

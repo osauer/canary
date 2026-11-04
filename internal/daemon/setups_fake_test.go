@@ -5,12 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // setupTestClock is a settable daemon clock shared with request goroutines.
@@ -124,31 +125,31 @@ func (f *fakeSetupSource) setFail(symbol string, err error) {
 	}
 }
 
-func (f *fakeSetupSource) CaptureHistoricalSession() (ibkr.HistoricalSessionBinding, bool) {
-	return ibkr.HistoricalSessionBinding{}, true
+func (f *fakeSetupSource) Capture() (broker.SessionBinding, bool) {
+	return fakeSession, true
 }
 
-func (f *fakeSetupSource) HistoricalSessionCurrent(ibkr.HistoricalSessionBinding) bool {
+func (f *fakeSetupSource) Current(broker.SessionBinding) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return !f.stale
 }
 
-func (f *fakeSetupSource) ResolveOrderContractForSession(_ context.Context, _ ibkr.ConnectorSessionBinding, c ibkr.Contract, _ time.Duration) (ibkr.ResolvedOrderContract, error) {
+func (f *fakeSetupSource) Resolve(_ context.Context, _ broker.SessionBinding, c broker.Instrument, _ time.Duration) (broker.Instrument, error) {
 	f.mu.Lock()
 	f.resolves++
 	f.mu.Unlock()
-	conID := c.ConID
+	conID, _ := c.IDInt()
 	if conID == 0 {
 		for _, r := range c.Symbol {
 			conID = conID*31 + int(r)
 		}
 		conID = conID%900000 + 1000
 	}
-	return ibkr.ResolvedOrderContract{Contract: ibkr.Contract{ConID: conID, Symbol: c.Symbol, SecType: "STK", Exchange: "SMART", PrimaryExch: "NASDAQ", Currency: "USD"}}, nil
+	return broker.Instrument{Broker: broker.KindIBKR, ID: strconv.Itoa(conID), Symbol: c.Symbol, SecType: "STK", Venue: "SMART", Primary: "NASDAQ", Currency: "USD"}, nil
 }
 
-func (f *fakeSetupSource) FetchSetupBars(ctx context.Context, c ibkr.Contract, start, end time.Time, _ time.Duration) ([]ibkr.HistoricalBar, error) {
+func (f *fakeSetupSource) SessionBars(ctx context.Context, c broker.Instrument, start, end time.Time, _ time.Duration) ([]broker.Bar, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, setupFetchCall{symbol: c.Symbol, start: start, end: end})
 	hold, fail := f.hold[c.Symbol], f.fail[c.Symbol]
@@ -169,7 +170,7 @@ func (f *fakeSetupSource) FetchSetupBars(ctx context.Context, c ibkr.Contract, s
 		return nil, errors.New("unbounded synthetic read")
 	}
 	loc, _ := time.LoadLocation("America/New_York")
-	var out []ibkr.HistoricalBar
+	var out []broker.Bar
 	for at := start.Truncate(5 * time.Minute); at.Before(end); at = at.Add(5 * time.Minute) {
 		local := at.In(loc)
 		minute := local.Hour()*60 + local.Minute()
@@ -183,7 +184,7 @@ func (f *fakeSetupSource) FetchSetupBars(ctx context.Context, c ibkr.Contract, s
 		if !ok {
 			v = 100
 		}
-		out = append(out, ibkr.HistoricalBar{Time: at, Open: 100, High: 101, Low: 99, Close: 100, Volume: v})
+		out = append(out, broker.Bar{Time: at, Open: 100, High: 101, Low: 99, Close: 100, Volume: v})
 	}
 	return out, nil
 }

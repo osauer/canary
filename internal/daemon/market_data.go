@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"math"
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func (s *Server) handleMarketSnapshot(ctx context.Context, req *rpc.Request) (*rpc.MarketSnapshotResult, error) {
@@ -166,64 +168,34 @@ func marketHistoryWindow(r string, now time.Time) (int, string, error) {
 }
 
 func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time) (*rpc.MarketHistoryResult, error) {
-	return fetchMarketHistory(ctx, p, tailDays, now, func(ctx context.Context, contract ibkrlib.Contract, days int, interval string, timeout time.Duration) (ibkrlib.ChartSeries, error) {
-		c := s.gatewayConnector()
-		if c == nil {
-			return ibkrlib.ChartSeries{}, s.gatewayUnavailableError()
+	return fetchMarketHistory(ctx, p, tailDays, now, func(ctx context.Context, in broker.Instrument, days int, interval string, timeout time.Duration) (broker.BarSeries, error) {
+		a := s.brokerReads()
+		if a == nil {
+			return broker.BarSeries{}, s.gatewayUnavailableError()
 		}
+		// The data-health observation is still recorded against the
+		// connector's own binding (WP3 moves the recorder onto the seam),
+		// so the session the read ran in is captured here, once, and used
+		// for both the continuity check and the observation.
+		c := a.Connector()
 		binding, ok := c.CaptureHistoricalSession()
 		if !ok {
-			return ibkrlib.ChartSeries{}, s.gatewayUnavailableError()
+			return broker.BarSeries{}, s.gatewayUnavailableError()
 		}
-		series, err := c.FetchChartBars(ctx, contract, days, interval, timeout)
-		if ibkrlib.HistoricalNotEntitled(err) && c.HistoricalSessionCurrent(binding) {
-			series, err = s.fetchChartBarsDelayed(ctx, c, contract, days, interval, timeout, err)
-		}
+		series, err := a.ChartBars(ctx, in, days, interval, timeout)
 		if !c.HistoricalSessionCurrent(binding) {
 			// The read was cut by a lost broker session: a symptom of the
 			// gateway incident, which logGatewayDependency joins.
-			return ibkrlib.ChartSeries{}, fmt.Errorf("%w: broker session changed during history read", ibkrlib.ErrIBKRUnavailable)
+			return broker.BarSeries{}, fmt.Errorf("%w: broker session changed during history read", ibkrlib.ErrIBKRUnavailable)
 		}
 		s.observeHistorySource(len(series.Bars) > 0, err, c, binding)
 		return series, err
 	})
 }
 
-// chartReader is the connector as the delayed history retry uses it.
-type chartReader interface {
-	FetchChartBars(ctx context.Context, contract ibkrlib.Contract, days int, interval string, timeout time.Duration) (ibkrlib.ChartSeries, error)
-	BeginDelayedHistoricalData(ctx context.Context) (func(), error)
-}
-
-// fetchChartBarsDelayed repeats a history read IBKR refused for want of a
-// market data permission in delayed mode, where IBKR serves the exchange's
-// bars to an account without its subscription (owner, 2026-10-31: no Xetra
-// subscription; the trend fund's line and sizing read its delayed closes).
-// When the delayed read is refused too, the original refusal is returned, so
-// the entitlement handling of every caller stands; another failure of the
-// delayed read is its own.
-func (s *Server) fetchChartBarsDelayed(ctx context.Context, c chartReader, contract ibkrlib.Contract, days int, interval string, timeout time.Duration, refused error) (ibkrlib.ChartSeries, error) {
-	release, err := c.BeginDelayedHistoricalData(ctx)
-	if err != nil {
-		return ibkrlib.ChartSeries{}, refused
-	}
-	defer release()
-	series, err := c.FetchChartBars(ctx, contract, days, interval, timeout)
-	switch {
-	case ibkrlib.HistoricalNotEntitled(err):
-		return ibkrlib.ChartSeries{}, refused
-	case err != nil:
-		return ibkrlib.ChartSeries{}, err
-	}
-	if s != nil && s.logger != nil {
-		s.logger.Infof("history %s %s: IBKR has no live market data permission for it; %d delayed bars read instead", contract.Symbol, contract.Exchange, len(series.Bars))
-	}
-	return series, nil
-}
-
 // fetchMarketHistory composes acquisition and selection around the broker reader;
 // the reader owns exact contract resolution and session continuity.
-func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time, fetch func(context.Context, ibkrlib.Contract, int, string, time.Duration) (ibkrlib.ChartSeries, error)) (*rpc.MarketHistoryResult, error) {
+func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time, fetch func(context.Context, broker.Instrument, int, string, time.Duration) (broker.BarSeries, error)) (*rpc.MarketHistoryResult, error) {
 	days, interval, err := marketHistoryWindow(p.Range, now)
 	if err != nil {
 		return nil, err
@@ -252,13 +224,13 @@ func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays
 	default:
 		return nil, errBadRequest("unsupported history security type")
 	}
-	series, err := fetch(ctx, contract, days, interval, 25*time.Second)
+	series, err := fetch(ctx, brokerIBKR.Instrument(contract), days, interval, 25*time.Second)
 	bars := series.Bars
-	echo.ConID = series.Contract.ConID
-	echo.Exchange = series.Contract.Exchange
-	echo.PrimaryExch = series.Contract.PrimaryExch
-	echo.LocalSymbol = series.Contract.LocalSymbol
-	echo.TradingClass = series.Contract.TradingClass
+	echo.ConID, _ = series.Instrument.IDInt()
+	echo.Exchange = series.Instrument.Venue
+	echo.PrimaryExch = series.Instrument.Primary
+	echo.LocalSymbol = series.Instrument.LocalSymbol
+	echo.TradingClass = series.Instrument.TradingClass
 
 	if err != nil {
 		return nil, err

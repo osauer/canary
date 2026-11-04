@@ -2,13 +2,14 @@ package daemon
 
 import (
 	"context"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 	"math"
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/osauer/canary/v2/internal/broker"
+	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v2/internal/rpc"
 )
 
 func TestMarketHistorySMARTUsesResolvedSession(t *testing.T) {
@@ -29,15 +30,15 @@ func TestMarketHistorySMARTUsesResolvedSession(t *testing.T) {
 			now, _ := time.Parse(time.RFC3339, tc.now)
 			start, _ := time.ParseInLocation("2006-01-02", tc.wantDay, loc)
 			p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1D"}
-			got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c ibkr.Contract, days int, interval string, _ time.Duration) (ibkr.ChartSeries, error) {
+			got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c broker.Instrument, days int, interval string, _ time.Duration) (broker.BarSeries, error) {
 				if days < int(math.Ceil(now.Sub(start).Hours()/24)) || days > 6 || interval != "5 mins" {
 					t.Errorf("acquisition cannot cover the selected session within its bound: days=%d interval=%s start=%s", days, interval, start)
 				}
-				if c.Exchange != "SMART" || c.ConID != 0 || c.PrimaryExch != "" {
+				if c.Venue != "SMART" || c.ID != "" || c.Primary != "" {
 					t.Fatal("unresolved request was relabelled before broker resolution")
 				}
-				c.ConID, c.PrimaryExch = 123456, "NYSE"
-				return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+				c.ID, c.Primary = "123456", "NYSE"
+				return broker.BarSeries{Instrument: c, WhatToShow: "TRADES", Bars: []broker.Bar{
 					{Time: start.Add(-20 * time.Hour), Close: 99, Volume: 10},
 					{Time: start.Add(4 * time.Hour), Close: 101, Volume: 20},
 				}}, nil
@@ -58,9 +59,9 @@ func TestMarketHistorySMARTUsesResolvedSession(t *testing.T) {
 func TestMarketHistoryUnsupportedVenueKeepsRollingWindow(t *testing.T) {
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
 	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1D"}
-	got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c ibkr.Contract, _ int, _ string, _ time.Duration) (ibkr.ChartSeries, error) {
-		c.ConID, c.PrimaryExch = 123456, "LSE"
-		return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+	got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c broker.Instrument, _ int, _ string, _ time.Duration) (broker.BarSeries, error) {
+		c.ID, c.Primary = "123456", "LSE"
+		return broker.BarSeries{Instrument: c, WhatToShow: "TRADES", Bars: []broker.Bar{
 			{Time: now.Add(-48 * time.Hour), Close: 99},
 			{Time: now.Add(-time.Hour), Close: 101},
 		}}, nil
@@ -76,9 +77,9 @@ func TestMarketHistoryUnsupportedVenueKeepsRollingWindow(t *testing.T) {
 func TestMarketHistoryRefusalNamesTheObservation(t *testing.T) {
 	now := time.Date(2026, 10, 6, 13, 0, 0, 0, time.UTC)
 	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1Y"}
-	_, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c ibkr.Contract, _ int, _ string, _ time.Duration) (ibkr.ChartSeries, error) {
-		c.ConID, c.PrimaryExch = 123456, "PINK"
-		return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+	_, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c broker.Instrument, _ int, _ string, _ time.Duration) (broker.BarSeries, error) {
+		c.ID, c.Primary = "123456", "PINK"
+		return broker.BarSeries{Instrument: c, WhatToShow: "TRADES", Bars: []broker.Bar{
 			{Time: time.Date(2026, 1, 14, 0, 0, 0, 0, time.UTC), Open: 0.0002, High: 0.0002, Low: 0.0002, Close: 0.0002, Volume: 100},
 			{Time: time.Date(2026, 1, 15, 0, 0, 0, 0, time.UTC), Open: 0, High: 0.0001, Low: 0, Close: 0, Volume: 0},
 		}}, nil
@@ -95,9 +96,9 @@ func TestMarketHistoryRefusalNamesTheObservation(t *testing.T) {
 func TestMarketHistoryIgnoresPricesBeforeTheWindow(t *testing.T) {
 	now := time.Date(2026, 10, 6, 13, 0, 0, 0, time.UTC)
 	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1Y"}
-	got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c ibkr.Contract, _ int, _ string, _ time.Duration) (ibkr.ChartSeries, error) {
-		c.ConID, c.PrimaryExch = 123456, "PINK"
-		return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+	got, err := fetchMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c broker.Instrument, _ int, _ string, _ time.Duration) (broker.BarSeries, error) {
+		c.ID, c.Primary = "123456", "PINK"
+		return broker.BarSeries{Instrument: c, WhatToShow: "TRADES", Bars: []broker.Bar{
 			{Time: time.Date(2024, 12, 5, 0, 0, 0, 0, time.UTC), Open: 0.0001, High: 0.0001, Low: 0, Close: 0, Volume: 250},
 			{Time: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), Open: 0.0002, High: 0.0002, Low: 0.0002, Close: 0.0002, Volume: 250},
 			{Time: time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC), Open: 0.0002, High: 0.0002, Low: 0.0002, Close: 0.0002},
@@ -166,8 +167,8 @@ func TestMarketHistoryClosedVenueServesItsLastTradedDay(t *testing.T) {
 	sunday := time.Date(2026, 9, 20, 4, 9, 0, 0, time.UTC)
 	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{ConID: 654321, Symbol: "ES", SecType: "FUT", Exchange: "CME", Currency: "USD", Expiry: "20261218"}, Range: "1D"}
 	friday := time.Date(2026, 9, 18, 20, 55, 0, 0, time.UTC)
-	got, err := fetchMarketHistory(t.Context(), p, 0, sunday, func(_ context.Context, c ibkr.Contract, _ int, _ string, _ time.Duration) (ibkr.ChartSeries, error) {
-		return ibkr.ChartSeries{Contract: c, WhatToShow: "TRADES", Bars: []ibkr.HistoricalBar{
+	got, err := fetchMarketHistory(t.Context(), p, 0, sunday, func(_ context.Context, c broker.Instrument, _ int, _ string, _ time.Duration) (broker.BarSeries, error) {
+		return broker.BarSeries{Instrument: c, WhatToShow: "TRADES", Bars: []broker.Bar{
 			{Time: friday.Add(-30 * time.Hour), Close: 98},
 			{Time: friday.Add(-20 * time.Hour), Close: 99},
 			{Time: friday, Close: 101},

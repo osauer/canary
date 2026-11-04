@@ -254,7 +254,7 @@ func (s *Server) refreshStrategySignal(ctx context.Context, r register.Resolved)
 		return
 	}
 	k := s.resolveInstrument(ctx, r.Signal, strategyName(r.Entry)+"'s signal line", strategyTable(r.Entry))
-	conn := s.gatewayConnector()
+	conn := s.brokerReads()
 	if k == nil || conn == nil {
 		return
 	}

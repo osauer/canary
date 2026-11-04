@@ -741,5 +741,10 @@ Of the five responses, four changed a mechanism again (the accessor, the
 constructor, the protobuf layout, the dial gate); only the `HOME` variable
 was right as written and wrong only in the brief. These responses were
 written by the build session and were not cold-read; the build proves them
-by the tests the brief names.
+by the tests the brief names. One correction to item 3 of the constructor
+read followed in WP2 (2026-11-04 17:05 CET): "cut the account field at its
+first `:`" describes the `|` keys only; a `:`-joined key has no delimited
+account field, so there the rule is that the segment after the family
+prefix is a kind when it equals a known non-IBKR kind name. The design and
+the brief say both.
 

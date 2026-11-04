@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
 	"github.com/osauer/canary/v2/internal/setups"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func TestSetupCalendarSelectsTwentyPriorComparableSessions(t *testing.T) {
@@ -42,12 +42,12 @@ func TestSetupHistoryAcquisitionIsBoundedAndNoFutureBarsLeak(t *testing.T) {
 	start := time.Date(2026, 9, 1, 13, 30, 0, 0, time.UTC)
 	end := start.Add(29 * 24 * time.Hour)
 	count := 0
-	bars, err := collectSetupHistory(t.Context(), start, end, func(_ context.Context, from, to time.Time) ([]ibkr.HistoricalBar, error) {
+	bars, err := collectSetupHistory(t.Context(), start, end, func(_ context.Context, from, to time.Time) ([]broker.Bar, error) {
 		count++
 		if to.Sub(from) > 7*24*time.Hour || to.After(end) {
 			t.Fatal("unbounded read")
 		}
-		return []ibkr.HistoricalBar{{Time: from}, {Time: to}, {Time: from.Add(-time.Minute)}}, nil
+		return []broker.Bar{{Time: from}, {Time: to}, {Time: from.Add(-time.Minute)}}, nil
 	})
 	if err != nil || count != 5 || len(bars) != 5 {
 		t.Fatal(err, count, len(bars))
@@ -59,7 +59,7 @@ func TestSetupHistoryAcquisitionIsBoundedAndNoFutureBarsLeak(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	_, err = collectSetupHistory(ctx, start, end, func(context.Context, time.Time, time.Time) ([]ibkr.HistoricalBar, error) {
+	_, err = collectSetupHistory(ctx, start, end, func(context.Context, time.Time, time.Time) ([]broker.Bar, error) {
 		t.Fatal("read after cancellation")
 		return nil, nil
 	})
@@ -695,7 +695,7 @@ func TestSetupContractIsResolvedOncePerBrokerSession(t *testing.T) {
 	}
 	// The memo is bounded, least recently used first.
 	for i := range setupResolutionLimit + 6 {
-		if _, err := s.resolveSetupContract(t.Context(), src, ibkr.HistoricalSessionBinding{}, ibkr.Contract{Symbol: fmt.Sprintf("SYNX%02d", i), SecType: "STK", Currency: "USD"}); err != nil {
+		if _, err := s.resolveSetupContract(t.Context(), src, fakeSession, broker.Instrument{Symbol: fmt.Sprintf("SYNX%02d", i), SecType: "STK", Currency: "USD"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -707,10 +707,10 @@ func TestSetupContractIsResolvedOncePerBrokerSession(t *testing.T) {
 func TestSetupBarsCarryIBKRTradeCounts(t *testing.T) {
 	at, _ := time.Parse(time.RFC3339, "2026-09-30T09:30:00-04:00")
 	session := setups.Session{Date: "2026-09-30", Open: at, Close: at.Add(390 * time.Minute)}
-	bar := func(minute, volume int64, count int) ibkr.HistoricalBar {
-		return ibkr.HistoricalBar{Time: at.Add(time.Duration(minute) * time.Minute), Open: 10, High: 10, Low: 10, Close: 10, Volume: volume, BarCount: count}
+	bar := func(minute, volume int64, count int) broker.Bar {
+		return broker.Bar{Time: at.Add(time.Duration(minute) * time.Minute), Open: 10, High: 10, Low: 10, Close: 10, Volume: volume, BarCount: count}
 	}
-	got := attachSetupBars([]setups.Session{session}, []ibkr.HistoricalBar{bar(0, 500, 37), bar(5, 0, 0), bar(10, 500, 0), bar(15, 500, -1)})[0].Bars
+	got := attachSetupBars([]setups.Session{session}, []broker.Bar{bar(0, 500, 37), bar(5, 0, 0), bar(10, 500, 0), bar(15, 500, -1)})[0].Bars
 	if len(got) != 4 || got[0].Trades == nil || *got[0].Trades != 37 {
 		t.Fatalf("reported count lost: %+v", got)
 	}

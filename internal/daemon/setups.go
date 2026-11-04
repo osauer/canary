@@ -8,28 +8,30 @@ import (
 	"sort"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 	"github.com/osauer/canary/v2/internal/setups"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-// setupBarSource is the broker surface a setup evaluation reads. The live
-// connector implements it; daemon tests replace it.
+// setupBarSource is the broker surface a setup evaluation reads: the seam's
+// session, instrument resolution and session bars. The broker adapter
+// implements it; daemon tests replace it.
 type setupBarSource interface {
-	CaptureHistoricalSession() (ibkrlib.HistoricalSessionBinding, bool)
-	HistoricalSessionCurrent(ibkrlib.HistoricalSessionBinding) bool
-	ResolveOrderContractForSession(context.Context, ibkrlib.ConnectorSessionBinding, ibkrlib.Contract, time.Duration) (ibkrlib.ResolvedOrderContract, error)
-	FetchSetupBars(context.Context, ibkrlib.Contract, time.Time, time.Time, time.Duration) ([]ibkrlib.HistoricalBar, error)
+	Capture() (broker.SessionBinding, bool)
+	Current(broker.SessionBinding) bool
+	Resolve(context.Context, broker.SessionBinding, broker.Instrument, time.Duration) (broker.Instrument, error)
+	SessionBars(context.Context, broker.Instrument, time.Time, time.Time, time.Duration) ([]broker.Bar, error)
 }
 
-// setupSource returns the test override, else the live connector, else nil.
+// setupSource returns the test override, else the live broker, else nil.
 func (s *Server) setupSource() setupBarSource {
 	if s.setupSourceForTest != nil {
 		return s.setupSourceForTest
 	}
-	if c := s.gatewayConnector(); c != nil {
-		return c
+	if a := s.brokerReads(); a != nil {
+		return a
 	}
 	return nil
 }
@@ -68,9 +70,9 @@ type countingSetupSource struct {
 	reads *int
 }
 
-func (c countingSetupSource) FetchSetupBars(ctx context.Context, contract ibkrlib.Contract, start, end time.Time, timeout time.Duration) ([]ibkrlib.HistoricalBar, error) {
+func (c countingSetupSource) SessionBars(ctx context.Context, in broker.Instrument, start, end time.Time, timeout time.Duration) ([]broker.Bar, error) {
 	*c.reads++
-	return c.setupBarSource.FetchSetupBars(ctx, contract, start, end, timeout)
+	return c.setupBarSource.SessionBars(ctx, in, start, end, timeout)
 }
 
 // evaluateSetup serves one evaluation and describes it in ev for coverage.
@@ -106,23 +108,23 @@ func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, n
 		return unavailable("gateway_unavailable"), nil
 	}
 	c = countingSetupSource{setupBarSource: c, reads: &ev.requests}
-	binding, ok := c.CaptureHistoricalSession()
+	binding, ok := c.Capture()
 	if !ok {
 		return unavailable("gateway_unavailable"), nil
 	}
-	contract, _, _, err := normaliseStockQuoteContract(p.Contract)
+	requested, _, _, err := normaliseStockQuoteContract(p.Contract)
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := s.resolveSetupContract(ctx, c, binding, contract)
+	contract, err := s.resolveSetupContract(ctx, c, binding, brokerIBKR.Instrument(requested))
 	if err != nil {
 		return unavailable("contract_resolution_unavailable"), nil
 	}
-	contract = resolved.Contract
-	if contract.ConID <= 0 || contract.SecType != "STK" || contract.Currency != "USD" || !usChartCalendar(rpc.ContractParams{SecType: "STK", Currency: "USD", PrimaryExch: contract.PrimaryExch, Exchange: contract.Exchange}) {
+	conID, _ := contract.IDInt()
+	if conID <= 0 || contract.SecType != "STK" || contract.Currency != "USD" || !usChartCalendar(rpc.ContractParams{SecType: "STK", Currency: "USD", PrimaryExch: contract.Primary, Exchange: contract.Venue}) {
 		return unavailable("unsupported_underlying_calendar"), nil
 	}
-	base.Contract = rpc.ContractParams{ConID: contract.ConID, Symbol: contract.Symbol, SecType: contract.SecType, Exchange: contract.Exchange, PrimaryExch: contract.PrimaryExch, Currency: contract.Currency, LocalSymbol: contract.LocalSymbol, TradingClass: contract.TradingClass}
+	base.Contract = rpc.ContractParams{ConID: conID, Symbol: contract.Symbol, SecType: contract.SecType, Exchange: contract.Venue, PrimaryExch: contract.Primary, Currency: contract.Currency, LocalSymbol: contract.LocalSymbol, TradingClass: contract.TradingClass}
 	ev.contract = base.Contract
 	rawKey, _ := json.Marshal(base.Contract)
 	contractKey := string(rawKey)
@@ -152,7 +154,7 @@ func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, n
 			switch {
 			case e == nil:
 				s.setupProfiles.clearMiss(contractKey, current.Date)
-			case ctx.Err() != nil || !c.HistoricalSessionCurrent(binding):
+			case ctx.Err() != nil || !c.Current(binding):
 				// The caller's cancellation or a broker reconnect says nothing
 				// about the history; the next evaluation reads again.
 				reason = e.Error()
@@ -165,11 +167,11 @@ func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, n
 			return unavailable("baseline_history_unavailable: " + reason), nil
 		}
 	}
-	if !c.HistoricalSessionCurrent(binding) {
+	if !c.Current(binding) {
 		return unavailable("broker_session_changed"), nil
 	}
 	if historical {
-		bars, err := c.FetchSetupBars(ctx, contract, current.Open, at, 20*time.Second)
+		bars, err := c.SessionBars(ctx, contract, current.Open, at, 20*time.Second)
 		if err != nil {
 			return unavailable("current_history_unavailable: " + err.Error()), nil
 		}
@@ -185,7 +187,7 @@ func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, n
 		}
 		base.At, base.ObservedAt, base.Current = bars.at, bars.acquired, bars.session
 	}
-	if !c.HistoricalSessionCurrent(binding) {
+	if !c.Current(binding) {
 		return unavailable("broker_session_changed"), nil
 	}
 	base.Prior = profile
@@ -198,12 +200,12 @@ func (s *Server) evaluateSetup(ctx context.Context, p rpc.SetupEvaluateParams, n
 
 // acquireSetupProfile reads only the window sessions the cache lacks, keeps
 // every complete session it received, and reports an incomplete window.
-func (s *Server) acquireSetupProfile(ctx context.Context, c setupBarSource, contract ibkrlib.Contract, key, session string, window, missing []setups.Session) ([]setups.Session, time.Time, error) {
-	var bars []ibkrlib.HistoricalBar
+func (s *Server) acquireSetupProfile(ctx context.Context, c setupBarSource, contract broker.Instrument, key, session string, window, missing []setups.Session) ([]setups.Session, time.Time, error) {
+	var bars []broker.Bar
 	var readErr error
 	for _, r := range setupFetchRanges(missing) {
-		got, err := collectSetupHistory(ctx, r[0], r[1], func(ctx context.Context, start, end time.Time) ([]ibkrlib.HistoricalBar, error) {
-			return c.FetchSetupBars(ctx, contract, start, end, 20*time.Second)
+		got, err := collectSetupHistory(ctx, r[0], r[1], func(ctx context.Context, start, end time.Time) ([]broker.Bar, error) {
+			return c.SessionBars(ctx, contract, start, end, 20*time.Second)
 		})
 		if err == nil && len(bars)+len(got) > 2000 {
 			err = fmt.Errorf("setup_history_exceeds_2000_bars")
@@ -279,11 +281,11 @@ func setupSessionWindows(at time.Time, count int) (setups.Session, []setups.Sess
 	return current, prior, nil
 }
 
-func collectSetupHistory(ctx context.Context, start, end time.Time, fetch func(context.Context, time.Time, time.Time) ([]ibkrlib.HistoricalBar, error)) ([]ibkrlib.HistoricalBar, error) {
+func collectSetupHistory(ctx context.Context, start, end time.Time, fetch func(context.Context, time.Time, time.Time) ([]broker.Bar, error)) ([]broker.Bar, error) {
 	if !end.After(start) || end.Sub(start) > 120*24*time.Hour {
 		return nil, fmt.Errorf("invalid_history_window")
 	}
-	var out []ibkrlib.HistoricalBar
+	var out []broker.Bar
 	for cursor := start; cursor.Before(end); {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -310,7 +312,7 @@ func collectSetupHistory(ctx context.Context, start, end time.Time, fetch func(c
 	return out, nil
 }
 
-func attachSetupBars(sessions []setups.Session, bars []ibkrlib.HistoricalBar) []setups.Session {
+func attachSetupBars(sessions []setups.Session, bars []broker.Bar) []setups.Session {
 	out := append([]setups.Session(nil), sessions...)
 	for i := range out {
 		out[i].Bars = nil
@@ -326,7 +328,7 @@ func attachSetupBars(sessions []setups.Session, bars []ibkrlib.HistoricalBar) []
 
 // setupBarTrades is IBKR's trade count for a bar. The decoder reads an absent
 // count as zero, so zero with volume is unknown; IBKR sends -1 for none.
-func setupBarTrades(b ibkrlib.HistoricalBar) *int64 {
+func setupBarTrades(b broker.Bar) *int64 {
 	if b.BarCount < 0 || b.BarCount == 0 && b.Volume > 0 {
 		return nil
 	}

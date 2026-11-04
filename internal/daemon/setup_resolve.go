@@ -6,13 +6,13 @@ import (
 	"sync"
 	"time"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v2/internal/broker"
 )
 
 // setupResolver is the broker surface for exact underlying identity.
 type setupResolver interface {
-	HistoricalSessionCurrent(ibkrlib.HistoricalSessionBinding) bool
-	ResolveOrderContractForSession(context.Context, ibkrlib.ConnectorSessionBinding, ibkrlib.Contract, time.Duration) (ibkrlib.ResolvedOrderContract, error)
+	Current(broker.SessionBinding) bool
+	Resolve(context.Context, broker.SessionBinding, broker.Instrument, time.Duration) (broker.Instrument, error)
 }
 
 // setupResolutionLimit bounds remembered resolutions; the least recently
@@ -31,18 +31,18 @@ type setupResolutionCache struct {
 }
 
 type setupResolution struct {
-	binding  ibkrlib.HistoricalSessionBinding
-	resolved ibkrlib.ResolvedOrderContract
+	binding  broker.SessionBinding
+	resolved broker.Instrument
 	used     uint64
 }
 
-// resolveSetupContract returns the exact contract for the requested one in
+// resolveSetupContract returns the exact instrument for the requested one in
 // binding's broker session, reading the broker only on a miss.
-func (s *Server) resolveSetupContract(ctx context.Context, c setupResolver, binding ibkrlib.HistoricalSessionBinding, requested ibkrlib.Contract) (ibkrlib.ResolvedOrderContract, error) {
+func (s *Server) resolveSetupContract(ctx context.Context, c setupResolver, binding broker.SessionBinding, requested broker.Instrument) (broker.Instrument, error) {
 	raw, _ := json.Marshal(requested)
 	key := string(raw)
 	p := &s.setupResolutions
-	current := c.HistoricalSessionCurrent(binding)
+	current := c.Current(binding)
 	p.mu.Lock()
 	if row := p.rows[key]; row != nil {
 		if current && row.binding == binding {
@@ -55,8 +55,8 @@ func (s *Server) resolveSetupContract(ctx context.Context, c setupResolver, bind
 		delete(p.rows, key)
 	}
 	p.mu.Unlock()
-	resolved, err := c.ResolveOrderContractForSession(ctx, binding, requested, 10*time.Second)
-	if err != nil || !c.HistoricalSessionCurrent(binding) {
+	resolved, err := c.Resolve(ctx, binding, requested, 10*time.Second)
+	if err != nil || !c.Current(binding) {
 		return resolved, err
 	}
 	p.mu.Lock()

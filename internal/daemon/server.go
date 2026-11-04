@@ -25,6 +25,7 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/dial"
@@ -584,6 +585,12 @@ type Server struct {
 	// connectorEpoch changes whenever the daemon publishes or removes the
 	// evidence across reconnects even when account/mode text is unchanged.
 	connectorEpoch uint64
+	// brokerAdapter is the read seam over connector (internal/broker), one
+	// per connector, built on first use by brokerReads and replaced when the
+	// connector is; brokerGeneration counts the adapters built, so a binding
+	// of an earlier adapter is never current on a later one.
+	brokerAdapter    *brokerIBKR.Adapter
+	brokerGeneration uint64
 	// rulesRegimeStage latches the bucketed regime lifecycle stage for the
 	// rulebook's regime-conditional thresholds, persisted across restarts
 	// (rules-regime-stage.json) so a bounce mid-stress cannot reset
@@ -1486,12 +1493,12 @@ func pruneNonMembers(loaded map[string]ibkrlib.ContractDetailsLite, members []st
 // gatewayConnector on each call so a daemon-side reconnect is observed
 // without re-registering the manager.
 func (s *Server) installSubs() {
-	s.subs = newSubManager(func() ibkrMarketConnector {
-		c := s.gatewayConnector()
-		if c == nil {
+	s.subs = newSubManager(func() marketQuotes {
+		a := s.brokerReads()
+		if a == nil {
 			return nil
 		}
-		return c
+		return a
 	})
 }
 
@@ -2813,6 +2820,37 @@ func (s *Server) gatewayConnector() *ibkrlib.Connector {
 		return nil
 	}
 	return c
+}
+
+// brokerReads returns the read seam over the live IBKR connector, or nil
+// exactly when gatewayConnector does: the same readiness rule and the same
+// reconnect arming. Callers that store the result in an interface must test
+// this pointer for nil first. One adapter is kept per connector and built on
+// first use rather than at the publication site, because tests seat
+// s.connector directly; a rebuilt connector gets a new adapter with the
+// next generation, so a binding of the old one is never current on it.
+func (s *Server) brokerReads() *brokerIBKR.Adapter {
+	c := s.gatewayConnector()
+	if c == nil {
+		return nil
+	}
+	return s.adapterFor(c)
+}
+
+// adapterFor returns the adapter over c, building it when c is not the
+// connector the current adapter wraps.
+func (s *Server) adapterFor(c *ibkrlib.Connector) *brokerIBKR.Adapter {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.brokerAdapter == nil || !s.brokerAdapter.Wraps(c) {
+		s.brokerGeneration++
+		var logf func(string, ...any)
+		if s.logger != nil {
+			logf = s.logger.Infof
+		}
+		s.brokerAdapter = brokerIBKR.New(c, s.brokerGeneration, logf)
+	}
+	return s.brokerAdapter
 }
 
 func (s *Server) openSocket() error {

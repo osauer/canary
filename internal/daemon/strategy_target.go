@@ -408,7 +408,7 @@ func (s *Server) refreshStrategies(ctx context.Context) {
 			continue
 		}
 		if k := s.resolveInstrument(ctx, r.Instrument, strategyName(r.Entry), strategyTable(r.Entry)); k != nil {
-			if conn := s.gatewayConnector(); conn != nil {
+			if conn := s.brokerReads(); conn != nil {
 				s.refreshMandateSeries(ctx, conn, instrumentSeriesNeed(seriesKeyFor(r, k.ConID), k))
 			}
 		}

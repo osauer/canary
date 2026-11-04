@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/setups"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // setupCurrentBars is the latest current-session read of one contract. A
@@ -14,7 +14,7 @@ import (
 // and acquisition clocks: an evaluation on retained bars never claims a
 // fresher observation than the read. Replays (--at) neither read nor feed it.
 type setupCurrentBars struct {
-	binding  ibkrlib.HistoricalSessionBinding
+	binding  broker.SessionBinding
 	session  setups.Session
 	at       time.Time // decision clock that bounded the read
 	acquired time.Time // when the read completed
@@ -38,11 +38,11 @@ const setupCurrentLimit = setupProfileRowsMax
 // servable reports whether a live evaluation at now may reuse m: same broker
 // session and market session, no new bar due yet (a closed session's read is
 // complete), and a read no older than the baseline it is paired with.
-func (m *setupCurrentBars) servable(binding ibkrlib.HistoricalSessionBinding, session string, now, baseline time.Time) bool {
+func (m *setupCurrentBars) servable(binding broker.SessionBinding, session string, now, baseline time.Time) bool {
 	return m != nil && m.binding == binding && m.session.Date == session && !now.Before(m.at) && (m.complete || now.Before(m.next)) && !m.acquired.Before(baseline)
 }
 
-func newSetupCurrentBars(binding ibkrlib.HistoricalSessionBinding, current setups.Session, bars []ibkrlib.HistoricalBar, at, acquired time.Time) setupCurrentBars {
+func newSetupCurrentBars(binding broker.SessionBinding, current setups.Session, bars []broker.Bar, at, acquired time.Time) setupCurrentBars {
 	session := attachSetupBars([]setups.Session{current}, bars)[0]
 	last := current.Open
 	for _, b := range session.Bars {
@@ -56,7 +56,7 @@ func newSetupCurrentBars(binding ibkrlib.HistoricalSessionBinding, current setup
 // liveCurrentBars returns the current session's bars for a live evaluation
 // decided at at, reading at most once per contract per completed bar. read
 // reports whether this call performed the broker read.
-func (s *Server) liveCurrentBars(ctx context.Context, c setupBarSource, binding ibkrlib.HistoricalSessionBinding, contract ibkrlib.Contract, key string, current setups.Session, at, baseline time.Time) (bars setupCurrentBars, read bool, err error) {
+func (s *Server) liveCurrentBars(ctx context.Context, c setupBarSource, binding broker.SessionBinding, contract broker.Instrument, key string, current setups.Session, at, baseline time.Time) (bars setupCurrentBars, read bool, err error) {
 	p := &s.setupProfiles
 	for {
 		now := s.setupClock()
@@ -91,7 +91,7 @@ func (s *Server) liveCurrentBars(ctx context.Context, c setupBarSource, binding 
 		p.flights[key] = f
 		p.mu.Unlock()
 
-		raw, err := c.FetchSetupBars(ctx, contract, current.Open, at, 20*time.Second)
+		raw, err := c.SessionBars(ctx, contract, current.Open, at, 20*time.Second)
 		if err == nil {
 			bars = newSetupCurrentBars(binding, current, raw, at, s.setupClock())
 		}

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -249,19 +250,19 @@ func TestMarketHistoryRefreshCarriesADelayedIndexThroughTheOpen(t *testing.T) {
 	open := time.Date(2026, 9, 15, 9, 30, 0, 0, ny) // Tuesday
 	monday := open.AddDate(0, 0, -1)
 	mondayLast := monday.Add(77 * 5 * time.Minute)
-	var bars []ibkrlib.HistoricalBar
+	var bars []broker.Bar
 	for _, session := range []time.Time{monday, open} {
 		for i := range 78 {
-			bars = append(bars, ibkrlib.HistoricalBar{Time: session.Add(time.Duration(i) * 5 * time.Minute), Open: 100, High: 101, Low: 99, Close: 100.5})
+			bars = append(bars, broker.Bar{Time: session.Add(time.Duration(i) * 5 * time.Minute), Open: 100, High: 101, Low: 99, Close: 100.5})
 		}
 	}
 	const lag = 15 * time.Minute
 	clock := open.Add(-3*time.Hour - 31*time.Minute) // 05:59 New York
 	s.now = func() time.Time { return clock }
 	reads := 0
-	broker := func(_ context.Context, c ibkrlib.Contract, _ int, _ string, _ time.Duration) (ibkrlib.ChartSeries, error) {
+	broker := func(_ context.Context, c broker.Instrument, _ int, _ string, _ time.Duration) (broker.BarSeries, error) {
 		reads++
-		series := ibkrlib.ChartSeries{Contract: c, WhatToShow: "TRADES"}
+		series := broker.BarSeries{Instrument: c, WhatToShow: "TRADES"}
 		for _, b := range bars {
 			if !b.Time.After(clock.Add(-lag)) {
 				series.Bars = append(series.Bars, b)

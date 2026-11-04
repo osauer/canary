@@ -393,8 +393,10 @@ the twelve sites that build a scope from `rpc.TradingStatus`
 `broker_permissions.go:310` and `409`) go through a status form of the
 constructor, for which `rpc.TradingStatus` gains the additive `Broker`
 kind; the one key reader, `core_rebalance.go:858-869`, uses the
-constructor's key form, which cuts the account field at its first `:` (an
-IBKR account never contains one); the 23 non-test daemon files, plus
+constructor's key form (in a `|` key the account field is cut at its first
+`:`, which no IBKR account contains; in a `:`-joined key the segment after
+the family prefix is a kind when it equals a known non-IBKR kind name, else
+the account); the 23 non-test daemon files, plus
 `internal/risk`, that write the scope into a persisted key, fingerprint,
 journal line or typed term go through one helper per shape, three shapes:
 a string key carries the kind inside the account field, never in front of

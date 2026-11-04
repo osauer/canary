@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/marketcal"
@@ -93,7 +94,7 @@ type mandateHistoryAttempt struct {
 	completedSession string
 	market           marketcal.Market
 	at               time.Time
-	session          ibkrlib.ConnectorSessionBinding
+	session          broker.SessionBinding
 	attempts         int
 	succeeded        bool
 }
@@ -447,7 +448,7 @@ func (s *Server) refreshMandateHistoryOnce(ctx context.Context) {
 	if s.riskPolicies == nil || !s.riskPolicies.snapshot().policy.MandateActive() {
 		return
 	}
-	c := s.gatewayConnector()
+	c := s.brokerReads()
 	if c == nil {
 		return
 	}
@@ -479,8 +480,8 @@ func (s *Server) refreshMandateHistoryOnce(ctx context.Context) {
 // budget allows: one complete read per completed market session, failed attempts
 // retried after mandateHistoryRetryAfter up to mandateHistoryAttemptsPerSession.
 type mandateHistorySession interface {
-	CaptureHistoricalSession() (ibkrlib.HistoricalSessionBinding, bool)
-	HistoricalSessionCurrent(ibkrlib.HistoricalSessionBinding) bool
+	Capture() (broker.SessionBinding, bool)
+	Current(broker.SessionBinding) bool
 }
 
 func (s *Server) refreshMandateSeries(ctx context.Context, c mandateHistorySession, need mandateHistoryNeed) {
@@ -493,7 +494,7 @@ func (s *Server) refreshMandateSeries(ctx context.Context, c mandateHistorySessi
 	if !mandateSeriesDue(series, now) {
 		return
 	}
-	session, ok := c.CaptureHistoricalSession()
+	session, ok := c.Capture()
 	if !ok {
 		return
 	}
@@ -511,7 +512,7 @@ func (s *Server) refreshMandateSeries(ctx context.Context, c mandateHistorySessi
 	st := &s.mandateHistory
 	st.mu.Lock()
 	attempt, seen := st.attempts[need.Key]
-	sameSession := seen && c.HistoricalSessionCurrent(attempt.session) && attempt.session == session && attempt.market == market && completed <= attempt.completedSession
+	sameSession := seen && c.Current(attempt.session) && attempt.session == session && attempt.market == market && completed <= attempt.completedSession
 	if sameSession && (attempt.succeeded || attempt.attempts >= mandateHistoryAttemptsPerSession || now.Before(attempt.at.Add(mandateHistoryRetryAfter))) {
 		st.mu.Unlock()
 		return

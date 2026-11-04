@@ -10,6 +10,8 @@ import (
 
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -30,20 +32,18 @@ const defaultCoalesceInterval = 150 * time.Millisecond
 // market-event borrow-inventory flag.
 var defaultGenericTicks = []string{"100", "101", "104", "106", "165", "236"}
 
-// ibkrMarketConnector is the slice of *ibkrlib.Connector that subManager
-// touches. Defining it as an interface lets unit tests drive the manager
-// with a fake instead of a real gateway connection — required by the
-// project's "no mocks for daemon-internal data, but transport seams are
-// fair game" rule.
-type ibkrMarketConnector interface {
-	SubscribeMarketData(ctx context.Context, symbol string, fields []string) error
-	SubscribeMarketDataWithContract(ctx context.Context, contract ibkrlib.Contract, fields []string) (string, error)
-	UnsubscribeMarketData(symbol string) error
-	MarketDataSnapshot() map[string]*ibkrlib.MarketData
-	MarketDataTypeForSymbol(symbol string) int
+// The manager reads the broker through broker.Quotes, the read seam's
+// quote surface (the IBKR adapter in production, a fake in unit tests, as
+// the project's "no mocks for daemon-internal data, but transport seams are
+// fair game" rule allows). A subscribe returns the line's key and the
+// session binding it was opened in; the entry keeps that binding and the
+// manager rechecks it with Current on every tick and at teardown.
+type marketQuotes interface {
+	broker.Quotes
+	Current(broker.SessionBinding) bool
 }
 
-type marketSubscribeFunc func(context.Context, ibkrMarketConnector) (string, error)
+type marketSubscribeFunc func(context.Context, marketQuotes) (string, broker.SessionBinding, error)
 
 // subManager owns the daemon's per-symbol market-data subscriptions and
 // + concurrent snapshot polls). At most one IBKR market-data line is held
@@ -59,16 +59,17 @@ type subManager struct {
 	initLocks map[string]*sync.Mutex
 
 	// connector is re-fetched on every tick so a daemon-side reconnect
-	connector func() ibkrMarketConnector
+	connector func() marketQuotes
 }
 
 type subEntry struct {
-	cancelSource func(context.Context, string) error
-	sym          string
-	owner        ibkrMarketConnector
-	current      func() bool
-	stopOnce     sync.Once
-	stop         chan struct{}
+	sym   string
+	owner marketQuotes
+	// binding is the session the line was opened in; the entry is current
+	// while owner still reports it so.
+	binding  broker.SessionBinding
+	stopOnce sync.Once
+	stop     chan struct{}
 
 	// mu guards everything below. Per-symbol scope so fan-out and
 	// release on one symbol don't block operations on another.
@@ -87,7 +88,7 @@ type frameTap struct {
 	ch chan rpc.Frame
 }
 
-func newSubManager(connector func() ibkrMarketConnector) *subManager {
+func newSubManager(connector func() marketQuotes) *subManager {
 	return &subManager{
 		subs:      map[string]*subEntry{},
 		coalesce:  defaultCoalesceInterval,
@@ -126,15 +127,6 @@ func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subsc
 	if c == nil {
 		return nil, "", nil, ibkrlib.ErrIBKRUnavailable
 	}
-
-	var origin ibkrlib.ConnectorSessionBinding
-	if real, ok := c.(*ibkrlib.Connector); ok {
-		var ready bool
-		origin, ready = real.CaptureSession()
-		if !ready {
-			return nil, "", nil, ibkrlib.ErrIBKRUnavailable
-		}
-	}
 	initLock := m.symInitLock(sym)
 	initLock.Lock()
 	locked := true
@@ -159,8 +151,10 @@ func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subsc
 	if !exists {
 		// First reference for this symbol — open the IBKR line outside
 		// any cross-symbol lock. pkg/ibkr's SubscribeMarketData is itself
-		key, err := subscribe(ctx, c)
-		if real, ok := c.(*ibkrlib.Connector); ok && !real.SessionCurrent(origin) {
+		key, binding, err := subscribe(ctx, c)
+		if !c.Current(binding) {
+			// The session that opened the line is gone (or none was
+			// captured): the line, if any, belongs to nobody.
 			return nil, "", nil, ibkrlib.ErrIBKRUnavailable
 		}
 		if err != nil {
@@ -188,20 +182,11 @@ func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subsc
 		}
 		if !exists {
 			e = &subEntry{
-				sym:   subKey,
-				owner: c,
-				taps:  map[*frameTap]struct{}{},
-				stop:  make(chan struct{}),
-			}
-			if real, ok := c.(*ibkrlib.Connector); ok {
-				binding, ready := origin, real.SessionCurrent(origin)
-				e.current = func() bool { return ready && real.SessionCurrent(binding) }
-				e.cancelSource = func(ctx context.Context, key string) error {
-					if !ready {
-						return nil
-					}
-					return real.UnsubscribeSharedMarketDataForSession(ctx, binding, key)
-				}
+				sym:     subKey,
+				owner:   c,
+				binding: binding,
+				taps:    map[*frameTap]struct{}{},
+				stop:    make(chan struct{}),
 			}
 			m.subsMu.Lock()
 			m.subs[subKey] = e
@@ -222,7 +207,7 @@ func (m *subManager) acquire(ctx context.Context, sym string, addTap bool, subsc
 	seedExisting := tap != nil && e.emitted
 	e.mu.Unlock()
 	if seedExisting {
-		if md, ok := c.MarketDataSnapshot()[subKey]; ok {
+		if md, ok := c.Snapshot()[subKey]; ok && md != nil {
 			frame := buildFrame(md, marketDataTypeName(md.FeedType))
 			select {
 			case tap.ch <- frame:
@@ -248,8 +233,8 @@ func (m *subManager) Subscribe(ctx context.Context, sym string) (<-chan rpc.Fram
 	if sym == "" {
 		return nil, func() {}, errors.New("subscribe: symbol required")
 	}
-	tap, key, entry, err := m.acquire(ctx, sym, true, func(subCtx context.Context, c ibkrMarketConnector) (string, error) {
-		return sym, c.SubscribeMarketData(subCtx, sym, defaultGenericTicks)
+	tap, key, entry, err := m.acquire(ctx, sym, true, func(subCtx context.Context, c marketQuotes) (string, broker.SessionBinding, error) {
+		return c.SubscribeSymbol(subCtx, sym, defaultGenericTicks)
 	})
 	if err != nil {
 		return nil, func() {}, err
@@ -265,13 +250,17 @@ func (m *subManager) Subscribe(ctx context.Context, sym string) (<-chan rpc.Fram
 	return tap.ch, release, nil
 }
 
+// SubscribeContract streams an exact instrument. Callers hand over the IBKR
+// contract they already hold; the manager maps it onto the seam's identity
+// at this boundary, so the broker-neutral manager keeps one caller contract.
 func (m *subManager) SubscribeContract(ctx context.Context, contract ibkrlib.Contract) (<-chan rpc.Frame, func(), error) {
 	key := ibkrlib.MarketDataKeyForContract(contract)
 	if key == "" {
 		return nil, func() {}, errors.New("subscribe: contract symbol required")
 	}
-	tap, actualKey, entry, err := m.acquire(ctx, key, true, func(subCtx context.Context, c ibkrMarketConnector) (string, error) {
-		return c.SubscribeMarketDataWithContract(subCtx, contract, defaultGenericTicks)
+	in := brokerIBKR.Instrument(contract)
+	tap, actualKey, entry, err := m.acquire(ctx, key, true, func(subCtx context.Context, c marketQuotes) (string, broker.SessionBinding, error) {
+		return c.Subscribe(subCtx, in, defaultGenericTicks)
 	})
 	if err != nil {
 		return nil, func() {}, err
@@ -294,8 +283,8 @@ func (m *subManager) Hold(ctx context.Context, sym string) (func(), error) {
 	if sym == "" {
 		return func() {}, errors.New("hold: symbol required")
 	}
-	_, key, entry, err := m.acquire(ctx, sym, false, func(subCtx context.Context, c ibkrMarketConnector) (string, error) {
-		return sym, c.SubscribeMarketData(subCtx, sym, defaultGenericTicks)
+	_, key, entry, err := m.acquire(ctx, sym, false, func(subCtx context.Context, c marketQuotes) (string, broker.SessionBinding, error) {
+		return c.SubscribeSymbol(subCtx, sym, defaultGenericTicks)
 	})
 	if err != nil {
 		return func() {}, err
@@ -350,8 +339,8 @@ func (m *subManager) releaseContext(ctx context.Context, sym string, tap *frameT
 }
 
 // teardown stops the tick loop and unsubscribes the IBKR line. The IBKR
-func entryCurrent(e *subEntry, c ibkrMarketConnector) bool {
-	return e.owner == c && (e.current == nil || e.current())
+func entryCurrent(e *subEntry, c marketQuotes) bool {
+	return e.owner == c && c.Current(e.binding)
 }
 func (m *subManager) teardown(e *subEntry, sym string) {
 	m.teardownContext(context.Background(), e, sym)
@@ -365,20 +354,12 @@ func (m *subManager) teardownContext(ctx context.Context, e *subEntry, sym strin
 			delete(e.taps, tap)
 		}
 		e.mu.Unlock()
-		if e.current == nil || e.current() {
-			if c := e.owner; c != nil {
-				if real, ok := c.(*ibkrlib.Connector); ok {
-					cleanup, cancel := context.WithTimeout(ctx, 3*time.Second)
-					defer cancel()
-					if e.cancelSource != nil {
-						_ = e.cancelSource(cleanup, sym)
-					} else {
-						_ = real.UnsubscribeMarketDataContext(cleanup, sym)
-					}
-				} else {
-					_ = c.UnsubscribeMarketData(sym)
-				}
-			}
+		// The line is released only in the session that opened it; a
+		// line of a lost session is gone with it.
+		if c := e.owner; c != nil && c.Current(e.binding) {
+			cleanup, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			_ = c.UnsubscribeForSession(cleanup, e.binding, sym)
 		}
 	})
 }
@@ -415,9 +396,9 @@ func (m *subManager) tickLoop(e *subEntry) {
 			if noReaders {
 				continue
 			}
-			data := c.MarketDataSnapshot()
+			data := c.Snapshot()
 			md, ok := data[e.sym]
-			if !ok {
+			if !ok || md == nil {
 				continue
 			}
 			dt := marketDataTypeName(md.FeedType)
@@ -512,12 +493,12 @@ func (m *subManager) activeCount() int {
 	return len(m.subs)
 }
 
-// buildFrame projects an *ibkrlib.MarketData snapshot into the wire frame
-// shape, using nil pointers for fields the gateway hasn't delivered yet.
-// Note: the original code lifted on `!= 0` for all fields, but bid/ask/last
-// only carry positive prices and negative values would be a protocol bug,
-// so ptrIfPos is the safer semantic.
-func buildFrame(md *ibkrlib.MarketData, dt string) rpc.Frame {
+// buildFrame projects a cached quote into the wire frame shape, using nil
+// pointers for fields the broker hasn't delivered yet. Note: the original
+// code lifted on `!= 0` for all fields, but bid/ask/last only carry positive
+// prices and negative values would be a protocol bug, so ptrIfPos is the
+// safer semantic.
+func buildFrame(md *broker.Quote, dt string) rpc.Frame {
 	if dt == "" && (md.Last > 0 || md.Bid > 0 || md.Ask > 0) {
 		dt = rpc.MarketDataUnknown
 	}
@@ -538,8 +519,9 @@ func (m *subManager) HoldContract(ctx context.Context, contract ibkrlib.Contract
 	if key == "" {
 		return "", func(context.Context) {}, errors.New("contract symbol required")
 	}
-	_, actual, entry, err := m.acquire(ctx, key, false, func(ctx context.Context, c ibkrMarketConnector) (string, error) {
-		return c.SubscribeMarketDataWithContract(ctx, contract, defaultGenericTicks)
+	in := brokerIBKR.Instrument(contract)
+	_, actual, entry, err := m.acquire(ctx, key, false, func(ctx context.Context, c marketQuotes) (string, broker.SessionBinding, error) {
+		return c.Subscribe(ctx, in, defaultGenericTicks)
 	})
 	if err != nil {
 		return "", func(context.Context) {}, err

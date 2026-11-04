@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 16:40 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 17:00 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -25,7 +25,9 @@ work package so a fresh session resumes without the conversation.
 
 | WP | Commit | Gate | Stamp |
 | --- | --- | --- | --- |
-| WP1 `internal/broker` types, the fifth read recorded, design and brief corrected | the commit carrying this note | `make test` at `e514c61b` plus the WP1 tree | see the commit body |
+| (before WP1) the no-room mandate render fixture's synthetic capital moved away from the live book; the account-data gate's two-percent band for files not yet on origin/main had caught it and the pre-commit hook refused every commit | `0b074572` | `check-no-account-data.sh` on the index, `make test` | `gate test at canary--v3.33.1-9-ge514c61b-dirty exit 0` |
+| WP1 `internal/broker` types, the fifth read recorded, design and brief corrected | `599cf806` | `make test` | `gate test at canary--v3.33.1-9-ge514c61b-dirty exit 0` (one run, both diffs in the tree) |
+| WP2 IBKR adapter (session, quotes, bars) and the daemon seams on it | the commit carrying this note | `make test`; side check `git diff --exit-code HEAD -- internal/cli/testdata/golden pkg/ibkr` empty | see the commit body |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -37,21 +39,44 @@ as an extra hash input, four typed terms and `rpc.TradingStatus` gain
 is in `triggerReconnect` with `newConnector` returning an error. The brief
 and design carry these; WP5 and WP8 build to them.
 
+## How WP2 is wired (what a fresh session must know)
+
+- `Server.brokerReads()` is the seam accessor: nil exactly when
+  `gatewayConnector()` is (same readiness rule, same reconnect arming).
+  The adapter is built lazily per connector in `adapterFor` under `s.mu`,
+  not at the publication site, because many tests seat `s.connector`
+  directly; `brokerGeneration` counts adapters, so a binding of a
+  rebuilt connector's predecessor is never current.
+- The daemon runs connections without the client's auto-reconnect
+  (`newConnector`), so a lost session is always followed by a rebuild:
+  the "same adapter, new epoch" case cannot occur in the daemon and the
+  adapter's epoch table holds one live binding at a time. The daemon
+  tests prove the lost-session and rebuild cases; the adapter's unit
+  tests prove the table.
+- The subscription manager (`subs.go`) holds `marketQuotes` (the seam's
+  `Quotes` plus `Current`); fakes must issue a non-zero binding
+  (`fakeSession`), since a zero binding is never current.
+- The history read keeps one concrete capture for the data-health
+  observation (`observeHistorySource` is still connector-typed); WP3 moves
+  the recorder onto the seam. `handleMarketSnapshot`'s front-future
+  enrichment and `setup_options.go`'s option listing stay on the
+  connector by design (IBKR-only paths); `setup_options` resolves the
+  underlying through the seam with `BindingFor` so the resolution memo is
+  shared with the evaluation path.
+
 ## In progress
 
-WP2 the IBKR adapter (session, quotes, bars). The adapter package
-`internal/broker/ibkr` is written and its own tests pass (mapping totality
-over every daemon security type, round trips, nil behaviour); the daemon
-seams are not yet moved onto it.
+WP3 (account, positions, the observation): not started; the files are read.
 
 ## Next
 
-WP2's daemon half: `subs.go`, `market_data.go`, `setups.go`,
-`setup_resolve.go`, `mandate_history.go` onto `broker.Quotes`,
-`broker.Bars`, `broker.Instruments`; the adapter built beside the
-connector at the `s.connector = real` site; binding-across-reconnect and
-rebuild tests in the daemon package; `market_data_delayed_test.go` moves
-to the adapter. Then WP3 (account, positions, observation).
+WP3: `internal/broker/ibkr/account.go`, `positions.go`;
+`readAccountSnapshot` takes `broker.Account`; positions rows through
+`broker.Positions` with the stream health converted at the handler
+boundary; `observeAccountRPC` and the data-health recorder
+(`recordDataHealth`, `recordFeedHealth`, `dataHealthObservation`) onto
+`broker.Session` and the neutral binding with a daemon bridge for the
+concrete callers; `observeHistorySource` then loses its concrete capture.
 
 ## Not done
 

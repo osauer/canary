@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -119,20 +121,27 @@ func TestDisplayUniverseHonoursReviewedTerminalStock(t *testing.T) {
 	}
 }
 
-func (f *displayTransport) SubscribeMarketData(context.Context, string, []string) error {
-	f.subscribes++
-	return nil
+func (f *displayTransport) Key(in broker.Instrument) string {
+	return ibkr.MarketDataKeyForContract(brokerIBKR.Contract(in))
 }
-func (f *displayTransport) SubscribeMarketDataWithContract(_ context.Context, c ibkr.Contract, _ []string) (string, error) {
+func (f *displayTransport) Current(b broker.SessionBinding) bool { return b == fakeSession }
+func (f *displayTransport) SubscribeSymbol(_ context.Context, symbol string, _ []string) (string, broker.SessionBinding, error) {
 	f.subscribes++
-	return ibkr.MarketDataKeyForContract(c), nil
+	return symbol, fakeSession, nil
 }
-func (f *displayTransport) UnsubscribeMarketData(string) error              { f.cancels++; return nil }
-func (f *displayTransport) MarketDataSnapshot() map[string]*ibkr.MarketData { return nil }
-func (f *displayTransport) MarketDataTypeForSymbol(string) int              { return 1 }
+func (f *displayTransport) Subscribe(_ context.Context, in broker.Instrument, _ []string) (string, broker.SessionBinding, error) {
+	f.subscribes++
+	return f.Key(in), fakeSession, nil
+}
+func (f *displayTransport) Unsubscribe(context.Context, string) error { f.cancels++; return nil }
+func (f *displayTransport) UnsubscribeForSession(ctx context.Context, _ broker.SessionBinding, key string) error {
+	return f.Unsubscribe(ctx, key)
+}
+func (f *displayTransport) Snapshot() map[string]*broker.Quote { return nil }
+func (f *displayTransport) Load() (broker.Load, bool)          { return broker.Load{}, false }
 func TestDisplaySharedRoutedBorrowerCannotCancelFeed(t *testing.T) {
 	transport := &displayTransport{}
-	m := newSubManager(func() ibkrMarketConnector { return transport })
+	m := newSubManager(func() marketQuotes { return transport })
 	m.coalesce = time.Hour
 	contract := ibkr.Contract{Symbol: "SYNTH", ConID: 101, SecType: "STK", Exchange: "SMART", Currency: "USD"}
 	_, leaveStream, err := m.HoldContract(t.Context(), contract)

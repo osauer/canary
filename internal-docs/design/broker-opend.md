@@ -151,8 +151,10 @@ one constructor that takes account, mode and kind from the body. One
 reader parses a key instead: `coreDecisionEventMatchesScope`
 (`core_rebalance.go:858-869`) splits the frozen core scope string on `|`
 and takes its first segment as the account, so it goes through the
-constructor's key form, which cuts the account field at its first `:` (an
-IBKR account never contains one; the fixture asserts it). Twelve more
+constructor's key form: in a `|` key the account field is cut at its first
+`:` (an IBKR account never contains one; the fixture asserts it), and in a
+`:`-joined key the segment after the family prefix is a kind when it
+equals a known non-IBKR kind name, else the account. Twelve more
 sites build a scope from an `rpc.TradingStatus`, which carries no kind
 (`desk_execution.go:55`, `order_risk_authority.go:236` and `328`,
 `exercise_reservations.go:141`, `protective_exit.go:402`,
