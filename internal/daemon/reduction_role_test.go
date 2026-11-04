@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -52,8 +53,8 @@ func TestReductionUsesRulebookIndexPutClassification(t *testing.T) {
 			}
 			candidateInput := mandateReductionInput{Input: &mandate.Input{Legs: []mandate.Leg{{ID: mandateConLegID(990001), Underlying: "SPY", Kind: mandate.KindOption, Quantity: 40, Multiplier: 100, Right: "P"}}}}
 			candidates, _, _ := engine.mandateCandidates(policy, candidateInput, pos, now)
-			if (len(candidates) > 0) == protective {
-				t.Errorf("closed=%t protective=%t: mandate has %d candidates", closed, protective, len(candidates))
+			if len(candidates) != 0 {
+				t.Errorf("closed=%t protective=%t: mandate may sell the index put: %d candidates", closed, protective, len(candidates))
 			}
 		}
 	}
@@ -81,5 +82,43 @@ func TestReductionUnknownIndexPutIsHeldWithoutCallingItProtection(t *testing.T) 
 	rows, st := (&proposalEngine{}).budgetReductionProposals(policy, rpc.ProtectionPolicyStatus{}, input, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, optionExitTestTime())
 	if len(rows) != 0 || st.ProtectionLegs != 0 || st.ExcludedLegs != 1 {
 		t.Fatalf("unknown role lost: rows=%d status=%+v", len(rows), st)
+	}
+}
+
+// The 2026-11-04 book: a large long position whose options carry a delta but
+// no underlying price drops out of the long book, and the index puts then read
+// as over-hedged. A book Canary cannot measure says nothing about the hedge:
+// neither reduction may treat the puts as directional on it.
+func TestReductionIncompleteLongBookLeavesTheIndexPutsAlone(t *testing.T) {
+	put := budgetOptionLeg("SPY", 990001, "P", 710, 500, 0)
+	put.Currency, put.Delta, put.Underlying, put.FXRate, put.Quantity, put.Multiplier = "USD", new(-0.3), new(768.0), new(1.0), 10, 100
+	long := budgetOptionLeg("SYNB", 990002, "C", 9, 30000, 0)
+	long.Currency, long.Delta, long.FXRate, long.Quantity, long.Multiplier = "USD", new(0.5), new(1.0), 375, 100
+	pos := &rpc.PositionsResult{Portfolio: &rpc.PositionsPortfolio{BaseCurrency: "USD"}, Options: []rpc.PositionView{put, long}, Stocks: []rpc.PositionView{{Symbol: "SYNS", ConID: 990003, SecType: "STK", Quantity: 40, Mark: 250, Currency: "USD", FXRate: new(1.0), Delta: new(1.0)}}}
+	pos.ByUnderlying = groupByUnderlying(pos.Stocks, pos.Options, "USD", nil)
+	pol := risk.DefaultRulebookPolicy()
+	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
+	policy.Buckets.TrailingStop.Options.DefaultIndexPutsProtection = true
+	now := optionExitTestTime()
+	unitLegs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), now)
+	if got := budgetLegRole(policy.Buckets.TrailingStop.Options, put, pos, unitLegs, ambiguous, pol, now); got != risk.IndexPutRoleUnclassified {
+		t.Fatalf("role on an incomplete long book = %q, want unclassified", got)
+	}
+}
+
+// The owner's rule (2026-11-04 21:04 CET): the forced reduction never sells a
+// hedge-listed long put, measured as a hedge or not. The mandate flattens to
+// its hedges. A budget row may still name one, and that row waits for a tap.
+func TestMandateReductionNeverSellsAHedgeListedPut(t *testing.T) {
+	pos := reductionRoleBook(100) // a small long book: the put measures directional
+	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
+	policy.Buckets.TrailingStop.Options.DefaultIndexPutsProtection = true
+	in := mandateReductionInput{Input: &mandate.Input{Legs: []mandate.Leg{{ID: mandateConLegID(990001), Underlying: "SPY", Kind: mandate.KindOption, Quantity: 40, Multiplier: 100, Right: "P"}}}}
+	candidates, leftOut, _ := (&proposalEngine{}).mandateCandidates(policy, in, pos, optionExitTestTime())
+	if len(candidates) != 0 {
+		t.Fatalf("the reduction may sell the index put: %+v", candidates)
+	}
+	if len(leftOut) != 1 || !strings.Contains(leftOut[0], "the reduction never sells it") {
+		t.Fatalf("left out = %v, want the put named as protection", leftOut)
 	}
 }

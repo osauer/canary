@@ -706,7 +706,8 @@ Only an explicit owner policy edit and version bump enable the named buckets:
 `trailing_stop`, `option_loss_exit`, `option_profit_trail`,
 `budget_reduction` or `mandate_reduction` (the reduction back to the
 risk policy's `[mandate]` budget: a reduce-only batch, largest risk
-contributor first, each row held to the order caps; see `canary mandate`).
+contributor first, each row held to the order caps; see `canary mandate`;
+it never sells a hedge-listed long put, whatever that put measures as).
 Budget and mandate reductions always wait the full window, even with the
 drawdown brake latched. The cash sweep is pre-authorised in its own section,
 `[cash] pre_authorised`, under the same veto window

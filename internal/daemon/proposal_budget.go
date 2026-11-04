@@ -631,6 +631,12 @@ func budgetLegRole(cfg protectionTrailOptionPolicy, row rpc.PositionView, pos *r
 		for _, name := range classified.Names {
 			for _, leg := range name.Legs {
 				if leg.Desc == legDesc(row) {
+					// A long position the book cannot measure is missing from
+					// the long book, which then reads the puts as over-hedged.
+					// That proves nothing: no sale may rest on it.
+					if leg.IndexPutRole == risk.IndexPutRoleDirectional && slices.ContainsFunc(classified.Names, func(n risk.NameInput) bool { return !n.ExposureBaseComplete }) {
+						return risk.IndexPutRoleUnclassified
+					}
 					return leg.IndexPutRole
 				}
 			}

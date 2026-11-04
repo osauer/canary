@@ -640,7 +640,11 @@ func (e *proposalEngine) mandateCandidates(policy protectionPolicy, in mandateRe
 		case option && leg.Quantity < 0:
 			leftOut = append(leftOut, name+" (a short option: buying it back is yours, the reduction never does)")
 			continue
-		case option && budgetLegRole(cfg, row, pos, unitLegs, ambiguous, pol, now) == risk.IndexPutRoleProtection:
+		case option && (strings.EqualFold(strings.TrimSpace(row.Right), "P") && pol.IsHedgeSymbol(row.Symbol) ||
+			budgetLegRole(cfg, row, pos, unitLegs, ambiguous, pol, now) == risk.IndexPutRoleProtection):
+			// A hedge-listed long put stays whatever it measures as: the
+			// mandate flattens to its hedges (owner, 2026-10-14; 2026-11-04
+			// 21:04 CET, after the plan named the SPY puts).
 			leftOut = append(leftOut, name+" (protection: the reduction never sells it)")
 			continue
 		case option && budgetLegRole(cfg, row, pos, unitLegs, ambiguous, pol, now) == risk.IndexPutRoleUnclassified:
