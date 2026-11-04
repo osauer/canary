@@ -1,0 +1,1112 @@
+# The landing page in Traditional Chinese (Hong Kong usage), one pair per
+# string of docs/index.html. English first, exactly as it stands in the page;
+# the generator replaces a whole element's content or attribute value, never a
+# part of one, and derives Simplified from the zh lines. A string that stays
+# English on purpose is listed as keep. A changed English string finds no pair,
+# shows in English on the Chinese pages and is listed by
+# make docs-translations-check. Machine-translated; needs a native read.
+
+en: Skip to content
+zh: 跳至內容
+
+en: Work
+zh: 作品
+
+en: About
+zh: 關於
+
+en: Open source · Go
+zh: 開源 · Go
+
+en: Portfolio, risk and order tools for Interactive Brokers.
+zh: Interactive Brokers 的投資組合、風險及訂單工具。
+
+en: Canary connects to your IBKR account on your own machine, reads your book and the market, checks your risk rules every minute and drafts the protection they call for. Claude, your scripts and the paired phone app all read the same figures.
+zh: Canary 在你自己的電腦上連接 IBKR 帳戶，讀取你的投資組合及市場數據，每分鐘檢查你的風險規則，並草擬規則要求的保護措施。Claude、你的腳本及已配對的手機應用程式，讀取的都是同一組數字。
+
+en: MIT licence ·
+zh: MIT 授權 ·
+
+en: Signed releases ·
+zh: 已簽署的發行版本 ·
+
+en: No telemetry ·
+zh: 無遙測 ·
+
+en: A private project ·
+zh: 私人項目 ·
+
+en: Release notes
+zh: 發行說明
+
+en: <code>canary brief</code>, the morning read.
+zh: <code>canary brief</code>，每日早上的概覽。
+
+en: Synthetic account
+zh: 虛構帳戶
+
+en: For Claude Desktop
+zh: 適用於 Claude Desktop
+
+en: Ask Claude about your IBKR account.
+zh: 向 Claude 查詢你的 IBKR 帳戶。
+
+en: Add Canary to Claude Desktop on your Mac, then ask how your holdings did today, which risk rules need attention or what the market is doing. Claude can read your account. It cannot place, change or cancel an order.
+zh: 在 Mac 上把 Canary 加入 Claude Desktop，然後問它你的持倉今日表現如何、哪些風險規則需要留意，或者市場走勢如何。Claude 可以讀取你的帳戶，但不能下達、更改或取消訂單。
+
+en: Needs an IBKR Pro account, and IB Gateway or TWS (Interactive Brokers’ desktop software) running on your Mac with its API turned on.
+zh: 需要 IBKR Pro 帳戶，並在 Mac 上運行 IB Gateway 或 TWS（Interactive Brokers 的桌面軟件），且已開啟其 API。
+
+en: Download for Claude Desktop on Mac
+zh: 下載適用於 Mac 版 Claude Desktop 的版本
+
+en: Setup guide
+zh: 設定指南
+
+en: For engineers
+zh: 給工程師
+
+en: Build your trading system on it.
+zh: 以它為基礎，建立你的交易系統。
+
+en: A local daemon holds the IBKR connection, your risk policy and the order journal. Every CLI command returns JSON, so the CLI is your API. Go programs can use the daemon client, or the TWS protocol with no vendor SDK.
+zh: 本機守護程序（daemon）負責維持 IBKR 連線，並保管你的風險政策及訂單日誌。每個 CLI 指令都會傳回 JSON，因此 CLI 就是你的 API。Go 程式可以使用守護程序客戶端，或直接使用 TWS 協定，無需供應商 SDK。
+
+en: Orders go through one path, in the opt-in trading build, that checks each against your limits and your confirmation. <a href="/desk/">Canary Desk</a>, a private project, is built this way.
+zh: 訂單只經一條路徑，這條路徑設於需自行選用的交易版本內，會按你的限額及確認逐一檢查每張訂單。<a href="/desk/">Canary Desk</a>（私人項目）就是這樣建成的。
+
+en: Architecture
+zh: 架構
+
+en: Trading build
+zh: 交易版本
+
+en: For AI agents
+zh: 給 AI 代理
+
+en: Read IBKR data through typed tools.
+zh: 透過具類型定義的工具讀取 IBKR 數據。
+
+en: Start with <a href="llms.txt">llms.txt</a>: what Canary is, what its tools return and where their limits are. Figures carry their source and age. What Canary cannot confirm is reported as missing, never as zero.
+zh: 先看 <a href="llms.txt">llms.txt</a>：Canary 是甚麼、其工具傳回甚麼、限制在哪裏。數字均附來源及時效。Canary 無法確認的內容會報告為缺失，絕不顯示為零。
+
+en: Every MCP tool is read-only: it cannot preview or send an order, or change a limit. Install details are in the <a href="mcp-server.json">server manifest</a>.
+zh: 每個 MCP 工具都是唯讀的：不能預覽或發送訂單，也不能更改限額。安裝詳情見<a href="mcp-server.json">伺服器清單</a>。
+
+en: MCP tools
+zh: MCP 工具
+
+en: Your book, with its evidence
+zh: 你的投資組合，連同證據
+
+en: Positions, exposure and reconciliation against broker statements. Stale or missing data stays labelled, never filled in.
+zh: 持倉、風險敞口，並與券商結單對帳。過時或缺失的數據會保留標示，絕不填補。
+
+en: The market around it
+zh: 投資組合所處的市場環境
+
+en: Regime, breadth, stress, calendars and market events, each with its source and its age.
+zh: 市況階段、市場廣度、壓力、日曆及市場事件，各自附來源及時效。
+
+en: Rules that draft protection
+zh: 草擬保護措施的規則
+
+en: A rulebook checks the book every minute. When a rule trips, Canary drafts the stop, exit or budget cut it calls for.
+zh: 規則手冊每分鐘檢查投資組合。規則一旦觸發，Canary 便草擬其要求的止蝕、平倉或削減預算。
+
+en: Orders within your limits
+zh: 限額以內的訂單
+
+en: The opt-in trading build sends the orders you confirm or pre-authorise by rule, and shrinks or cancels its own stops when you hold fewer shares. Standard downloads are read-only.
+zh: 需自行選用的交易版本會發送你確認或按規則預先授權的訂單；當你持有的股數減少時，會縮減或取消自己設下的止蝕盤。標準下載版本是唯讀的。
+
+en: Recent releases
+zh: 近期版本
+
+en: Changes from v3.19 to v3.33.1.
+zh: v3.19 至 v3.33.1 的變更。
+
+en: A brief for Asian markets
+zh: 為亞洲市場而設的簡報
+
+en: Singapore, ASX and mainland China session calendars join Tokyo and Hong Kong. The daily brief follows the book’s main exchange, and position values use each holding’s currency. <a href="docs/start/ibkr-hong-kong-singapore.html">Hong Kong and Singapore guide</a>.
+zh: 新加坡、澳交所（ASX）及中國內地的交易日曆，加入東京及香港之列。每日簡報按投資組合的主要交易所而定，持倉價值則以各持倉的貨幣計算。<a href="docs/start/ibkr-hong-kong-singapore.html">香港及新加坡指南</a>。
+
+en: Strong names, read-only plans
+zh: 強勢股，唯讀計劃
+
+en: <code>canary strategy-one</code> ranks S&amp;P 500 stocks and shows entry plans with stops and position sizes. The screen has no trading allocation and sends no orders.
+zh: <code>canary strategy-one</code> 為標普 500 股票排名，並顯示包含止蝕位及倉位大小的入場計劃。此篩選沒有交易資金配置，也不會發送訂單。
+
+en: A bug report ready to review
+zh: 可先審閱的錯誤報告
+
+en: <code>canary feedback</code> prepares a redacted diagnostic report and a GitHub bug-form link. Read the report before submitting; the command files nothing.
+zh: <code>canary feedback</code> 準備一份已遮蓋敏感資料的診斷報告及 GitHub 錯誤報告表格連結。提交前請先閱讀報告；此指令不會自行提交任何內容。
+
+en: A risk budget for the whole book
+zh: 整個投資組合的風險預算
+
+en: Set a maximum loss for the account; Canary measures the book’s risk against it by historical simulation. While the book is over budget, Canary refuses orders that add risk. <code>canary mandate</code> shows the room left.
+zh: 為帳戶設定最大虧損；Canary 以歷史模擬法量度投資組合相對此上限的風險。投資組合超出預算時，Canary 會拒絕增加風險的訂單。<code>canary mandate</code> 顯示尚餘空間。
+
+en: Plans before orders
+zh: 先有計劃，後有訂單
+
+en: Reduction plans compare an index fall and rise, the loss room left and quoted trading costs. Stock-entry reviews can add protection for the new shares. A plan never places an order.
+zh: 減倉計劃會比較指數下跌及上升、尚餘虧損空間及按報價計算的交易成本。買入股票前的審查可為新買入的股份加上保護。計劃本身絕不下單。
+
+en: v3.27 to v3.29
+zh: v3.27 至 v3.29
+
+en: Protective puts for shares you hold
+zh: 為持有股份而設的保護性認沽期權
+
+en: <code>canary add</code> lists, for each horizon, the put nearest your delta band and how many of your shares are still uncovered, then sizes a put within them. The call and put bands live in your opportunity policy.
+zh: <code>canary add</code> 按每個期限列出最接近你 delta 區間的認沽期權，以及尚未受保護的股數，然後在該範圍內計算認沽期權的數量。認購及認沽區間設於你的機會政策內。
+
+en: An index hedge in whole contracts
+zh: 以整張合約計算的指數對沖
+
+en: Canary sizes a Micro E-mini S&amp;P 500 hedge against the modelled index-fall loss. In the trading build you can sell it and buy it back through the same confirmed, gated order path as every other order.
+zh: Canary 按模型估算的指數下跌虧損，計算 Micro E-mini 標普 500 對沖的規模。在交易版本中，你可經與其他訂單相同、須經確認及檢查的訂單路徑沽出及買回。
+
+en: v3.29.1 and v3.30
+zh: v3.29.1 及 v3.30
+
+en: What the account may trade
+zh: 帳戶可以交易甚麼
+
+en: Canary reads from IBKR’s preview answers which product classes the account may trade, futures first, and refuses an opening order in a class IBKR does not allow before it reaches the broker.
+zh: Canary 從 IBKR 的預覽回覆得知帳戶可交易哪些產品類別（先從期貨開始），並會拒絕 IBKR 不允許類別的開倉訂單，不讓其到達券商。
+
+en: Strategies run in shadow first
+zh: 策略先以影子模式運行
+
+en: Machine strategies live in a register in your risk policy. Each runs in shadow until you write its stage. Then each monthly decision becomes a proposal you confirm on your device, or, with Canary Desk, confirm once for a standing mandate with its own limits.
+zh: 機器策略登記在你風險政策內的名冊中。每項策略都以影子模式運行，直至你寫入其階段。之後每月決定都會變成提案，由你在裝置上確認；或配合 Canary Desk，只需確認一次，授予一項設有自身限額的長期授權。
+
+en: v3.23 to v3.25
+zh: v3.23 至 v3.25
+
+en: A scorecard for your decisions
+zh: 你的決定評分表
+
+en: Every position change is scored against the market and its sector fund, with the half-spread each fill paid where a quote was kept.
+zh: 每次持倉變動都會與大市及其行業基金比較評分；若有保留報價，也會列出每次成交所付的半個買賣差價。
+
+en: v3.22 and v3.24
+zh: v3.22 及 v3.24
+
+en: A plain check of your Gateway setup
+zh: 以淺白文字檢查你的 Gateway 設定
+
+en: <code>canary status</code> names each TWS or IB Gateway setting that differs from what Canary needs. Canary never changes a setting.
+zh: <code>canary status</code> 會指出每項與 Canary 所需不同的 TWS 或 IB Gateway 設定。Canary 絕不更改任何設定。
+
+en: A look back
+zh: 回顧
+
+en: Replay how an option exit would have played out, and read the account's value through the day. A replay is not a forecast.
+zh: 回放期權平倉本來會如何發展，並查看帳戶全日的價值。回放並非預測。
+
+en: Watch the film (MP4)
+zh: 觀看短片（MP4）
+
+en: A short film
+zh: 短片
+
+en: A short animated film about a risk alert. Under a minute, with sound. Every figure in it is synthetic.
+zh: 一部關於風險警報的動畫短片，不足一分鐘，有聲。片中所有數字均為虛構。
+
+en: Get started
+zh: 開始使用
+
+en: Install Canary
+zh: 安裝 Canary
+
+en: Run IB Gateway 10.37+ or TWS on the same machine. You need an IBKR Pro account with TWS API access; IBKR Lite does not include it.
+zh: 在同一部電腦上運行 IB Gateway 10.37 或以上版本，或 TWS。你需要具備 TWS API 權限的 IBKR Pro 帳戶；IBKR Lite 不包括此權限。
+
+en: Every release ships signed checksums, and the installer checks them against a pinned key. Canary sends no telemetry.
+zh: 每個版本都附有已簽署的校驗碼，安裝程式會以固定的金鑰核對。Canary 不發送遙測數據。
+
+en: Claude Desktop install
+zh: Claude Desktop 安裝
+
+en: The command line, Cursor, Continue, Zed and other MCP hosts
+zh: 命令列、Cursor、Continue、Zed 及其他 MCP 主機
+
+en: Before you start
+zh: 開始之前
+
+en: Common questions
+zh: 常見問題
+
+en: Which brokers does Canary support?
+zh: Canary 支援哪些券商？
+
+en: Canary works with Interactive Brokers through a local TWS or IB Gateway session. Market data depends on your IBKR subscriptions.
+zh: Canary 透過本機 TWS 或 IB Gateway 連線，與 Interactive Brokers 配合使用。市場數據視乎你的 IBKR 訂閱而定。
+
+en: Can Canary submit orders?
+zh: Canary 可以提交訂單嗎？
+
+en: Yes, through the optional trading build and its approval checks. Standard downloads and all MCP tools are read-only. See the <a href="docs/operate/orders.html">order guide</a>.
+zh: 可以，透過選用的交易版本及其審批檢查。標準下載版本及所有 MCP 工具都是唯讀的。見<a href="docs/operate/orders.html">訂單指南</a>。
+
+en: Which TWS or IB Gateway settings does Canary need?
+zh: Canary 需要哪些 TWS 或 IB Gateway 設定？
+
+en: Run <code>canary status</code>. Its Gateway setup line names each setting that differs from what Canary needs, in plain words. Canary reads the settings once after each connect and never changes one. See <a href="docs/start/troubleshooting.html">troubleshooting</a>.
+zh: 運行 <code>canary status</code>。其中的 Gateway 設定一行會以淺白文字指出每項與 Canary 所需不同的設定。Canary 在每次連線後讀取設定一次，絕不更改。見<a href="docs/start/troubleshooting.html">故障排除</a>。
+
+en: Build on it
+zh: 以此為基礎開發
+
+en: Building agents <br>on Canary.
+zh: 以 Canary 為基礎<br>建立代理。
+
+en: Canary gives an agent each figure with its source and age, and holds every order to your rules. Connect Claude Code with two commands, or build your own agent. Canary Desk is built on it, with agents for briefs and analysis.
+zh: Canary 為代理提供每個數字及其來源和時效，並讓每張訂單都受你的規則約束。用兩個指令連接 Claude Code，或建立你自己的代理。Canary Desk 就建基於此，並有用於簡報及分析的代理。
+
+en: MIT-licensed; the source is on GitHub. There is no sign-up and no telemetry.
+zh: MIT 授權；原始碼在 GitHub 上。無需註冊，也沒有遙測。
+
+en: The read-only boundary
+zh: 唯讀邊界
+
+en: Claude Code on your portfolio
+zh: 用 Claude Code 查看投資組合
+
+en: Ask about exposure or the market regime. Check the trend and relative strength of the symbols you name.
+zh: 查詢風險敞口或市況階段。檢查你指定代號的趨勢及相對強弱。
+
+en: Agents that run all day
+zh: 全日運行的代理
+
+en: Exchange calendars, economic releases and source health tell a long-running agent when to look and what to trust.
+zh: 交易所日曆、經濟數據發布及來源健康狀況，告訴長期運行的代理何時查看、可信賴甚麼。
+
+en: Decisions and orders
+zh: 決定與訂單
+
+en: Your agent prepares decisions with read-only tools. You authorise orders; Canary checks them against your policy.
+zh: 你的代理以唯讀工具準備決定。訂單由你授權；Canary 按你的政策進行檢查。
+
+en: Read-only by default
+zh: 預設唯讀
+
+en: The standard build and all MCP tools cannot place an order. MCP cannot change your limits; in Claude Code, the plugin’s hook blocks the commands that can.
+zh: 標準版本及所有 MCP 工具都不能下單。MCP 不能更改你的限額；在 Claude Code 中，外掛程式的 hook 會阻止能夠更改限額的指令。
+
+en: Evidence
+zh: 證據
+
+en: How missing <br>data is shown.
+zh: 缺失數據<br>如何顯示。
+
+en: A figure Canary cannot confirm is never shown as clean. Sources, age and coverage stay beside the figures, so you and your assistant know what to trust.
+zh: Canary 無法確認的數字絕不會顯示為正常。來源、時效及覆蓋範圍都在數字旁邊，讓你和你的助手知道可信賴甚麼。
+
+en: Fresh
+zh: 最新
+
+en: A current reading, with its source and time.
+zh: 當前讀數，附來源及時間。
+
+en: Delayed
+zh: 延遲
+
+en: An older reading, clearly labelled.
+zh: 較舊的讀數，清楚標示。
+
+en: Incomplete
+zh: 不完整
+
+en: The available evidence and its gaps, side by side.
+zh: 現有證據及其缺口並列顯示。
+
+en: Unavailable
+zh: 無法取得
+
+en: No invented zero. Decisions that need it wait.
+zh: 不會虛構零值。需要此數據的決定會暫緩。
+
+en: See the command-line views
+zh: 查看命令列畫面
+
+en: Positions and risk rules, on synthetic accounts
+zh: 持倉及風險規則，以虛構帳戶示範
+
+en: From the command line
+zh: 在命令列上
+
+en: What you <br>read each day.
+zh: 你每日<br>閱讀的內容。
+
+en: Each figure names its source and its age. Every command can also print JSON for scripts.
+zh: 每個數字都註明來源及時效。每個指令也可輸出 JSON 供腳本使用。
+
+en: Trades compared <br>with holding.
+zh: 交易與維持倉位<br>不變的比較。
+
+en: Edge compares every open, add, trim and exit with leaving the position alone over 1, 5 and 20 sessions. It works from broker records.
+zh: Edge 把每次開倉、加倉、減倉及平倉，與在 1、5 及 20 個交易日內維持倉位不變作比較，數據來自券商紀錄。
+
+en: It describes past trades; it does not forecast or recommend.
+zh: 它描述過去的交易，不作預測或建議。
+
+en: Check that your limits add up
+zh: 檢查你的限額是否合理
+
+en: Every limit in force, and order limits that follow the account · v3.18
+zh: 所有生效中的限額，以及隨帳戶變動的訂單限額 · v3.18
+
+en: Policy check
+zh: 政策檢查
+
+en: Limits that fit<br>the account.
+zh: 與帳戶相稱<br>的限額。
+
+en: Canary acts on numbers you set, from rule thresholds to order sizes and cash reserves. It prints every one in force with its source and meaning, and reads them against each other and against your account. Each value that does not fit gets a reason and, where one applies, a suggested fix.
+zh: Canary 按你設定的數字行事，由規則門檻到訂單大小及現金儲備。它會列出每一個生效中的數字及其來源和含義，並將它們互相對照、與你的帳戶對照。每個不合適的數值都會附上原因，適用時亦會建議修正方法。
+
+en: Order limits follow the account. The cap on a single order’s value moves with the account’s worth (its net liquidation value), between a floor and a ceiling you set. A temporary larger cap takes one override, which Canary records in its journal.
+zh: 訂單限額跟隨帳戶變動。單一訂單價值的上限會隨帳戶價值（即淨清算價值）變動，介乎你設定的最低值與最高值之間。臨時提高上限需要一次覆寫，Canary 會記錄在日誌中。
+
+en: In trading builds, neither that cap nor the short-sale check refuses a protective stop, as long as it sells no more than the stock or ETF you hold, counting your other working sell orders. When you hold fewer shares than one of Canary’s own stops would sell, Canary shrinks or cancels that stop on its own.
+zh: 在交易版本中，只要保護性止蝕盤沽出的數量不超過你持有的股票或 ETF（連同你其他正在生效的沽出訂單計算），該上限及沽空檢查都不會拒絕它。當你持有的股數少於 Canary 自己某個止蝕盤將沽出的數量時，Canary 會自行縮減或取消該止蝕盤。
+
+en: The check only reads; you change a limit by editing your files. Stops you placed by hand are never changed, and standard downloads stay read-only.
+zh: 檢查只作讀取；要更改限額，請編輯你的檔案。你手動設下的止蝕盤絕不會被更改，標準下載版本維持唯讀。
+
+en: How the policy check works
+zh: 政策檢查如何運作
+
+en: 01 · Show
+zh: 01 · 顯示
+
+en: Every limit in force
+zh: 所有生效中的限額
+
+en: <code>canary policy show --explain</code> lists each limit, policy and setting with its value, unit and source. Add a section name to print one part.
+zh: <code>canary policy show --explain</code> 列出每項限額、政策及設定，連同其數值、單位及來源。加上章節名稱可只輸出其中一部分。
+
+en: 02 · Check
+zh: 02 · 檢查
+
+en: What does not add up
+zh: 哪裏不合理
+
+en: <code>canary policy check</code> reads your config, policy files and account against each other, explains each implausible value and suggests a fix where one applies.
+zh: <code>canary policy check</code> 將你的設定檔、政策檔案及帳戶互相對照，解釋每個不合理的數值，適用時建議修正方法。
+
+en: 03 · Ask
+zh: 03 · 詢問
+
+en: The same report for your assistant
+zh: 給你助手的同一份報告
+
+en: <code>canary_policy_check</code> gives MCP clients the same check. It reads and cannot change a limit.
+zh: <code>canary_policy_check</code> 為 MCP 客戶端提供相同檢查。它只作讀取，不能更改限額。
+
+en: Watch your list
+zh: 留意你的名單
+
+en: Volume turns, the exact call’s quote and entry timing · v3.17
+zh: 成交量轉折、指定認購期權的報價及入場時機 · v3.17
+
+en: Watchlist and setups
+zh: 觀察名單及形態
+
+en: Watchlist and<br>volume setups.
+zh: 觀察名單及<br>成交量形態。
+
+en: Keep up to 20 US stocks on one watchlist. Canary compares each completed five-minute bar with comparable earlier sessions and reports when unusual volume is followed by a price that holds or rises.
+zh: 在一份觀察名單上保留最多 20 隻美股。Canary 將每根已完成的五分鐘 K 線與過往可比較的交易日對比，當異常成交量之後價格守穩或上升時便會報告。
+
+en: For a setup you want to pursue, it lists the standard calls and reads one dated quote for the exact call you choose. After a fill Canary placed, it checks the entry against later quotes at two points.
+zh: 對於你想跟進的形態，它會列出標準認購期權，並讀取你所選認購期權的一個附日期報價。Canary 下單成交後，會在兩個時點以其後報價檢查入場表現。
+
+en: Setups are observations, not validated signals. Markouts leave out commissions and never replace account P&amp;L. Watchlist edits change local preferences only, and there are no MCP setup tools.
+zh: 形態只是觀察，並非經驗證的訊號。成交後價格追蹤（markout）不計佣金，也絕不取代帳戶盈虧。編輯觀察名單只會更改本機偏好設定，而且沒有 MCP 形態工具。
+
+en: 01 · Watch
+zh: 01 · 觀察
+
+en: One list you own
+zh: 屬於你的一份名單
+
+en: <code>canary watchlist add NVDA</code> keeps a durable list of up to 20 names. Nothing else changes.
+zh: <code>canary watchlist add NVDA</code> 保存一份可長期保留的名單，最多 20 隻股票。其他一概不變。
+
+en: 02 · Observe
+zh: 02 · 查看
+
+en: What was watched
+zh: 觀察了甚麼
+
+en: <code>canary setups coverage</code> shows each session’s completed bars, evaluation states and missing data.
+zh: <code>canary setups coverage</code> 顯示每個交易日已完成的 K 線、評估狀態及缺失數據。
+
+en: 03 · Review
+zh: 03 · 檢討
+
+en: How the entry held up
+zh: 入場表現如何
+
+en: <code>canary setups markouts</code> reads the later quotes, and says why any checkpoint was missed.
+zh: <code>canary setups markouts</code> 讀取其後的報價，並說明任何檢查點缺失的原因。
+
+en: Research borrowing and short interest
+zh: 研究借貨及沽空持倉
+
+en: Dated fees, liquidity and FINRA reports · v3.17
+zh: 附日期的費用、流動性及 FINRA 報告 · v3.17
+
+en: Borrowing research
+zh: 借貨研究
+
+en: The cost of borrowing,<br>with its date.
+zh: 借貨成本，<br>連同日期。
+
+en: Compare borrowing fees, price and liquidity for the stocks you name. Screen IBKR’s US borrowing feed for names that stay expensive, and rank FINRA’s reported short positions by size and days to cover.
+zh: 比較你指定股票的借貨費用、價格及流動性。篩選 IBKR 的美股借貨數據，找出費用持續高企的股票，並按規模及回補日數排列 FINRA 報告的沽空持倉。
+
+en: Your assistant reads the same results through read-only MCP tools. Filters apply before the result limit, and each row keeps its source date.
+zh: 你的助手透過唯讀 MCP 工具讀取相同結果。篩選條件在結果數量限制之前套用，每行都保留來源日期。
+
+en: Borrowing fees are a cost to borrowers, not a lender’s yield. Short interest comes from a twice-monthly report and does not track live positions. Percentage of free float is not available.
+zh: 借貨費用是借入方的成本，並非出借方的收益率。沽空持倉來自每月兩次的報告，並不追蹤即時持倉。自由流通量百分比無法提供。
+
+en: 01 · Name
+zh: 01 · 指定
+
+en: Your stocks first
+zh: 先看你的股票
+
+en: <code>canary lending rates</code> and <code>canary lending market</code> for the symbols you list.
+zh: <code>canary lending rates</code> 及 <code>canary lending market</code>，針對你列出的代號。
+
+en: 02 · Screen
+zh: 02 · 篩選
+
+en: Beyond your book
+zh: 投資組合以外
+
+en: <code>canary lending screen</code> finds borrowing that stays expensive across source dates.
+zh: <code>canary lending screen</code> 找出在多個來源日期都維持高費用的借貨。
+
+en: 03 · Report
+zh: 03 · 報告
+
+en: Reported short interest
+zh: 已報告的沽空持倉
+
+en: <code>canary short-interest screen</code> with listed-only, price, liquidity and days-to-cover filters.
+zh: <code>canary short-interest screen</code>，可按僅限上市股票、價格、流動性及回補日數篩選。
+
+en: Plan surplus cash
+zh: 規劃剩餘現金
+
+en: A reserve that follows the account, and no bill buys while you borrow · v3.18
+zh: 跟隨帳戶的儲備，借款期間不買票據 · v3.18
+
+en: Cash sweep
+zh: 現金調撥
+
+en: Planning<br>surplus cash.
+zh: 規劃<br>剩餘現金。
+
+en: Canary plans short-dated government bills for surplus cash in the currency you hold. It keeps commitments and a cash reserve ahead of new purchases, and the reserve follows the account’s net liquidation value and planned needs.
+zh: Canary 為你所持貨幣的剩餘現金規劃短期政府票據。它會優先保留承諾款項及現金儲備，才作新買入；儲備跟隨帳戶的淨清算價值及計劃需要而變動。
+
+en: Before any purchase, the plan shows the bill’s order minimum, the fee bounds and the estimated gain after spread, fees and the cash interest you give up. Each purchase stays between a minimum and a maximum size, so none is too small to earn back its commission. You choose which currency comes first.
+zh: 在任何買入之前，計劃會顯示票據的最低訂單額、費用範圍，以及扣除差價、費用及放棄的現金利息後的估計收益。每次買入都維持在最低與最高金額之間，確保不會小得賺不回佣金。由你選擇哪種貨幣優先。
+
+en: Canary makes the plan and checks the cash, bill, price, fees and authority; Canary Desk, if you use it, shows the plan. Each order needs your confirmation or an explicitly pre-authorised sweep with limits and a veto window.
+zh: Canary 制訂計劃，並檢查現金、票據、價格、費用及授權；如你使用 Canary Desk，計劃會在其中顯示。每張訂單都需要你確認，或經明確預先授權、設有限額及否決時限的調撥。
+
+en: Off by default. Turning it on needs calibrated reserves in your policy and current settlement records. Bills can lose value if sold before maturity.
+zh: 預設關閉。開啟時需要在政策中設定已校準的儲備，以及最新的交收紀錄。票據如在到期前沽出，可能會虧損。
+
+en: Read the sweep controls
+zh: 閱讀調撥控制
+
+en: 01 · Evidence
+zh: 01 · 證據
+
+en: What cash is usable?
+zh: 哪些現金可用？
+
+en: Settled cash per currency, current enough to include confirmed trades, after commitments and reserves. While any currency is borrowed, bill buys wait, since a bill would earn less than the margin interest on that loan.
+zh: 每種貨幣的已交收現金，資料須新近至已反映已確認的交易，並已扣除承諾款項及儲備。只要任何貨幣處於借款狀態，買入票據便會暫緩，因為票據的收益會低於該筆貸款的孖展利息。
+
+en: 02 · Review
+zh: 02 · 審查
+
+en: Which bill, and is it worth it?
+zh: 哪一種票據，是否值得？
+
+en: A same-currency bill and its maturity. The broker previews price and fees, and the plan shows the net gain over holding cash.
+zh: 同一貨幣的票據及其到期日。券商預覽價格及費用，計劃則顯示相對持有現金的淨收益。
+
+en: 03 · Authority
+zh: 03 · 授權
+
+en: Within your policy
+zh: 在你的政策範圍內
+
+en: Confirm the order or use the scoped authority you have granted. Missing evidence holds it.
+zh: 確認訂單，或使用你已授予的限定授權。缺少證據時訂單會暫緩。
+
+en: Understand currency effects
+zh: 了解貨幣影響
+
+en: Statement-backed attribution · v3.16.0
+zh: 以結單為據的歸因 · v3.16.0
+
+en: Statement-backed FX
+zh: 以結單為據的外匯
+
+en: The currency<br>effect on P&amp;L.
+zh: 貨幣對<br>盈虧的影響。
+
+en: FX contribution measures how currency moves affect your P&amp;L in the account’s base currency. It covers the day, week, month and year to date, from completed broker statements.
+zh: 外匯貢獻量度貨幣變動對帳戶基礎貨幣盈虧的影響，涵蓋當日、當週、當月及年初至今，數據來自已完成的券商結單。
+
+en: FX contribution
+zh: 外匯貢獻
+
+en: Currency effect
+zh: 貨幣影響
+
+en: Other P&amp;L
+zh: 其他盈虧
+
+en: Prices, income and fees
+zh: 價格、收入及費用
+
+en: Portfolio change
+zh: 投資組合變動
+
+en: After external cash flows
+zh: 扣除外部現金流後
+
+en: Since v3.16. <code>canary reporting fx --json</code> and <code>canary_reporting_fx</code> return the same result. Missing days stay visible, and an incomplete period shows no total. This is valuation attribution, kept apart from realised Forex lot P&amp;L.
+zh: 自 v3.16 起。<code>canary reporting fx --json</code> 及 <code>canary_reporting_fx</code> 傳回相同結果。缺失的日期保持可見，不完整的期間不顯示總計。這是估值歸因，與已實現的外匯批次盈虧分開。
+
+en: How FX is measured
+zh: 外匯如何量度
+
+en: Read lending income
+zh: 查看借出股票收入
+
+en: Dated loans and earned fees · v3.16.0
+zh: 附日期的借出及已賺取費用 · v3.16.0
+
+en: Lending observations
+zh: 股票借出觀察
+
+en: Lending income,<br>from statements.
+zh: 股票借出收入，<br>來自結單。
+
+en: Canary reads managed stock loans and customer net fees from retained IBKR statements. Positions on loan carry a dated annotation, and the fee history opens on request.
+zh: Canary 從保留的 IBKR 結單讀取受管理的股票借出及客戶淨費用。借出中的持倉帶有附日期的註記，費用紀錄可按需要開啟。
+
+en: <code>canary lending fees --json</code> and <code>canary_lending_fees</code> return the same bounded, read-only history. Missing sections, partial periods and a complete record of zero earnings stay distinct.
+zh: <code>canary lending fees --json</code> 及 <code>canary_lending_fees</code> 傳回相同、設有上限的唯讀紀錄。缺失的部分、不完整的期間，以及收入確實為零的完整紀錄，三者保持區分。
+
+en: Since v3.16. Fees stay separate from account P&amp;L, because how they tie to payouts and P&amp;L has not been confirmed. An account needs a statement report that contains lending data before this shows anything.
+zh: 自 v3.16 起。費用與帳戶盈虧分開，因為費用與派付及盈虧的關係尚未確認。帳戶需要有包含借出數據的結單報告，才會顯示內容。
+
+en: How lending is reported
+zh: 股票借出如何報告
+
+en: Lending, with the evidence attached
+zh: 股票借出，連同相關證據
+
+en: A broker statement supplies dated shares-on-loan records and a net-fee ledger. Lending income is shown separately, without adding it again to broker profit and loss. This is a reporting diagram, not account data.
+zh: 券商結單提供附日期的借出股份紀錄及淨費用帳目。借出收入獨立顯示，不會重複計入券商盈虧。這是報告示意圖，並非帳戶數據。
+
+en: LENDING / BROKER EVIDENCE
+zh: 股票借出 / 券商證據
+
+en: The record behind the income.
+zh: 收入背後的紀錄。
+
+en: IBKR statement
+zh: IBKR 結單
+
+en: Reporting date + coverage
+zh: 報告日期 + 覆蓋範圍
+
+en: SHARES ON LOAN
+zh: 借出股份
+
+en: The dated position
+zh: 附日期的持倉
+
+en: Quantity · collateral · broker date
+zh: 數量 · 抵押品 · 券商日期
+
+en: NET FEE HISTORY
+zh: 淨費用紀錄
+
+en: The earned-fee ledger
+zh: 已賺取費用帳目
+
+en: Value date · currency · signed net fee
+zh: 起息日 · 貨幣 · 帶正負號的淨費用
+
+en: Visible income. Kept apart from broker P&amp;L.
+zh: 收入可見，與券商盈虧分開。
+
+en: REPORTING ONLY
+zh: 僅作報告
+
+en: Participation stays with IBKR
+zh: 參與安排仍由 IBKR 處理
+
+en: The record behind
+zh: 收入背後
+
+en: the income.
+zh: 的紀錄。
+
+en: Visible income.
+zh: 收入可見。
+
+en: Kept apart from broker P&amp;L.
+zh: 與券商盈虧分開。
+
+en: Reporting only · Participation stays with IBKR
+zh: 僅作報告 · 參與安排仍由 IBKR 處理
+
+en: One daemon <br>behind every surface.
+zh: 一個守護程序，<br>支撐每個介面。
+
+en: The daemon holds the broker connection, the evidence, your rules and the order journal. Everything else is an adapter over the same typed results.
+zh: 守護程序負責維持券商連線，並保管證據、你的規則及訂單日誌。其他一切都只是轉接層，建基於相同而具類型定義的結果。
+
+en: It starts when asked and stops after 15 idle minutes. Status stays responsive while the broker is slow, and after <code>canary stop</code> it stays down until you restart it.
+zh: 它按需要啟動，閒置 15 分鐘後停止。券商回應緩慢時，狀態查詢仍可快速回應；執行 <code>canary stop</code> 後，它會保持停止，直至你重新啟動。
+
+en: Your shell
+zh: 你的 Shell
+
+en: Every command, with JSON
+zh: 每個指令，附 JSON
+
+en: Your AI assistant
+zh: 你的 AI 助手
+
+en: Read-only MCP tools
+zh: 唯讀 MCP 工具
+
+en: Your phone
+zh: 你的手機
+
+en: Paired app, opt-in alerts
+zh: 已配對的應用程式，需自行開啟的警報
+
+en: Your Go code
+zh: 你的 Go 程式碼
+
+en: Daemon client and test kit
+zh: 守護程序客戶端及測試套件
+
+en: local socket
+zh: 本機 socket
+
+en: Broker connection · evidence · rules · proposals · order journal
+zh: 券商連線 · 證據 · 規則 · 提案 · 訂單日誌
+
+en: your machine
+zh: 你的電腦
+
+en: IB Gateway or TWS
+zh: IB Gateway 或 TWS
+
+en: Your broker session
+zh: 你的券商工作階段
+
+en: Public sources
+zh: 公開來源
+
+en: Economic releases, Nasdaq feeds, borrow-fee files, FINRA reports
+zh: 經濟數據發布、Nasdaq 數據、借貨費用檔案、FINRA 報告
+
+en: Browse the full feature set
+zh: 瀏覽全部功能
+
+en: Market context, reporting, rules and integrations
+zh: 市場環境、報告、規則及整合
+
+en: Full features
+zh: 全部功能
+
+en: What’s inside.
+zh: 內容一覽。
+
+en: Market context
+zh: 市場環境
+
+en: Market regime
+zh: 市況階段
+
+en: Eight readings in six groups, read into one stage: VIX term structure and VVIX, breadth, credit spreads, funding, the yen and dealer gamma computed from SPX options.
+zh: 將六組共八項讀數歸納為一個階段：VIX 期限結構及 VVIX、市場廣度、信貸息差、資金、日圓，以及由 SPX 期權計算的莊家 Gamma。
+
+en: Breadth
+zh: 市場廣度
+
+en: S&amp;P 500 names above their 50- and 200-day averages, computed from constituent prices.
+zh: 標普 500 成份股中高於 50 日及 200 日平均線的股票，由成份股價格計算。
+
+en: Stress signal
+zh: 壓力訊號
+
+en: An early warning when the regime turns.
+zh: 市況轉變時的早期警示。
+
+en: Market events
+zh: 市場事件
+
+en: Reg SHO threshold lists, Nasdaq halts, borrow availability and borrow fees.
+zh: Reg SHO 門檻名單、Nasdaq 停牌、可借貨量及借貨費用。
+
+en: Borrowing research · v3.17
+zh: 借貨研究 · v3.17
+
+en: Dated borrowing fees with price and liquidity, a wider US screen and FINRA short interest.
+zh: 附日期的借貨費用連同價格及流動性、範圍更廣的美股篩選，以及 FINRA 沽空持倉。
+
+en: Calendars
+zh: 日曆
+
+en: US stocks and options, Xetra, London, Tokyo, Hong Kong, Singapore, ASX and mainland China, plus official economic releases.
+zh: 美國股票及期權、Xetra、倫敦、東京、香港、新加坡、澳交所及中國內地，另加官方經濟數據發布。
+
+en: Your book
+zh: 你的投資組合
+
+en: Positions and exposure
+zh: 持倉及風險敞口
+
+en: Stocks, options and bonds, with sector allocation. Bonds show yield, duration and rate risk.
+zh: 股票、期權及債券，附行業配置。債券顯示孳息率、存續期及利率風險。
+
+en: Watchlist and setups · v3.17
+zh: 觀察名單及形態 · v3.17
+
+en: Up to 20 names, read bar by bar for volume turns, with a dated quote for the exact call you choose.
+zh: 最多 20 隻股票，逐根 K 線檢視成交量轉折，並提供你所選認購期權的附日期報價。
+
+en: Entry markouts · v3.17
+zh: 入場後價格追蹤（markout） · v3.17
+
+en: Later quotes for fills Canary placed. Missed checkpoints stay missing; commissions and P&amp;L stay separate.
+zh: Canary 下單成交後的其後報價。缺失的檢查點保持缺失；佣金及盈虧分開計算。
+
+en: Performance
+zh: 表現
+
+en: A statement-based return series, net of cash flows.
+zh: 以結單為據的回報序列，已扣除現金流。
+
+en: FX contribution · v3.16
+zh: 外匯貢獻 · v3.16
+
+en: Day, WTD, MTD and YTD currency contribution, reconciled to daily statements.
+zh: 當日、當週、當月及年初至今的貨幣貢獻，與每日結單對帳。
+
+en: Lending observations · v3.16
+zh: 股票借出觀察 · v3.16
+
+en: Dated shares on loan and earned customer net fees, with bounded history and explicit coverage.
+zh: 附日期的借出股份及已賺取的客戶淨費用，紀錄設有上限，覆蓋範圍明確。
+
+en: What your trades delivered compared with leaving the position alone.
+zh: 你的交易成果，與維持倉位不變作比較。
+
+en: Decision scorecard · v3.22
+zh: 決定評分表 · v3.22
+
+en: Every position change scored against the market and its sector fund, with the half-spread each fill paid where a quote was kept.
+zh: 每次持倉變動都與大市及其行業基金比較評分；若有保留報價，也列出每次成交所付的半個買賣差價。
+
+en: Option-exit replay · v3.28
+zh: 期權平倉回放 · v3.28
+
+en: How an option exit would have played out, from history. Not a forecast.
+zh: 根據歷史回放期權平倉本來會如何發展。並非預測。
+
+en: Reconciliation
+zh: 對帳
+
+en: Figures checked against broker statements. Gaps stay visible.
+zh: 數字與券商結單核對。缺口保持可見。
+
+en: Rules and protection
+zh: 規則及保護
+
+en: Risk rulebook
+zh: 風險規則手冊
+
+en: Your limits, checked every minute.
+zh: 你的限額，每分鐘檢查一次。
+
+en: Risk budget · v3.22
+zh: 風險預算 · v3.22
+
+en: A loss budget for the whole book, measured by historical simulation. Orders that add risk wait while the book is over it.
+zh: 整個投資組合的虧損預算，以歷史模擬法量度。投資組合超出預算時，增加風險的訂單會暫緩。
+
+en: Reduction plans · v3.29
+zh: 減倉計劃 · v3.29
+
+en: Each plan compares an index fall and rise, the loss room left and quoted trading costs.
+zh: 每份計劃都比較指數下跌及上升、尚餘虧損空間及按報價計算的交易成本。
+
+en: Protective puts · v3.31
+zh: 保護性認沽期權 · v3.31
+
+en: Puts for shares you hold, picked by your delta bands and sized within your uncovered shares.
+zh: 為你持有的股份而設的認沽期權，按你的 delta 區間挑選，並在尚未受保護的股數內計算數量。
+
+en: Index hedge · v3.29
+zh: 指數對沖 · v3.29
+
+en: A Micro E-mini S&amp;P 500 hedge sized in whole contracts, placed and bought back only through the gated trading path.
+zh: 以整張合約計算的 Micro E-mini 標普 500 對沖，只經受檢查的交易路徑下單及買回。
+
+en: Broker permissions · v3.29.1
+zh: 券商權限 · v3.29.1
+
+en: Opening orders in a product class IBKR does not allow the account are refused before they reach the broker.
+zh: IBKR 不允許帳戶交易的產品類別，其開倉訂單會在到達券商前被拒絕。
+
+en: Policy check · v3.18
+zh: 政策檢查 · v3.18
+
+en: Every limit in force with its source and meaning, and a check that names each value that does not add up.
+zh: 所有生效中的限額及其來源和含義，並檢查及指出每個不合理的數值。
+
+en: Protection proposals
+zh: 保護提案
+
+en: Stops, exits, trims and budget cuts, each with its reason.
+zh: 止蝕、平倉、減倉及削減預算，各附原因。
+
+en: Same-currency bills for surplus cash, with a reserve that follows the account, your currency order and a reason for every plan.
+zh: 以同一貨幣的票據安排剩餘現金，儲備跟隨帳戶，依你的貨幣次序，每份計劃都附原因。
+
+en: Sweep economics
+zh: 調撥經濟效益
+
+en: Order minimums and maximums, fee bounds and the net gain after spread, fees and forgone cash interest, before any purchase. No bill buys while any currency is borrowed.
+zh: 在任何買入之前列出最低及最高訂單額、費用範圍，以及扣除差價、費用及放棄的現金利息後的淨收益。只要有任何貨幣處於借款狀態，便不會買入票據。
+
+en: Settlement evidence
+zh: 交收證據
+
+en: Usable cash needs current per-currency evidence. An optional authenticated broker ledger can supplement TWS; gaps hold the sweep.
+zh: 可用現金需要每種貨幣的最新證據。可選用須登入驗證的券商帳目補充 TWS；有缺口時調撥會暫緩。
+
+en: Order limits · v3.18
+zh: 訂單限額 · v3.18
+
+en: A cap on each order’s value that follows net liquidation value, between a floor and a ceiling you set.
+zh: 單一訂單價值的上限，跟隨淨清算價值變動，介乎你設定的最低值與最高值之間。
+
+en: Protective stops · v3.18
+zh: 保護性止蝕盤 · v3.18
+
+en: In trading builds, Canary shrinks or cancels its own stops when you hold fewer shares than they would sell. Stops you placed by hand are never changed.
+zh: 在交易版本中，當你持有的股數少於 Canary 自己的止蝕盤將沽出的數量時，Canary 會縮減或取消這些止蝕盤。你手動設下的止蝕盤絕不會被更改。
+
+en: Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks. Bills and bonds can be ordered by ISIN or CUSIP.
+zh: 需自行選用的訂單執行，由你確認或按規則預先授權，並經 Canary 檢查。票據及債券可按 ISIN 或 CUSIP 下單。
+
+en: Where you use it
+zh: 使用場景
+
+en: Command line
+zh: 命令列
+
+en: One binary for macOS and Linux. Every command can print JSON.
+zh: 單一執行檔，適用於 macOS 及 Linux。每個指令都可輸出 JSON。
+
+en: AI assistants
+zh: AI 助手
+
+en: Read-only MCP tools for Claude and other hosts.
+zh: 供 Claude 及其他主機使用的唯讀 MCP 工具。
+
+en: A paired app with live updates and opt-in notifications.
+zh: 已配對的應用程式，提供即時更新及需自行開啟的通知。
+
+en: Go library
+zh: Go 函式庫
+
+en: The TWS protocol implemented in Go, with no vendor SDK.
+zh: 以 Go 實作的 TWS 協定，無需供應商 SDK。
+
+en: Use the Go library
+zh: 使用 Go 函式庫
+
+en: Native protocol access and a code example
+zh: 原生協定存取及程式碼範例
+
+en: The TWS protocol <br>in Go.
+zh: 以 Go 實作的<br>TWS 協定。
+
+en: <code>pkg/ibkr</code> speaks the TWS wire protocol itself. It needs no vendor SDK and redistributes no Interactive Brokers code.
+zh: <code>pkg/ibkr</code> 自行處理 TWS 通訊協定，無需供應商 SDK，也不會再分發任何 Interactive Brokers 程式碼。
+
+en: To read a running Canary from your own program, import the module root. <code>canarytest</code> serves it on a temporary socket for your tests.
+zh: 要從你自己的程式讀取運行中的 Canary，請匯入模組根目錄。<code>canarytest</code> 在臨時 socket 上提供服務，供你測試使用。
+
+en: Go API reference
+zh: Go API 參考
+
+en: An account summary over the TWS protocol
+zh: 透過 TWS 協定取得帳戶摘要
+
+en: Documentation
+zh: 說明文件
+
+en: Handbook &amp; reference
+zh: 手冊及參考資料
+
+en: Open the handbook
+zh: 打開手冊
+
+en: Canary Desk is the private workspace built on this engine. <a href="/desk/">See Canary Desk</a>.
+zh: Canary Desk 是建基於此引擎的私人工作空間。<a href="/desk/">查看 Canary Desk</a>。
+
+en: Interactive Brokers MCP server
+zh: Interactive Brokers MCP 伺服器
+
+en: Claude Code and other hosts
+zh: Claude Code 及其他主機
+
+en: Portfolio review with Claude
+zh: 用 Claude 檢視投資組合
+
+en: Remote access
+zh: 遙距存取
+
+en: MCP tool reference
+zh: MCP 工具參考
+
+en: CLI reference
+zh: CLI 參考
+
+en: Trading policy
+zh: 交易政策
+
+en: Storage
+zh: 儲存
+
+en: Sensors and rulebook
+zh: 感測器及規則手冊
+
+en: Trading rulebook
+zh: 交易規則手冊
+
+en: Changelog
+zh: 變更紀錄
+
+en: Feedback
+zh: 意見回饋
+
+en: Privacy
+zh: 私隱
+
+en: Security
+zh: 安全
+
+en: Colour theme
+zh: 色彩主題
+
+en: System
+zh: 系統
+
+en: Dark
+zh: 深色
+
+en: Light
+zh: 淺色
+
+en: Personal projects, unaffiliated with any employer or with Interactive Brokers. IBKR, TWS and IB Gateway are Interactive Brokers trademarks. No investment advice.
+zh: 個人項目，與任何僱主或 Interactive Brokers 均無關聯。IBKR、TWS 及 IB Gateway 是 Interactive Brokers 的商標。不構成投資建議。
+
+en: Main
+zh: 主選單
+
+en: Output of canary brief on a synthetic account: market state, portfolio summary and what needs attention
+zh: 虛構帳戶上 canary brief 的輸出：市場狀態、投資組合摘要及需要留意的事項
+
+en: Where to start
+zh: 從哪裏開始
+
+en: What Canary does
+zh: Canary 的功能
+
+en: Output of canary positions on a synthetic account: holdings with value, day change and exposure
+zh: 虛構帳戶上 canary positions 的輸出：持倉連同價值、當日變動及風險敞口
+
+en: Output of canary rules on a synthetic account: each risk rule with its reading, band and state
+zh: 虛構帳戶上 canary rules 的輸出：每條風險規則的讀數、區間及狀態
+
+en: Canary policy commands
+zh: Canary 政策指令
+
+en: Canary watchlist and setup commands
+zh: Canary 觀察名單及形態指令
+
+en: Canary borrowing research commands
+zh: Canary 借貨研究指令
+
+en: Canary cash sweep checks
+zh: Canary 現金調撥檢查
+
+en: FX contribution plus other profit and loss equals portfolio value change after external cash flows
+zh: 外匯貢獻加其他盈虧，等於扣除外部現金流後的投資組合價值變動
+
+en: The shell, an AI assistant, a paired phone and your own Go code all talk to one canary daemon over a local socket. The daemon talks to IB Gateway or TWS and to public data sources.
+zh: Shell、AI 助手、已配對手機及你自己的 Go 程式碼，都透過本機 socket 與同一個 canary 守護程序溝通。守護程序與 IB Gateway 或 TWS 及公開數據來源溝通。
+
+en: Canary links and profiles
+zh: Canary 連結及個人檔案
+
+en: Open-source tools for an Interactive Brokers account: ask Claude Desktop about your portfolio, script the JSON CLI and Go library, or read IBKR data through read-only MCP tools.
+zh: Interactive Brokers 帳戶的開源工具：向 Claude Desktop 查詢你的投資組合，編寫 JSON CLI 及 Go 函式庫的腳本，或透過唯讀 MCP 工具讀取 IBKR 數據。
+
+en: Canary | Open-source Interactive Brokers tools for Claude, CLI and Go
+zh: Canary | Claude、CLI 及 Go 適用的開源 Interactive Brokers 工具
+
+en: Independent Go implementation of the Interactive Brokers TWS protocol, with a CLI, a daemon, MCP tools and a paired app.
+zh: Interactive Brokers TWS 協定的獨立 Go 實作，附 CLI、守護程序、MCP 工具及配對應用程式。
+
+en: A short animated film about a risk alert. Every figure in it is synthetic.
+zh: 一部關於風險警報的動畫短片。片中所有數字均為虛構。
+
+en: curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh\ncanary status    # which gateway and account it reached\ncanary brief     # what needs attention today\n\n# Claude Desktop\ncanary setup claude-desktop\n\n# Claude Code plugin\n/plugin marketplace add osauer/canary\n/plugin install canary@canary\n\n# then ask:\n# "How does my IBKR account look today?"
+zh: curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh\ncanary status    # 連接到哪個 Gateway 及帳戶\ncanary brief     # 今日需要留意甚麼\n\n# Claude Desktop\ncanary setup claude-desktop\n\n# Claude Code 外掛程式\n/plugin marketplace add osauer/canary\n/plugin install canary@canary\n\n# 然後問：\n# 「我的 IBKR 帳戶今日狀況如何？」
+
+keep: osauer.dev
+keep: Canary Desk
+keep: Canary
+keep: LinkedIn
+keep: GitHub
+keep: CLI
+keep: llms.txt
+keep: The Status Meeting
+keep: Canary Edge
+keep: canary daemon
+keep: Edge
+keep: English

@@ -4200,9 +4200,13 @@ func (s *Server) autoTradeStatus() rpc.AutoTradeStatus {
 		Policy:           policy,
 	}
 	if s.tradeProposals != nil {
-		if active, ok := s.tradeProposals.automaticPolicy(); ok {
+		if active, ok, disarmed := s.tradeProposals.automaticPolicyAuthority(); ok {
 			out.PreAuthorised = append(append([]string(nil), active.Authority.PreAuthorised...), active.Cash.PreAuthorised...)
 			out.VetoWindow = active.Authority.vetoWindow().String()
+			if disarmed != nil {
+				listed, _ := s.protectionPolicies.Active()
+				out.PreAuthorisedDisarmed = append(append([]string(nil), listed.Authority.PreAuthorised...), listed.Cash.PreAuthorised...)
+			}
 		}
 		scope := s.tradeProposals.currentScope()
 		out.AutomaticPending = s.tradeProposals.automaticPendingCount(scope)

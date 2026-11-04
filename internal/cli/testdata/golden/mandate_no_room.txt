@@ -5,11 +5,11 @@ Loss · 20,750 EUR = premium at risk 0 EUR + loss to armed stops 20,750 EUR ·
   no loss room left · unstopped, counting nothing: SYNB
 Volatility · 23,970 EUR a year · 1-day swing 1,510 EUR · 99% expected
   shortfall 4,120 EUR · sizing budget 0
-Loss room · 30% × 230,000 EUR at room 0% · loss 40% of the 30% maximum from
+Loss room · 30% × 230,000 EUR at room 0% · loss 32% of the 30% maximum from
   the high-water mark 235,000 EUR
 Sizing budget · 15% × 230,000 EUR at room 0% a year · sizes the sleeve
   allocations, never the verdict
-Risk base · 141,000 EUR = equity 211,000 EUR − tax reserve 70,000 EUR · flows
+Risk base · 116,250 EUR = equity 180,000 EUR − tax reserve 63,750 EUR · flows
   since 2026-09-01 −5,000 EUR
 Stock additions · refused · the loss measure 20,750 EUR (premium at risk 0 EUR,
                   stop loss 20,750 EUR) is over the mandate's loss room 0 EUR
@@ -63,11 +63,11 @@ Loss · 20,750 EUR = premium at risk 0 EUR + loss to armed stops 20,750 EUR ·
   no loss room left · unstopped, counting nothing: SYNB
 Volatility · 23,970 EUR a year · 1-day swing 1,510 EUR · 99% expected
   shortfall 4,120 EUR · sizing budget 0
-Loss room · 30% × 230,000 EUR at room 0% · loss 40% of the 30% maximum from
+Loss room · 30% × 230,000 EUR at room 0% · loss 32% of the 30% maximum from
   the high-water mark 235,000 EUR
 Sizing budget · 15% × 230,000 EUR at room 0% a year · sizes the sleeve
   allocations, never the verdict
-Risk base · 141,000 EUR = equity 211,000 EUR − tax reserve 70,000 EUR · flows
+Risk base · 116,250 EUR = equity 180,000 EUR − tax reserve 63,750 EUR · flows
   since 2026-09-01 −5,000 EUR
 Stock additions · \x1b[31mrefused · the loss measure 20,750 EUR (premium at risk 0 EUR,\x1b[0m
                   \x1b[31mstop loss 20,750 EUR) is over the mandate's loss room 0 EUR\x1b[0m

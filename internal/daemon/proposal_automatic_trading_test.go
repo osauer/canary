@@ -54,6 +54,7 @@ func newAutomaticTradingRig(t *testing.T, authority string) *automaticTestRig {
 	rig.server = srv
 	rig.engine = rig.newEngine()
 	srv.tradeProposals = rig.engine
+	rig.armStanding("protect")
 	return rig
 }
 

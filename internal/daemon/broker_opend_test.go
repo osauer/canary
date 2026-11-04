@@ -132,6 +132,13 @@ func TestRecordsRebuildTheirScopeFromBodyAndKey(t *testing.T) {
 // listeners on the standard ports prove it never dials.
 func startOpenDServer(t *testing.T, sim *futusim.Server, account string) (*Server, func()) {
 	t.Helper()
+	return startOpenDServerInMode(t, sim, account, "")
+}
+
+// startOpenDServerInMode sets the trading mode before the daemon starts: its proposal
+// engine reads the config from then on, so a test must not change it afterwards.
+func startOpenDServerInMode(t *testing.T, sim *futusim.Server, account, mode string) (*Server, func()) {
+	t.Helper()
 	dir := shortTempDir(t)
 	t.Setenv("XDG_STATE_HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "config"))
@@ -147,6 +154,7 @@ func startOpenDServer(t *testing.T, sim *futusim.Server, account string) (*Serve
 		OpenD:  config.OpenD{Host: "127.0.0.1", Port: &port, Account: account},
 		Flex:   config.Flex{Enabled: true},
 	}
+	cfg.Trading.Mode = mode
 	cfg.CashLedger.URL = "http://127.0.0.1:1/never"
 	cfg.Daemon.SetIdleTimeout(0)
 	srv := New(Options{
@@ -319,22 +327,20 @@ func TestOpenDStatusReportsTheSession(t *testing.T) {
 // does not report blocks with OpenD wording and no mode.
 func TestOpenDTradingStatusChecks(t *testing.T) {
 	sim := futusim.Start(t, futusim.Options{})
-	srv, stop := startOpenDServer(t, sim, opendTestAccount)
+	srv, stop := startOpenDServerInMode(t, sim, opendTestAccount, config.TradingModeLive)
 	defer stop()
 	waitOpenDReady(t, srv)
-	srv.cfg.Trading.Mode = config.TradingModeLive
 	status := srv.handleTradingStatus()
 	if !hasBlocker(status.Blockers, "live_endpoint_unconfirmed") {
 		t.Fatalf("a simulate account passed the live check: %+v", status.Blockers)
 	}
 
-	unknown, stopUnknown := startOpenDServer(t, sim, "42")
+	unknown, stopUnknown := startOpenDServerInMode(t, sim, "42", config.TradingModePaper)
 	defer stopUnknown()
 	deadline := time.Now().Add(5 * time.Second)
 	for unknown.opend.Connector().Health().Phase != futu.PhaseUnscoped && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
-	unknown.cfg.Trading.Mode = config.TradingModePaper
 	status = unknown.handleTradingStatus()
 	if !hasBlocker(status.Blockers, "gateway_account_mismatch") || status.AccountMode != rpc.AccountModeUnknown {
 		t.Fatalf("an unreported account: %+v", status)

@@ -54,7 +54,7 @@ type protectionPolicy struct {
 // exception to authority.close_reduce_only. One veto window,
 // [authority] veto_window, serves every pre-authorised row.
 type protectionCashPolicy struct {
-	// PreAuthorised lists the cash buckets whose unblocked rows the daemon places itself after recording an alert and the full veto window: only cash_sweep, the sweep's bill buys and redemptions, each held to the sweep's order cap in force. currency_leveling is never pre-authorised. Empty by default.
+	// PreAuthorised lists the cash buckets whose unblocked rows the daemon places itself after recording an alert and the full veto window: only cash_sweep, the sweep's bill buys and redemptions, each held to the sweep's order cap in force. currency_leveling is never pre-authorised. Empty by default. It takes effect only while Protection or Fully armed stands.
 	PreAuthorised []string `toml:"pre_authorised" json:"pre_authorised,omitempty"`
 	// ConfirmationWindow is how long, after you confirm a cash settings save from Desk on your passkey or companion, a further save from the same Desk console session may rely on that confirmation instead of asking your device again, as a duration (Canary writes "10m"; "0s" or no value always asks your device); a save that lets more reach the broker always asks your device. Read from this file only: Desk shows it and cannot change it. Canary writes "10m" (owner decision 2026-10-06 15:31 CEST).
 	ConfirmationWindow string `toml:"confirmation_window" json:"confirmation_window,omitempty"`
@@ -71,7 +71,9 @@ type protectionPolicyAuthority struct {
 	AutoSubmit bool `toml:"auto_submit" json:"auto_submit"`
 	// PreAuthorised lists the protection buckets whose unblocked proposals
 	// the daemon places itself after recording an alert and the veto window
-	// (owner decision D3, 2026-09-21). Closed vocabulary: trailing_stop,
+	// (owner decision D3, 2026-09-21). It takes effect only while Protection
+	// or Fully armed stands, signed once on a paired device; with nothing
+	// armed the rows wait for you (owner, 2026-11-04). Closed vocabulary: trailing_stop,
 	// option_loss_exit, option_profit_trail, budget_reduction,
 	// mandate_reduction (the mandate's forced reduction back to its risk
 	// budget, owner decision 2026-10-14 06:26 CEST). The cash
