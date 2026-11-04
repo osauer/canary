@@ -842,3 +842,24 @@ the documents stated, and none changes what they promise.
    now lists `broker`, absent on every IBKR term. Desk's and the companion's lists
    need it before phase D signs a term under OpenD; the design's owner table says so.
 
+## What the witness found building WP12
+
+Written 2026-11-04 22:20 CET. The first changes what the design promised; the rest are readings a
+reviewer should see.
+
+1. **The regime is off under OpenD.** The design had its broker-bar inputs served
+   through the history quota. WP11 built the lines; the engine does not consume them,
+   and it returns before the fan-out with no IBKR connector. This is a gap against the
+   design, not a correction of a mechanism: the design now says so, and the owner table
+   proposes a package of its own.
+2. **Portfolio stress follows the regime.** `canary stress` answers unavailable, and
+   the app's card reads "Fault · transport unavailable". That reads as broken where the
+   design wants off. The card's words are left for the owner with phase D's surfaces.
+3. **The app's source count sits above its gaps.** The Monitor shows "22/22 sources ok"
+   directly above a line of unavailable items, because a source that is off for this
+   broker does not count as failing. What that count means is a label decision, left
+   open.
+4. **The rulebook names data gaps.** The simulator's book shows the regime stage and
+   the earnings date unobserved, no FX rate for holdings outside the base currency, no
+   excess liquidity for margin headroom, and the risk-capital numbers that belong in
+   the owner's own policy file. Each reads as a gap, none as a pass.

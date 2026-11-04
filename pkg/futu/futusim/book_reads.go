@@ -248,3 +248,24 @@ func (b *Book) SetHistoryQuota(quota int) {
 	defer b.mu.Unlock()
 	b.historyQuota = quota
 }
+
+// SetRealLocked locks or unlocks the book's real accounts for trading, a switch for
+// a test of the lock refusal; the simulator itself never unlocks on request.
+func (b *Book) SetRealLocked(locked bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := range b.accounts {
+		if b.accounts[i].Env == EnvReal {
+			b.accounts[i].Locked = locked
+		}
+	}
+}
+
+// FollowWallClock starts the book's clock and its quote walk at the instant,
+// following the wall clock from then on; the process simulator uses it.
+func (b *Book) FollowWallClock(at time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.epoch = at.UTC()
+	b.Clock = RunningClock(at)
+}

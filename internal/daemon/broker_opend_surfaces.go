@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ var ibkrOnlyMethods = map[string]bool{
 }
 
 // opendNotServed names, in the reader's words, what OpenD does not serve.
-var opendNotServed = []string{"Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "cash sweep"}
+var opendNotServed = []string{"regime", "Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "gamma", "cash sweep"}
 
 // brokerCapabilities says what the daemon's broker can do.
 func (s *Server) brokerCapabilities() *rpc.BrokerCapabilities {
@@ -101,9 +102,7 @@ func (s *Server) opendDataHealth(rows []rpc.DataSourceHealth, scope string, now 
 			}
 		case row.Provider == "IBKR":
 			row.Provider = "OpenD"
-			if ready && len(row.DerivedFrom) > 0 {
-				row.DerivedFrom = nil
-			}
+			row.Name = strings.ReplaceAll(row.Name, "IBKR", "OpenD")
 		}
 	}
 	return rows, scope
@@ -114,10 +113,39 @@ func dataHealthIBKROnly(id string) bool {
 	if id == "reporting" {
 		return true
 	}
-	for _, prefix := range []string{"regime:gamma", "regime:breadth", "breadth", "gamma", "chain", "borrow", "earnings", "edge", "recon", "hmds"} {
-		if strings.HasPrefix(id, prefix) {
+	for _, name := range []string{"regime", "breadth", "gamma", "chain", "borrow", "shortable", "earnings", "edge", "recon", "hmds"} {
+		if strings.Contains(id, name) {
 			return true
 		}
 	}
 	return false
+}
+
+// opendSubsystems lists the subsystems this broker has.
+func (s *Server) opendSubsystems(connected bool) []rpc.SubsystemHealth {
+	status := "ready"
+	if !connected {
+		status = "unavailable"
+	}
+	return []rpc.SubsystemHealth{
+		s.authoritySubsystemHealth(),
+		s.configSubsystemHealth(),
+		s.watchlistSubsystemHealth(),
+		{Name: "quote", Status: status},
+		{Name: "history", Status: status},
+	}
+}
+
+// opendCheckCode is the reference the data check reads: one snapshot request.
+const opendCheckCode = "SPY"
+
+// runOpenDDataCheck proves the quote path with one snapshot of a reference name.
+func (s *Server) runOpenDDataCheck(ctx context.Context) rpc.DataCheckResult {
+	result := rpc.DataCheckResult{StartedAt: s.orderNow(), Detail: "One snapshot of a reference name; other sources report what they last read."}
+	if _, err := s.opendQuote(ctx, rpc.QuoteSnapshotParams{Contract: rpc.ContractParams{Symbol: opendCheckCode}}); err != nil {
+		result.Deferred = 1
+		result.Detail = "OpenD did not answer the reference quote; required checks deferred."
+	}
+	result.CompletedAt = s.orderNow()
+	return result
 }

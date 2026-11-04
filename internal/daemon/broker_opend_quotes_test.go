@@ -110,6 +110,9 @@ func TestARegimeLineInsideItsHoldWaitsForTheNextRefresh(t *testing.T) {
 // the typed reason, and the seam serves the name anyway.
 func TestQuotaSpentElsewhereServesTheNameBySnapshot(t *testing.T) {
 	book := bookOfNames(t, 2, 100)
+	// Spent before the session starts: the daemon reads the book as soon as OpenD
+	// is ready, and a line taken then would serve the name.
+	book.SetSubscriptionQuota(0)
 	sim := futusim.Start(t, futusim.Options{Book: book})
 	srv, stop := startOpenDServer(t, sim, opendTestAccount)
 	defer stop()
@@ -117,7 +120,6 @@ func TestQuotaSpentElsewhereServesTheNameBySnapshot(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	srv.opendBudget.record([]string{"HK.00001"}, "")
-	book.SetSubscriptionQuota(0)
 	_, _, err := srv.opend.Subscribe(ctx, broker.Instrument{ID: "HK.00001"}, nil)
 	if !errors.Is(err, broker.ErrSnapshotOnly) || !errors.Is(err, futu.ErrQuotaExhausted) {
 		t.Fatalf("subscribe past the quota: %v", err)

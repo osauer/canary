@@ -94,6 +94,9 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 	// only, so revised prose can never invalidate the brief identity.
 	res.Narrative = composeBriefNarrative(res)
 	if s.opend != nil && res.Narrative != nil && res.Narrative.Overview != nil {
+		res.Narrative.Overview.Context = slices.DeleteFunc(res.Narrative.Overview.Context, func(line rpc.BriefParagraph) bool {
+			return len(line.Runs) > 0 && strings.HasPrefix(line.Runs[0].Text, "Held-name earnings")
+		})
 		res.Narrative.Overview.Coverage = append(res.Narrative.Overview.Coverage,
 			briefOverviewLine("Not on OpenD", strings.Join(opendNotServed, ", ")))
 		if sentence := s.opendQuoteSentence(); sentence != "" {

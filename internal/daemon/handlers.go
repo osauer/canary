@@ -3761,6 +3761,9 @@ func (s *Server) statusHealthSnapshot() *rpc.HealthResult {
 	res.PushDelivery = s.pushDeliveryProof.current()
 	res.Executions = s.executionVisibilityHealth(ep)
 	res.GatewaySetup = s.gatewaySetupHealth(res)
+	if s.opend != nil {
+		res.GatewaySetup, res.Executions, res.AnswerPath = nil, nil, nil
+	}
 	configuredAccount := ""
 	port := ep.Port
 	if s.cfg != nil {
@@ -3827,6 +3830,9 @@ func statusGatewayPhase(localConnected, apiReady, setupComplete, connectInFlight
 }
 
 func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus) []rpc.SubsystemHealth {
+	if s.opend != nil {
+		return s.opendSubsystems(connected)
+	}
 	gatewayStatus := "ready"
 	if !connected {
 		gatewayStatus = "unavailable"

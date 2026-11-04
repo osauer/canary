@@ -49,6 +49,10 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 	scope := "unknown"
 	c := s.gatewayConnector()
 	connected := c != nil && c.IsReady() && !c.BackendLink().Down
+	if s.opend != nil {
+		health := s.opend.Health()
+		connected = health.Ready && !health.BackendDown
+	}
 	if connected {
 		scope = "current"
 	}

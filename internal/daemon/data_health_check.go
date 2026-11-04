@@ -75,6 +75,9 @@ func (s *Server) requestDataHealthCheck() (rpc.DataCheckResult, error) {
 }
 
 func (s *Server) runDataHealthCheck(ctx context.Context) rpc.DataCheckResult {
+	if s.opend != nil {
+		return s.runOpenDDataCheck(ctx)
+	}
 	now := s.orderNow()
 	result := rpc.DataCheckResult{StartedAt: now, Detail: "Source checks reuse Canary quote observations and retry windows. Instrument coverage stays with quotes and charts; other sources retain their producer schedules."}
 	c := s.gatewayConnector()

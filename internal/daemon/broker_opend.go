@@ -104,9 +104,22 @@ func (s *Server) runOpenDSession(ctx context.Context) {
 				poll, cancel := context.WithTimeout(ctx, 10*time.Second)
 				_ = conn.RefreshSession(poll)
 				_, _ = conn.RefreshLoad(poll)
+				s.refreshOpenDReads(poll)
 				cancel()
 			}
 		}
+	}
+}
+
+// refreshOpenDReads reads the account and the book as a client would, so the
+// observations stay current and a new holding reaches its line with no client
+// asking. Both reads are answered from OpenD's cache and spend no pacing window.
+func (s *Server) refreshOpenDReads(ctx context.Context) {
+	if _, _, err := s.buildAccountSummaryWithAuthority(ctx, false); err != nil {
+		s.logger.Debugf("opend: account read: %v", err)
+	}
+	if _, err := s.handlePositionsList(ctx, &rpc.Request{}); err != nil {
+		s.logger.Debugf("opend: positions read: %v", err)
 	}
 }
 
@@ -124,6 +137,9 @@ func (s *Server) recordOpenDVerdict(ctx context.Context, conn *futu.Connector, e
 		if _, err := conn.RefreshLoad(ctx); err != nil {
 			s.logger.Debugf("opend: quota read: %v", err)
 		}
+		// The first check runs as the session comes up, not at the next schedule.
+		s.runOpenDDataCheck(ctx)
+		s.refreshOpenDReads(ctx)
 	}
 	if health.Ready {
 		return
@@ -335,29 +351,37 @@ func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, 
 // opendQuote serves one quote: the streaming line when the session holds one,
 // else one snapshot request.
 func (s *Server) opendQuote(ctx context.Context, p rpc.QuoteSnapshotParams) (*rpc.Quote, error) {
+	quote, binding, err := s.readOpenDQuote(ctx, p)
+	if !binding.IsZero() {
+		s.recordFeedHealth(projectQuoteSource(quote, err, s.orderNow()), s.opend, binding)
+	}
+	return quote, err
+}
+
+func (s *Server) readOpenDQuote(ctx context.Context, p rpc.QuoteSnapshotParams) (*rpc.Quote, broker.SessionBinding, error) {
 	binding, ok := s.opend.Capture()
 	if !ok {
-		return nil, s.gatewayUnavailableError()
+		return nil, broker.SessionBinding{}, s.gatewayUnavailableError()
 	}
 	code, err := s.opend.CodeFor(instrumentOfContract(p.Contract))
 	if err != nil {
-		return nil, err
+		return nil, binding, err
 	}
 	line := s.opend.Snapshot()[code]
 	if line == nil {
 		read, err := s.opend.ReadSnapshots(ctx, []string{code})
 		if err != nil {
-			return nil, err
+			return nil, binding, err
 		}
 		line = read[code]
 	}
 	if line == nil {
-		return nil, fmt.Errorf("OpenD has no quote for %s", code)
+		return nil, binding, fmt.Errorf("OpenD has no quote for %s", code)
 	}
 	if !s.opend.Current(binding) {
-		return nil, s.gatewayUnavailableError()
+		return nil, broker.SessionBinding{}, s.gatewayUnavailableError()
 	}
-	return rpcQuoteOf(p.Contract, line), nil
+	return rpcQuoteOf(p.Contract, line), binding, nil
 }
 
 // instrumentOfContract reads a request's contract as the seam's identity.

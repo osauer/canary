@@ -20,6 +20,9 @@ func renderOpenDRows(env *Env, out io.Writer, res *rpc.HealthResult) {
 	if len(o.Markets) > 0 {
 		statusHealthRow(env, out, "Markets", strings.Join(o.Markets, ", ")+" tradable on this account")
 	}
+	if len(o.Markets) > 0 {
+		statusHealthRow(env, out, "Broker access", "stocks on "+strings.Join(o.Markets, ", ")+"; options and futures not served on OpenD")
+	}
 	if len(o.QuoteRights) > 0 {
 		statusHealthRow(env, out, "Quote rights", formatOpenDQuoteRights(o.QuoteRights))
 	}

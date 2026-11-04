@@ -1012,7 +1012,7 @@ func goldenHealthOpenD() rpc.HealthResult {
 		Environment: "simulate", ConnID: 5000, Markets: []string{"HK", "US", "SG"},
 		QuoteRights:       map[string]string{"HK": "Level2", "US": "Level1", "SG": "No"},
 		SubscriptionsUsed: 37, SubscriptionQuota: 100, HistoryUsed: 12, HistoryQuota: 100,
-		NotServed: []string{"Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "cash sweep"},
+		NotServed: []string{"regime", "Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "gamma", "cash sweep"},
 	}
 	return res
 }

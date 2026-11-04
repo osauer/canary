@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 22:04 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 22:20 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -42,7 +42,8 @@ work package so a fresh session resumes without the conversation.
 | WP7 `pkg/futu` reads and their simulator handlers | `2928cd46` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-17-g621b17f1-dirty exit 0`; `test-pkg: pkg/futu statement coverage 93.2% (floor 80%)` |
 | WP8 the daemon on OpenD | `3c922e70` | `make test` on the tree before the commit; `make regression-spine-check` on `3c922e70` | `gate test at canary--v3.33.1-18-g2928cd46-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)` |
 | WP9 surfaces | `18512599` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-19-g3c922e70-dirty exit 0` |
-| WP11 quota budgeting and snapshot delivery (WP10 waits for the identity ack) | the commit carrying this note | `make test` on the tree before the commit; spine on the landed revision | `gate test at canary--v3.33.1-20-g18512599-dirty exit 0` |
+| WP11 quota budgeting and snapshot delivery (WP10 waits for the identity ack) | `2b2d12b7` | `make test` on the tree before the commit; spine on the landed revision | `gate test at canary--v3.33.1-20-g18512599-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 131s elapsed 361.2s user 72.6s sys exit 0` |
+| WP12 `cmd/opend-sim`, the witness and the dual-daemon witness | the commit carrying this note | `make test` on the tree before the commit; `make account-data-check product-identity-check` | `gate test at canary--v3.33.1-21-g2b2d12b7-dirty exit 0` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -205,16 +206,23 @@ and design carry these; WP5 and WP8 build to them.
 - A line has no quote until a push, so marks fall through to the batch until then.
 - Tests that move a hold give the connector the book's clock in `startOpenDServer`; the adapter stays on the wall clock for receipts.
 
+## How WP12 is wired
+
+- `cmd/opend-sim` serves the book as a process; `make opend-sim` runs it with `-clock now`. Runbook in the design's simulator section.
+- `TestLifecycle_TwoBrokersSideBySide` in `test/integration/dual_broker_test.go` runs both stacks and proves a down OpenD socket autospawns an OpenD daemon and leaves the IBKR process alone.
+- Under `opend`, `subsystemHealth` lists only what the broker has (`opendSubsystems`), `GatewaySetup`, `Executions`, `AnswerPath` and `BrokerPermissions` are absent, the data check is one snapshot of a reference name, and the status poll refreshes account and positions so feed health has a read to report.
+- The witness scripts live in this session's scratchpad, their captures in the shared notes `opend-witness` folder with the app screenshot `app-opend-1280x900.png`.
+
 ## In progress
 
 Nothing between packages.
 
 ## Next
 
-WP12: `cmd/opend-sim`, the witness stack, the dual-daemon witness with the autospawn proof, the app inspected on the simulator stack. WP10 waits for the owner's ack of the identity, asked of the parent session 2026-11-04 21:53 CET.
+WP10 waits for the owner's ack of the identity, asked of the parent session 2026-11-04 21:53 CET. After it: Desk's re-pin. The regime and FX package is proposed in the design's owner table.
 
 ## Not done
 
-WP10 and WP12. No live proof (no Gateway in this session): every
+WP10. No live proof (no Gateway in this session): every
 IBKR-path package reports "proof pending: next live session". Phase D is
 out of scope.

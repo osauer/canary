@@ -180,3 +180,37 @@ func TestOpenDVerdictWords(t *testing.T) {
 }
 
 var configWithOpenD = config.Resolved{Broker: config.Broker{Kind: "opend"}, OpenD: config.OpenD{Account: opendTestAccount}}
+
+// Only what this broker has is listed, so a healthy OpenD session reads ready and
+// the rows that describe an IBKR session are absent rather than alarming.
+func TestOpenDStatusListsOnlyWhatTheBrokerHas(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{})
+	srv, stop := startOpenDServer(t, sim, opendTestAccount)
+	defer stop()
+	waitOpenDReady(t, srv)
+
+	statusOf := func(subsystems []rpc.SubsystemHealth) map[string]string {
+		out := map[string]string{}
+		for _, row := range subsystems {
+			out[row.Name] = row.Status
+		}
+		return out
+	}
+	up := statusOf(srv.subsystemHealth(true, nil))
+	if up["quote"] != "ready" || up["history"] != "ready" {
+		t.Fatalf("connected subsystems %v", up)
+	}
+	for _, name := range []string{"gamma", "breadth", "edge", "recon", "regime", "hmds"} {
+		if _, listed := up[name]; listed {
+			t.Errorf("%q is listed under OpenD: %v", name, up)
+		}
+	}
+	if down := statusOf(srv.subsystemHealth(false, nil)); down["quote"] != "unavailable" || down["history"] != "unavailable" {
+		t.Fatalf("disconnected subsystems %v", down)
+	}
+
+	h := srv.statusHealthSnapshot()
+	if h.GatewaySetup != nil || h.Executions != nil || h.AnswerPath != nil {
+		t.Fatalf("an IBKR session row survives: setup %+v executions %+v answer path %+v", h.GatewaySetup, h.Executions, h.AnswerPath)
+	}
+}

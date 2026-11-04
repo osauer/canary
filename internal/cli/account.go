@@ -231,6 +231,10 @@ func accountAuthorityReason(reason rpc.AccountDataReason) string {
 // a later call can carry the observed value.
 func writeDailyPnLLine(env *Env, out io.Writer, a *rpc.AccountResult, base string, w int, available, typed bool) {
 	if a.DailyPnL == nil {
+		if a.Authority != nil && a.Authority.Scope.Broker != "" {
+			fmt.Fprintf(out, "  Daily P&L               %s  %s\n", env.dim(padDash(w)), env.dim("(not served on this broker)"))
+			return
+		}
 		fmt.Fprintf(out, "  Daily P&L               %s  %s\n",
 			env.dim(padDash(w)),
 			env.dim("(subscribing — value lands on next call)"))

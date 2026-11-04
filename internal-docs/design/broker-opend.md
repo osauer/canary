@@ -935,9 +935,9 @@ surface:
 - Data health lists each such source with the additive source state
   `not_applicable` and the reason "IBKR only"; it is never `stale`.
 - `canary status` prints one `Not on OpenD` row naming them in words:
-  "Edge, reconciliation, statement reporting, borrow availability, earnings
-  (WSH), breadth, cash sweep". The row is informational; the verdict does
-  not degrade for it.
+  "regime, Edge, reconciliation, statement reporting, borrow availability,
+  earnings (WSH), breadth, gamma, cash sweep". The row is informational; the
+  verdict does not degrade for it.
 - The brief's coverage section names the missing items where it would
   otherwise show their figures; a figure that depends on a missing source
   is absent with its `*_unavailable` reason, not zero.
@@ -960,10 +960,26 @@ surface:
   chain recorder depend on option chains and Greeks the OpenD leg does not
   serve in phases A to C; they are off the same way.
 
-Regime inputs that read broker bars (US names) are served through the
-history quota where the instrument exists on Futu; an input that does not
-resolve is `unavailable`, and the regime's data-quality lifecycle says so,
-as it does for any missing required evidence.
+The regime is off under `opend` in phases A to C, which departs from what this
+section first said (written 2026-11-04 22:20 CET, from building WP12). The first text had regime
+inputs that read broker bars served through the history quota. The streaming side
+of that is built: WP11 budgets lines for the regime's names. The regime engine does
+not consume it. `acquireRegimeSnapshot` returns at its connector check before the
+fan-out runs, so the inputs that touch no broker (credit, funding, the VIX term) are
+off too. Its three broker reads, `snapshot`, `snapshotWith52WHigh` and `history`, are
+typed on the IBKR connector and its bars, and `regime_gate.go` reads that connector
+directly. Moving them changes what a regime publication means when an input is off
+for this broker, so it is its own package with its own review, named under Owner
+decisions.
+
+Two things read through that gap. Portfolio stress composes from the regime, so
+`canary stress` answers unavailable and the app's card reads as a fault rather than
+as off. Rules that use the regime stage say so as a data gap.
+
+OpenD also supplies no FX rate today. A holding outside the account's base currency
+has its value in its own currency, so the rulebook reports it as not measured rather
+than converting it. The account's own figures come from `Funds` in the base currency
+and are not affected.
 
 ## Status rows for OpenD
 
@@ -1035,6 +1051,16 @@ against OpenD. Conformance begins with the first real capture (phase D),
 recorded into the same directory under `opend_<case>.hex`, and a fixture
 whose simulator version disagrees with a real capture is fixed on the
 simulator side.
+
+To run it as a process, `make opend-sim` starts `cmd/opend-sim -clock now` and
+prints its loopback address on one line. The flags are `-listen`, `-book` (a book
+file), `-clock fixed|now`, `-tier` (the subscription quota), `-record` (write the
+frames to a directory) and `-lock-real`. Point a witness at that address with the
+stack in the build brief: `[broker] kind = "opend"`, `[opend]` host, port and account,
+and its own `HOME`, XDG roots, `CANARY_CONFIG` and `CANARY_SOCKET`. Then
+`canary daemon --foreground --config <dir>/config.toml --socket <dir>/canary.sock
+--log stderr` serves `canary status`, `account`, `positions` and `brief` from the
+simulator, and the home directory stays empty.
 
 The simulator never implements an unlock: a 2005 frame fails the test that
 owns the server. It never reads anything from the machine it runs on: no
@@ -1181,6 +1207,8 @@ OpenD contact:
 | --- | --- |
 | The `broker` field on `rpc.QueuedAuthTerms` in Desk's and the companion's allowlists | Needed before a queued authorisation is signed under OpenD (phase D). The field is absent on every IBKR term, so nothing changes until then; `TestQueuedTermsFieldsAreTheSignedContract` names it (found in WP8, 2026-11-04). |
 | Topology: one daemon per broker, with aggregation and routing in Desk (the multi-broker review's option A) | Decided by the owner, 2026-11-04 16:01 CET. Phases A to C stay as written plus the two C1 changes the review named: the policy files on the XDG config root and the scope on the broker instance (applied to this design and the brief 2026-11-04 17:54 CET). The route is a term of every Desk order; a cross-book measure is a later policy decision, after a real Futu book exists. |
+| The regime on OpenD | Proposed 2026-11-04 22:20 CET: a package of its own after WP10. The regime, and the portfolio stress composed from it, stay off under `opend` until then, named on the surface. It decides what a regime publication means when an input is off for this broker. |
+| FX rates on OpenD | Proposed 2026-11-04 22:20 CET: with the regime package. Without a rate the rulebook reports holdings outside the base currency as not measured. Which source supplies the rate is the decision. |
 | The owner's Futu account and the OpenD build to run | Open, the owner's; nothing here depends on it until phase D's paper proof. |
 | Whether the OpenAPI agreement permits Canary | Open, the owner's, after reading it inside OpenD; the build against the simulator does not touch OpenD. |
 | `google.golang.org/protobuf` as a direct dependency | Accepted by the owner, 2026-11-04 20:00 CET ("Yes, add protobuf"), the eighth direct product dependency. Added at v1.36.12 in the WP5 commit, the one that carries this row. |
