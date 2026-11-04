@@ -1,6 +1,6 @@
 # Localisation
 
-Updated: 2026-11-04 09:23 CET
+Updated: 2026-11-04 12:40 CET
 
 What it takes to let Canary itself speak a second language: the CLI's
 human-readable output, `--help`, error text, the paired app and the MCP
@@ -28,7 +28,8 @@ and ends with the decisions that are the owner's.
 - The MCP registry (`internal/mcp/tools.go`) carries 44 tool descriptions,
   about 45 KB of English prose written for a model.
 - There is no message catalogue and no `golang.org/x/text` dependency in the
-  product module. `scripts/check-go-dependencies.sh` keeps that module
+  product module. The docs generator's module carries OpenCC for the
+  Simplified derivation; the product module does not. `scripts/check-go-dependencies.sh` keeps that module
   minimal, so any new dependency needs the one-sentence justification the
   engineering rules ask for.
 
@@ -51,15 +52,23 @@ Taiwan's (軟體, 資料), so one glossary covers the derived variant:
 | 期權鏈 | 期权链 | option chain |
 | 保證金 | 保证金 | margin |
 | 追蹤止損 | 追踪止损 | trailing stop |
-| 結單 | 对账单 | statement (vocabulary differs, not only script) |
+| 結單 | 结单 | statement (IBKR uses 结单 in Simplified too) |
 | 沽空 | 卖空 | short selling (vocabulary differs) |
 | 業績 | 财报 | earnings (vocabulary differs) |
 
-The derivation is a build step in the docs generator (OpenCC's `hk2s`
-dictionaries through a Go port, applied to the Markdown body with the
-glossary's vocabulary rows substituted first), never a second tracked copy.
-Until that step exists, Simplified readers get the Traditional page, which
-they can read; the selector gains a third entry when the step lands.
+The derivation is a build step in the docs generator
+(`scripts/docgen/docs-html/simplified.go`): the glossary above and its
+software rows are applied to the Traditional Markdown first, then OpenCC's
+`hk2s` profile converts the script. OpenCC is the pure-Go port
+`github.com/longbridgeapp/opencc` v0.3.13, pinned in the generator's own
+`go.mod` with its dictionaries embedded, so `make check` needs no binary on
+PATH. Simplified pages are build output, never tracked; a tracked file under
+`docs/docs/zh-hans/` fails the build. They carry the Traditional page's
+English revision, so the stale gate judges both by the same source. The
+glossary is machine-written like the pages and needs the same native read;
+a Singapore reader is the one to judge its mainland-leaning choices (开盘
+for 開市, 财报 for 業績, 做市商 for 莊家). Owner decision 2026-11-04 12:34
+CET: ship Simplified from the first publication.
 
 ## Where the language setting lives
 
@@ -169,8 +178,8 @@ Each step leaves the English product byte-identical, which the goldens and
 
 ## Decisions for the owner
 
-1. Traditional Chinese in Hong Kong usage as the authored variant, with
-   Simplified derived by conversion: confirm, or author Simplified first.
+1. Decided 2026-11-04 12:34 CET: Traditional Chinese in Hong Kong usage is
+   the authored master, Simplified is generated from it and ships with it.
 2. `display.language` as the one source for the app and the CLI, English
    before the daemon answers: confirm.
 3. MCP stays English end to end: confirm.

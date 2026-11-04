@@ -94,7 +94,7 @@ func TestLoadTranslationStaleness(t *testing.T) {
 // Markdown under docs/docs/ in a directory that is neither a section nor a
 // registered language is a mistake, not a new language.
 func TestDiscoverTranslationsRejectsUnknownLanguage(t *testing.T) {
-	tracked := map[string]bool{"docs/docs/zh-hans/start/install.md": true}
+	tracked := map[string]bool{"docs/docs/zh-yue/start/install.md": true}
 	read := func(string) ([]byte, error) { return []byte("---\n---\n"), nil }
 	if _, err := discoverTranslations(tracked, map[string]pageSpec{}, read); err == nil {
 		t.Error("unregistered language directory accepted")
@@ -229,5 +229,91 @@ func TestTranslatedHubRenders(t *testing.T) {
 	english := readSite(t, site, "docs/index.html")
 	if strings.Contains(english, "hub-lang") {
 		t.Error("English hub marks pages as English")
+	}
+}
+
+// The glossary carries the words that differ by region rather than by script;
+// OpenCC's hk2s profile alone would leave Hong Kong vocabulary in Simplified
+// characters (帐户, 甚么, 守护程序). Every glossary key must come out as its
+// value, which also catches a key the script conversion pre-empts.
+func TestGlossaryApplied(t *testing.T) {
+	c, err := newConverter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.convert("帳戶 甚麼 守護程序 應用程式 程序身份 半日市 戶口 按金 沽出 [安裝與首次運行](install.md#pick-an-install-path) {#before-you-start} `canary status`")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "账户 什么 守护进程 应用程序 进程身份 半日交易 账户 保证金 卖出 [安装与首次运行](install.md#pick-an-install-path) {#before-you-start} `canary status`"
+	if got != want {
+		t.Errorf("convert =\n%s\nwant\n%s", got, want)
+	}
+	for i := 0; i < len(glossary); i += 2 {
+		key, value := glossary[i], glossary[i+1]
+		out, err := c.convert(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out != value {
+			t.Errorf("glossary %s -> %s, want %s", key, out, value)
+		}
+	}
+}
+
+func TestDerivedSimplifiedPagesRender(t *testing.T) {
+	site := renderSite(t)
+	hans := readSite(t, site, "docs/zh-hans/start/ibkr-hong-kong-singapore.html")
+	hant := readSite(t, site, "docs/zh-hant/start/ibkr-hong-kong-singapore.html")
+	for _, want := range []string{
+		`<html lang="zh-Hans">`,
+		`<link rel="alternate" hreflang="zh-Hans" href="https://osauer.dev/canary/docs/zh-hans/start/ibkr-hong-kong-singapore.html">`,
+		`<link rel="alternate" hreflang="zh-Hant" href="https://osauer.dev/canary/docs/zh-hant/start/ibkr-hong-kong-singapore.html">`,
+		`<link rel="alternate" hreflang="x-default" href="https://osauer.dev/canary/docs/start/ibkr-hong-kong-singapore.html">`,
+		`<link rel="canonical" href="https://osauer.dev/canary/docs/zh-hans/start/ibkr-hong-kong-singapore.html">`,
+		`data-lang="zh-Hans" aria-current="true">简体中文</a>`,
+		`data-lang="zh-Hant">繁體中文</a>`,
+		zhHans.ui.Translated,
+		"账户", "端口", "半日交易",
+		`<a href="install.html">`,
+	} {
+		if !strings.Contains(hans, want) {
+			t.Errorf("Simplified page lacks %s", want)
+		}
+	}
+	for _, reject := range []string{"帐户", "甚么", "守护程序", "translation-note is-stale"} {
+		if strings.Contains(hans, reject) {
+			t.Errorf("Simplified page contains %s", reject)
+		}
+	}
+	if !strings.Contains(hant, `<link rel="alternate" hreflang="zh-Hans" href="https://osauer.dev/canary/docs/zh-hans/start/ibkr-hong-kong-singapore.html">`) {
+		t.Error("Traditional page lacks the Simplified alternate")
+	}
+	enIDs := headingIDs.FindAllStringSubmatch(readSite(t, site, "docs/start/ibkr-hong-kong-singapore.html"), -1)
+	hansIDs := headingIDs.FindAllStringSubmatch(hans, -1)
+	if len(enIDs) != len(hansIDs) {
+		t.Fatalf("heading count differs: en %d, zh-Hans %d", len(enIDs), len(hansIDs))
+	}
+	for i := range enIDs {
+		if enIDs[i][1] != hansIDs[i][1] {
+			t.Errorf("heading %d: en id %q, zh-Hans id %q", i, enIDs[i][1], hansIDs[i][1])
+		}
+	}
+	hub := readSite(t, site, "docs/zh-hans/index.html")
+	for _, want := range []string{`<html lang="zh-Hans">`, `<h1>文档</h1>`, `<a href="start/ibkr-hong-kong-singapore.html"><span class="hub-title">香港及新加坡账户</span>`} {
+		if !strings.Contains(hub, want) {
+			t.Errorf("Simplified hub lacks %s", want)
+		}
+	}
+}
+
+// A tracked file under the derived language's directory is a mistake: the
+// Simplified pages are generated, and an authored one would be overwritten.
+func TestDiscoverTranslationsRejectsTrackedDerivedPage(t *testing.T) {
+	tracked := map[string]bool{"docs/docs/zh-hans/start/install.md": true}
+	read := func(string) ([]byte, error) { return []byte("---\n---\n"), nil }
+	_, err := discoverTranslations(tracked, map[string]pageSpec{}, read)
+	if err == nil || !strings.Contains(err.Error(), "generated") {
+		t.Errorf("tracked derived page accepted: %v", err)
 	}
 }

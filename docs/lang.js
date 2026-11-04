@@ -2,8 +2,8 @@
 //
 // The site is static, so nothing on the server reads Accept-Language. On a
 // reader's first visit the browser's language list decides: a browser that
-// prefers Chinese is sent once from an English page to its Chinese version,
-// when there is one, and that becomes the stored choice. From then on the
+// prefers Chinese is sent once to the page in its own script (Traditional or
+// Simplified), when there is one, and that becomes the stored choice. From then on the
 // stored choice rules, and the selector in the header (and every link that
 // carries data-lang) changes it. A page that exists in one language only
 // never redirects, so a search result always opens.
@@ -20,18 +20,24 @@
   var stored = null;
   try { stored = localStorage.getItem(key); } catch (e) { /* storage blocked: decide per page */ }
   if (!stored) {
-    // First visit: a browser that prefers Chinese is sent to the Chinese
-    // version of an English page. Any other first visit shows the page that
-    // was asked for, so a shared Chinese link opens in Chinese everywhere.
+    // First visit: a browser that prefers Chinese is sent to the page in its
+    // own script, when there is one, and that becomes the stored choice.
+    // zh-HK, zh-TW and zh-MO read Traditional; zh-CN, zh-SG and bare zh read
+    // Simplified. Any other first visit shows the page that was asked for,
+    // so a shared Chinese link opens in Chinese everywhere.
     var prefers = navigator.languages || [navigator.language || ""];
-    var chinese = false;
+    var chosen = "";
     for (var j = 0; j < prefers.length; j++) {
-      if (/^zh\b/i.test(prefers[j])) { chinese = true; break; }
-      if (/^en\b/i.test(prefers[j])) break;
+      var tag = String(prefers[j]).toLowerCase();
+      if (/^en(-|$)/.test(tag)) break;
+      if (/^zh(-|$)/.test(tag)) {
+        chosen = /hant|-hk|-tw|-mo/.test(tag) ? "zh-Hant" : "zh-Hans";
+        break;
+      }
     }
-    if (chinese && here === "en" && available["zh-Hant"]) {
-      try { localStorage.setItem(key, "zh-Hant"); } catch (e) { /* same */ }
-      location.replace(available["zh-Hant"]);
+    if (chosen && chosen !== here && available[chosen]) {
+      try { localStorage.setItem(key, chosen); } catch (e) { /* same */ }
+      location.replace(available[chosen]);
       return;
     }
   } else if (stored !== here && available[stored]) {

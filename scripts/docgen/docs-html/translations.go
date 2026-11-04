@@ -28,6 +28,9 @@ type langSpec struct {
 	Slug string
 	Name string
 	ui   uiStrings
+	// derivedFrom names the language this one is generated from at build
+	// time; its directory under docs/docs/ is never tracked.
+	derivedFrom *langSpec
 }
 
 // uiStrings is the site chrome in one language: everything a generated page
@@ -117,9 +120,21 @@ var zhHant = &langSpec{
 	},
 }
 
-// languages lists every language the site renders, English first. Adding a
-// language here and a directory under docs/docs/ is the whole registration.
-var languages = []*langSpec{english, zhHant}
+// zhHans is Simplified Chinese, generated from zhHant by simplified.go: the
+// glossary for words that differ by region, then OpenCC's hk2s profile for
+// the script. Its chrome strings are derived the same way when the renderer
+// starts.
+var zhHans = &langSpec{
+	Tag:         "zh-Hans",
+	Slug:        "zh-hans",
+	Name:        "简体中文",
+	derivedFrom: zhHant,
+}
+
+// languages lists every language the site renders, English first. Adding an
+// authored language here and a directory under docs/docs/ is the whole
+// registration; a derived language names its source in derivedFrom.
+var languages = []*langSpec{english, zhHant, zhHans}
 
 func (l *langSpec) isEnglish() bool { return l.Slug == "" }
 
@@ -170,7 +185,10 @@ type translation struct {
 	// since.
 	sourceRevision string
 	stale          bool
-	body           []byte
+	// derivedFrom is the authored translation a generated page came from,
+	// nil for an authored one.
+	derivedFrom *translation
+	body        []byte
 }
 
 func (t *translation) output() string {
@@ -330,6 +348,21 @@ func discoverTranslations(tracked map[string]bool, english map[string]pageSpec, 
 			set[lang.Slug] = map[string]*translation{}
 		}
 	}
+	// derive is the converter for generated languages; loaded only when one
+	// is registered, which it is.
+	var conv *converter
+	for _, lang := range languages {
+		if lang.derivedFrom != nil {
+			c, err := newConverter()
+			if err != nil {
+				return nil, err
+			}
+			if err := deriveSimplifiedUI(c); err != nil {
+				return nil, err
+			}
+			conv = c
+		}
+	}
 	known := map[string]bool{}
 	for _, section := range sections {
 		known[section.Slug] = true
@@ -351,6 +384,9 @@ func discoverTranslations(tracked map[string]bool, english map[string]pageSpec, 
 		if !ok {
 			return nil, fmt.Errorf("%s sits under docs/docs/%s/, which is neither a section nor a registered language", file, first)
 		}
+		if lang.derivedFrom != nil {
+			return nil, fmt.Errorf("%s is tracked, but %s pages are generated from %s at build time; edit the %s page instead", file, lang.Tag, lang.derivedFrom.Tag, lang.derivedFrom.Tag)
+		}
 		content, err := read(file)
 		if err != nil {
 			return nil, err
@@ -361,6 +397,18 @@ func discoverTranslations(tracked map[string]bool, english map[string]pageSpec, 
 		}
 		set[lang.Slug][path.Clean(t.page.Source)] = t
 	}
+	for _, lang := range languages {
+		if lang.derivedFrom == nil {
+			continue
+		}
+		for source, t := range set[lang.derivedFrom.Slug] {
+			derived, err := deriveTranslation(conv, t)
+			if err != nil {
+				return nil, fmt.Errorf("%s: derive %s: %w", t.source, lang.Tag, err)
+			}
+			set[lang.Slug][source] = derived
+		}
+	}
 	return set, nil
 }
 
@@ -369,6 +417,7 @@ func discoverTranslations(tracked map[string]bool, english map[string]pageSpec, 
 func (s translationSet) report(out *strings.Builder) int {
 	behind := 0
 	total := 0
+	derived := 0
 	for _, lang := range languages {
 		if lang.isEnglish() {
 			continue
@@ -380,6 +429,15 @@ func (s translationSet) report(out *strings.Builder) int {
 		sort.Strings(sources)
 		for _, source := range sources {
 			t := s[lang.Slug][source]
+			if t.derivedFrom != nil {
+				derived++
+				state := "current"
+				if t.stale {
+					state = "behind"
+				}
+				fmt.Fprintf(out, "  derived  %s <- %s (%s, generated at build)\n", t.source, t.derivedFrom.source, state)
+				continue
+			}
 			total++
 			if t.stale {
 				behind++
@@ -390,6 +448,6 @@ func (s translationSet) report(out *strings.Builder) int {
 			}
 		}
 	}
-	fmt.Fprintf(out, "docs-translations: %d translation(s), %d behind their English source\n", total, behind)
+	fmt.Fprintf(out, "docs-translations: %d translation(s), %d derived, %d behind their English source\n", total, derived, behind)
 	return behind
 }
