@@ -92,7 +92,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help ci-gate-scope-check reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-smoke-read-only release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members refresh-fund-sectors hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build pages-coverage account-data-check hook-behavior-check agent-config-check
+.PHONY: help ci-gate-scope-check futu-proto-check futu-proto-regen reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-smoke-read-only release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members refresh-fund-sectors hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build pages-coverage account-data-check hook-behavior-check agent-config-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -347,16 +347,28 @@ CHECK_TEST_LEGS = test-daemon-trading test-daemon-default test-internal test-pkg
 # CI-only, with the reason check skips each: app-render-check needs
 # Playwright's Chromium (`make test` runs it); regression-spine-check mutates
 # committed HEAD, so before a commit it would prove the previous commit (see
-# the note above `test`).
-CI_ONLY_TARGETS = app-render-check regression-spine-check
+# the note above `test`); futu-proto-regen needs protoc, which only a
+# developer machine and its own CI job carry (futu-proto-check needs none and
+# is in check).
+CI_ONLY_TARGETS = app-render-check regression-spine-check futu-proto-regen
 CHECK_DEPS ?= plugin-check parity-check $(CHECK_TEST_LEGS)
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) ci-gate-scope-check agent-config-check reduction-metrics-check regression-spine-contract-check go-dependencies-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) ci-gate-scope-check agent-config-check reduction-metrics-check regression-spine-contract-check go-dependencies-check futu-proto-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_TARGETS += build-space-contract-check timed-leg-contract-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks + CI's Go test legs (binding pre-commit gate)
 	$(LEG) check $(MAKE) $(CHECK_MAKEFLAGS) $(CHECK_TARGETS)
 	$(call gate-stamp,check)
+
+# The vendored OpenD definitions and the Go generated from them. The check binds
+# files to pkg/futu/internal/pb/MANIFEST without protoc; only the regeneration
+# (a developer action, and its own CI job) proves the code came from them.
+futu-proto-check: ## Bind the vendored OpenD definitions and generated code to their manifest (needs no protoc)
+	@./scripts/futu-proto_test.sh
+	@./scripts/futu-proto.sh check
+
+futu-proto-regen: ## Regenerate pkg/futu/internal/pb with the protoc the manifest names and rewrite the manifest
+	@./scripts/futu-proto.sh regen
 
 ci-gate-scope-check: ## Every make target the ci workflow runs is a check leg or a named CI-only target
 	@set -eu; \
@@ -568,6 +580,10 @@ parity-check: ## Verify MCP tool inventory matches the CLI surface
 # A future kindness: `go: downloading` is the only chatter we've observed, so
 # if the tool ever grows another routine stderr message, extend the filter
 # explicitly instead of weakening it.
+#
+# The modernize analyser does not skip generated files. The protobuf code under
+# pkg/futu/internal/pb is bound to its manifest byte for byte and a rewrite
+# would break the regeneration's zero diff, so that analyser leaves it out.
 modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go version)
 	@./scripts/go-tracked-packages_test.sh
 	@./scripts/check-go-analysis_test.sh
@@ -578,6 +594,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 		echo "apply with: make modernize"; exit 1; \
 	fi
 	@pkgs=$$(./scripts/go-tracked-packages.sh ./...) || exit 1; \
+	pkgs=$$(printf '%s\n' "$$pkgs" | grep -v '^\./pkg/futu/internal/pb/' || true); \
 	tool=$$(go -C tools tool -n modernize) || exit 1; \
 	out=$$("$$tool" $$pkgs 2>&1 1>/dev/null) || { printf 'modernize failed\n%s\n' "$$out" >&2; exit 1; }; \
 	out=$$(printf '%s\n' "$$out" | grep -v '^go: downloading ' || true); \
@@ -589,6 +606,7 @@ modernize-check: ## go fix -diff + modernize gate (Go idiom drift vs go.mod's go
 modernize: ## Apply go fix + modernize rewrites in place
 	pkgs=$$(./scripts/go-tracked-packages.sh ./...) && go fix $$pkgs
 	@pkgs=$$(./scripts/go-tracked-packages.sh ./...) && \
+		pkgs=$$(printf '%s\n' "$$pkgs" | grep -v '^\./pkg/futu/internal/pb/' || true) && \
 		tool=$$(go -C tools tool -n modernize) && "$$tool" -fix $$pkgs
 
 # Regenerate the docs/reference/*.md pages from their generators. The

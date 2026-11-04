@@ -748,6 +748,12 @@ account field, so there the rule is that the segment after the family
 prefix is a kind when it equals a known non-IBKR kind name. The design and
 the brief say both.
 
+One correction to item 2 of the protobuf read, from WP5's first generation
+(2026-11-04 20:15 CET): the generated header for `libprotoc 32.1` reads
+`protoc v6.32.1`, not `v5.32.1`. The manifest carries what the plugin
+reported, and the design and the brief are corrected. The rule, two version
+strings with each check reading its own, stands.
+
 
 ## The multi-broker review applied
 

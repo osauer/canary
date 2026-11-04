@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 17:58 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 20:12 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -35,7 +35,9 @@ work package so a fresh session resumes without the conversation.
 | WP1 `internal/broker` types, the fifth read recorded, design and brief corrected | `599cf806` | `make test` | `gate test at canary--v3.33.1-9-ge514c61b-dirty exit 0` (one run, both diffs in the tree) |
 | WP2 IBKR adapter (session, quotes, bars) and the daemon seams on it | `7ea49dd3` | `make test` on the tree before the commit; `make regression-spine-check` on `7ea49dd3`; side check `git diff --exit-code HEAD -- internal/cli/testdata/golden pkg/ibkr` empty | `gate test at canary--v3.33.1-11-g599cf806-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 147s elapsed ... exit 0` |
 | WP3 IBKR adapter (account, positions) and the data-health recorder on the seam | `685871bb` | `make test` on the tree before the commit; `make regression-spine-check` on `685871bb`; side check empty | `gate test at canary--v3.33.1-12-g7ea49dd3-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 134s elapsed 361.6s user 67.0s sys exit 0` |
-| WP4 `pkg/futu` frames, limits, errors, the simulator book and the test legs | the commit carrying this note | `make test` on the tree before the commit; `make test-pkg` (floor line `test-pkg: pkg/futu statement coverage 98.7% (floor 80%)`); `make ci-gate-scope-check`; account-data gate on the staged fixture (OK) | `gate test at canary--v3.33.1-13-g685871bb-dirty exit 0` |
+| WP4 `pkg/futu` frames, limits, errors, the simulator book and the test legs | `939c4e6c` | `make test` on the tree before the commit; `make test-pkg` (floor line `test-pkg: pkg/futu statement coverage 98.7% (floor 80%)`); `make ci-gate-scope-check`; account-data gate on the staged fixture (OK) | `gate test at canary--v3.33.1-13-g685871bb-dirty exit 0` |
+| the multi-broker review applied to the design and brief (seven items; the review record lists them) | `12fc8efe` | `make account-data-check product-identity-check`, `make docs-check` on the staged tree | `check-no-account-data: OK`, `check-product-identity: OK` |
+| WP5 protobuf: vendored, generated, manifest, gate, the owner's acceptance recorded | the commit carrying this note | `make test` on the tree before the commit; `make futu-proto-regen` twice, manifest unchanged; the release CI contract checks | `gate test at canary--v3.33.1-15-g12fc8efe-dirty exit 0`; `futu-proto: OK (28 definitions; protoc-gen-go v1.36.12; protoc v6.32.1)` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -144,18 +146,24 @@ and design carry these; WP5 and WP8 build to them.
   2026-08-13 under a documentation banner of v10.12; re-read it before
   declaring `minServerVersion` rather than taking either number.
 
+## How WP5 is wired
+
+- `scripts/futu-proto.sh` holds both actions; `make futu-proto-check` (a leg of `check`) runs its test and the check, `make futu-proto-regen` regenerates. The check names `Trd_UnlockTrade.proto` and refuses it. The manifest's comments and archive lines are hand-kept.
+- Vendored: the brief's 26 definitions plus `Trd_GetHistoryOrderList` and `Trd_GetHistoryOrderFillList`, which the design's reads table and the pacing table name. Upstream is `FutunnOpen/py-futu-api` at `9bac9d8b` (2026-03-31, 10.2.6208); `NOTICE` names it. All 28 are byte-identical to upstream, compared after copying.
+- Generated: `pkg/futu/internal/pb/<lowername>/`, nothing imports it yet. The header reads `protoc v6.32.1` for `libprotoc 32.1`; the design and brief had said v5.
+- `./pkg/futu/internal/pb/` leaves the modernize analyser's package list only; `go fix`, `vet`, `staticcheck` and `govulncheck` are green on it as generated.
+- The new CI job `futu-proto` joined the release CI contract, which pins every `ci.yml` job and run step, so release authority waits for it. Proof pending: its first run, at the first push; nothing here pushes.
+
 ## In progress
 
-Nothing between packages: WP5 waits for the owner's ack.
+Nothing between packages.
 
 ## Next
 
-WP5 per the brief, after the owner's ack of `google.golang.org/protobuf` as the eighth direct dependency (the phase A message to the parent session named it). Until the ack, WP5 cannot start; WP6 and WP7 depend on it.
-
-WP5 inputs, read 2026-11-04: upstream is `FutunnOpen/py-futu-api` (Apache-2.0, default branch `master`), directory `futu/common/pb`, last commit touching it `9bac9d8b9b8c1efe05df16a9e98937f08b68489b` (2026-03-31, "update 10.2.6208"); it holds 77 `.proto` files, every one of the 28 the brief vendors is present, and so is `Trd_UnlockTrade.proto`, which is never vendored. This Mac has `protoc` at `/opt/homebrew/bin/protoc`, `libprotoc 32.1` (the brief's pair is `libprotoc 32.1` and `protoc v5.32.1`); `protoc-gen-go` is not installed and is pinned in `tools/go.mod` by WP5 itself. The dependency gate prints seven direct product modules today (`scripts/check-go-dependencies.sh`, line 156); WP5 makes it eight.
+WP6 per the brief: `connection.go`, `connector.go`, `session.go`, the simulator server and recorder, the first frame fixtures. `minServerVersion` is 1010, from OpenD 10.10.7008 of 2026-08-13, the newest entry on the changelog page, read again 2026-11-04 20:05 CET; the v10.12 banner names the documentation, not an OpenD build. `clientVer` is Canary's own version under the formula in `InitConnect.proto`; whether OpenD accepts a client version that low is proof pending at the first real contact.
 
 ## Not done
 
-Everything from WP5 on. No live proof (no Gateway in this session): every
+Everything from WP6 on. No live proof (no Gateway in this session): every
 IBKR-path package reports "proof pending: next live session". Phase D is
 out of scope.

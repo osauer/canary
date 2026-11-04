@@ -92,6 +92,7 @@ github.com/skip2/go-qrcode
 golang.org/x/mod
 golang.org/x/net
 golang.org/x/sys
+google.golang.org/protobuf
 modernc.org/sqlite'
 actual_direct=$(GOWORK=off go list -m -f '{{if and (not .Main) (not .Indirect)}}{{.Path}}{{end}}' all | sed '/^$/d' | sort)
 if [ "$actual_direct" != "$expected_direct" ]; then
@@ -153,4 +154,4 @@ GOWORK=off go mod tidy -diff
 GOWORK=off go -C tools mod tidy -diff
 GOWORK=off go -C scripts/docgen/docs-html mod tidy -diff
 
-printf 'go-dependencies: OK (7 direct product modules; %s; OpenPGP verifier retired)\n' "$hyperserve_authority"
+printf 'go-dependencies: OK (8 direct product modules; %s; OpenPGP verifier retired)\n' "$hyperserve_authority"

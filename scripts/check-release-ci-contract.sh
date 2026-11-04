@@ -86,6 +86,22 @@ EXPECTED_CI_RUN_STEPS = {
             "run": "make app-render-check",
         },
     },
+    "futu-proto": {
+        "fetch protoc at the manifest's checksum": {
+            "run": """set -euo pipefail
+read -r _ _ sum url < <(grep '^archive linux-x86_64 ' pkg/futu/internal/pb/MANIFEST)
+curl -fsSL -o "$RUNNER_TEMP/protoc.zip" "$url"
+echo "$sum  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH\"""",
+        },
+        "make futu-proto-regen": {
+            "run": "make futu-proto-regen",
+        },
+        "regeneration matches the tree": {
+            "run": "git diff --exit-code pkg/futu/internal/pb",
+        },
+    },
     "cross-compile": {
         "build matrix (darwin/linux × amd64/arm64)": {
             "run": """set -euo pipefail
@@ -115,6 +131,7 @@ EXPECTED_WORKFLOWS = {
             "make test-daemon-default (-race)",
             "make test-daemon-trading (-race)",
             "isolated Canary app render",
+            "OpenD protobuf regeneration",
             "cross-compile release matrix",
         ),
     },

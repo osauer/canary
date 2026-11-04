@@ -676,7 +676,8 @@ version, and the SHA-256 of the `protoc` release archive for each platform
 the regeneration supports. The manifest carries the `protoc` version in
 both of its forms, because the two checks read different ones: `protoc
 --version` prints `libprotoc 32.1`, and the generated header carries the
-`protoc v5.32.1` form the plugin request reports. The regeneration
+`protoc v6.32.1` form the plugin request reports (the C++ major of the
+release, read from the first generation, 2026-11-04). The regeneration
 rewrites the file hashes and the version lines and preserves the hand-kept
 archive checksum lines, so the CI job's diff can be clean. The tool pin
 and the runtime pin of `google.golang.org/protobuf` are two lines in two
@@ -708,8 +709,8 @@ count; both change in the same commit. The alternatives were weighed: a
 hand-written encoder for proto2 messages with required fields across 77
 files is more code than the client itself and would drift; and no upstream
 Go binding is published as a module (the definitions declare a `go_package`
-under a Futu path that does not resolve, checked 2026-11-04). The decision is
-the owner's; see the last section.
+under a Futu path that does not resolve, checked 2026-11-04). The owner accepted
+it on 2026-11-04 20:00 CET; see the last section.
 
 ## Mode pin and the paper proof
 
@@ -1179,7 +1180,7 @@ OpenD contact:
 | Topology: one daemon per broker, with aggregation and routing in Desk (the multi-broker review's option A) | Decided by the owner, 2026-11-04 16:01 CET. Phases A to C stay as written plus the two C1 changes the review named: the policy files on the XDG config root and the scope on the broker instance (applied to this design and the brief 2026-11-04 17:55 CET). The route is a term of every Desk order; a cross-book measure is a later policy decision, after a real Futu book exists. |
 | The owner's Futu account and the OpenD build to run | Open, the owner's; nothing here depends on it until phase D's paper proof. |
 | Whether the OpenAPI agreement permits Canary | Open, the owner's, after reading it inside OpenD; the build against the simulator does not touch OpenD. |
-| `google.golang.org/protobuf` as a direct dependency | Proposed: accept. Gates B2 and everything after it. |
+| `google.golang.org/protobuf` as a direct dependency | Accepted by the owner, 2026-11-04 20:00 CET ("Yes, add protobuf"), the eighth direct product dependency. Added at v1.36.12 in the WP5 commit, the one that carries this row. |
 | The additive instrument identity in `internal/rpc` | Proposed: accept. Gates C4; phases A, B and C1 to C3 proceed without it. |
 | Phases A to C shipped without Edge and reconciliation, the gap named on the surface | Proposed: accept. Gates C3's wording; the code is the same either way. |
 | Policy files under the XDG config root that `config.toml` already uses (`$XDG_CONFIG_HOME/ibkr/policies/`, else `$HOME/.config/ibkr/policies/`) | Follows the topology decision: a permanently running second daemon under its own LaunchAgent needs it, not only the witness stack (the multi-broker review, 2026-11-04; applied to C1 2026-11-04 17:55 CET). No new key. A no-op for this Mac's daemon, which runs with `HOME` and no `XDG_*` variable, so the operator's paths stay identical; an operator whose daemon environment sets `XDG_CONFIG_HOME` elsewhere gets a one-time migration note in the changelog. The witness stack keeps its own `HOME` for the paths that still resolve through it. |

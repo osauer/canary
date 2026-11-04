@@ -221,7 +221,9 @@ use: `Common`, `InitConnect`, `KeepAlive`, `GetGlobalState`, `Notify`,
 `Qot_GetStaticInfo`, `Trd_Common`, `Trd_GetAccList`, `Trd_GetFunds`,
 `Trd_GetPositionList`, `Trd_GetOrderList`, `Trd_GetOrderFillList`,
 `Trd_SubAccPush`, `Trd_UpdateOrder`, `Trd_UpdateOrderFill`,
-`Trd_GetMaxTrdQtys`; phase D adds `Trd_PlaceOrder` and `Trd_ModifyOrder`;
+`Trd_GetMaxTrdQtys`, `Trd_GetHistoryOrderList`, `Trd_GetHistoryOrderFillList`
+(the design's reads table and the pacing table name history 2221 and 2222;
+the build added them to this list, 2026-11-04); phase D adds `Trd_PlaceOrder` and `Trd_ModifyOrder`;
 `Trd_UnlockTrade.proto` is never vendored, its absence is part of the
 guarantee), with `LICENSE` and a `NOTICE` naming the source repository and
 commit; `pkg/futu/internal/pb/MANIFEST` (the SHA-256 of each vendored
@@ -229,7 +231,7 @@ commit; `pkg/futu/internal/pb/MANIFEST` (the SHA-256 of each vendored
 the `protoc-gen-go` version used, and the SHA-256 of the `protoc` release
 archive per supported platform; the `protoc` version in both of its
 forms, `libprotoc 32.1` as `protoc --version` prints it and the
-`protoc v5.32.1` form the generated header carries, because the regen
+`protoc v6.32.1` form the generated header carries, because the regen
 compares the first and `futu-proto-check` the second);
 `pkg/futu/internal/pb/<lowername>/<File>.pb.go` generated, one Go package
 per vendored file, because every Futu definition declares its own
@@ -256,7 +258,12 @@ line is needed for it); a CI job (`.github/workflows/ci.yml`) that fetches
 the `protoc` release named in the manifest, refuses it unless the
 archive's SHA-256 matches the manifest, runs `make futu-proto-regen` as
 its own `run:` line (the scope check's regex is line-anchored) and fails
-in a separate step on `git diff --exit-code pkg/futu/internal/pb`. What
+in a separate step on `git diff --exit-code pkg/futu/internal/pb`. The
+new job joins the release CI contract (`scripts/release-ci-contract.json` and
+`scripts/check-release-ci-contract.sh` pin every `ci.yml` job and its run
+steps), so release authority waits for it. The modernize analyser flags the
+generated code and leaves `./pkg/futu/internal/pb/` out of its package list;
+`go fix`, `vet`, `staticcheck` and `govulncheck` are green on it as generated. What
 each check binds is stated in the design: `futu-proto-check` binds files
 to the manifest and headers to the generator versions, and only the
 regeneration proves the generated code came from these definitions.
@@ -674,7 +681,9 @@ Three are proposed here for the owner's ack, each with where the build can
 proceed without it.
 
 **Accept `google.golang.org/protobuf` as a direct dependency (gates WP5
-and after).** OpenD's bodies are protobuf, 77 message files in proto2 with
+and after).** Accepted by the owner, 2026-11-04 20:00 CET ("Yes, add
+protobuf"), and added at v1.36.12 in the WP5 commit; the reasoning stays for
+the record. OpenD's bodies are protobuf, 77 message files in proto2 with
 required fields; a hand-written encoder would be more code than the client
 and would drift from the definitions on every OpenD release, which is the
 failure the dependency exists to prevent. No upstream Go binding is

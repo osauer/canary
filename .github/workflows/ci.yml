@@ -145,6 +145,37 @@ jobs:
       - name: make app-render-check
         run: make app-render-check
 
+  # The one place protoc runs unattended: the release the manifest names, refused
+  # unless its archive matches the manifest's checksum. futu-proto-check in the
+  # check leg binds files to the manifest; only this proves the generated code
+  # came from the vendored definitions.
+  futu-proto:
+    name: OpenD protobuf regeneration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: fetch protoc at the manifest's checksum
+        run: |
+          set -euo pipefail
+          read -r _ _ sum url < <(grep '^archive linux-x86_64 ' pkg/futu/internal/pb/MANIFEST)
+          curl -fsSL -o "$RUNNER_TEMP/protoc.zip" "$url"
+          echo "$sum  $RUNNER_TEMP/protoc.zip" | sha256sum -c -
+          unzip -q "$RUNNER_TEMP/protoc.zip" -d "$RUNNER_TEMP/protoc"
+          echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
+
+      - name: make futu-proto-regen
+        run: make futu-proto-regen
+
+      - name: regeneration matches the tree
+        run: git diff --exit-code pkg/futu/internal/pb
+
   cross-compile:
     name: cross-compile release matrix
     runs-on: ubuntu-latest

@@ -12,6 +12,7 @@
         "make test-daemon-default (-race)",
         "make test-daemon-trading (-race)",
         "isolated Canary app render",
+        "OpenD protobuf regeneration",
         "cross-compile release matrix"
       ]
     },
