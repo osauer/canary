@@ -1,0 +1,6 @@
+# Frames of a scripted simulator session, byte for byte: ">" the client sent,
+# "<" the simulator sent. A regression fixture for the client against the
+# simulator, both built from the same definitions; not conformance evidence
+# against OpenD. Recorded with: go test ./pkg/futu -run Fixtures -record
+> 4654e90300000000010000002800000035f91ceba2bbabade6cb4626c3f37f33589e259e00000000000000000a2608cd02120e63616e6172792d66697874757265180120ffffffffffffffffff0128003202476f
+< 4654e903000000000100000022000000a237c4ed03d97edc1ceaf35b37b5bdf103ef295500000000000000000800221e08f10710a1f736188827221030303030303030303030303030303030280a

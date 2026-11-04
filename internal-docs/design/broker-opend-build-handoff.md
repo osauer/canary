@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 20:12 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 20:40 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -37,7 +37,8 @@ work package so a fresh session resumes without the conversation.
 | WP3 IBKR adapter (account, positions) and the data-health recorder on the seam | `685871bb` | `make test` on the tree before the commit; `make regression-spine-check` on `685871bb`; side check empty | `gate test at canary--v3.33.1-12-g7ea49dd3-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 134s elapsed 361.6s user 67.0s sys exit 0` |
 | WP4 `pkg/futu` frames, limits, errors, the simulator book and the test legs | `939c4e6c` | `make test` on the tree before the commit; `make test-pkg` (floor line `test-pkg: pkg/futu statement coverage 98.7% (floor 80%)`); `make ci-gate-scope-check`; account-data gate on the staged fixture (OK) | `gate test at canary--v3.33.1-13-g685871bb-dirty exit 0` |
 | the multi-broker review applied to the design and brief (seven items; the review record lists them) | `12fc8efe` | `make account-data-check product-identity-check`, `make docs-check` on the staged tree | `check-no-account-data: OK`, `check-product-identity: OK` |
-| WP5 protobuf: vendored, generated, manifest, gate, the owner's acceptance recorded | the commit carrying this note | `make test` on the tree before the commit; `make futu-proto-regen` twice, manifest unchanged; the release CI contract checks | `gate test at canary--v3.33.1-15-g12fc8efe-dirty exit 0`; `futu-proto: OK (28 definitions; protoc-gen-go v1.36.12; protoc v6.32.1)` |
+| WP5 protobuf: vendored, generated, manifest, gate, the owner's acceptance recorded | `09f3ee8c` | `make test` on the tree before the commit; `make futu-proto-regen` twice, manifest unchanged; the release CI contract checks | `gate test at canary--v3.33.1-15-g12fc8efe-dirty exit 0`; `futu-proto: OK (28 definitions; protoc-gen-go v1.36.12; protoc v6.32.1)` |
+| WP6 `pkg/futu` session and the simulator server | the commit carrying this note | `make test` on the tree before the commit | see the commit body |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -154,16 +155,25 @@ and design carry these; WP5 and WP8 build to them.
 - `./pkg/futu/internal/pb/` leaves the modernize analyser's package list only; `go fix`, `vet`, `staticcheck` and `govulncheck` are green on it as generated.
 - The new CI job `futu-proto` joined the release CI contract, which pins every `ci.yml` job and run step, so release authority waits for it. Proof pending: its first run, at the first push; nothing here pushes.
 
+## How WP6 is wired
+
+- `connection` (unexported) owns one socket: the serial numbers, frames, matching a reply by serial and protocol, everything else to the push handler. A malformed frame, an undecodable body or a session-level `retType` closes it; `*Error` is what the caller gets. Its pacer belongs to the `Connector`, because OpenD's windows outlive a socket.
+- `Connector` owns the session loop: dial, `handshake` (InitConnect and the version gate), then `maintain`: a keep-alive every interval, dropped after two intervals without a received frame on real elapsed time, whatever `Config.Now` says. The state and scope read beside that loop (`startRefresh`), so a silent OpenD cannot hold the heartbeat. `Phase` is how far it came. A new session is a new `Epoch`, and a refresh that outlives its session writes nothing.
+- The scope comes only from the account list, is never re-scoped, and `tradeHeaders` is the only way to a `TrdHeader`: the pin and the environment read for it, one header per authorised market.
+- `futusim.Listen` is the server, `futusim.Start` the same for a test (a 2005 frame fails the test). Switches: `SetSilent`, `SetProgramStatus`, `SetLoggedIn`, `SetAccountListed`, `KickOut`, `PushGatewayEvent`, `PushQuotaState`, `PushQuoteRights`; options `RequireRSA`, `ServerVersion`, `KeepAliveSeconds`, `ProgramStatus`. A refusal of any protocol is one `notify.Response`, because every generated Response carries `retType`, `retMsg` and `errCode` under the same field numbers.
+- Fixtures: `pkg/futu/testdata/frames/*.hex`, `>` client and `<` simulator. `TestFixtures...` in `futu_test` holds the simulator to them byte for byte and re-records with `-record`; `TestReplay...` in `futu` plays them at the client over a pipe and holds its bytes to them.
+- Finding for WP7: `Common.PacketID` appears in no vendored definition, only in `Common.proto`; the order-writing definitions that use it arrive in phase D. The brief's "PacketID on every trade request" has nothing to exercise until then.
+
 ## In progress
 
 Nothing between packages.
 
 ## Next
 
-WP6 per the brief: `connection.go`, `connector.go`, `session.go`, the simulator server and recorder, the first frame fixtures. `minServerVersion` is 1010, from OpenD 10.10.7008 of 2026-08-13, the newest entry on the changelog page, read again 2026-11-04 20:05 CET; the v10.12 banner names the documentation, not an OpenD build. `clientVer` is Canary's own version under the formula in `InitConnect.proto`; whether OpenD accepts a client version that low is proof pending at the first real contact.
+WP7 per the brief: quotes, quota, bars, instruments, accounts, positions, orders, the maximum quantity read, each with its simulator handler; then the phase B report to the parent session.
 
 ## Not done
 
-Everything from WP6 on. No live proof (no Gateway in this session): every
+Everything from WP7 on. No live proof (no Gateway in this session): every
 IBKR-path package reports "proof pending: next live session". Phase D is
 out of scope.
