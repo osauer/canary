@@ -11,11 +11,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/osauer/canary/v2/internal/discover"
 )
 
 // CashLedger configures a supplemental broker cash source. It is disabled
@@ -456,6 +458,9 @@ func (c *Config) ValidateBroker() error {
 		}
 		if _, err := strconv.ParseUint(account, 10, 64); err != nil {
 			return fmt.Errorf("[opend] account %q is not a Futu account id: it must be the number OpenD lists as accID", account)
+		}
+		if c.OpenD.Port != nil && slices.Contains(discover.StandardPorts, *c.OpenD.Port) {
+			return fmt.Errorf("[opend] port %d is an IBKR API port: set the api_port OpenD listens on, 11111 unless you changed it", *c.OpenD.Port)
 		}
 		return nil
 	default:

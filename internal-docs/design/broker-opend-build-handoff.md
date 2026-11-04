@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 22:20 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 22:56 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -43,7 +43,9 @@ work package so a fresh session resumes without the conversation.
 | WP8 the daemon on OpenD | `3c922e70` | `make test` on the tree before the commit; `make regression-spine-check` on `3c922e70` | `gate test at canary--v3.33.1-18-g2928cd46-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)` |
 | WP9 surfaces | `18512599` | `make test` on the tree before the commit | `gate test at canary--v3.33.1-19-g3c922e70-dirty exit 0` |
 | WP11 quota budgeting and snapshot delivery (WP10 waits for the identity ack) | `2b2d12b7` | `make test` on the tree before the commit; spine on the landed revision | `gate test at canary--v3.33.1-20-g18512599-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 131s elapsed 361.2s user 72.6s sys exit 0` |
-| WP12 `cmd/opend-sim`, the witness and the dual-daemon witness | the commit carrying this note | `make test` on the tree before the commit; `make account-data-check product-identity-check` | `gate test at canary--v3.33.1-21-g2b2d12b7-dirty exit 0` |
+| WP12 `cmd/opend-sim`, the witness and the dual-daemon witness | `367b018a` | `make test` on the tree before the commit; `make account-data-check product-identity-check` | `gate test at canary--v3.33.1-21-g2b2d12b7-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 128s elapsed 359.3s user 73.0s sys exit 0` |
+| Merge of local main (standing authority, hedge rule, send order) | `96446ed2` | `make test` before the commit | `gate test at canary--v3.33.1-22-g367b018a-dirty exit 0` |
+| OpenD fails closed: no broker write, no IBKR port, no default path | the commit carrying this note | `make test` before the commit; spine on the landed revision | `gate test at canary--v3.33.1-31-g96446ed2-dirty exit 0` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -211,7 +213,9 @@ and design carry these; WP5 and WP8 build to them.
 - `cmd/opend-sim` serves the book as a process; `make opend-sim` runs it with `-clock now`. Runbook in the design's simulator section.
 - `TestLifecycle_TwoBrokersSideBySide` in `test/integration/dual_broker_test.go` runs both stacks and proves a down OpenD socket autospawns an OpenD daemon and leaves the IBKR process alone.
 - Under `opend`, `subsystemHealth` lists only what the broker has (`opendSubsystems`), `GatewaySetup`, `Executions`, `AnswerPath` and `BrokerPermissions` are absent, the data check is one snapshot of a reference name, and the status poll refreshes account and positions so feed health has a read to report.
-- The witness scripts live in this session's scratchpad, their captures in the shared notes `opend-witness` folder with the app screenshot `app-opend-1280x900.png`.
+- `scripts/opend-witness.sh <outdir>` is the witness, after `make build`. It fails closed on its paths and fails if the operator's socket, stop marker or policy directory changed. Captures are in the shared notes `opend-witness` folder with the app screenshot `app-opend-1280x900.png`.
+- The live daemon is stopped on purpose (owner, 2026-11-04 20:38:45 CET). Never run `canary restart`, `make restart-daemon` or anything that clears `~/.cache/ibkr/ibkr.sock.stopped`, and start no daemon on the default socket or roots.
+- Under `opend` write authorisation refuses every origin with `broker_writes_not_served`; phase D removes that on purpose. `[opend] port` and `opend-sim -listen` refuse IBKR's API ports.
 
 ## In progress
 

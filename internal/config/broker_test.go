@@ -68,3 +68,19 @@ func TestPolicyDirFollowsTheXDGConfigRootAndNotTheConfigFile(t *testing.T) {
 		t.Fatalf("policy dir %s", got)
 	}
 }
+
+// A Futu frame never goes to a port where TWS or the Gateway listens.
+func TestOpenDRefusesAnIBKRAPIPort(t *testing.T) {
+	validate := func(port int) error {
+		cfg := Config{Broker: Broker{Kind: "opend"}, OpenD: OpenD{Account: "1000001", Port: &port}}
+		return cfg.ValidateBroker()
+	}
+	for _, port := range []int{7496, 7497, 4001, 4002} {
+		if err := validate(port); err == nil || !strings.Contains(err.Error(), "IBKR API port") {
+			t.Errorf("port %d: %v", port, err)
+		}
+	}
+	if err := validate(11111); err != nil {
+		t.Fatalf("OpenD's own port: %v", err)
+	}
+}

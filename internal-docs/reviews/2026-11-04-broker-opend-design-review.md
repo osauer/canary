@@ -863,3 +863,9 @@ reviewer should see.
    the earnings date unobserved, no FX rate for holdings outside the base currency, no
    excess liquidity for margin headroom, and the risk-capital numbers that belong in
    the owner's own policy file. Each reads as a gap, none as a pass.
+5. **An OpenD daemon could report that it may write.** Written 2026-11-04 22:48 CET. Write
+   authorisation had no check of the broker, so a paper-mode daemon on a simulate
+   account in a trading build reported `can_write` true; only the missing IBKR
+   connector stopped a send later, in the transaction binding. The witness's
+   `write=false` came from its disabled mode and proved nothing. Every origin is now
+   refused by `broker_writes_not_served`, and a test drives each one in paper mode.

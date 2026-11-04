@@ -35,10 +35,29 @@ func newDualStack(t *testing.T, config string) dualStack {
 	t.Helper()
 	env, socket, _ := lifecycleEnv(t)
 	dir := filepath.Dir(socket)
+	refuseOutsideStack(t, env, dir)
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(config), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return dualStack{env: env, socket: socket, dir: dir}
+}
+
+// refuseOutsideStack fails before anything starts unless every root a daemon or CLI
+// resolves from the environment sits inside the stack's own directory, so a stack
+// can never reach the operator's socket, stop marker or policy files.
+func refuseOutsideStack(t *testing.T, env []string, dir string) {
+	t.Helper()
+	for _, key := range []string{"HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CANARY_SOCKET", "CANARY_CONFIG", "CANARY_LOG"} {
+		value := ""
+		for _, entry := range env {
+			if rest, ok := strings.CutPrefix(entry, key+"="); ok {
+				value = rest
+			}
+		}
+		if !strings.HasPrefix(value, dir+string(filepath.Separator)) {
+			t.Fatalf("%s=%q is outside the stack %s", key, value, dir)
+		}
+	}
 }
 
 // status runs the CLI's status under the stack's environment. The CLI starts the

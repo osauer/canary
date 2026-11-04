@@ -149,3 +149,6 @@ func (s *Server) runOpenDDataCheck(ctx context.Context) rpc.DataCheckResult {
 	result.CompletedAt = s.orderNow()
 	return result
 }
+
+// brokerWritesNotServedCode refuses every broker write under OpenD until phase D.
+const brokerWritesNotServedCode = "broker_writes_not_served"

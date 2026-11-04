@@ -1052,10 +1052,14 @@ recorded into the same directory under `opend_<case>.hex`, and a fixture
 whose simulator version disagrees with a real capture is fixed on the
 simulator side.
 
-To run it as a process, `make opend-sim` starts `cmd/opend-sim -clock now` and
+The whole witness is one command, `scripts/opend-witness.sh <outdir>`, after
+`make build`. It refuses to start unless every path is inside its scratch directory,
+and it fails if the operator's socket, stop marker or policy directory changed during
+the run. By hand, `make opend-sim` starts `cmd/opend-sim -clock now` and
 prints its loopback address on one line. The flags are `-listen`, `-book` (a book
 file), `-clock fixed|now`, `-tier` (the subscription quota), `-record` (write the
-frames to a directory) and `-lock-real`. Point a witness at that address with the
+frames to a directory) and `-lock-real`; it refuses a listen address off loopback or
+on an IBKR API port. Point a witness at that address with the
 stack in the build brief: `[broker] kind = "opend"`, `[opend]` host, port and account,
 and its own `HOME`, XDG roots, `CANARY_CONFIG` and `CANARY_SOCKET`. Then
 `canary daemon --foreground --config <dir>/config.toml --socket <dir>/canary.sock

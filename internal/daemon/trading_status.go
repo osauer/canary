@@ -325,6 +325,9 @@ func (s *Server) brokerWriteAuthorizationWithControls(status rpc.TradingStatus, 
 	default:
 		add("invalid_mode", fmt.Sprintf("trading mode %q is invalid", status.Mode), "Set [trading].mode to disabled, paper, or live.")
 	}
+	if s != nil && s.opend != nil {
+		add(brokerWritesNotServedCode, "this daemon serves OpenD, which takes no broker writes in this build", "Place and manage orders through the IBKR daemon.")
+	}
 	if !s.orderBrokerWritesEnabled() {
 		add("order_writes_unavailable", "order writes are unavailable in this build", "Rebuild the daemon with the trading write capability.")
 	}

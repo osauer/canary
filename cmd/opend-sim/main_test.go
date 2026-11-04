@@ -27,6 +27,12 @@ func TestRunRefusesBadFlags(t *testing.T) {
 	if got := run([]string{"-nope"}, io.Discard, io.Discard); got != 2 {
 		t.Fatalf("an unknown flag exited %d", got)
 	}
+	for _, listen := range []string{"127.0.0.1:7496", "127.0.0.1:4001", "0.0.0.0:0", "192.0.2.1:9999", "nonsense"} {
+		var refused bytes.Buffer
+		if got := run([]string{"-listen", listen}, io.Discard, &refused); got != 2 {
+			t.Errorf("-listen %s exited %d: %s", listen, got, refused.String())
+		}
+	}
 }
 
 // The process serves the real wire on its printed address, follows the wall clock,

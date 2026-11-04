@@ -9,11 +9,15 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
+	"slices"
+	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/pkg/futu/futusim"
 )
 
@@ -32,6 +36,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 	record := flags.String("record", "", "write the session's frames to this fixture when stopped")
 	lockReal := flags.Bool("lock-real", true, "keep the book's real accounts locked for trading")
 	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	if err := checkListen(*listen); err != nil {
+		fmt.Fprintln(stderr, "opend-sim:", err)
 		return 2
 	}
 	if *clock != "fixed" && *clock != "now" {
@@ -82,6 +90,22 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+// checkListen keeps the simulator on loopback and off IBKR's API ports, where a real
+// client would take it for a Gateway.
+func checkListen(addr string) error {
+	host, portText, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("-listen %q: %w", addr, err)
+	}
+	if ip := net.ParseIP(host); host != "localhost" && (ip == nil || !ip.IsLoopback()) {
+		return fmt.Errorf("-listen %q: the simulator serves loopback only", addr)
+	}
+	if port, err := strconv.Atoi(portText); err == nil && slices.Contains(discover.StandardPorts, port) {
+		return fmt.Errorf("-listen %q: %d is an IBKR API port", addr, port)
+	}
+	return nil
 }
 
 // serve waits for the signal; on a running clock it pushes quotes once a second, as
