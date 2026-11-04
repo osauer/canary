@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 17:45 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 17:58 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -9,6 +9,12 @@ work package so a fresh session resumes without the conversation.
 
 ## Rules in force
 
+- The multi-broker review of 2026-11-04 (owner decision 16:01 CET: one
+  daemon per broker, aggregation and routing in Desk) was applied to the
+  design and the brief at 17:55 CET; WP8 builds to `Broker.Scope()`, the
+  policy files on the XDG config root and the kind-neutral key helpers,
+  WP10 to the symbol-and-venue join, WP12 to the dual-daemon witness with
+  the autospawn proof. The review record lists the seven items.
 - One commit per work package, in the brief's order; each commit body names
   the package, the gate command, the HEAD it ran at and the stamp line.
 - The IBKR path changes no behaviour; `pkg/ibkr` and the IBKR goldens stay

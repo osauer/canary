@@ -748,3 +748,69 @@ account field, so there the rule is that the segment after the family
 prefix is a kind when it equals a known non-IBKR kind name. The design and
 the brief say both.
 
+
+## The multi-broker review applied
+
+On 2026-11-04 16:06 CET a separate read-only review asked whether the
+design forecloses running two brokers in one desk, and found that it
+does not: one broker per daemon, no switch in flight, no aggregated view,
+and "routing" meaning which daemon's socket an order goes to. The owner
+decided on 2026-11-04 16:01 CET: one daemon per broker, with aggregation
+and routing in Desk (the review's option A). The review's section on
+phases A to C named the changes that keep that option cheap and the
+alternatives open; the parent session relayed them to the build session
+at 17:48 CET and they were applied to the design and the brief at 17:55
+CET, in the work packages named. Each item, with its disposition:
+
+1. **The topology decision.** Recorded in the design's "Owner decisions"
+   table with the time; the table had no topology row.
+2. **Phase C1, policy paths.** The four policy files (the risk
+   constitution at `risk_policy_manager.go:23`, the three defaults in
+   `internal/config/config.go` at lines 208, 214 and 302) resolve through
+   the home directory. WP8 moves them onto the XDG config root
+   `config.DefaultPath` already uses, no new key: the operator's paths
+   stay identical (this Mac's daemon sets no `XDG_*` variable) and only an
+   isolated stack moves. The reason is a permanently running second daemon
+   under its own LaunchAgent, not only the witness. The design's owner
+   decision row for this path, previously open, now follows the topology
+   decision; the witness keeps its own `HOME` for paths that still resolve
+   through it.
+3. **Phase C1, the scope accessor.** The brief's process-global accessor
+   and per-kind `accountModeForStatus` become a method of the broker
+   instance: `broker.Broker` gains `Scope()` (kind, account, mode) and
+   `currentBrokerStateScope` reads it. The design had weighed and rejected
+   this on 2026-11-04 (fifth read, response 6) because the instance was
+   per IBKR connector and seven sites need a scope with no connector; the
+   objection falls once the daemon holds one instance per process with
+   the daemon's lifetime under both kinds, which the design now says, so
+   a daemon that later holds N brokers changes the identity's source only
+   and never re-touches the 81 scoped files. That earlier rejection is
+   withdrawn here, with the reason.
+4. **Phase C1, key helper wording.** Every helper writes the leading
+   kind segment and the `Broker` field for any non-`ibkr` kind, never for
+   `opend` by name; the bytes under `opend` are the same today. Design and
+   brief say so.
+5. **Phase C4, `InstrumentID`.** It carries no listing symbol. The design
+   states the join for netting one stock across brokers: the row's own
+   `Symbol` with `InstrumentID.Venue`, filled by both adapters for every
+   row; WP10's tests hold it. No field added.
+6. **Phase C3, `HealthResult.Broker`.** Kept as a stable field; Desk
+   binds it as the order route. Noted in the design and WP9.
+7. **The autospawn hazard with two daemons.** A client that finds no
+   socket autospawns a daemon from the default config
+   (`canary.go:35-37`, `internal/dial/autospawn.go`), so a second socket
+   that is down silently becomes the wrong daemon. WP12's dual-daemon
+   witness (the owner's ask of 2026-11-04 16:03 CET, now written into the
+   brief beside the scope and config tests of WP8) proves that a down
+   OpenD socket with autospawn on, under the OpenD stack's environment,
+   spawns an OpenD daemon and never an IBKR daemon in its place, and the
+   architecture handbook names the environment a second client must
+   carry.
+
+Not applied here, because they are the owner's and open: whether the
+second daemon runs permanently under its own LaunchAgent on this Mac,
+whether the Futu book is a sleeve under one risk budget or a second
+mandate with its own, whether one freeze and mode switch cover both books,
+and whether one device key is enrolled in both constitutions. Nothing in
+phases A to C depends on them; the review's recommendation is option A as
+written, which the owner chose.

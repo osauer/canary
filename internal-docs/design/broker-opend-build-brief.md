@@ -69,11 +69,14 @@ directory `<dir>` holding `config.toml` with `[broker] kind = "opend"` and
 for every command of the witness, daemon and CLI alike: `XDG_CONFIG_HOME`,
 `XDG_STATE_HOME`, `XDG_CACHE_HOME` and `XDG_RUNTIME_DIR` under `<dir>`,
 `CANARY_CONFIG=<dir>/config.toml`, `CANARY_SOCKET=<dir>/canary.sock`, and
-`HOME=<dir>/home`: the four policy files and their backups resolve under
-`$HOME/.config/ibkr/policies/` (`policy_files.go:283-288`), and `Start`
-migrates and backs them up on every boot (`server.go:1542`), so a witness
-run with the operator's `HOME` would rewrite the operator's policy files
-(fifth read, 2026-11-04 16:30 CET; the brief had listed six variables).
+`HOME=<dir>/home`: until WP8 the four policy files and their backups
+resolve under `$HOME/.config/ibkr/policies/` (`policy_files.go:283-288`),
+and `Start` migrates and backs them up on every boot (`server.go:1542`),
+so a witness run with the operator's `HOME` would rewrite the operator's
+policy files (fifth read, 2026-11-04 16:30 CET; the brief had listed six
+variables). WP8 moves the four defaults onto the XDG config root
+`config.toml` already uses; the witness keeps `HOME` for the paths that
+still resolve through it.
 The daemon is the worktree's own build, `bin/canary daemon --foreground
 --config <dir>/config.toml --socket <dir>/canary.sock --log stderr`; the
 CLI commands are the same `bin/canary` by path, never `canary` from
@@ -84,7 +87,8 @@ which reads its config from `CANARY_CONFIG` or `$XDG_CONFIG_HOME` and
 `daemon.db` from `$XDG_STATE_HOME`, so a `canary status` with only the
 socket set would start the operator's IBKR configuration on the scratch
 socket. With the full environment an autospawn, should one happen, starts
-the same OpenD witness daemon. The lock and startup lock derive from the
+the same OpenD witness daemon; WP12's dual-daemon witness proves it (the
+multi-broker review, 2026-11-04). The lock and startup lock derive from the
 socket directory, `--log stderr` writes no crash file, `--foreground`
 disables idle shutdown, and no app process or LaunchAgent is involved. The
 report names `<dir>` and the simulator flags. The `make opend-sim` target
@@ -333,7 +337,22 @@ is documented (`go-doc-check`).
 ### WP8 the daemon on OpenD (C1, C2)
 
 Files: `internal/config/config.go` (`Broker{Kind}` and `OpenD{Host, Port,
-Account, ClientID}` with doc strings), `docs/docs/reference/config.md`
+Account, ClientID}` with doc strings; the three policy-file defaults at
+lines 208, 214 and 302 and their doc strings resolve under the XDG config
+root `DefaultPath` already uses, `$XDG_CONFIG_HOME/ibkr/policies/` else
+`$HOME/.config/ibkr/policies/`, no new key), `internal/daemon/risk_policy_manager.go`
+(`riskPolicyDefaultPath` at line 23 resolves the same way; the operator's
+paths stay identical because this Mac's daemon sets no `XDG_*` variable,
+and the changelog carries a one-time note for an operator whose daemon
+environment sets `XDG_CONFIG_HOME` elsewhere; the multi-broker review,
+2026-11-04, for a permanently running second daemon under its own
+LaunchAgent), `internal/broker/broker.go` (`Broker` gains `Scope() Scope`,
+kind, account and mode, read from the instance's own current observation;
+the daemon holds one instance per process, constructed from config at
+start with the daemon's lifetime under both kinds, so the sites with no
+connector still have a scope; the earlier rejection of this method assumed
+a per-connector instance and is withdrawn, the multi-broker review,
+2026-11-04), `docs/docs/reference/config.md`
 (regenerated), `internal/discover/discover.go` and `process.go` (the OpenD
 probe and process name, behind the kind), `internal/daemon/server.go`
 (construct one broker by kind; under `opend` the concrete `connector` stays
@@ -362,11 +381,12 @@ and the borrow-fee FTP dial are gated by kind here, so the claim is
 `broker_evidence.go` (`brokerStateScope.Kind` with the zero value meaning
 `ibkr`, normalised in `sameBrokerScope` and every comparison; a per-kind
 identity built once from config and held on the `Server`, the kind and the
-pinned account, and one scope function that takes the session observation
-and yields the current scope: under `ibkr` the endpoint account, port and
-connected account as today, under `opend` the `trdEnv` the session's
-account list reported for the pin, or an unknown mode before it; the
-current scope's reads at `broker_evidence.go:53` and `223`, and the same
+pinned account, and the broker instance's `Scope()` method, which yields
+the current scope from the instance's own observation: under `ibkr` the
+endpoint account, port and connected account as today, under `opend` the
+`trdEnv` the session's account list reported for the pin, or an unknown
+mode before it; no free per-kind function, so a daemon holding N brokers
+later changes the identity's source only; the current scope's reads at `broker_evidence.go:53` and `223`, and the same
 `[gateway] account` reads at `broker_write_transaction.go:214` and `283`,
 `mandate_verdict.go:174`, `handlers.go:3725`, `alert_shadow_cadence.go:455`
 and `protection_order_snapshot.go:74`, go through it, as do
@@ -412,9 +432,10 @@ format validator (`marketEventFeeRateScopeFingerprint` at
 `recon_engine.go:273`; `cash_sweep_trace.go:82-83`; `dailyPnLScopeSource`,
 `daily_pnl_close_capture.go:31-33`; `edgeScopeFingerprint`,
 `edge_authority.go:496-504`) takes the kind as an extra hash input only
-for a non-IBKR kind, empty for IBKR so the bytes are unchanged, formats
-and validators untouched; and the `omitempty` `Broker` field written only
-for `opend` on `rpc.DeskAuthorityTerms` (its field-wise account and mode
+for a non-IBKR kind (any such kind, not `opend` by name), empty for IBKR
+so the bytes are unchanged, formats and validators untouched; and the `omitempty` `Broker` field written for
+any non-`ibkr` kind (never for `opend` by name; same bytes today) on
+`rpc.DeskAuthorityTerms` (its field-wise account and mode
 checks at `desk_execution_submit.go:204`, `desk_authority_fence.go:41` and
 `desk_authority.go:179` move to the constructor and `sameBrokerScope`; its
 byte and digest comparisons at `desk_authority_device.go:81` and
@@ -477,8 +498,13 @@ account in the fixtures contains `:`, that a record stored under `opend`
 rebuilds to a scope equal to the current one, that an OpenD scope's keys
 carry the kind inside the account field and its terms the `Broker` field,
 and that the same account id under `ibkr` and `opend` never produces the
-same key, fingerprint or term bytes in any family (owner ask 2026-11-04
-16:03 CET); the Asia synthetic book keeps its IBKR scope; the OpenD
+same key, fingerprint or term bytes in any family, with the IBKR key bytes
+unchanged (owner ask 2026-11-04 16:03 CET); the four policy defaults
+resolve under `$XDG_CONFIG_HOME/ibkr/policies/` when the variable is set
+and under the home directory when it is not, and `Start` in a stack with
+its own `XDG_CONFIG_HOME` writes its templates there; `Scope()` under
+`ibkr` reads as `currentBrokerStateScope` did before (the existing scope
+tests substitute the instance); the Asia synthetic book keeps its IBKR scope; the OpenD
 adapter against the simulator for every seam method.
 
 Gate: release tier, OpenD path; spine on local main after landing; docs.
@@ -489,8 +515,9 @@ before and after artifacts are in the report, redacted.
 
 ### WP9 surfaces (C3)
 
-Files: `internal/rpc/rpc.go` (`HealthResult` gains `Broker`, the kind, and
-an `OpenD` block: program status, server version and build, logins,
+Files: `internal/rpc/rpc.go` (`HealthResult` gains `Broker`, the kind, a
+stable field Desk binds as the order route under one daemon per broker
+(the multi-broker review, 2026-11-04), and an `OpenD` block: program status, server version and build, logins,
 markets authorised, quote rights, quotas; `TradingStatus.BrokerCapabilities`;
 `PositionView.PriceSource`),
 `internal/rpc/data_health.go` (source state `not_applicable`),
@@ -543,12 +570,18 @@ watchlist rows; `Market` vocabulary grows to `hk`, `sg`, `cn`, `jp`),
 `internal/daemon` request decoding (accept `instrument` or `con_id`;
 resolve through `broker.Instruments`), the IBKR adapter (fill `Broker:
 ibkr, ID: <conid>` on responses), the OpenD adapter (fill
-`opend:HK.00700`), `internal/mcp/tools.go` and `stock_add.go` (schemas),
+`opend:HK.00700`); `InstrumentID` carries no listing symbol, so the join
+for netting one stock across brokers is the row's own `Symbol` with
+`InstrumentID.Venue` (`PositionView.Symbol` and the symbol field of the
+quote, order and opportunity rows), stated in the type's doc comment and
+filled by both adapters for every row (the multi-broker review,
+2026-11-04); `internal/mcp/tools.go` and `stock_add.go` (schemas),
 `docs/docs/reference/mcp-tools.md` (regenerated).
 
 Tests: JSON round-trip with and without the field; an older client's
 request without it still resolves; the human renderers print no identity
-struct (goldens unchanged for IBKR); the MCP schema is additive (a test
+struct (goldens unchanged for IBKR); every IBKR and OpenD row that carries
+an identity also carries the join fields, symbol and venue; the MCP schema is additive (a test
 diffs the required lists before and after).
 
 Gate: `make test`; docs (the additive contract is proven by the round-trip
@@ -593,7 +626,21 @@ process simulator; `canary status`, `canary account`, `canary positions`,
 `canary brief`, and the MCP tools through `canary mcp` from an MCP client,
 each captured at real size (a screenshot or the terminal text at 80
 columns); nothing to redact because the book is synthetic. The report names
-the captures.
+the captures. The dual-daemon witness (owner ask 2026-11-04 16:03 CET):
+an IBKR-shaped daemon on the existing simulation path and an OpenD daemon
+on the simulator run at the same time, each with its own scratch
+directory, XDG roots, `HOME`, config and socket; the witness proves that
+neither sees the other's state, socket or policy files (the files under
+each `<dir>` listed before and after, the other stack's untouched), that
+`canary status --json` on each socket names its own broker kind and
+account, and that a client of the two sockets receives distinct `Broker`
+and account fields in `HealthResult` (a test in the integration package).
+It then proves the autospawn hazard closed (the multi-broker review,
+2026-11-04): with the OpenD daemon stopped and its socket gone, `bin/canary
+status --json` under the OpenD stack's environment with autospawn on
+reports `broker` `opend` and the scratch account, never an IBKR daemon in
+its place, and the daemon it started is stopped by the witness; the
+architecture handbook names the environment a second client must carry.
 
 Gate: `make test`. Done: the five commands run against the simulator and
 the brief names what is missing.
