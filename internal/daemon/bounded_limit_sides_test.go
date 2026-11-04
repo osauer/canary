@@ -21,6 +21,16 @@ func TestBoundedLimitPreviewJudgesTheSidesNotTheLastTrade(t *testing.T) {
 	if previewPricesFromSides(rpc.OrderPreviewParams{Strategy: rpc.OrderStrategyExplicitLimit}) {
 		t.Fatal("an explicit-limit preview waits for both sides")
 	}
+	for _, params := range []rpc.OrderPreviewParams{{}, {Strategy: rpc.OrderStrategyPatientLimit}} {
+		if !previewPricesFromSides(params) {
+			t.Fatal("a patient midpoint preview reads the last-trade quote")
+		}
+	}
+	for _, params := range []rpc.OrderPreviewParams{{LimitPrice: new(1.0)}, {OrderType: rpc.OrderTypeTRAIL}, {OrderType: rpc.OrderTypeTRAILLIMIT}} {
+		if previewPricesFromSides(params) {
+			t.Fatal("a fixed price or trailing order waits for both sides")
+		}
+	}
 	now := optionExitTestTime()
 	contract := rpc.ContractParams{ConID: 900001, Symbol: "SYNTH", SecType: "OPT", Currency: "USD", Multiplier: 100}
 	quote := func() *rpc.Quote {

@@ -1,6 +1,8 @@
 package mcp
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -65,5 +67,32 @@ func TestDaemonOptionalToolsUseTheProbeDialer(t *testing.T) {
 	if _, closeConn, err := s.dialForTool(context.Background(), status); err == nil {
 		closeConn()
 		t.Fatal("a daemon-bound tool must fail when the daemon is unreachable")
+	}
+}
+
+func TestFeedbackDispatchPreservesBuildVersion(t *testing.T) {
+	server := NewServer(nil, "v3.33.1")
+	server.SetProbeDialer(func(context.Context) (*dial.Conn, error) { return nil, dial.ErrSocketMissing })
+	var out bytes.Buffer
+	server.out = bufio.NewWriter(&out)
+	server.handleToolsCall(t.Context(), json.RawMessage(`1`), json.RawMessage(`{"name":"canary_feedback","arguments":{}}`))
+	if err := server.out.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	var response struct {
+		Result toolResultPayload `json:"result"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Result.IsError || len(response.Result.Content) != 1 {
+		t.Fatalf("feedback dispatch failed: %s", out.String())
+	}
+	var got feedback.Result
+	if err := json.Unmarshal([]byte(response.Result.Content[0].Text), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Fields.Version != "v3.33.1" {
+		t.Fatalf("feedback version %q, want v3.33.1", got.Fields.Version)
 	}
 }

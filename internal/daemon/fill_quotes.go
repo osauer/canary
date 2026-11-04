@@ -83,6 +83,11 @@ type fillQuotePoll struct {
 	err                string
 	otherClientsSeen   bool
 	otherClientsSeenAt time.Time
+	// Recovery needs a proven interval and account-wide visibility, not
+	// merely execDetailsEnd. These belong to this answer and broker session.
+	coverageFrom time.Time
+	allClients   bool
+	authority    *orderPreviewBrokerAuthority
 }
 
 // fillQuoteRead is what one exact-contract quote read returned.
@@ -328,10 +333,12 @@ func (rt *fillQuoteRuntime) list(account, mode string) []rpc.FillQuoteRecord {
 
 // fillsBetween returns the retained executions of one account with an
 // execution time in (from, to], ascending, and whether they are all of
-// them: the last poll of that account and mode completed without error, it
-// started after to, and no execution it found still waits for its capture.
+// them: the last poll of that account and mode completed without error,
+// proves account-wide visibility and covers from, started after to, and
+// no execution it found still waits for its capture. The caller pins the
+// poll's broker authority so a replacement answer cannot inherit its proof.
 // The mandate's flow check reads it (mandateTradesExplain).
-func (rt *fillQuoteRuntime) fillsBetween(scope brokerStateScope, from, to time.Time) ([]rpc.FillQuoteRecord, bool) {
+func (rt *fillQuoteRuntime) fillsBetween(scope brokerStateScope, from, to time.Time, authority *orderPreviewBrokerAuthority) ([]rpc.FillQuoteRecord, bool) {
 	if rt == nil || !brokerScopeAccountConcrete(scope.Account) {
 		return nil, false
 	}
@@ -339,7 +346,8 @@ func (rt *fillQuoteRuntime) fillsBetween(scope brokerStateScope, from, to time.T
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	p := rt.poll
-	if !sameBrokerScope(p.scope, scope) || !p.complete || p.err != "" || !p.at.After(to) || len(rt.queue) > 0 || len(rt.pending) > 0 {
+	if p.authority != authority || !p.allClients || p.coverageFrom.IsZero() || from.Before(p.coverageFrom) ||
+		!to.After(from) || !sameBrokerScope(p.scope, scope) || !p.complete || p.err != "" || !p.at.After(to) || len(rt.queue) > 0 || len(rt.pending) > 0 {
 		return nil, false
 	}
 	var out []rpc.FillQuoteRecord
@@ -360,6 +368,56 @@ func (rt *fillQuoteRuntime) fillsBetween(scope brokerStateScope, from, to time.T
 		return strings.Compare(a.ExecID, b.ExecID)
 	})
 	return out, true
+}
+
+// mandateFillsBetween rejects a poll from a departed physical broker session,
+// even when its account and mode still match after a reconnect.
+func (s *Server) mandateFillsBetween(scope brokerStateScope, from, to time.Time) ([]rpc.FillQuoteRecord, bool) {
+	rt := s.fillQuotes
+	if rt == nil {
+		return nil, false
+	}
+	p := rt.pollStatus()
+	if !s.orderPreviewBrokerAuthorityCurrent(p.authority) {
+		return nil, false
+	}
+	fills, complete := rt.fillsBetween(scope, from, to, p.authority)
+	return fills, complete && s.orderPreviewBrokerAuthorityCurrent(p.authority)
+}
+
+// executionCoverageFrom is a conservative lower boundary proven by this
+// answer. IBKR's default request covers only its current day, whose timezone
+// the daemon does not know. A returned broker timestamp proves at least that
+// much history was included; retained fills and receipt fallbacks prove none.
+// An older base waits for statement reconciliation, including a base before
+// the day's first fill. Empty or ambiguously dated inventories prove no span.
+func executionCoverageFrom(events []ibkrlib.OrderLifecycleEvent, account string, requestedAt time.Time) time.Time {
+	var first time.Time
+	for _, ev := range events {
+		if !strings.EqualFold(strings.TrimSpace(ev.Account), strings.TrimSpace(account)) {
+			if strings.TrimSpace(ev.Account) == "" {
+				return time.Time{}
+			}
+			continue
+		}
+		at, ok := parseIBKRExecTime(ev.ExecTime)
+		if !ok || at.After(requestedAt) {
+			return time.Time{}
+		}
+		if first.IsZero() || at.Before(first) {
+			first = at
+		}
+	}
+	return first
+}
+
+func (s *Server) fillQuoteAllClients(authority *orderPreviewBrokerAuthority, clientID int) bool {
+	if authority == nil {
+		return false
+	}
+	diagnostic, ok := s.gatewaySetup.get(authority.connectorEpoch)
+	return ok && diagnostic.State == "observed" && diagnostic.Settings != nil &&
+		diagnostic.Settings.MasterClientID != nil && *diagnostic.Settings.MasterClientID == clientID
 }
 
 // FillQuoteByExecID returns the retained quote for one execution. It is the
@@ -627,6 +685,7 @@ func (s *Server) pollAccountExecutions(ctx context.Context) {
 		rt.recordPoll(outcome)
 		return
 	}
+	outcome.authority = authority
 	s.pollExecutionsFrom(ctx, status, authority.session.Epoch(), authority.connector.FetchExecutionsFiltered, outcome)
 }
 
@@ -662,10 +721,16 @@ func (rt *fillQuoteRuntime) markBackfilled(scope brokerStateScope, clientID int,
 func (s *Server) pollExecutionsFrom(ctx context.Context, status rpc.TradingStatus, epoch uint64, fetch fillQuoteFetch, outcome fillQuotePoll) {
 	rt := s.fillQuotes
 	now := outcome.at
+	authority := outcome.authority
 	pollCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), fillQuotePollBudget)
 	snap, err := fetch(pollCtx, status.Account, ibkrlib.ExecutionsFilter{}, fillQuotePollBudget)
 	cancel()
 	outcome.complete, outcome.executions = snap.Complete, len(snap.Executions)
+	if err == nil && snap.Complete && s.orderPreviewBrokerAuthorityCurrent(authority) {
+		outcome.authority = authority
+		outcome.allClients = s.fillQuoteAllClients(authority, status.ClientID)
+		outcome.coverageFrom = executionCoverageFrom(snap.Executions, status.Account, now)
+	}
 	switch {
 	case err == nil:
 	case errors.Is(err, context.DeadlineExceeded):

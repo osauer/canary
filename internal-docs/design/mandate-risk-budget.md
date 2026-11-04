@@ -521,7 +521,14 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   that way clears (`mandate_flow_cleared` with `by_executions`), whatever
   the P&L figure says or on which basis. The executions count only when
   the fill-quote poll of the same account completed without error after
-  the reading and every execution it found has been captured; one of
+  the reading and every execution it found has been captured. Recovery
+  also requires the current broker session's observed Master API client
+  setting to match Canary and a base no earlier than the earliest valid
+  broker timestamp in that poll's answer. The request's end marker does
+  not prove earlier days or other clients were covered. Without a proved
+  interval, including a base before the day's first returned execution,
+  the hold waits for the existing statement reconciliation path; retained
+  fills and receipt-time fallbacks cannot widen the interval. An execution of
   anything but a stock or an option, or without a contract id, multiplier
   or FX rate, explains nothing. The incident: on
   2026-11-02 the owner traded by hand in TWS while TWS displaced IB Gateway,

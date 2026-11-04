@@ -195,3 +195,32 @@ func TestSurfaceIsValidated(t *testing.T) {
 		t.Fatalf("surface = %q, err %v", r.Surface, err)
 	}
 }
+
+func TestReportMasksNumericHoldingsSmallBalancesAndEarlyErrors(t *testing.T) {
+	health := fixtureHealth()
+	health.LastError = "SYNTHQ quote unavailable"
+	positions := fixturePositions()
+	positions.Stocks = append(positions.Stocks, rpc.PositionView{Symbol: "0701", LocalSymbol: "0701"}, rpc.PositionView{Symbol: "9472", LocalSymbol: "9472"})
+	for _, healthResult := range []any{health, errors.New("SYNTHQ unavailable while reading status")} {
+		conn := fixtureConn{rpc.MethodStatusHealth: healthResult, rpc.MethodPositionsList: positions, rpc.MethodDataHealth: fixtureData()}
+		r, err := Collect(t.Context(), conn, Host{Version: "v3.33.1"}, Input{Error: "0701 and 9472 unavailable; available USD 900.00"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := url.QueryUnescape(r.IssueURL())
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, err := json.Marshal(Compose(r))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for source, body := range map[string]string{"report": r.Text(), "URL": decoded, "JSON": string(raw)} {
+			for _, secret := range []string{"0701", "9472", "900.00", "SYNTHQ"} {
+				if strings.Contains(body, secret) {
+					t.Errorf("%s carries synthetic private value %q", source, secret)
+				}
+			}
+		}
+	}
+}

@@ -59,10 +59,9 @@ exposure rows.
 The order preview of the trading build measures a cross-currency order
 against the per-order cap with an exact IDEALPRO quote on a conventional
 currency pair. That pair table covers EUR, GBP, AUD, NZD, USD, CAD, CHF and
-JPY. A HKD or SGD base account can preview orders in its own currency and in
-those currencies' pairs with each other; an order whose contract currency and
-base currency form a pair outside the table is refused by the preview, with
-the reason named, until the pair is added.
+JPY. A HKD or SGD base account can preview orders in its own currency.
+Cross-currency orders involving HKD or SGD are refused by the preview, with
+the reason named, because those currencies are outside the pair table.
 
 ## Exchange calendars and the brief's session
 
@@ -75,7 +74,7 @@ with its lunch break, half days and coverage window:
 | `sg` | Singapore securities | 09:00–12:00, 13:00–17:00 SGT | 2026–2027 |
 | `jp` | Tokyo cash equities | 09:00–11:30, 12:30–15:30 JST | 2026–2027 |
 | `au` | ASX cash equities | 10:00–16:00 Sydney | 2026–2027 |
-| `cn` | China A-shares via Stock Connect | 09:30–11:30, 13:00–15:00 CST | 2026 |
+| `cn` | Mainland China A-share sessions | 09:30–11:30, 13:00–15:00 CST | 2026 |
 
 ```sh
 canary calendar --market hk --days 5

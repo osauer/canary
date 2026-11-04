@@ -132,3 +132,57 @@ func TestRegimeGateTrendIsTheLibraryFilterAtMonthEnd(t *testing.T) {
 		t.Fatalf("gate trend %+v, library close %g sma10 %g on %v", tr, sig.Close, sig.SMA10, sig.TrendOn)
 	}
 }
+
+// A sliding boundary cannot supply the confirming closes. The last confirmed
+// reading survives a long alternating run while its evidence is available.
+func TestRegimeGateRetainsConfirmationBeforeAlternatingReadings(t *testing.T) {
+	in := gateFixture(260)
+	start := len(in.Calendar) - 32
+	for i := start; i < len(in.Calendar); i++ {
+		if (i-start)%2 == 0 {
+			in.Breadth[in.Calendar[i]] = 40
+		}
+	}
+	for _, end := range []int{len(in.Calendar) - 1, len(in.Calendar)} {
+		at := in
+		at.Calendar = in.Calendar[:end]
+		b := reading(MeasureGate(at, gateOwner), GateBreadth)
+		if !b.On || b.Reason != "" {
+			t.Fatalf("alternating readings to %s lost the prior confirmation: %+v", at.Calendar[end-1], b)
+		}
+	}
+}
+
+// With no confirming pair in the supplied history, the first raw observation
+// is not a confirmed on state, including when the history window advances.
+func TestRegimeGateNeedsConfirmedHistoryBeforeCountingOn(t *testing.T) {
+	single := gateFixture(260)
+	single.Breadth = map[string]float64{single.Calendar[len(single.Calendar)-1]: 60}
+	if b := reading(MeasureGate(single, gateOwner), GateBreadth); b.On || !b.Pending || b.Reason == "" {
+		t.Fatalf("one initial close above the threshold became confirmed: %+v", b)
+	}
+
+	in := gateFixture(260)
+	in.Breadth = map[string]float64{}
+	start := len(in.Calendar) - 46
+	for i := start; i < len(in.Calendar); i++ {
+		v := 60.0
+		if (i-start)%2 != 0 {
+			v = 40
+		}
+		in.Breadth[in.Calendar[i]] = v
+	}
+	for _, end := range []int{len(in.Calendar) - 1, len(in.Calendar)} {
+		at := in
+		at.Calendar = in.Calendar[:end]
+		b := reading(MeasureGate(at, gateOwner), GateBreadth)
+		if b.On || b.Reason == "" {
+			t.Fatalf("alternating history without a confirming pair counts on or loses its reason: %+v", b)
+		}
+	}
+	// The next agreeing close establishes the first confirmed state.
+	in.Breadth[in.Calendar[len(in.Calendar)-1]] = 60
+	if b := reading(MeasureGate(in, gateOwner), GateBreadth); !b.On || b.Reason != "" {
+		t.Fatalf("two agreeing closes did not confirm the reading: %+v", b)
+	}
+}

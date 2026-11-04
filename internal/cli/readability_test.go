@@ -5,12 +5,52 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
+
+func TestHelpListsEveryRegisteredCommand(t *testing.T) {
+	t.Setenv("CANARY_COLOR", "never")
+	var out bytes.Buffer
+	PrintUsage(&out)
+	words := strings.Fields(out.String())
+	for _, spec := range Catalog() {
+		if !slices.Contains(words, spec.Name) {
+			t.Errorf("registered command %q cannot be found in top-level help", spec.Name)
+		}
+	}
+}
+
+func TestCalendarCatalogCoversAvailableMarkets(t *testing.T) {
+	listed := map[marketcal.Market]bool{}
+	for _, spec := range Catalog() {
+		if spec.Name != "calendar" {
+			continue
+		}
+		for _, flag := range spec.Flags {
+			if flag.Name != "market" {
+				continue
+			}
+			for _, value := range flag.Values {
+				market, ok := marketcal.NormalizeMarket(value)
+				if !ok {
+					t.Errorf("calendar documentation lists unsupported market %q", value)
+				}
+				listed[market] = true
+			}
+		}
+	}
+	for _, market := range marketcal.AllMarkets() {
+		if !listed[market] {
+			t.Errorf("available calendar %q cannot be found in the documented market choices", market)
+		}
+	}
+}
 
 func TestHelpActionsNeedNoConnection(t *testing.T) {
 	for _, parent := range []string{"order", "orders", "proposals", "proposals queue"} {

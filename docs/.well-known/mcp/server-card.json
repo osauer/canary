@@ -549,7 +549,7 @@
               "au",
               "cn"
             ],
-            "description": "exchange-session market; default us; hk, sg, jp, au and cn are the Hong Kong, Singapore, Tokyo, ASX and China A-share (Stock Connect) sessions. US listed options models the regular 16:15 session; per-class exceptions and global/curb hours are not modeled"
+            "description": "exchange-session market; default us; hk, sg, jp, au and cn are the Hong Kong, Singapore, Tokyo, ASX and mainland China A-share sessions. The cn calendar alone does not establish Stock Connect availability. US listed options models the regular 16:15 session; per-class exceptions and global/curb hours are not modeled"
           }
         }
       }

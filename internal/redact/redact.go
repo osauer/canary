@@ -53,11 +53,12 @@ var (
 	// backstop for another user's home or a path quoted from another
 	// machine, after this machine's exact home path is masked.
 	homePathPattern = regexp.MustCompile(`(?:/Users|/home)/[^/\s"']+`)
-	// A money figure: a number of four or more digits, grouped or not, cents
-	// optional, beside a currency word or sign. Broker codes ("code=10167",
+	// A money figure of any size, grouped or not, with an optional decimal
+	// part beside a currency word or sign. Broker codes ("code=10167",
 	// "IBKR 354") carry no currency and stay.
-	currencies   = `(?:USD|EUR|GBP|CHF|JPY|CAD|AUD|HKD|SGD|[$€£])`
-	moneyPattern = regexp.MustCompile(`(?i)(?:` + currencies + `\s?-?\d{1,3}(?:[,._ ]?\d{3})+(?:[.,]\d{1,2})?\b|\b-?\d{1,3}(?:[,._ ]?\d{3})+(?:[.,]\d{1,2})?\s?` + currencies + `|\b\d{4,}(?:[.,]\d{1,2})?\s?` + currencies + `)`)
+	currencies   = `(?:USD|EUR|GBP|CHF|JPY|CAD|AUD|HKD|SGD|CNY|CNH|KRW|[$€£¥₩])`
+	moneyNumber  = `-?(?:\d{1,3}(?:[,._ ]\d{3})+|\d+)(?:[.,]\d+)?`
+	moneyPattern = regexp.MustCompile(`(?i)(?:` + currencies + `\s?` + moneyNumber + `\b|\b` + moneyNumber + `\s?` + currencies + `)`)
 	// A host name as a message names it: two or more dotted labels ending in
 	// a common suffix; never a version ("v3.33.0"), a code or a file name.
 	hostPattern = regexp.MustCompile(`\b(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\.)+(?:local|lan|home|internal|corp|com|net|org|io|dev|de|uk|ch|fr|eu|app|cloud|me|co)\b`)
@@ -72,7 +73,7 @@ var (
 var UnmaskedTickers = strings.Fields(`VIX VVIX VIX3M SPX NDX RUT DJI DJX DXY SPY QQQ IWM DIA GLD TLT HYG SMH XLK XLF XLI XLE XLV
 XLY XLP XLU XLB XLRE IBIT IBKR CBOE CME ICE OPT CASH LMT DAY DTE DD ET PATH KEY CI ON AI UI`)
 
-var tickerPattern = regexp.MustCompile(`^[A-Z][A-Z0-9]*(?:[.][A-Z0-9]+)?$`)
+var tickerPattern = regexp.MustCompile(`^[A-Z0-9]+(?:[.][A-Z0-9]+)?$`)
 
 // Holdings is the current-holdings list a text must never name. The zero
 // value masks nothing; a caller without a list says so rather than
@@ -94,7 +95,9 @@ func NewHoldings(raw []string) Holdings {
 			continue
 		}
 		h.tickers[root] = true
-		if len(root) > 1 && !slices.Contains(UnmaskedTickers, root) {
+		// A single letter can be ordinary prose; a single digit can be an
+		// exchange's complete stock symbol and must retain the holding mask.
+		if (len(root) > 1 || root[0] >= '0' && root[0] <= '9') && !slices.Contains(UnmaskedTickers, root) {
 			words = append(words, regexp.QuoteMeta(root))
 		}
 	}

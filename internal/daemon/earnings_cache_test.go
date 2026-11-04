@@ -251,3 +251,23 @@ func TestEarningsLearnedDateIsKeptAsAReportedEvent(t *testing.T) {
 		t.Fatalf("a newly published next date: %+v", view)
 	}
 }
+
+func TestEarningsUpcomingWithdrawalIsNotHiddenByPriorReport(t *testing.T) {
+	now := time.Date(2026, 11, 4, 16, 0, 0, 0, time.UTC)
+	events := []earningsEvent{
+		{Date: "2026-07-30", Source: earningsNasdaqProvider},
+		{Date: "2026-11-05", Source: earningsNasdaqProvider, WithdrawnAt: &now},
+	}
+	view := earningsResolutionView{Status: rpc.EarningsStatusNoDatePublished}
+	applyEarningsEvents(&view, events, now)
+	if view.Status != rpc.EarningsStatusNoDatePublished || view.Reason != earningsReasonDateWithdrawn || view.ReportedOn != "2026-07-30" || view.Entry.Date != "" {
+		t.Fatalf("an upcoming withdrawal must stay distinct from the prior report, without a usable next date: %+v", view)
+	}
+
+	// Once the provider supplies another date, retained events cannot replace it.
+	view = earningsResolutionView{Status: rpc.EarningsStatusDate, Entry: earningsEntry{Date: "2026-11-12"}}
+	applyEarningsEvents(&view, events, now)
+	if view.Status != rpc.EarningsStatusDate || view.Entry.Date != "2026-11-12" || view.Reason == earningsReasonDateWithdrawn {
+		t.Fatalf("a retained withdrawal replaced a current next date: %+v", view)
+	}
+}

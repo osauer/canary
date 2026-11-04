@@ -95,7 +95,7 @@ var commandNotes = map[string]string{
 		"\n" +
 		"The options session must be open. Read `quantity`, `debit`, `fee_bound`, and `over_budget` before using a result; `debit` includes the fee bound. Sizing returns no submission token and reserves no money. An exact order preview and separate owner confirmation are still required.\n" +
 		"\n" +
-		"MCP exposes stock planning through `canary_stock_add`; `market`, `call-plan` and preview are CLI surfaces, not MCP tools.",
+		"MCP exposes stock planning through `canary_add`; `market`, `call-plan` and preview are CLI surfaces, not MCP tools.",
 	"brief":  "The default view prioritizes assessment completeness, findings, dated context, and coverage gaps. `--details` retains the full Review/Ready evidence and input diagnostics; JSON retains all typed rows and the daemon-authored overview.",
 	"regime": "Recorded readings from stale authority are explicit. `--explain` includes observation times, thresholds, calibration, and source diagnostics. JSON preserves detailed measurements; `--profiles` opts into large gamma arrays.",
 	"stress": "The default view separates findings from coverage gaps. `--details` includes quiet evidence and diagnostics. Required-input failures remain nonzero exits, with full error detail available explicitly.",

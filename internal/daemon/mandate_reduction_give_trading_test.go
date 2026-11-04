@@ -94,9 +94,16 @@ func TestMandateReductionCheapLegGoesAtTheBid(t *testing.T) {
 		rig.server.fillQuotes = &fillQuoteRuntime{fx: func(context.Context, string) (string, *float64, string, string) {
 			return "EUR", new(0.9), "test", ""
 		}}
-		rig.server.orderPreviewQuote = func(_ context.Context, contract rpc.ContractParams, _ time.Duration) (rpc.OrderQuoteSnapshot, error) {
+		rig.server.orderPreviewSidesQuoteForTest = func(_ context.Context, contract rpc.ContractParams, _ time.Duration) (rpc.OrderQuoteSnapshot, error) {
 			bid, ask, mid := 0.30, 0.70, 0.50
 			return rpc.OrderQuoteSnapshot{Symbol: contract.Symbol, Bid: &bid, Ask: &ask, Midpoint: &mid, DataType: rpc.MarketDataLive, QuoteQuality: "firm"}, nil
+		}
+		// A thin option can have fresh sides and an old last trade. Both
+		// the bid concession and the fallback midpoint must use the sides.
+		rig.server.orderPreviewQuote = func(ctx context.Context, contract rpc.ContractParams, timeout time.Duration) (rpc.OrderQuoteSnapshot, error) {
+			quote, err := rig.server.orderPreviewSidesQuoteForTest(ctx, contract, timeout)
+			quote.Stale, quote.StaleReason = true, "last trade is an hour old"
+			return quote, err
 		}
 		rig.server.orderPreviewPositionImpact = fixedPreviewPosition(5, 0, rpc.OrderPositionEffectClose)
 		broker := &brokerCallLog{}

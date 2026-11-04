@@ -802,12 +802,17 @@ func (s *Server) fetchPreviewQuote(ctx context.Context, contract rpc.ContractPar
 }
 
 // previewPricesFromSides reports a draft priced from the bid and ask alone
-// (bounded-limit): its quote is judged by when both sides arrived, never by
+// (bounded-limit or patient-limit): its quote is judged by when both sides arrived, never by
 // the last trade, which for a thinly traded option is hours old while its
 // market is live (2026-11-03 19:22 CET: every pre-authorised cut refused
 // quote_stale).
 func previewPricesFromSides(p rpc.OrderPreviewParams) bool {
-	return p.Bounded != nil || strings.EqualFold(strings.TrimSpace(p.Strategy), rpc.OrderStrategyBoundedLimit)
+	if p.Bounded != nil || strings.EqualFold(strings.TrimSpace(p.Strategy), rpc.OrderStrategyBoundedLimit) {
+		return true
+	}
+	orderType := strings.ToUpper(strings.TrimSpace(p.OrderType))
+	return (orderType == "" || orderType == rpc.OrderTypeLMT) && p.Trail == nil && p.Allowance == nil &&
+		normalizePreviewStrategy(p.Strategy, p.LimitPrice) == rpc.OrderStrategyPatientLimit
 }
 
 // fetchPreviewSidesQuote is fetchPreviewQuoteBound for a draft priced from

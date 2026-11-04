@@ -417,9 +417,12 @@ arithmetic), `internal/daemon/regime_gate.go` (inputs, cadence, serving).
   none: off, scale 0, no new entries and no adds; open positions are left
   to their stops.
 - **Confirmation and staleness.** A reading flips only when
-  `confirm_closes` consecutive observed closes agree, walked over the last
-  30 sessions, so the state is a function of the history and no restart
-  loses it. A reading whose latest close is more than
+  `confirm_closes` consecutive observed closes agree, walked over all
+  available history. The first raw observation never establishes the
+  confirmed state. A history with no confirming run counts off with an
+  unavailable reason; otherwise the latest confirmed state holds through
+  alternating readings. The same history gives the same state after a
+  restart. A reading whose latest close is more than
   `stale_after_sessions` sessions behind the latest session, or that has
   none, counts off with its reason.
 - **Policy.** `[mandate.regime_gate]` `breadth_min_pct = 50`,

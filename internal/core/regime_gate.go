@@ -35,12 +35,8 @@ const (
 	GateOff  = "off"
 )
 
-const (
-	// GateCreditDays is the credit reading's average: 50 closes.
-	GateCreditDays = 50
-	// GateWalkSessions is how many sessions the confirmation walk reads.
-	GateWalkSessions = 30
-)
+// GateCreditDays is the credit reading's average: 50 closes.
+const GateCreditDays = 50
 
 // GateParams are the owner's numbers from [mandate.regime_gate].
 type GateParams struct {
@@ -102,20 +98,16 @@ func MeasureGate(in GateInput, p GateParams) Gate {
 	if len(cal) > 0 {
 		g.Session = cal[len(cal)-1]
 	}
-	walk := cal
-	if len(walk) > GateWalkSessions {
-		walk = walk[len(walk)-GateWalkSessions:]
-	}
 	g.Readings = []GateReading{
-		gateWalk(GateTrend, cal, walk, p, trendReader(in.SPY, g.Session)),
-		gateWalk(GateBreadth, cal, walk, p, func(d string) (bool, float64, float64, string) {
+		gateWalk(GateTrend, cal, p, trendReader(in.SPY, g.Session)),
+		gateWalk(GateBreadth, cal, p, func(d string) (bool, float64, float64, string) {
 			v, ok := in.Breadth[d]
 			if !ok {
 				return false, 0, 0, "no breadth reading on " + d
 			}
 			return v > p.BreadthMinPct, v, p.BreadthMinPct, ""
 		}),
-		gateWalk(GateCredit, cal, walk, p, averageReader(in.HYG, g.Session, GateCreditDays)),
+		gateWalk(GateCredit, cal, p, averageReader(in.HYG, g.Session, GateCreditDays)),
 	}
 	on := 0
 	for _, r := range g.Readings {
@@ -138,15 +130,16 @@ func MeasureGate(in GateInput, p GateParams) Gate {
 // or why it cannot.
 type gateReader func(date string) (on bool, value, level float64, missing string)
 
-// gateWalk confirms one reading over the walk's sessions with data, then
-// applies the staleness rule against the whole calendar.
-func gateWalk(id string, cal, walk []string, p GateParams, read gateReader) GateReading {
+// gateWalk confirms one reading over all available sessions, then applies
+// the staleness rule. The first raw reading is not a confirmed state: without
+// an agreeing run in the supplied history the reading remains unavailable/off.
+func gateWalk(id string, cal []string, p GateParams, read gateReader) GateReading {
 	out := GateReading{ID: id}
 	confirm := max(p.ConfirmCloses, 1)
 	var seen []bool
-	var held bool
+	var held, confirmed bool
 	lastMissing := ""
-	for _, d := range walk {
+	for _, d := range cal {
 		on, v, lvl, missing := read(d)
 		if missing != "" {
 			lastMissing = missing
@@ -154,21 +147,22 @@ func gateWalk(id string, cal, walk []string, p GateParams, read gateReader) Gate
 		}
 		seen = append(seen, on)
 		out.AsOf, out.Value, out.Level, out.Latest = d, v, lvl, on
-		switch {
-		case len(seen) == 1:
-			held = on
-		case on != held && len(seen) >= confirm && allEqual(seen[len(seen)-confirm:], on):
+		if (!confirmed || on != held) && len(seen) >= confirm && allEqual(seen[len(seen)-confirm:], on) {
 			held, out.Since = on, d
+			confirmed = true
 		}
 	}
 	if out.AsOf == "" {
-		out.Reason = "no reading in the last " + fmt.Sprint(len(walk)) + " sessions"
+		out.Reason = "no reading in the last " + fmt.Sprint(len(cal)) + " sessions"
 		if lastMissing != "" {
 			out.Reason = lastMissing
 		}
 		return out
 	}
 	out.On, out.Pending = held, out.Latest != held
+	if !confirmed {
+		out.Reason = fmt.Sprintf("no run of %d agreeing observed closes in the available history", confirm)
+	}
 	if age := len(cal) - 1 - slices.Index(cal, out.AsOf); age > p.StaleAfterSessions {
 		out.On, out.Pending = false, false
 		out.Reason = fmt.Sprintf("the latest reading is from %s, %d sessions old", out.AsOf, age)

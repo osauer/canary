@@ -514,9 +514,10 @@ func (c *earningsCache) resolutionWithIdentity(sym string, conID int, secType st
 }
 
 // applyEarningsEvents reads the kept events over a provider resolution that
-// found no next date. The latest published date that has passed makes the
-// name reported on that date; failing that, a future date the provider pulled
-// makes the gap a withdrawal. Any other resolution stands: a next date, a
+// found no next date. A future date the provider pulled makes the gap a
+// withdrawal, while retaining the latest reported date as context. Without
+// a future withdrawal, the latest passed date makes the name reported on
+// that date. Any other resolution stands: a next date, a
 // conflict, a broken feed or an unsupported security is the louder truth.
 func applyEarningsEvents(view *earningsResolutionView, events []earningsEvent, now time.Time) {
 	if view.Status != rpc.EarningsStatusNoDatePublished {
@@ -537,11 +538,14 @@ func applyEarningsEvents(view *earningsResolutionView, events []earningsEvent, n
 			}
 		}
 	}
+	if reported != nil {
+		view.ReportedOn = reported.Date
+	}
 	switch {
-	case reported != nil:
-		view.Status, view.Reason, view.ReportedOn = rpc.EarningsStatusReported, earningsReasonReported, reported.Date
 	case withdrawn != nil:
 		view.Reason = earningsReasonDateWithdrawn
+	case reported != nil:
+		view.Status, view.Reason = rpc.EarningsStatusReported, earningsReasonReported
 	}
 }
 

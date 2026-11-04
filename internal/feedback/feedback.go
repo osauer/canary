@@ -147,28 +147,36 @@ func Collect(ctx context.Context, conn Conn, host Host, in Input) (Report, error
 	if conn != nil && ctx != nil {
 		var health rpc.HealthResult
 		if err := conn.Call(ctx, rpc.MethodStatusHealth, nil, &health); err != nil {
-			r.Notes = append(r.Notes, "status not read: "+redact.Outbound(id, held).Text(err.Error()))
+			r.Notes = append(r.Notes, "status not read: "+err.Error())
 		} else {
 			r.Daemon = daemonPicture(health)
 			id.Hosts = append(id.Hosts, health.GatewayHost)
-			r.Daemon.LastError = redact.Outbound(id, held).Text(health.LastError)
+			r.Daemon.LastError = health.LastError
 		}
 		var positions rpc.PositionsResult
 		if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{}, &positions); err != nil {
-			r.Holdings = "not masked: positions not read (" + redact.Outbound(id, held).Text(err.Error()) + ")"
+			r.Holdings = "not masked: positions not read (" + err.Error() + ")"
 		} else {
 			held = holdingsOf(positions)
 			r.Holdings = "masked"
 		}
 		var data rpc.DataHealthResult
 		if err := conn.Call(ctx, rpc.MethodDataHealth, rpc.DataHealthParams{}, &data); err != nil {
-			r.Notes = append(r.Notes, "data health not read: "+redact.Outbound(id, held).Text(err.Error()))
+			r.Notes = append(r.Notes, "data health not read: "+err.Error())
 		} else {
 			r.Data = dataPicture(data, redact.Outbound(id, held))
 		}
 	}
+	// Redact every error after the reads have supplied the holding names and
+	// gateway identity, including errors collected before positions were read.
+	outbound := redact.Outbound(id, held)
+	r.Daemon.LastError = outbound.Text(r.Daemon.LastError)
+	r.Holdings = outbound.Text(r.Holdings)
+	for i := range r.Notes {
+		r.Notes[i] = outbound.Text(r.Notes[i])
+	}
 	if text := strings.TrimSpace(in.Error); text != "" {
-		r.Error = cut(redact.Outbound(id, held).Text(text), maxErrorBytes)
+		r.Error = cut(outbound.Text(text), maxErrorBytes)
 	}
 	return r, nil
 }

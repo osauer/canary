@@ -448,7 +448,7 @@ func (s *Server) handleToolsCall(ctx context.Context, id, params json.RawMessage
 	callCtx := context.WithValue(ctx, versionKey{}, s.version)
 	var cancel context.CancelFunc
 	if timeout > 0 {
-		callCtx, cancel = context.WithTimeout(ctx, timeout)
+		callCtx, cancel = context.WithTimeout(callCtx, timeout)
 		defer cancel()
 	}
 	out, err := tool.Handler(callCtx, conn, p.Arguments)

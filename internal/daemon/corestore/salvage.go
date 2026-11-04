@@ -28,10 +28,11 @@ type SalvageResult struct {
 }
 
 // Salvage rebuilds the damaged authority at path row by row and replaces it
-// only when nothing but rebuildable state documents was lost: every other row
-// of every table must copy and pass its content hash, the rebuilt file must
-// pass the startup integrity check, and its write head must not be older than
-// minimum, so order-safety state never rolls back. Anything else refuses and
+// only when the source's row structure is intact and nothing but rebuildable
+// state-document content was lost: every other row of every table must copy
+// and pass its content hash, the rebuilt file must pass the startup integrity
+// check, and its write head must not be older than minimum, so order-safety
+// state never rolls back. Anything else refuses and
 // leaves path untouched; the damaged files are always kept under preserveDir
 // first. The caller holds the persistence lock and has no connection open on
 // path, since copying it beside an open connection would drop SQLite's locks.
@@ -127,6 +128,17 @@ func rebuildInto(ctx context.Context, damaged, target string, minimum AuthorityH
 	if _, err := db.ExecContext(ctx, `ATTACH DATABASE ? AS old`, "file:"+damaged+"?mode=ro"); err != nil {
 		return nil, fmt.Errorf("open the damaged authority: %w", err)
 	}
+	// A damaged b-tree can omit committed rows without SELECT reporting an
+	// error. The copied rows' hashes and unchanged write head cannot prove
+	// completeness. Require the source's full structural/index check before
+	// enumeration; only identified rebuildable content may then be dropped.
+	var integrity string
+	if err := db.QueryRowContext(ctx, `PRAGMA old.integrity_check`).Scan(&integrity); err != nil {
+		return nil, fmt.Errorf("verify the damaged authority's row structure: %w", err)
+	}
+	if integrity != "ok" {
+		return nil, fmt.Errorf("cannot prove every authority row survived structural damage: %s", integrity)
+	}
 	objects, err := damagedSchema(ctx, db)
 	if err != nil {
 		return nil, err
@@ -156,7 +168,19 @@ func rebuildInto(ctx context.Context, damaged, target string, minimum AuthorityH
 			return nil, err
 		}
 	}
-	if _, err := db.ExecContext(ctx, `INSERT INTO main.sqlite_sequence SELECT * FROM old.sqlite_sequence`); err != nil && !strings.Contains(err.Error(), "no such table") {
+	// Copying AUTOINCREMENT rows seeds sequences at the retained row maxima.
+	// Pruning can leave the original floors higher; appending them would
+	// create duplicate names and let SQLite use the lower, first row. Replace
+	// the generated entries, consolidate prior repairs' duplicates, and keep
+	// new events strictly beyond the authority's recorded event frontier.
+	if _, err := db.ExecContext(ctx, `DELETE FROM main.sqlite_sequence`); err != nil {
+		return nil, fmt.Errorf("reset rebuilt sequences: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, `INSERT INTO main.sqlite_sequence(name, seq)
+SELECT name, max(seq) FROM (
+  SELECT name, seq FROM old.sqlite_sequence
+  UNION ALL SELECT 'event_log', last_event_seq FROM main.store_meta
+) GROUP BY name`); err != nil {
 		return nil, fmt.Errorf("copy sqlite_sequence: %w", err)
 	}
 	dropped, err := dropDamagedStateDocuments(ctx, db, rebuildable)

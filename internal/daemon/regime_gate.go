@@ -31,8 +31,8 @@ const (
 	// regimeGateSettle is how long after a session's scheduled close its
 	// daily bar is taken as final.
 	regimeGateSettle = 20 * time.Minute
-	// regimeGateBreadthDays is the breadth history requested: more than
-	// core.GateWalkSessions.
+	// regimeGateBreadthDays is the breadth history requested. If it carries
+	// no confirming run, the reading remains unavailable and counts off.
 	regimeGateBreadthDays = 45
 	regimeGateSPYDays     = 400
 	regimeGateHYGDays     = HYGLookbackDays

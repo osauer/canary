@@ -92,3 +92,30 @@ func TestLocalIdentityReadsTheProcess(t *testing.T) {
 		t.Fatalf("identity = %+v", id)
 	}
 }
+
+func TestOutboundMasksCurrencyAmountsAtEverySize(t *testing.T) {
+	r := Outbound(Identity{}, Holdings{})
+	for _, amount := range []string{"USD 900.00", "USD 0.25", "EUR -12.34", "$5", "0.50 EUR", "99,50 EUR", "JPY 999", "USD 1500.00", "1,234,567.89 EUR", "¥ 1,234", "₩ 900", "CNY 12.50", "CNH 99.25", "KRW 999"} {
+		if got := r.Text("available " + amount); got != "available [amount]" {
+			t.Errorf("currency amount %q survived in %q", amount, got)
+		}
+	}
+	if got := r.Text("IBKR 354 code=10167 API server 203"); got != "IBKR 354 code=10167 API server 203" {
+		t.Errorf("non-money diagnostics changed: %q", got)
+	}
+}
+
+func TestHoldingsMaskIncludesNumericExchangeSymbols(t *testing.T) {
+	held := NewHoldings([]string{"5", "0701", "9472", "285A", "SYNTHQ"})
+	for _, symbol := range []string{"5", "0701", "9472", "285A", "SYNTHQ"} {
+		if !held.Holds(symbol) {
+			t.Errorf("held symbol %q was not registered", symbol)
+		}
+		if got := held.Mask("quote for " + symbol + " unavailable"); got != "quote for [holding] unavailable" {
+			t.Errorf("held symbol %q survived in %q", symbol, got)
+		}
+	}
+	if got := held.Mask("another symbol 94721 and code 354"); got != "another symbol 94721 and code 354" {
+		t.Errorf("mask changed unrelated numbers: %q", got)
+	}
+}

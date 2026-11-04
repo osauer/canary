@@ -23,6 +23,7 @@ Account, positions, orders and risk
   mandate         Check the book's loss measure against the mandate's loss room
   core            See the core sleeve's monthly target, its pending row and what
                   it would trade
+  strategy-one    Screen strong names and review entry plans; no orders
   strategy        See a registered strategy's monthly target and what it would
                   trade, or replay its rule over past month-ends
   brief           Portfolio summary, urgent items first; more with --details
@@ -103,6 +104,7 @@ Start: canary status — check the broker connection
   \x1b[36mmandate         \x1b[0mCheck the book's loss measure against the mandate's loss room
   \x1b[36mcore            \x1b[0mSee the core sleeve's monthly target, its pending row and what
                   it would trade
+  \x1b[36mstrategy-one    \x1b[0mScreen strong names and review entry plans; no orders
   \x1b[36mstrategy        \x1b[0mSee a registered strategy's monthly target and what it would
                   trade, or replay its rule over past month-ends
   \x1b[36mbrief           \x1b[0mPortfolio summary, urgent items first; more with --details

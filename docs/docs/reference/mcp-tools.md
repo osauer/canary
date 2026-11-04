@@ -215,7 +215,7 @@ Analyze explicitly named stock or ETF symbols using daily trend, relative streng
 
 ## `canary_calendar`
 
-Read official exchange sessions to plan work around market opens, closes, holidays, and early closes. Supports US cash equities, US listed options, Xetra, London SETS, Tokyo, and Hong Kong cash equities. Session windows exclude scheduled lunch breaks; outer open/close alone cannot establish tradability. Preserve timezone, source, coverage bounds, and session.state: unknown is not closed and cannot supply a trading schedule. This is an exchange-session calendar, not an economic-release or earnings calendar; use canary_brief for current held-name event context. Read-only; no scheduling, refresh, or broker actions.
+Read official exchange sessions to plan work around market opens, closes, holidays, and early closes. Supports US cash equities, US listed options, Xetra, London SETS, Tokyo, Hong Kong, Singapore, ASX, and China A-share sessions. The China calendar describes mainland exchange sessions; Stock Connect also requires Hong Kong and settlement availability, which this calendar does not establish. Session windows exclude scheduled lunch breaks; outer open/close alone cannot establish tradability. Preserve timezone, source, coverage bounds, and session.state: unknown is not closed and cannot supply a trading schedule. This is an exchange-session calendar, not an economic-release or earnings calendar; use canary_brief for current held-name event context. Read-only; no scheduling, refresh, or broker actions.
 
 **Parameters:**
 
@@ -224,7 +224,7 @@ Read official exchange sessions to plan work around market opens, closes, holida
 | `at` | string | no | optional RFC3339 instant including a timezone offset; evaluates the market at that instant and takes precedence over date |
 | `date` | string | no | optional YYYY-MM-DD in the market timezone; evaluates that date at local noon. Omit for now; at takes precedence when both are supplied |
 | `days` | integer | no | number of forward calendar dates including the selected date, not trading sessions; default 14, maximum 400 |
-| `market` | string | no | exchange-session market; default us; hk, sg, jp, au and cn are the Hong Kong, Singapore, Tokyo, ASX and China A-share (Stock Connect) sessions. US listed options models the regular 16:15 session; per-class exceptions and global/curb hours are not modeled |
+| `market` | string | no | exchange-session market; default us; hk, sg, jp, au and cn are the Hong Kong, Singapore, Tokyo, ASX and mainland China A-share sessions. The cn calendar alone does not establish Stock Connect availability. US listed options models the regular 16:15 session; per-class exceptions and global/curb hours are not modeled |
 
 ## `canary_macro`
 
