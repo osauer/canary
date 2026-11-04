@@ -146,6 +146,14 @@ func (l *langSpec) hubOutput() string {
 	return "docs/docs/" + l.Slug + "/index.html"
 }
 
+// homeHref is the language's landing page, from the site root.
+func (l *langSpec) homeHref() string {
+	if l.isEnglish() {
+		return "index.html"
+	}
+	return l.Slug + "/index.html"
+}
+
 func (l *langSpec) hubHref() string {
 	if l.isEnglish() {
 		return hubHref

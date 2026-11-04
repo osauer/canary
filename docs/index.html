@@ -106,6 +106,15 @@
     .recent li { border-top: 1px solid var(--line); padding-top: 16px; color: var(--muted); font-size: 16px; }
     .recent b { display: block; color: var(--ink); font-weight: 500; margin-bottom: 6px; }
     .recent small { display: block; margin-top: 8px; font-size: 13px; }
+    .site-header .lang-links { display: flex; align-items: center; gap: 2px; margin-left: 20px; font-size: 13px; }
+    .site-header .lang-links a { padding: 3px 9px; border: 1px solid transparent; border-radius: 999px; color: var(--muted); text-decoration: none; white-space: nowrap; }
+    .site-header .lang-links a[aria-current="true"] { border-color: var(--line); color: var(--ink); }
+    .site-header .lang-links a:hover { color: var(--ink); }
+    main a[hreflang="en"]:lang(zh)::after { content: "EN"; margin-left: 6px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); font-size: 10px; font-weight: 600; letter-spacing: .04em; vertical-align: 1px; }
+    :lang(zh) .audience h2, :lang(zh) .film-aside h2, :lang(zh) .section h2 { letter-spacing: 0; line-height: 1.25; }
+    :lang(zh) .audience h2 { max-width: none; text-wrap: balance; }
+    .translation-note { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+    .translation-note.is-stale { color: var(--ink); }
     @media (max-width: 1100px) { .canary-hero { gap: 36px; } .audiences { grid-template-columns: 1fr 1fr; } .audiences .audience:last-child { grid-column: 1 / -1; } .recent { grid-template-columns: 1fr 1fr; } }
     @media (max-width: 760px) { .film-aside { grid-template-columns: 1fr; gap: 16px; } .canary-hero { grid-template-columns: 1fr; gap: 28px; padding-block: 36px 40px; } .canary-hero h1 { font-size: 72px; } .audiences, .recent { grid-template-columns: 1fr; gap: 20px; } .audience { padding: 20px; } .audience h2 { font-size: 28px; } }
   </style>

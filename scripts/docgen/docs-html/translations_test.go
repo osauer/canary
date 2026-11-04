@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -315,5 +317,176 @@ func TestDiscoverTranslationsRejectsTrackedDerivedPage(t *testing.T) {
 	_, err := discoverTranslations(tracked, map[string]pageSpec{}, read)
 	if err == nil || !strings.Contains(err.Error(), "generated") {
 		t.Errorf("tracked derived page accepted: %v", err)
+	}
+}
+
+func TestParseLandingCatalogue(t *testing.T) {
+	c, err := parseLandingCatalogue([]byte("# note\n\nen: Work\nzh: 作品\nen: a\\nb\nzh: 甲\\n乙\nkeep: Canary\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.pairs) != 2 || c.pairs[0].zh != "作品" || c.pairs[1].en != "a\nb" || !c.keep["Canary"] {
+		t.Fatalf("parsed %+v", c)
+	}
+	for name, input := range map[string]string{
+		"zh without en": "zh: 作品\n",
+		"en without zh": "en: Work\n",
+		"en then en":    "en: Work\nen: About\nzh: 關於\n",
+		"duplicate":     "en: Work\nzh: 作品\nen: Work\nzh: 工作\n",
+		"unknown field": "fr: Travail\n",
+	} {
+		if _, err := parseLandingCatalogue([]byte(input)); err == nil {
+			t.Errorf("%s: parsed without error", name)
+		}
+	}
+}
+
+// A key replaces a whole element's content or a whole attribute value, so a
+// short word cannot touch a URL, a class name or a longer sentence.
+func TestLandingCatalogueReplacesWholeStringsOnly(t *testing.T) {
+	c := &landingCatalogue{pairs: []landingPair{{"Main", "主選單"}, {"Gone", "已刪除"}}, keep: map[string]bool{"Canary": true}}
+	page := `<nav aria-label="Main"><a href="Main/x.html" class="Main">Main</a> <p>Main street</p> <b>Canary</b></nav>`
+	got, unused := c.apply(page)
+	want := `<nav aria-label="主選單"><a href="Main/x.html" class="Main">主選單</a> <p>Main street</p> <b>Canary</b></nav>`
+	if got != want {
+		t.Errorf("apply:\n got %s\nwant %s", got, want)
+	}
+	if len(unused) != 1 || unused[0] != "Gone" {
+		t.Errorf("unused = %v", unused)
+	}
+	if behind := c.untranslated(got); len(behind) != 1 || behind[0] != "Main street" {
+		t.Errorf("untranslated = %v", behind)
+	}
+}
+
+// A changed English sentence shows in English and is counted, rather than
+// failing the build: a typo fix must not wait for a native reader.
+func TestLandingUntranslatedSkipsCodeVersionsAndKeptStrings(t *testing.T) {
+	c := &landingCatalogue{keep: map[string]bool{"GitHub": true}}
+	page := `<style>.a{color:red}</style><script>var a="x"</script><pre><code>canary status</code></pre><small>v3.33</small><a>GitHub</a><p>中文 and English</p><img alt="A picture"><p>New sentence</p>`
+	got := c.untranslated(page)
+	if len(got) != 2 || got[0] != "New sentence" || got[1] != "A picture" {
+		t.Errorf("untranslated = %v", got)
+	}
+}
+
+// Every pair keeps the English string's links, code and figures. A translation
+// that drops a command or changes a number is a wrong claim, in any language.
+func TestLandingCatalogueKeepsLinksCodeAndFigures(t *testing.T) {
+	data, err := os.ReadFile(filepath.FromSlash("landing-zh-hant.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := parseLandingCatalogue(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags := regexp.MustCompile(`<a\b[^>]*>|<code>[^<]*</code>|<br>`)
+	figures := regexp.MustCompile(`[0-9]+(?:\.[0-9]+)*`)
+	sorted := func(re *regexp.Regexp, s string) string {
+		found := re.FindAllString(s, -1)
+		slices.Sort(found)
+		return strings.Join(found, " ")
+	}
+	for _, pair := range c.pairs {
+		if got, want := sorted(tags, pair.zh), sorted(tags, pair.en); got != want {
+			t.Errorf("markup differs for %q:\n got %s\nwant %s", pair.en, got, want)
+		}
+		if got, want := sorted(figures, pair.zh), sorted(figures, pair.en); got != want {
+			t.Errorf("figures differ for %q:\n got %s\nwant %s", pair.en, got, want)
+		}
+	}
+}
+
+func TestLandingPagesRender(t *testing.T) {
+	site := renderSite(t)
+	english := readSite(t, site, "index.html")
+	for _, want := range []string{
+		`<html lang="en">`,
+		`<link rel="alternate" hreflang="zh-Hant" href="https://osauer.dev/canary/zh-hant/">`,
+		`<link rel="alternate" hreflang="zh-Hans" href="https://osauer.dev/canary/zh-hans/">`,
+		`<link rel="alternate" hreflang="x-default" href="https://osauer.dev/canary/">`,
+		`<script src="lang.js"></script>`,
+		`<a href="zh-hant/" hreflang="zh-Hant"`,
+		`<a href="zh-hans/" hreflang="zh-Hans"`,
+	} {
+		if !strings.Contains(english, want) {
+			t.Errorf("English landing page lacks %s", want)
+		}
+	}
+	version := regexp.MustCompile(`"softwareVersion": "[^"]+"`).FindString(english)
+	if version == "" {
+		t.Fatal("English landing page has no softwareVersion")
+	}
+	for _, c := range []struct {
+		lang      *langSpec
+		reject    []string
+		otherSlug string
+	}{
+		{zhHant, []string{"账户", "只读"}, "zh-hans"},
+		{zhHans, []string{"帳戶", "帐户", "唯讀", "認沽", "甚麼", "守护程序"}, "zh-hant"},
+	} {
+		page := readSite(t, site, strings.TrimPrefix(landingOutput(c.lang), "docs/"))
+		for _, want := range []string{
+			fmt.Sprintf(`<html lang="%s">`, c.lang.Tag),
+			fmt.Sprintf(`<link rel="canonical" href="https://osauer.dev/canary/%s/">`, c.lang.Slug),
+			fmt.Sprintf(`"inLanguage": "%s"`, c.lang.Tag),
+			`<script src="../lang.js"></script>`,
+			fmt.Sprintf(`<a href="./" hreflang="%s" lang="%s" data-lang="%s" aria-current="true">`, c.lang.Tag, c.lang.Tag, c.lang.Tag),
+			fmt.Sprintf(`<a href="../%s/" hreflang=`, c.otherSlug),
+			`<a href="../" hreflang="en" lang="en" data-lang="en">`,
+			fmt.Sprintf(`href="/canary/%s/"`, c.lang.Slug),
+			`translation-note`,
+			// Stamps come from the one English page.
+			version,
+		} {
+			if !strings.Contains(page, want) {
+				t.Errorf("%s landing page lacks %s", c.lang.Tag, want)
+			}
+		}
+		for _, reject := range append([]string{`href="docs/`, `src="screens/`}, c.reject...) {
+			if strings.Contains(page, reject) {
+				t.Errorf("%s landing page contains %s", c.lang.Tag, reject)
+			}
+		}
+	}
+	// Each docs page's home link leads to the landing page in its language.
+	if page := readSite(t, site, "docs/zh-hans/start/install.html"); !strings.Contains(page, `href="../../../zh-hans/index.html"`) {
+		t.Error("Simplified docs page does not link home to the Simplified landing page")
+	}
+}
+
+// A relative link moves one directory down. A page that exists in the language
+// is preferred; a page that exists in English only says so.
+func TestRebaseLandingLinks(t *testing.T) {
+	root, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracked, err := trackedFiles(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := newSiteRenderer(root, tracked)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for input, want := range map[string]string{
+		`<a href="docs/">x</a>`:                             `<a href="../docs/zh-hant/">x</a>`,
+		`<a href="docs/start/install.html#a">x</a>`:         `<a href="../docs/zh-hant/start/install.html#a">x</a>`,
+		`<a class="k" href="docs/reference/cli.html">x</a>`: `<a class="k" href="../docs/reference/cli.html" hreflang="en">x</a>`,
+		`<a href="canary-remote/">x</a>`:                    `<a href="../canary-remote/" hreflang="en">x</a>`,
+		`<a href="llms.txt">x</a>`:                          `<a href="../llms.txt">x</a>`,
+		`<a href="/desk/">x</a>`:                            `<a href="/desk/">x</a>`,
+		`<a href="#main">x</a>`:                             `<a href="#main">x</a>`,
+		`<a href="https://github.com/osauer/canary">x</a>`:  `<a href="https://github.com/osauer/canary">x</a>`,
+		`<img src="screens/a.webp">`:                        `<img src="../screens/a.webp">`,
+		`<video poster="media/a.jpg">`:                      `<video poster="../media/a.jpg">`,
+		`<link rel="icon" href="social/a.png">`:             `<link rel="icon" href="../social/a.png">`,
+		`<link rel="preload" href="/assets/a.woff2">`:       `<link rel="preload" href="/assets/a.woff2">`,
+	} {
+		if got := r.rebaseLandingLinks(input, zhHant); got != want {
+			t.Errorf("rebase %s:\n got %s\nwant %s", input, got, want)
+		}
 	}
 }

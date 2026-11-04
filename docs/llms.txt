@@ -9,10 +9,11 @@ paired phone app and a Go client. It is a private open-source project by one
 maintainer, MIT licensed, with no hosted service and no telemetry.
 
 This file is the map. The release history, tool list and command list are
-in https://osauer.dev/canary/llms-full.txt. The start pages exist in
-Traditional Chinese under https://osauer.dev/canary/docs/zh-hant/ and in
-Simplified Chinese under https://osauer.dev/canary/docs/zh-hans/; English
-is the master and every translation says which English revision it follows.
+in https://osauer.dev/canary/llms-full.txt. The landing page and the start pages
+exist in Traditional Chinese (https://osauer.dev/canary/zh-hant/ and
+https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
+(https://osauer.dev/canary/zh-hans/ and https://osauer.dev/canary/docs/zh-hans/);
+English is the master.
 
 Version 3.33 adds Singapore, ASX and China A-share calendars, a brief whose
 session row follows the exchange holding most of the book, position figures

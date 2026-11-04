@@ -451,6 +451,7 @@ type templateData struct {
 	JSONLD     template.JS
 	SocialHead template.HTML
 	HubHref    string
+	HomeHref   string
 	UI         uiStrings
 }
 
@@ -472,14 +473,14 @@ var documentTemplate = template.Must(template.New("document").Parse(`<!doctype h
 <body class="docpage layout-{{.Layout}}">
   <div class="topline"></div>
   <header class="wrap nav" aria-label="Primary">
-    <a class="brand" href="{{.RootPrefix}}index.html" aria-label="Canary home"><img src="{{.RootPrefix}}social/canary-icon.png" width="192" height="192" alt="">Canary</a>
+    <a class="brand" href="{{.RootPrefix}}{{.HomeHref}}" aria-label="Canary home"><img src="{{.RootPrefix}}social/canary-icon.png" width="192" height="192" alt="">Canary</a>
 {{.Nav}}  </header>
   <div class="wrap shell">
 {{.SideNav}}    <main class="doc">
 {{.Body}}    </main>
   </div>
   <footer>
-    <div class="wrap"><a href="{{.RootPrefix}}index.html">Canary</a><a href="{{.RootPrefix}}{{.HubHref}}">{{.UI.FooterDocs}}</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">{{.UI.FooterPrivacy}}</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">{{.UI.FooterSecurity}}</a></div>
+    <div class="wrap"><a href="{{.RootPrefix}}{{.HomeHref}}">Canary</a><a href="{{.RootPrefix}}{{.HubHref}}">{{.UI.FooterDocs}}</a><a href="https://github.com/osauer/canary">GitHub</a><a href="https://github.com/osauer/canary/blob/main/PRIVACY.md">{{.UI.FooterPrivacy}}</a><a href="https://github.com/osauer/canary/blob/main/SECURITY.md">{{.UI.FooterSecurity}}</a></div>
     <div class="wrap fineprint">{{.UI.Fineprint}}</div>
   </footer>
 </body>
@@ -513,6 +514,8 @@ type siteRenderer struct {
 	// translations holds every translated page by language and source.
 	english      map[string]pageSpec
 	translations translationSet
+	// landing holds the landing page's string catalogue by language slug.
+	landing map[string]*landingCatalogue
 	// unresolved collects relative links that point at nothing tracked, so the
 	// run can fail with the whole list rather than one at a time.
 	unresolved []string
@@ -547,6 +550,9 @@ func newSiteRenderer(root string, tracked map[string]bool) (*siteRenderer, error
 		return nil, err
 	}
 	r.translations = translations
+	if err := r.loadLanding(); err != nil {
+		return nil, err
+	}
 	return r, nil
 }
 
@@ -622,6 +628,17 @@ func navHTML(lang *langSpec, rootPrefix, current string, versions map[string]str
 		fmt.Fprintf(&out, "      <a href=\"%s\">%s</a>\n", template.HTMLEscapeString(href), template.HTMLEscapeString(label))
 	}
 	out.WriteString("    </nav>\n")
+	selector, err := langLinksHTML(lang, currentDir, versions)
+	if err != nil {
+		return "", err
+	}
+	out.WriteString(selector)
+	return out.String(), nil
+}
+
+// langLinksHTML renders the language selector for a page in currentDir.
+func langLinksHTML(lang *langSpec, currentDir string, versions map[string]string) (string, error) {
+	var out strings.Builder
 	out.WriteString("    <nav class=\"lang-links\" aria-label=\"Language\">\n")
 	for _, other := range languages {
 		target, ok := versions[other.Tag]
@@ -884,6 +901,7 @@ func (r *siteRenderer) renderDoc(lang *langSpec, page pageSpec, t *translation, 
 		Body:            template.HTML(bodyHTML), // Goldmark escapes source HTML by default.
 		JSONLD:          template.JS(jsonLD),     // json.Marshal produces valid script data.
 		HubHref:         lang.hubHref(),
+		HomeHref:        lang.homeHref(),
 		UI:              lang.ui,
 	}
 	if page.SocialImage != "" {
@@ -1026,6 +1044,7 @@ func (r *siteRenderer) renderHub(lang *langSpec) ([]byte, error) {
 		Body:            template.HTML(body.String()),
 		JSONLD:          template.JS(jsonLD),
 		HubHref:         lang.hubHref(),
+		HomeHref:        lang.homeHref(),
 		UI:              lang.ui,
 	})
 	if err != nil {
@@ -1357,6 +1376,13 @@ func (r *siteRenderer) artifacts() ([]artifact, error) {
 		}
 		out = append(out, artifact{lang.hubOutput(), hub})
 	}
+	for _, lang := range languages {
+		landing, err := r.renderLanding(lang)
+		if err != nil {
+			return nil, fmt.Errorf("render %s landing page: %w", lang.Tag, err)
+		}
+		out = append(out, artifact{landingOutput(lang), landing})
+	}
 	if len(r.unresolved) > 0 {
 		sort.Strings(r.unresolved)
 		return nil, fmt.Errorf("relative links resolve to nothing tracked:\n  %s", strings.Join(r.unresolved, "\n  "))
@@ -1380,7 +1406,11 @@ func translationsReport(root string) (string, int, error) {
 	}
 	var out strings.Builder
 	behind := renderer.translations.report(&out)
-	return out.String(), behind, nil
+	landingBehind, err := renderer.landingReport(&out)
+	if err != nil {
+		return "", 0, err
+	}
+	return out.String(), behind + landingBehind, nil
 }
 
 func run(root, outputRoot string) (int, error) {

@@ -1,6 +1,6 @@
 # Localisation
 
-Updated: 2026-11-04 12:40 CET
+Updated: 2026-11-04 21:05 CET
 
 What it takes to let Canary itself speak a second language: the CLI's
 human-readable output, `--help`, error text, the paired app and the MCP
@@ -9,6 +9,14 @@ Traditional Chinese pages shipped with this note; the mechanism is in
 `scripts/docgen/docs-html/translations.go`). This note is an assessment, not
 a build: it sizes the job, names the design that fits the code as it stands,
 and ends with the decisions that are the owner's.
+
+The landing page is translated too, by a different mechanism because it is
+hand-written HTML: `scripts/docgen/docs-html/landing-zh-hant.txt` pairs each
+English string of `docs/index.html` with its Traditional text, and the generator
+applies the pairs at build. The page stays one file, so layout, figures and
+release stamps cannot drift. A changed English string finds no pair, shows in
+English on the Chinese pages and is listed by `make docs-translations-check`,
+and the note in the page's footer then says the translation is behind.
 
 ## What is already true
 
