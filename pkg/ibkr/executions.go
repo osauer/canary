@@ -69,6 +69,15 @@ func (f *executionsFlight) snapshot() []OrderLifecycleEvent {
 	return append([]OrderLifecycleEvent(nil), f.rows...)
 }
 
+// ExecutionsFilter narrows reqExecutions beyond the account. LastNDays is
+// the filter's lastNDays field, sent from server version 200 (TWS API 10.30)
+// and ignored by older servers; zero leaves it unset, which the broker reads
+// as the current day. What a given server returns for a set value is the
+// server's decision; the snapshot's dates say what came back.
+type ExecutionsFilter struct {
+	LastNDays int
+}
+
 // FetchExecutions sends reqExecutions with an account-only filter and waits
 // for the same-request execDetailsEnd. ctx carries the pacing priority; a
 // timeout of zero or less uses defaultExecutionsTimeout. The answer rows are
@@ -77,6 +86,11 @@ func (f *executionsFlight) snapshot() []OrderLifecycleEvent {
 // fill. A late answer after the deadline is dropped. This is a read request:
 // nothing here places, changes or cancels an order.
 func (c *Connector) FetchExecutions(ctx context.Context, account string, timeout time.Duration) (ExecutionsSnapshot, error) {
+	return c.FetchExecutionsFiltered(ctx, account, ExecutionsFilter{}, timeout)
+}
+
+// FetchExecutionsFiltered is FetchExecutions with an explicit filter.
+func (c *Connector) FetchExecutionsFiltered(ctx context.Context, account string, filter ExecutionsFilter, timeout time.Duration) (ExecutionsSnapshot, error) {
 	now := time.Now().UTC()
 	if c == nil {
 		return ExecutionsSnapshot{AsOf: now}, fmt.Errorf("connector is nil")
@@ -139,7 +153,11 @@ func (c *Connector) FetchExecutions(ctx context.Context, account string, timeout
 		// answered error 320 ("Unable to parse field: 'Client Req Id' for
 		// input string: 'MART'") and the request after the poll was lost
 		// (2026-10-18, every build since the poll shipped).
-		fields = append(fields, "", 0)
+		var lastNDays any = ""
+		if filter.LastNDays > 0 {
+			lastNDays = filter.LastNDays
+		}
+		fields = append(fields, lastNDays, 0)
 	}
 	msg := conn.encodeMsg(fields...)
 	if err := conn.sendMessageWithTypeContext(ctx, msg, RequestTypeGeneral); err != nil {

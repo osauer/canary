@@ -194,11 +194,12 @@ func TestExecDetailsEndRequestIDReadsBothEncodings(t *testing.T) {
 // after it lost). Below 200 the frame still ends at side.
 func TestFetchExecutionsFrameEndsWhereTheServerVersionSays(t *testing.T) {
 	for _, tc := range []struct {
-		version int
-		fields  int
-		tail    []string
-	}{{199, 10, nil}, {200, 12, []string{"", "0"}}, {maxClientVersion, 12, []string{"", "0"}}} {
-		t.Run(strconv.Itoa(tc.version), func(t *testing.T) {
+		version   int
+		lastNDays int
+		fields    int
+		tail      []string
+	}{{199, 0, 10, nil}, {200, 0, 12, []string{"", "0"}}, {maxClientVersion, 0, 12, []string{"", "0"}}, {200, 7, 12, []string{"7", "0"}}, {199, 7, 10, nil}} {
+		t.Run(strconv.Itoa(tc.version)+"/"+strconv.Itoa(tc.lastNDays), func(t *testing.T) {
 			c := readyBrokerEvidenceTestConnector(t)
 			conn := c.conn
 			setServerVersionReady(conn, tc.version)
@@ -208,7 +209,7 @@ func TestFetchExecutionsFrameEndsWhereTheServerVersionSays(t *testing.T) {
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				_, _ = c.FetchExecutions(context.Background(), "DU1234567", 5*time.Second)
+				_, _ = c.FetchExecutionsFiltered(context.Background(), "DU1234567", ExecutionsFilter{LastNDays: tc.lastNDays}, 5*time.Second)
 			}()
 			select {
 			case <-writer.wrote:
@@ -227,7 +228,7 @@ func TestFetchExecutionsFrameEndsWhereTheServerVersionSays(t *testing.T) {
 				t.Fatalf("server %d: fields %q, want %d with the filter through side", tc.version, fields, tc.fields)
 			}
 			if tc.tail != nil && (string(fields[9]) != tc.tail[0] || string(fields[10]) != tc.tail[1]) {
-				t.Fatalf("server %d: tail %q %q, want lastNDays unset and no specific dates", tc.version, fields[9], fields[10])
+				t.Fatalf("server %d: tail %q %q, want lastNDays %q and no specific dates", tc.version, fields[9], fields[10], tc.tail[0])
 			}
 			reqID, err := strconv.Atoi(string(fields[1]))
 			if err != nil {

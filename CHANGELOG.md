@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The project adheres to 
 ### Added
 
 - The `pkg/ibkr` statement-coverage report is updated on each push to main at https://osauer.dev/canary/coverage/pkg-ibkr.html, with a badge in the README and a link in the package documentation.
+- `pkg/ibkr` can ask the broker for earlier days' executions: `FetchExecutionsFiltered` takes an `ExecutionsFilter` whose `LastNDays` fills the reqExecutions filter field TWS API 10.30 added, and `FetchExecutions` keeps sending it unset. Against TWS at server version 203 on 2026-11-04 the field returned up to seven calendar days including today and an empty, complete answer with no broker notice for anything above seven. The daemon does not use it yet.
 
 ## v3.33.1 — 2026-11-03 21:44 CET
 
