@@ -47,6 +47,27 @@ if "$checker" "$fixture" >/dev/null 2>&1; then
 fi
 finish_case
 
+# Action tags outside the release-critical checkout steps must stay pinned too.
+restore_after_case .github/workflows/cla.yml
+python3 - "$fixture/.github/workflows/cla.yml" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+text, count = re.subn(r"contributor-assistant/github-action@[0-9a-f]{40}",
+                      "contributor-assistant/github-action@v2.6.1", path.read_text())
+if count != 1:
+    raise SystemExit("CLA action pin witness missing")
+path.write_text(text)
+PY
+if "$checker" "$fixture" >/dev/null 2>"$test_root/pin-error"; then
+	echo "check-release-ci-contract test: movable action tag passed" >&2
+	exit 1
+fi
+grep -q 'action uses must pin a full commit SHA' "$test_root/pin-error"
+finish_case
+
 # The binding waiter must use the exact candidate SHA, never a literal or a
 # branch approximation.
 restore_after_case Makefile
@@ -76,13 +97,13 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 text = path.read_text()
-old = """      - uses: actions/checkout@v4
-        with:
+checkout = next(line for line in text.splitlines(keepends=True) if line.startswith("      - uses: actions/checkout@"))
+old = f"""{checkout}        with:
           fetch-depth: 0
 """
 if old not in text:
     raise SystemExit("full-history check checkout witness missing")
-path.write_text(text.replace(old, "      - uses: actions/checkout@v4\n", 1))
+path.write_text(text.replace(old, checkout, 1))
 PY
 if "$checker" "$fixture" >/dev/null 2>&1; then
 	echo "check-release-ci-contract test: shallow check checkout passed" >&2
@@ -99,14 +120,14 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 text = path.read_text()
-old = """      - uses: actions/checkout@v4
-        with:
+checkout = next(line for line in text.splitlines(keepends=True) if line.startswith("      - uses: actions/checkout@"))
+old = f"""{checkout}        with:
           # The regression spine proves historical fix commits are ancestors.
           fetch-depth: 0
 """
 if old not in text:
     raise SystemExit("full-history regression-spine checkout witness missing")
-path.write_text(text.replace(old, "      - uses: actions/checkout@v4\n", 1))
+path.write_text(text.replace(old, checkout, 1))
 PY
 if "$checker" "$fixture" >/dev/null 2>"$test_root/spine-error"; then
 	echo "check-release-ci-contract test: shallow regression-spine checkout passed" >&2

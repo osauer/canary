@@ -4,15 +4,6 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "deploy": "wrangler deploy"
-  },
-  "devDependencies": {
-    "wrangler": "^4.114.0"
-  },
-  "overrides": {
-    "miniflare": {
-      "undici": "7.30.1",
-      "sharp": "0.35.5"
-    }
+    "deploy": "node deploy.js --deploy"
   }
 }
