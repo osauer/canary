@@ -57,6 +57,26 @@ func decodeDeskAuthority(raw []byte, out any) error {
 }
 
 func (s *Server) readDeskAuthority(ctx context.Context) (deskAuthorityRecord, error) {
+	out, err := s.readStoredDeskAuthority(ctx)
+	if err != nil {
+		return out, err
+	}
+	// Each breach of the mandate's loss room holds full scope at protection
+	// until the owner confirms full again on a device after the book is back
+	// within the room (owner decision 2026-10-10 07:51 CEST for the brake;
+	// since 2026-10-31 the hold reads the mandate, not the [capital] ladder,
+	// build B5). Protection and reductions keep running.
+	if out.Scope == "full" {
+		if last, engaged, known := s.deskAuthorityHold(ctx); !known || engaged || last != out.MandateEpisode {
+			out.Scope, out.HeldBy = "protect", rpc.DeskAuthorityHeldByMandate
+		}
+	}
+	return out, nil
+}
+
+// readStoredDeskAuthority is the record as confirmed, before the breach hold.
+// It takes no mandate lock, so the proposal engine can read it from any path.
+func (s *Server) readStoredDeskAuthority(ctx context.Context) (deskAuthorityRecord, error) {
 	out := deskAuthorityRecord{Scope: "off"}
 	if s.coreStore == nil {
 		return out, errors.New("automatic authority storage is unavailable")
@@ -78,16 +98,6 @@ func (s *Server) readDeskAuthority(ctx context.Context) (deskAuthorityRecord, er
 	// A saved AUTO bit cannot resume the controller in a new daemon process.
 	if s.startedAt.IsZero() || !out.ControlProcess.Equal(s.startedAt) {
 		out.Running = false
-	}
-	// Each breach of the mandate's loss room holds full scope at protection
-	// until the owner confirms full again on a device after the book is back
-	// within the room (owner decision 2026-10-10 07:51 CEST for the brake;
-	// since 2026-10-31 the hold reads the mandate, not the [capital] ladder,
-	// build B5). Protection and reductions keep running.
-	if out.Scope == "full" {
-		if last, engaged, known := s.deskAuthorityHold(ctx); !known || engaged || last != out.MandateEpisode {
-			out.Scope, out.HeldBy = "protect", rpc.DeskAuthorityHeldByMandate
-		}
 	}
 	return out, nil
 }

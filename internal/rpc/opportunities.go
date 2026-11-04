@@ -501,11 +501,15 @@ type AutoTradeStatus struct {
 	// PreAuthorised lists the buckets the active protection policy lets the
 	// daemon submit itself; VetoWindow is the wait between notice and
 	// submission; AutomaticPending counts records waiting in that window.
-	PreAuthorised    []string         `json:"pre_authorised,omitempty"`
-	VetoWindow       string           `json:"veto_window,omitempty"`
-	AutomaticPending int              `json:"automatic_pending"`
-	Blocked          bool             `json:"blocked"`
-	Blockers         []TradingBlocker `json:"blockers,omitempty"`
+	PreAuthorised []string `json:"pre_authorised,omitempty"`
+	// PreAuthorisedDisarmed lists the buckets the policy file names while
+	// nothing is armed: the daemon sends none of them, their rows wait for
+	// the owner, and PreAuthorised is empty.
+	PreAuthorisedDisarmed []string         `json:"pre_authorised_disarmed,omitempty"`
+	VetoWindow            string           `json:"veto_window,omitempty"`
+	AutomaticPending      int              `json:"automatic_pending"`
+	Blocked               bool             `json:"blocked"`
+	Blockers              []TradingBlocker `json:"blockers,omitempty"`
 	// AutomaticDeferred counts records trading.freeze deferred; each
 	// resubmits once the freeze lifts while its revision is current.
 	AutomaticDeferred int `json:"automatic_deferred,omitempty"`

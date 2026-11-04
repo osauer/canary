@@ -712,6 +712,18 @@ drawdown brake latched. The cash sweep is pre-authorised in its own section,
 `[cash] pre_authorised`, under the same veto window
 ([Cash management](cash.md)); currency leveling never is.
 `auto_submit` remains false; it is not the switch for this scoped scheduler.
+
+The list says which buckets may go; it does not let Canary act. The daemon
+places nothing itself until Protection or Fully armed stands, a standing
+authority signed once on a paired device and held in the daemon's store. It
+survives restarts and needs nothing else running. While nothing is armed no
+record is made, the rows wait for you, `canary proposals status` names the
+buckets as waiting, and `auto_trade.pre_authorised_disarmed` lists them. Arming
+starts a full veto window for every row; disarming ends every window that is
+running, and arming again starts them afresh. Today the only signer is Desk's
+device-confirmed arming, so an install without Desk cannot arm. An order already
+at the broker stays there when you disarm.
+
 Build capability, account/mode pins, freeze, fresh evidence, preview, journal,
 and broker eligibility gates still apply to every submission.
 
@@ -777,8 +789,8 @@ that order is filled or cancelled, on its original window: waiting never
 restarts the veto window. The hold applies under a latched brake as well. If
 the broker's open-order list cannot be read when the record is created, every
 working hand order counts as new for that record; if it cannot be read when the
-submission is due, the submission waits. With no bucket pre-authorised, nothing
-is ever held.
+submission is due, the submission waits. With no bucket pre-authorised, or
+nothing armed, nothing is ever held.
 
 While a record waits, deferred or held, its Protection notice stays open and
 says what it waits for: deferred because trading is frozen, held behind a hand

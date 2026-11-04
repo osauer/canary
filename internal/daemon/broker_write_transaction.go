@@ -22,6 +22,7 @@ type brokerWriteTransactionBinding struct {
 	indexHedge                 *indexHedgeAuthority
 	reduceFillEvidence         *protectionOrderSnapshotBinding
 	deskAuthority              *deskAuthorityFence
+	standingAuthority          bool
 	stockAddReview             *rpc.AddReview
 	stockAddQueueAdmission     *ownerQueueAdmission
 	stockAddOrdersGeneration   uint64
@@ -114,7 +115,7 @@ func (s *Server) brokerWriteOriginBlockers(status rpc.TradingStatus, origin stri
 	var originBlockers []rpc.TradingBlocker
 	switch origin {
 	case rpc.OrderOriginDaemonPreAuthorised:
-		originBlockers = s.daemonPreAuthorisedOriginBlockers()
+		originBlockers = s.daemonPreAuthorisedOriginBlockers(status)
 	case rpc.OrderOriginDaemonOwnerQueued:
 		originBlockers = s.daemonOwnerQueuedOriginBlockers()
 	case rpc.OrderOriginDaemonProtectiveGuard:
@@ -135,7 +136,7 @@ func (s *Server) brokerWriteOriginBlockers(status rpc.TradingStatus, origin stri
 // at this instant still pre-authorises that proposal's bucket. Every other
 // gate — build, mode, gateway, pins, freeze, limits, journal, preview token —
 // is evaluated by the same authorization as a human write.
-func (s *Server) daemonPreAuthorisedOriginBlockers() []rpc.TradingBlocker {
+func (s *Server) daemonPreAuthorisedOriginBlockers(status rpc.TradingStatus) []rpc.TradingBlocker {
 	if s == nil {
 		return []rpc.TradingBlocker{{Code: "daemon_origin_unauthorised", Message: "daemon-preauthorised writes require the daemon's own scheduler", Action: "Submit through `canary proposals submit` from a human terminal instead."}}
 	}
@@ -146,12 +147,15 @@ func (s *Server) daemonPreAuthorisedOriginBlockers() []rpc.TradingBlocker {
 	if s.protectionPolicies == nil {
 		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: "no protection policy is loaded, so no bucket is pre-authorised", Action: "List the bucket under [authority].pre_authorised and bump policy_version."}}
 	}
-	policy, status := s.protectionPolicies.Active()
-	if status.Status != rpc.ProtectionPolicyStatusActive && status.Status != rpc.ProtectionPolicyStatusDefault {
-		return []rpc.TradingBlocker{{Code: "policy_" + status.Status, Message: nonEmptyString(status.Message, "protection policy is not active"), Action: "Fix the protection policy file and bump policy_version."}}
+	policy, active := s.protectionPolicies.Active()
+	if active.Status != rpc.ProtectionPolicyStatusActive && active.Status != rpc.ProtectionPolicyStatusDefault {
+		return []rpc.TradingBlocker{{Code: "policy_" + active.Status, Message: nonEmptyString(active.Message, "protection policy is not active"), Action: "Fix the protection policy file and bump policy_version."}}
 	}
 	if !policy.preAuthorised(grant.Bucket) {
 		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: fmt.Sprintf("bucket %q is not listed under [authority].pre_authorised in the active protection policy", grant.Bucket), Action: "List the bucket under [authority].pre_authorised and bump policy_version, or submit by hand."}}
+	}
+	if disarmed := s.standingAuthorityBlocker(context.Background(), status.Account, status.Mode); disarmed != nil {
+		return []rpc.TradingBlocker{*disarmed}
 	}
 	return nil
 }
@@ -240,6 +244,7 @@ func (s *Server) authorizeBrokerWriteTransaction(origin string, cancel bool) (br
 		fence := grant.Fence
 		binding.deskAuthority = &fence
 	}
+	binding.standingAuthority = origin == rpc.OrderOriginDaemonPreAuthorised
 
 	// Tests use explicit broker-call hooks instead of a live socket. The
 	// optional binding seam still exercises exact daemon pointer/epoch/scope
@@ -350,13 +355,19 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 		if blockers := s.automaticWireLockBlockers(context.Background(), binding, cancel); len(blockers) > 0 {
 			return tradingBlockersError(blockers)
 		}
-		if binding.deskAuthority != nil {
+		if binding.deskAuthority != nil || binding.standingAuthority {
 			leaseMu.Lock()
 			if releaseAuthority != nil {
 				leaseMu.Unlock()
 				return fmt.Errorf("%w: repeated automatic wire guard", ErrTradingDisabled)
 			}
-			unlockAuthority, err := s.lockDeskAuthorityForWire(context.Background(), binding.deskAuthority, status)
+			lock := func() (func(), error) {
+				return s.lockDeskAuthorityForWire(context.Background(), binding.deskAuthority, status)
+			}
+			if binding.standingAuthority {
+				lock = func() (func(), error) { return s.lockStandingAuthorityForWire(context.Background(), status) }
+			}
+			unlockAuthority, err := lock()
 			if err != nil {
 				leaseMu.Unlock()
 				return err

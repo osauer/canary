@@ -760,6 +760,8 @@ func renderProposalStatusText(env *Env, st *rpc.AutoTradeStatus) {
 			deferred = fmt.Sprintf(", %d deferred by the freeze", st.AutomaticDeferred)
 		}
 		statusRow(env, out, "Pre-authorised", fmt.Sprintf("%s (veto window %s, %d pending%s)", strings.Join(st.PreAuthorised, ", "), nonEmpty(st.VetoWindow, "30m0s"), st.AutomaticPending, deferred))
+	} else if len(st.PreAuthorisedDisarmed) > 0 {
+		statusRow(env, out, "Pre-authorised", "none while nothing is armed; "+strings.Join(st.PreAuthorisedDisarmed, ", ")+" wait for you until Protection or Fully armed is confirmed on your device")
 	} else {
 		statusRow(env, out, "Pre-authorised", "none; every submission is a human instruction")
 	}

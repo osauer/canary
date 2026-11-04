@@ -503,22 +503,36 @@ func (e *proposalEngine) automaticExcludedReason(p rpc.TradeProposal) string {
 // automaticPolicy returns the active policy when it is safe to act on; a
 // drifted or errored policy pre-authorises nothing.
 func (e *proposalEngine) automaticPolicy() (protectionPolicy, bool) {
+	policy, ok, _ := e.automaticPolicyAuthority()
+	return policy, ok
+}
+
+// automaticPolicyAuthority is the policy the automatic paths act on. While
+// nothing is armed it lists no pre-authorised bucket, so no record is made,
+// nothing submits and every surface says the rows wait for the owner; the
+// blocker says why. The file's own list stays what it wrote.
+func (e *proposalEngine) automaticPolicyAuthority() (protectionPolicy, bool, *rpc.TradingBlocker) {
 	if e == nil || e.server == nil || e.server.protectionPolicies == nil {
-		return protectionPolicy{}, false
+		return protectionPolicy{}, false, nil
 	}
 	// Pre-authorised submission pauses while a config.toml section that
 	// shapes it ([trading], [auto_trade], [rulebook]) runs on Canary's
 	// defaults; manual exits and trims continue (owner decision 2026-09-26).
 	if paused, _ := e.server.configPausesAutomation(); paused {
-		return protectionPolicy{}, false
+		return protectionPolicy{}, false, nil
 	}
 	policy, status := e.server.protectionPolicies.Active()
 	switch status.Status {
 	case rpc.ProtectionPolicyStatusActive, rpc.ProtectionPolicyStatusDefault:
-		return policy, true
 	default:
-		return protectionPolicy{}, false
+		return protectionPolicy{}, false, nil
 	}
+	scope := e.currentScope()
+	if disarmed := e.server.standingAuthorityBlocker(context.Background(), scope.Account, scope.Mode); disarmed != nil {
+		policy.Authority.PreAuthorised, policy.Cash.PreAuthorised = nil, nil
+		return policy, true, disarmed
+	}
+	return policy, true, nil
 }
 
 func (e *proposalEngine) automaticLatched(scope brokerStateScope) bool {
@@ -602,7 +616,8 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 	}
 	now := e.clock()
 	scope := e.currentScope()
-	policy, policyOK := e.automaticPolicy()
+	policy, policyOK, disarmed := e.automaticPolicyAuthority()
+	armedAt := e.server.standingAuthorityConfirmedAt(ctx)
 	latched := brokerScopeConcrete(scope) && e.automaticLatched(scope)
 	window := policy.Authority.vetoWindow()
 	// A record about to be created captures the hand orders already working:
@@ -645,6 +660,10 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 			lockBlockers := append(e.budgetHoldingLockBlockers(ctx, prop), e.automaticLockBlockers(ctx, prop)...)
 			reason, carry := "", false
 			switch {
+			case disarmed != nil:
+				// Disarming ends the veto clock with the authority: arming
+				// again starts a full window, whatever else happened to the row.
+				reason = disarmed.Message
 			case !ok:
 				reason, carry = "proposal disappeared from the current set", !disabled && !ignored[scopedIgnoreKey(scope, rec.Key)]
 			case prop.Revision != rec.Revision && rec.Episode != "" && prop.Mandate != nil && prop.Mandate.Episode == rec.Episode:
@@ -728,7 +747,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 						continue
 					}
 					if !recovering && prior.State == rpc.TradeProposalAutomaticSuperseded && (prior.CarryClock || prior.Reason == automaticEpisodeResizedReason) &&
-						prop.Quantity <= prior.clockQuantity()+max(1, prop.Mandate.Lot) {
+						!prior.ResolvedAt.Before(armedAt) && prop.Quantity <= prior.clockQuantity()+max(1, prop.Mandate.Lot) {
 						rec.CreatedAt, rec.SubmitAt, rec.NoticedAt = prior.CreatedAt, prior.SubmitAt, prior.NoticedAt
 						// The owner cannot veto a row out of the set: the
 						// clock pauses for the part of the gap its window was
@@ -1369,6 +1388,13 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 				r.HeldAt = rec.HeldAt
 			}
 			return []automaticSubmissionEvent{{At: finish, Type: automaticEventHeld, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, SubmitAt: r.SubmitAt, Reason: r.HoldReason}}
+		case !staged && automaticDisarmedRefusal(res.Blockers):
+			// Disarmed between the cycle's read and the send: nothing went
+			// out, and no clock survives for a later arming.
+			r.ResolvedAt = finish
+			r.State = rpc.TradeProposalAutomaticSuperseded
+			r.Reason = automaticOutcomeReason(res, err)
+			return []automaticSubmissionEvent{{At: finish, Type: automaticEventSuperseded, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, Reason: r.Reason}}
 		case !staged && automaticBlockersSupersede(res.Blockers):
 			r.ResolvedAt = finish
 			r.State = rpc.TradeProposalAutomaticSuperseded
@@ -1503,11 +1529,19 @@ func (e *proposalEngine) automaticSubmitBlockers(prop rpc.TradeProposal) []rpc.T
 	if paused, sections := e.server.configPausesAutomation(); paused {
 		return []rpc.TradingBlocker{{Code: "config_automation_paused", Message: fmt.Sprintf("pre-authorised submission is paused while config.toml [%s] runs on Canary's defaults", strings.Join(sections, "], [")), Action: "Fix config.toml and run `canary restart`, or submit by hand."}}
 	}
-	policy, ok := e.automaticPolicy()
+	policy, ok, disarmed := e.automaticPolicyAuthority()
+	if disarmed != nil {
+		return []rpc.TradingBlocker{*disarmed}
+	}
 	if !ok || !policy.preAuthorised(bucket) {
 		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: fmt.Sprintf("bucket %q is not pre-authorised by the active protection policy", nonEmptyString(bucket, prop.Bucket)), Action: "List the bucket under [authority].pre_authorised and bump policy_version, or submit by hand."}}
 	}
 	return nil
+}
+
+// automaticDisarmedRefusal reports a refusal by the standing authority.
+func automaticDisarmedRefusal(blockers []rpc.TradingBlocker) bool {
+	return slices.ContainsFunc(blockers, func(b rpc.TradingBlocker) bool { return b.Code == automaticDisarmedCode })
 }
 
 // automaticBlockersSupersede reports blockers that mean the proposal moved
