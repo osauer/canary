@@ -8,7 +8,8 @@
 // lifecycle management, subscriptions, request/response helpers, and
 // in-memory observations. Construct a Connector with [NewConnector] and start
 // it with [Connector.Start]. Protocol coverage is purpose-driven rather than a
-// complete implementation of every TWS API operation.
+// complete implementation of every TWS API operation. The package's statement
+// coverage report is published at https://osauer.dev/canary/coverage/pkg-ibkr.html.
 //
 // # Order writes
 //

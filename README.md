@@ -117,8 +117,15 @@ notifications.
 
 ## Go wire-protocol library
 
+[![pkg/ibkr coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fosauer.dev%2Fcanary%2Fcoverage%2Fpkg-ibkr.json)](https://osauer.dev/canary/coverage/pkg-ibkr.html)
+
 `pkg/ibkr` is a clean-room Go library for the TWS wire protocol. It transports
-broker requests only. `go install github.com/osauer/canary/v2/cmd/canary@latest`
+broker requests only. Its API reference is on
+[pkg.go.dev](https://pkg.go.dev/github.com/osauer/canary/v2/pkg/ibkr), and its
+statement coverage is updated on each push to main as a
+[line-by-line report](https://osauer.dev/canary/coverage/pkg-ibkr.html).
+
+`go install github.com/osauer/canary/v2/cmd/canary@latest`
 installs the v2 CLI, not the current v3 release; use the installer for the
 binary. Start with the [package documentation](pkg/ibkr/doc.go) and the
 [wire protocol page](docs/docs/internals/protocol.md).
