@@ -1,0 +1,511 @@
+# Review record: Futu OpenD design and build brief, 2026-11-04
+
+Documents reviewed: [design/broker-opend.md](../design/broker-opend.md) and
+[design/broker-opend-build-brief.md](../design/broker-opend-build-brief.md),
+both as first written on 2026-11-04 at `84e99e6a`.
+
+Reviewer: a fresh session that did not write the documents, briefed with
+`AGENTS.md`, the architecture handbook, the trading contract template,
+`platform-settings.md` and the two documents, asked for defects first by
+severity against the authority model and the seam, and to verify every
+file and line reference against the tree. Review delivered 2026-11-04 09:24
+CET: 21 findings, two blocking, ten major, nine minor. Responses applied
+2026-11-04 11:55 CET. A second cold review of the revised documents follows
+at the end of this record.
+
+## Findings and responses
+
+Each finding is the reviewer's, condensed; the response says what changed
+in the documents, or why nothing did.
+
+1. **Blocking. Adding `Kind` to every scoped key rewrites the persisted
+   keys of every IBKR document** (queued authorisation terms, broker
+   permissions, proposal and opportunity snapshots, desk executions, core
+   rebalance, the Edge scope fingerprint; 81 non-test files use the
+   scope), with no migration named, against the promise of no IBKR
+   behaviour change. Response: the design now states that the kind is
+   written into a key only when it is not `ibkr`, as a leading `opend:`
+   segment, so every IBKR key and fingerprint keeps today's bytes by
+   construction; no migration, no rewritten document. The brief's WP8
+   names one helper for the writers and a fixture test that pins the
+   IBKR key bytes of every scoped document family to today's values. The
+   measured table now records the 81 files.
+
+2. **Blocking. The phase A acceptance (goldens unchanged, `pkg/ibkr`
+   unchanged) cannot detect a wrong adapter**: the golden harness renders
+   the CLI from a fake daemon connection and never executes daemon code,
+   and `pkg/ibkr` has no diff by construction. Response: a new section
+   "What proves phase A" orders the proof as the adapter's mapping tests,
+   the daemon tests with substituted fakes and the hermetic lifecycle
+   tests, the regression spine on the landed revision, and the next live
+   session (`make smoke`, `make restart-daemon`, the redacted before and
+   after artifacts); the golden and `pkg/ibkr` diffs are named as side
+   checks of absence of surface change only. WP2 and WP3's done criteria
+   follow.
+
+3. **Major. The paper-proof key was given a writability class** (`safety`,
+   human-only) while also being daemon-written, and no owner switch was
+   named, so the second half of the TWS rule (live needs the switch and
+   the proof) was missing. Response: the design copies the TWS pattern
+   exactly: `trading.opend.enabled` is the owner's switch (class `safety`,
+   human-terminal only, advances the trading-control generation);
+   `trading.opend.paper_proven_at` is daemon-written, read-only, in no
+   class; a real account accepts a write only with both.
+
+4. **Major. The unlock-state mechanism could not terminate**: while
+   `locked`, Canary refused writes itself, and nothing but a write-class
+   answer moved the state; the `unlocked` value was a stale observation
+   printed as knowledge; the refusal code was a guess the simulator would
+   prove. Response: the lock state gates nothing. Every live write-class
+   request that passes Canary's own gates is sent; OpenD refuses a locked
+   account and that refusal is the order's typed outcome; the owner's next
+   instruction is sent again. What Canary keeps is a surface observation
+   ("last live write refused at 10:02: locked"), from the broker's answers
+   only. The refusal `errCode` is named as unknown until first contact,
+   with the simulator's placeholder marked unconfirmed.
+
+5. **Major. "The daemon checks the two agree on every write" was stated as
+   a present mechanism** though the write binding is typed on the IBKR
+   connector and the order path stays IBKR through phase C; the `trdEnv`
+   stamping, the one place the pin is enforceable by construction, was not
+   named; and "an unpinned login with one account is accepted"
+   contradicted "several `accID` per login". Response: the design now says
+   the write enforcement is phase D, designed on the pattern of the
+   existing binding; names the two things true by construction (the
+   connector stamps every `TrdHeader` from the scope it was built with;
+   the daemon's one broker is built from the pin); and the `[opend]
+   account` row says an unpinned login is accepted only when the account
+   list reports exactly one account, else reads fail closed with no mode
+   and the existing unpinned blocker.
+
+6. **Major. The IBKR session binding has unexported fields and no
+   constructor**, so an adapter outside `pkg/ibkr` cannot rebuild one from
+   a neutral value; and `observeAccountRPC` takes the concrete connector
+   and binding and was in no work package. Response: the neutral binding
+   is `{Kind, Epoch}` and the adapter keeps the concrete binding of each
+   epoch in a side table, answering `Current` and `Resolve` with the stored
+   value; `pkg/ibkr` stays unchanged. The observation moved into the seam
+   table and into WP3.
+
+7. **Major. `protoc` cannot be pinned in a Go module**, and a check leg
+   that needs it inside `check` puts an unpinned binary in the binding
+   gate and CI. Response: `protoc-gen-go` is pinned in `tools/go.mod`;
+   `protoc` is a developer action behind `futu-proto-regen`, which refuses
+   to run unless its version equals the one in a committed `MANIFEST`
+   beside the SHA-256 of each vendored definition; `futu-proto-check`, the
+   leg in `check`, needs no `protoc`: it recomputes the hashes and checks
+   the generated files' headers against the manifest.
+
+8. **Major. The regression spine is CI-only and mutates committed HEAD**,
+   so it proves the landed revision, not a pre-commit tree; and the
+   positions-identity patch targets `handlers.go`, which the seam edits.
+   Response: both documents say the spine runs on the landed revision,
+   after the commit; the brief adds the re-basing step for a patch that
+   stops applying (run the spine on the previous revision first, re-base
+   in the same commit, say so in the body), per `AGENTS.md`.
+
+9. **Major. "The memo" was cited eleven times** as the source of figures
+   and limits: an unnamed pointer to a private document. Response: every
+   citation is gone. The earlier measurement is cited by date and
+   revision (2026-11-03, `12601c2a`), the limits by "Futu's public
+   documentation" with the read date, and the counting method is given so
+   the figures reproduce.
+
+10. **Major. The lock-state observation had three placements** (WP7,
+    WP9 with a golden, and the design's phase D). Response: one placement,
+    phase D. WP7 builds `Trd_GetMaxTrdQtys` as a read with no lock logic;
+    WP9's `HealthResult.OpenD` block carries no unlock field and the
+    `status_opend_locked.txt` golden is dropped; the status-row table marks
+    the `Trading unlock` row as phase D.
+
+11. **Major. The coverage bar was enforced by a leg outside the binding
+    gate**, the percentage would have aggregated `futusim` and generated
+    code, and `pages-coverage` was in no work package. Response: the
+    coverage step lives inside `test-pkg` (one of `CHECK_TEST_LEGS` and its
+    own CI job), measures `./pkg/futu` alone with `-coverpkg`, and
+    `pages-coverage` for `pkg/futu` is WP4.
+
+12. **Major. The app's push-alert copy and the SPA name TWS** and no work
+    package touched them. Response: the design lists the three sites and
+    WP9 covers them, with `make app-check`, `make app-render-check` and
+    the rendered result inspected at real size.
+
+13. **Minor. `internal/cli/trading_status.go` does not exist** (the
+    renderer is `trading.go:131`), and the existing golden already prints
+    `Capabilities preview=true write=true`. Response: the broker leg joins
+    the existing `Capabilities` row (`preview=true (what-if)`), the file is
+    named correctly, and the IBKR golden diff is described as those words.
+
+14. **Minor. The broker-permission rows have no OpenD source.** Response:
+    under `opend` the `Broker access` row reads the account's authorised
+    markets from `trdMarketAuthList` and the permission store records
+    nothing; stated in the design and WP9.
+
+15. **Minor. WP8's done criterion depended on WP9's block; WP4's
+    disjointness claim ignored its `Makefile` edits; WP12 said four
+    commands and listed five.** Response: WP8's criterion names the
+    `HealthResult` fields that exist after WP8; the parallel-work paragraph
+    names every file each package touches, including the `Makefile`; WP12
+    says five.
+
+16. **Minor. The release tier for the OpenD packages claimed a Gateway
+    smoke that exercises no OpenD code**, and `make restart-daemon` with
+    the redacted status appeared nowhere. Response: the gate table has two
+    release rows: IBKR path (Gateway smoke, restart, artifacts) and OpenD
+    path (the simulator witness as the artifact, restart against the
+    process simulator); the design's tier paragraph says the same.
+
+17. **Minor. A market-data reserve number in `risk-policy.toml`** would
+    enter a fingerprinted, governance-journaled file and is not risk
+    semantics. Response: the number is gone. The streaming set is the
+    held and regime names recomputed on every acquire; exhaustion is
+    reported by OpenD and answered by a typed fallback to snapshots. No
+    policy file, no setting (WP11).
+
+18. **Minor. The local pacer "never costs the session" overclaimed for
+    OpenD-wide quotas**, and the fixtures were called regression evidence
+    without a real capture. Response: the pacing section says the table
+    bounds Canary's own spend and the shared quotas are learned from
+    OpenD's answers; the simulator section says the fixtures are
+    regression fixtures against the simulator, not conformance evidence,
+    and names where the first real capture lands.
+
+19. **Minor. Trading-tagged files in `pkg/futu` fail
+    `trading-package-scope-check` until the test matrix grows; tests using
+    `futusim` from inside package `futu` would cycle.** Response: the
+    writes section names the `TRADING_PKG_TESTS` change for phase D; the
+    simulator section and WP6 put the client-and-simulator tests in the
+    external package `futu_test`.
+
+20. **Minor. Roadmap and vendor-tier wording** ("Entity and account for
+    phase 0", "Phase 2 product", "a low-tier Futu account"); the README
+    linked a review record that did not exist yet. Response: reworded to
+    the owner's account and OpenD build, "phases A to C", and "the
+    smallest documented subscription quota"; this record now exists.
+
+21. **Minor. The reference count did not reproduce without its method**
+    (the reviewer counted 1,413 and 193 with a different pattern); the
+    API protocol rows are at `status.go:104-106`; the seam's snapshot was
+    keyed by instrument id where the subscription manager keys by symbol.
+    Response: the counting method and pattern are stated beside the table
+    (the reviewer's higher count includes unexported matches); both line
+    ranges are given; `Subscribe` returns the broker's subscription key,
+    the symbol for IBKR, and `Snapshot` is keyed by it, so the manager's
+    behaviour is unchanged.
+
+The reviewer named finding 1 the most severe: as written it would have
+orphaned every scoped IBKR document in a running `daemon.db` while the
+design promised no IBKR behaviour change. Finding 2 was the runner-up
+because the acceptance offered for the same phase could not have caught it.
+
+## Second review
+
+Findings 1 to 8 changed the design, so the revised documents went to a
+second fresh reviewer with the same brief, plus the first review's record
+with the instruction to check that each response is reflected in the
+documents and is itself sound. Review delivered 2026-11-04 12:05 CET: no
+blocking findings, eight major, eight minor, and a hygiene pass that found
+nothing (the Markdown gates green with the private-terms list present).
+Responses applied 2026-11-04 12:18 CET.
+
+1. **Major. The OpenD release tier ran `make restart-daemon` "against the
+   process simulator".** That target installs the worktree build to
+   `$(PREFIX)/bin` and restarts the operator's own daemon with the
+   operator's config, so it would have installed an OpenD worktree build
+   over the paired IBKR daemon and proved nothing about OpenD. Response:
+   the brief's gate table says `restart-daemon` is never run for OpenD
+   work and describes the witness stack instead: a second daemon from the
+   worktree's own build (`bin/canary daemon --foreground --config
+   --socket --log stderr`) with its own config (`[broker] kind = "opend"`,
+   `[opend]` at the simulator), its own XDG config, state, cache and
+   runtime roots under a scratch directory, and the CLI through
+   `CANARY_SOCKET`; it gets no Makefile target that could be mistaken for
+   `restart-daemon`. The design's tier paragraph and WP12's witness say
+   the same.
+
+2. **Major. `SessionBinding{Kind, Epoch}` was ambiguous across connector
+   rebuilds.** The session epoch is a counter of one `Connection`
+   (`pkg/ibkr/connection.go:317`), and the daemon replaces the whole
+   connector and bumps its own `connectorEpoch` (`server.go:1948-1949`),
+   so an epoch alone could match across two connectors. Response: the
+   neutral binding is `{Kind, Generation, Epoch}`, the same triple the
+   write binding keeps; one adapter instance is built per connector and
+   discarded with it, and WP1 and WP2 test a binding across a rebuild
+   whose new connection repeats the old epoch value.
+
+3. **Major. The zero value of `Kind` was undefined** while 76 scope
+   literals name only account and mode, `sameBrokerScope` compares two
+   fields, and `rpc.AccountDataScope` carries account and mode only.
+   Response: the zero kind means `ibkr`; comparisons normalise it; the
+   literals stay (narrowed by the third review's finding 2 to the empty
+   literals and the current-scope builders); the kind is never written
+   for IBKR; the fixture test
+   asserts the zero kind and `ibkr` produce the same bytes.
+
+4. **Major. "Enforced by construction" versus the unpinned read path.**
+   The account list needs `InitConnect` first, so a connector "built with
+   the scope" could not serve the unpinned single-account case. Response:
+   the unpinned path is gone. `[opend] account` is required; the
+   connector is built with the pinned `accID` before it connects, reads
+   `Trd_GetAccList` once after `InitConnect` to take that account's
+   `trdEnv`, stamps both into every `TrdHeader` and is never re-scoped;
+   a pinned account the list does not report leaves it unscoped and every
+   trade-class request fails typed. The blocker is the existing
+   `gateway_account_mismatch`, not `gateway_account_unpinned`.
+
+5. **Major. A nil IBKR connector would dial IBKR.** `gatewayConnector()`
+   (`server.go:2805`) calls `triggerReconnect()` on a nil connector, and
+   the reconnect dials the `[gateway]` endpoint (`server.go:2563-2590`);
+   46 files call it. Response: the design and WP8 gate the trigger and the
+   dial loop by kind, not by a nil check; a WP8 test listens on the four
+   IBKR ports and fails if an `opend` daemon connects to any of them.
+
+6. **Major. The manifest check did not bind the generated code.** A
+   hand-updated manifest line or a hand-edited `.pb.go` passed. Response:
+   the manifest carries the SHA-256 of every generated file as well, and
+   `futu-proto-check` recomputes both sets; WP5's red tests cover the
+   vendored change and the generated change. The third review's finding 6
+   showed the hand-updated-manifest case cannot go red without `protoc`,
+   and the provenance claim moved to the regeneration zero-diff.
+
+7. **Major. "The spine, CI-only, on the landed revision" was unreachable**
+   because pushes happen only on the owner's instruction. Response: the
+   spine runs by hand on local main after each landing (`make
+   regression-spine-check`, which the Makefile allows on a landed HEAD)
+   and its stamp line is quoted; both documents say so.
+
+8. **Major. The subscription manager's downcast to `*ibkrlib.Connector`**
+   (`subs.go:131-136`, `163-165`) was not named, and the seam's
+   `Subscribe` returning only a key would have left it in place. Response:
+   the design names it as the one bypassed seam; `Subscribe` returns the
+   neutral binding, the entry stores it and rechecks with `Current`; WP2
+   lists the lines and tests the recheck across a reconnect and a rebuild.
+
+9. **Minor. "81 files" overstated the writers** (16 write a key or a
+   typed term), and the two key shapes differ. Response: the design says
+   81 use the scope and 16 write it, and gives the shape per family: a
+   leading `opend:` segment for string keys, an `omitempty` `Broker` field
+   on `rpc.QueuedAuthTerms` compared at `desk_execution_submit.go:204`.
+
+10. **Minor. WP4's "both build modes" contradicted
+    `trading-package-scope-check`.** Response: `pkg/futu` runs in the
+    default build until phase D, which adds its trading-tagged line
+    outside `TRADING_PKG_TESTS`.
+
+11. **Minor. Tier inconsistencies** (WP1 "normal" against "every package
+    runs `make test`"; phase B "normal" against WP6 and WP7 at `make
+    test`; WP10 at `make test` against the rpc contract being release
+    tier). Response: one tier per package: WP1, WP4 to WP7, WP10 and WP12
+    at `make test`, with WP10's line saying why it is not release tier
+    (no broker path, endpoint or policy behaviour changes); phase B says
+    `make test`.
+
+12. **Minor. No `BrokerKind` reaches the app.** The bootstrap snapshot
+    carries none, and `presentation.go` is a static map. Response:
+    `HealthResult` gains `Broker`; WP9 lists `internal/app/live/service.go`,
+    `internal/app/http/routes.go:120` and the alert dispatcher change.
+
+13. **Minor. The brief's coverage section and `PositionView.PriceSource`
+    were in no work package.** Response: WP9 covers the coverage section
+    under both kinds; WP11 sets `PriceSource` and tests it.
+
+14. **Minor. `minServerVersion` "proven against"** an OpenD that does not
+    exist before first contact; the seven-day history window was not in
+    "Confirm at build". Response: declared from the documentation,
+    confirmed at the first real contact; both items added to the table.
+
+15. **Minor. WP9 edits the public handbook** without a cold read or an
+    explicit go. Response: WP9 names both, per the public-writing rule.
+
+16. **Minor. This record's second section was empty and the README stamp
+    was stale.** Response: this section; the README stamp follows the last edit.
+
+The reviewer named finding 1 the most severe: as written, the OpenD
+release gate would have installed a worktree build over the paired IBKR
+daemon. The hygiene pass found nothing.
+
+## Third review
+
+Findings 2, 4 and 5 changed mechanisms, so the changed passages went to a
+third fresh reviewer briefed on those passages only, with the second
+review's record, and asked whether each new mechanism would work as
+described. Review delivered 2026-11-04 12:29 CET: no blocking
+findings, six major, five minor; hygiene clean (gates green at `84e99e6a`,
+no private terms, dates not documents). Responses applied 2026-11-04
+12:35 CET.
+
+1. **Major. The witness stack's CLI leg was not isolated.** With only
+   `CANARY_SOCKET` set, a CLI call that finds no socket autospawns
+   `<executable> daemon` with no flags (`cmd/canary/main.go:139-142`,
+   `internal/dial/autospawn.go:361`), which reads the operator's config
+   and `daemon.db` from the default roots onto the scratch socket; the
+   handbook warns that the socket alone isolates nothing. Response: one
+   environment for every command of the witness, daemon and CLI alike
+   (the four XDG roots, `CANARY_CONFIG` and `CANARY_SOCKET`), the CLI run
+   as the worktree's `bin/canary` by path and never from `PATH`, so an
+   autospawn, should one happen, starts the same OpenD witness; the lock,
+   log and idle-shutdown facts the reviewer confirmed are stated. Both
+   documents say so.
+
+2. **Major. "The literals stay as they are" failed for the readers.**
+   About 25 of the 50 field-naming literals rebuild a scope from a
+   persisted record and compare it with the current one; under `opend`
+   the rebuilt scope would normalise to `ibkr` and never match. The count
+   is 77 (27 empty, 50 with fields), not 76. Response: the design picks
+   the first of the reviewer's two options: records stored under `opend`
+   carry the kind (they already do, through the key segment and the term
+   field), and the readers go through one constructor that takes the
+   kind from the record's body, which gains the same `omitempty` field
+   as the terms; the zero kind still means `ibkr`. WP8 lists the
+   reader sites and the fixture test asserts a record stored under
+   `opend` rebuilds to the current scope. The count reads 77.
+
+3. **Major. The typed term was misidentified.** `desk_execution_submit.go:204`
+   compares `rpc.DeskAuthorityTerms`, not `rpc.QueuedAuthTerms`; the
+   former has a `Kind` field already (the mandate kind). Response: both
+   terms gain the `omitempty` `Broker` field written only for `opend`;
+   the comparison sites are listed; the fixture test pins both JSONs.
+   The fourth review's finding 3 corrected the shape of the three desk
+   sites: they compare account and mode field-wise, and now go through
+   the constructor.
+
+4. **Major. Two dial paths were not named as gated.** `Start` resolves
+   and dials the `[gateway]` endpoint itself (`server.go:1573`, `1642`),
+   and the breadth connector builds its own IBKR connector (`1128`,
+   `1247`, `1285`, from four call sites); the listening test would catch
+   them only by accident. Response: the design names the three families
+   and the one constructor they share, `newConnector` (`server.go:1816`),
+   which refuses under `opend`; `Start` runs no IBKR discovery or connect;
+   the WP8 test drives `Start`, the reads, a breadth question, a reconnect
+   trigger, the auto-endpoint path and the app watch while listening.
+
+5. **Major. The trading-status pin block keys on `[gateway]`.**
+   `gateway_account_unpinned`, `_unconfirmed`, `_not_concrete` and
+   `gateway_client_id_unpinned` (`trading_status.go:134-147`) would fire
+   under `opend` with IBKR hints. Response: WP8 makes the whole block's
+   pin source per kind, reading `[opend]` and the OpenD session's
+   confirmed account, with hints naming `[opend]`; a test asserts no hint
+   names `[gateway]` under `opend`. `gateway_account_mismatch` is
+   confirmed as the right name for a pinned account the list does not
+   report.
+
+6. **Major. The third red test could not go red.** Without `protoc`,
+   nothing ties a definition's hash to its generated file's hash, so a
+   manifest hand-updated for a changed definition passes; "written only
+   by regen" was a convention. Response: the claim is withdrawn. The
+   design now states what `futu-proto-check` binds (files to manifest
+   lines, headers to generator versions) and that only a regeneration
+   proves provenance: `make futu-proto-regen` then `git diff --exit-code`,
+   run by the developer before the commit and named in its body, and by a
+   CI job whose `protoc` download is refused unless its archive matches a
+   checksum in the manifest. WP5 lists the job and the two red tests that
+   remain.
+
+7. **Minor. "Read once" against "a changed list drops the session"** with
+   no re-read named; the unscoped window and the header-less list request
+   were unstated. Response: the status poll re-reads the list inside the
+   pacing table; the window between `InitConnect` and the first reply
+   refuses trade-class requests typed; `Trd_GetAccList` carries no
+   `TrdHeader`.
+
+8. **Minor. Line references.** Response: `broker_write_transaction.go:29-31`,
+   `subs.go:164-166`, and the reconnect path spelled as gate, flow,
+   failover and candidate loop (`2563-2590`, `2616`, `1892`, `1948`).
+
+9. **Minor. Overstated phrasing.** The spine target simply sits in
+   `CI_ONLY_TARGETS` and runs locally; the handbook states requirements
+   for a second instance rather than describing a stack. Response: both
+   reworded.
+
+10. **Minor. `rpc.AccountDataScope`** was left out. Response: it gains the
+    same optional field under the same rule, so an OpenD receipt can never
+    match an IBKR scope by construction.
+
+11. **Minor. WP1's "zero value is not current"** depends on reading the
+    generation after the increment. Response: stated, with the line.
+
+The reviewer named finding 1 the most severe. The three mechanisms the
+second review changed were judged sound as revised (the generation-bearing
+binding, the daemon flags and environment variables, the tier table); the
+responses to findings 2, 4, 5 and 6 add or change a mechanism (the body
+field and constructor for persisted scopes, `newConnector` as the one
+refusal point, the per-kind pin block, the checksum-pinned `protoc` job),
+so those passages and the witness stack's CLI leg went to a fourth cold
+reviewer. Its result is recorded below.
+
+## Fourth review
+
+Reviewer: a fresh session briefed on the four changed mechanisms and the
+witness stack's CLI leg, with the third review's record. Review delivered
+2026-11-04 12:46 CET: one blocking, five major, four minor; hygiene clean
+(gates green, no private terms). Responses applied 2026-11-04 12:55 CET.
+
+1. **Blocking. The witness stack did not isolate the policy files.** The
+   rulebook, protection and opportunity policy defaults are
+   `~/.config/ibkr/policies/…` expanded through the home directory
+   (`internal/config/config.go:208`, `214`, `302`), the risk constitution
+   is a hard-coded `~/.config/ibkr/policies/risk-policy.toml` with no
+   config key (`risk_policy_manager.go:23`), and `Start` writes templates,
+   migrations and backups for all four (`server.go:1542`,
+   `policy_files.go:283-288`); none follows the XDG roots. An OpenD
+   witness with the six variables would migrate and back up the
+   operator's policy files. Response: the stack sets `HOME=<dir>` as its
+   seventh variable, both documents say why, and WP12's report quotes the
+   scratch policy directory after the run and the unchanged mtimes of the
+   operator's files. The handbook's "Running more than one instance"
+   section does not name this; the WP9 handbook edit should.
+
+2. **Major. "No reader parses a key" was false.**
+   `coreDecisionEventMatchesScope` (`core_rebalance.go:858-869`) splits the
+   frozen core scope string and takes its first segment as the account;
+   with a leading `opend:` segment no core decision event would match.
+   Response: the constructor has a key form that strips the segment
+   before the split; the reader uses it; WP8 tests a core decision event
+   stored under `opend`.
+
+3. **Major. The desk-terms comparison sites were misdescribed.** The three
+   named sites compare account and mode field-wise, not the whole term;
+   the whole-value comparisons are bytes and digests elsewhere. Response:
+   the design and WP8 give both shapes: the byte and digest sites are
+   unchanged (`omitempty` keeps IBKR bytes), and the three field-wise
+   sites move to the constructor and `sameBrokerScope` so the kind takes
+   part. The third review's record is corrected in place.
+
+4. **Major. A fourth IBKR dial path.** The TWS order control opens its
+   client-0 connection itself (`tws_order_control.go:245-265`), not through
+   `newConnector`; it is reachable only inside an authorised write
+   transaction whose binding carries an IBKR connector. Response: named
+   as such in the design and WP8; the listening test adds a TWS cancel
+   attempt.
+
+5. **Major. The CI regeneration job fails `ci-gate-scope-check`**
+   (`Makefile:361-372`): a `make` target CI runs outside `check` must be
+   in `CI_ONLY_TARGETS`. Response: `futu-proto-regen` joins
+   `CI_ONLY_TARGETS` with its reason, in the design and WP5.
+
+6. **Major. `[gateway] account` feeds the current scope** at
+   `broker_evidence.go:53` and `223` and six other reads; under `opend` the
+   current scope would have no account. In `trading_status.go` the origin
+   rows (62, 78, 80) and the guards at 153 and 157 also key on it.
+   Response: one accessor returns the pinned account of the configured
+   kind; the eight reads and the trading-status rows and guards are
+   listed in WP8; a test asserts the current scope under `opend` equals
+   `[opend] account`.
+
+7. **Minor. `fill_quotes.go:201`** compares an in-memory poll with the
+   current status, not a record. Response: removed from the reader list.
+
+8. **Minor. Naming.** The mandate-reduction engine holds an
+   `rpc.TradeProposalSnapshot`; the exercise reservation types are
+   daemon-local. Response: both named correctly.
+
+9. **Minor. The design's listening test omitted the auto-endpoint path.**
+   Response: added.
+
+10. **Minor. The pin block spans lines 134-149.** Response: corrected.
+
+The reviewer named finding 1 the most severe. The responses above add
+one variable, one accessor, one constructor form, one `CI_ONLY_TARGETS`
+line and one named path; they were not cold-read by a fifth reviewer. The
+parent session decides whether to run one before the build starts.
+

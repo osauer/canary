@@ -1,6 +1,6 @@
 # Internal docs index
 
-Updated: 2026-10-14 07:36 CEST
+Updated: 2026-11-04 12:55 CET
 
 Reader's contract: **Current authority** binds today's behavior — read it before
 changing the surface it names. **Approved, not yet implemented** is operator-
@@ -44,6 +44,8 @@ and this index needs the fix.
 | Doc | State |
 |---|---|
 | [design/authority-contract-cache-bloat.md](design/authority-contract-cache-bloat.md) | Written 2026-07-31; 5.1 GB of unread contract-cache observations, prune plan not approved |
+| [design/broker-opend.md](design/broker-opend.md) | Written 2026-11-04; Futu OpenD as the second broker: the `internal/broker` read seam, `pkg/futu`, the simulator, the mode pin and the additive instrument identity; three decisions proposed for the owner's ack |
+| [design/broker-opend-build-brief.md](design/broker-opend-build-brief.md) | Written 2026-11-04; the ordered work packages, tests and gates for the OpenD build; reviewed in [reviews/2026-11-04-broker-opend-design-review.md](reviews/2026-11-04-broker-opend-design-review.md) |
 
 `drafts/` is intentionally empty between documentation rounds; its README says
 what belongs there.
