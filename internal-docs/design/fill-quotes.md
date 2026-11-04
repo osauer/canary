@@ -1,6 +1,6 @@
 # Fill quotes and the execution cost report
 
-Updated: 2026-10-18 21:55 CEST (status row, branch `execution-visibility`)
+Updated: 2026-11-04 08:40 CET (backfill on a new broker session)
 
 Canary kept no quote at any order or fill, so the spread the desk pays was
 unmeasured and the scorecard reported `slippage_reason: no_fill_quote` for
@@ -18,6 +18,19 @@ Code: `internal/daemon/fill_quotes.go`, `pkg/ibkr/executions.go`,
 | Order sent | The same preview quote the order was priced on, with its gap to the send. No broker read happens inside the send path. | The `send-attempted` journal event, field `quote`. |
 | Fill of an order Canary placed | A fresh exact-contract read (bid, ask, mid, last, displayed sizes, data type, the quote's own time) made right after the fill's `execDetails` callback was journaled, with the gap between quote time and execution time, plus the FX rate to base at that moment. | The fill-quote store: daemon.db `observations`, scope `fill-quotes`, kind `fill_quote`, source `canary`, one row per `exec_id`. |
 | Execution Canary did not place | The same read, made when the periodic poll (or, for a master client, the callback) first sees the execution, with the lag from the broker's execution time. | The same store, source `broker`. |
+
+The first poll of each broker session (a new socket session, or a daemon
+start) also sends one reqExecutions with `lastNDays` set to seven, the most
+TWS answered on 2026-11-04 (server version 203; eight and above returned an
+empty, complete answer with no notice). Executions it finds that are not yet
+retained are stored with `seen: backfill` and no quote read: `status:
+unavailable`, `reason: backfilled`, because a quote taken days after a fill
+measures nothing. They count in the record and in the visibility proof, never
+in a cost. The current-day request is unchanged and its outcome remains the
+poll's; a backfill that did not complete is owed again next poll, and an
+empty complete answer (a server that returns nothing for the field) settles
+the session. Fills the daemon missed while down therefore reach the record
+at the next connect instead of the next statement.
 
 The journal events gained one optional field; nothing existing changed, and
 the order path's gates, tokens and journaling run exactly as before. The

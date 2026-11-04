@@ -178,6 +178,8 @@ func costFillDetail(fill rpc.CostFill, base string) string {
 			cost += " (FX or base currency unavailable)"
 		}
 		parts = append(parts, cost)
+	} else if fill.Reason == "backfilled" {
+		parts = append(parts, "no quote: found after its day by the reconnect backfill")
 	} else {
 		parts = append(parts, "unknown: "+fill.Reason)
 	}

@@ -40,6 +40,16 @@ const (
 	// after its local receipt before the receipt time is used instead.
 	fillQuoteExecTimeSkew = time.Minute
 	fillQuoteStorePage    = 10_000
+	// fillQuoteBackfillDays is the lastNDays the first poll of each broker
+	// session asks for, so fills that landed while the daemon was down are
+	// retained rather than waiting for the next statement. Seven is the most
+	// TWS answered on 2026-11-04 (server version 203): eight and above came
+	// back empty and complete without a notice, so the request is one try per
+	// session beside the unchanged current-day poll, never in its place.
+	fillQuoteBackfillDays = 7
+	// fillQuoteReasonBackfilled marks a backfilled fill's quote: none was read,
+	// because a quote taken days after the fill measures nothing.
+	fillQuoteReasonBackfilled = "backfilled"
 )
 
 // fillQuoteStored is the daemon.db observation payload: the record plus the
@@ -49,11 +59,17 @@ type fillQuoteStored struct {
 	Record  rpc.FillQuoteRecord `json:"record"`
 }
 
-// fillQuoteFill is one execution waiting for its quote read.
+// fillQuoteFill is one execution waiting for its quote read. A backfilled
+// fill is retained without a read.
 type fillQuoteFill struct {
-	account string
-	record  rpc.FillQuoteRecord
+	account    string
+	record     rpc.FillQuoteRecord
+	backfilled bool
 }
+
+// fillQuoteFetch is the executions request the poll sends; the connector's
+// FetchExecutionsFiltered in the daemon, a stub in tests.
+type fillQuoteFetch func(ctx context.Context, account string, filter ibkrlib.ExecutionsFilter, timeout time.Duration) (ibkrlib.ExecutionsSnapshot, error)
 
 // fillQuotePoll is the last reqExecutions outcome; otherClientsSeen is sticky
 // for the same account, broker mode and API client once another client
@@ -89,6 +105,10 @@ type fillQuoteRuntime struct {
 	pending map[string]fillQuoteStored
 	queue   []fillQuoteFill
 	poll    fillQuotePoll
+	// backfill names the broker session (account, mode, client id and
+	// session epoch) whose earlier-days request has completed; a new process
+	// starts blank, so a daemon restart backfills again.
+	backfill fillQuoteBackfillMark
 
 	// quote and fx replace the broker reads in tests.
 	quote func(context.Context, rpc.ContractParams, time.Duration) (fillQuoteRead, error)
@@ -607,8 +627,43 @@ func (s *Server) pollAccountExecutions(ctx context.Context) {
 		rt.recordPoll(outcome)
 		return
 	}
+	s.pollExecutionsFrom(ctx, status, authority.session.Epoch(), authority.connector.FetchExecutionsFiltered, outcome)
+}
+
+// fillQuoteBackfillMark is the broker session whose backfill completed.
+type fillQuoteBackfillMark struct {
+	scope    brokerStateScope
+	clientID int
+	epoch    uint64
+	done     bool
+}
+
+// backfillDue reports whether this broker session still owes its
+// earlier-days request.
+func (rt *fillQuoteRuntime) backfillDue(scope brokerStateScope, clientID int, epoch uint64) bool {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	m := rt.backfill
+	return !(m.done && sameBrokerScope(m.scope, scope) && m.clientID == clientID && m.epoch == epoch)
+}
+
+func (rt *fillQuoteRuntime) markBackfilled(scope brokerStateScope, clientID int, epoch uint64) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.backfill = fillQuoteBackfillMark{scope: scope, clientID: clientID, epoch: epoch, done: true}
+}
+
+// pollExecutionsFrom sends the current-day request that every poll sends,
+// then, once per broker session, the earlier-days request that finds fills
+// the daemon missed while it was down. The current-day request's outcome is
+// the poll's; the backfill only adds fills and other-client evidence. A
+// backfill that did not complete is owed again next poll; an empty complete
+// answer (a server that returns nothing for the field) settles it.
+func (s *Server) pollExecutionsFrom(ctx context.Context, status rpc.TradingStatus, epoch uint64, fetch fillQuoteFetch, outcome fillQuotePoll) {
+	rt := s.fillQuotes
+	now := outcome.at
 	pollCtx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), fillQuotePollBudget)
-	snap, err := authority.connector.FetchExecutions(pollCtx, status.Account, fillQuotePollBudget)
+	snap, err := fetch(pollCtx, status.Account, ibkrlib.ExecutionsFilter{}, fillQuotePollBudget)
 	cancel()
 	outcome.complete, outcome.executions = snap.Complete, len(snap.Executions)
 	switch {
@@ -630,14 +685,51 @@ func (s *Server) pollAccountExecutions(ctx context.Context) {
 		}
 		rt.enqueue(fillQuoteFillFromExecution(ev, status, now))
 	}
+
+	if err == nil && rt.backfillDue(outcome.scope, status.ClientID, epoch) {
+		backCtx, cancelBack := context.WithTimeout(ibkrlib.WithRequestPriority(ctx, ibkrlib.PriorityBackground), fillQuotePollBudget)
+		back, backErr := fetch(backCtx, status.Account, ibkrlib.ExecutionsFilter{LastNDays: fillQuoteBackfillDays}, fillQuotePollBudget)
+		cancelBack()
+		added := 0
+		for _, ev := range back.Executions {
+			if ev.Account != "" && !strings.EqualFold(strings.TrimSpace(ev.Account), strings.TrimSpace(status.Account)) {
+				continue
+			}
+			if ev.ClientIDPresent && ev.ClientID != status.ClientID {
+				outcome.otherClientsSeen, outcome.otherClientsSeenAt = true, now
+			}
+			f := fillQuoteFillFromExecution(ev, status, now)
+			f.record.Seen, f.backfilled = rpc.FillQuoteSeenBackfill, true
+			if rt.enqueue(f) {
+				added++
+			}
+		}
+		switch {
+		case backErr == nil && back.Complete:
+			rt.markBackfilled(outcome.scope, status.ClientID, epoch)
+			s.infof("fill quotes: backfill of the last %d days found %d executions, %d not yet retained (broker session %d)", fillQuoteBackfillDays, len(back.Executions), added, epoch)
+		default:
+			s.debugf("fill quotes: backfill incomplete (complete=%v err=%v); owed again next poll", back.Complete, backErr)
+		}
+	}
 	rt.recordPoll(outcome)
 }
 
 // captureFillQuote reads the exact contract once, converts to base at this
-// moment's FX, and retains the record whatever the read returned.
+// moment's FX, and retains the record whatever the read returned. A
+// backfilled fill is retained with no read: its quote is unavailable with
+// the reason backfilled, so it counts in the record and the visibility
+// proof but never in a cost.
 func (s *Server) captureFillQuote(ctx context.Context, f fillQuoteFill) {
 	rec := f.record
 	started := s.orderNow()
+	if f.backfilled {
+		rec.Quote = rpc.FillQuote{Status: rpc.FillQuoteUnavailable, Reason: fillQuoteReasonBackfilled, ReadStartedAt: started.UTC(), ReadAt: started.UTC()}
+		if err := s.fillQuotes.append(f.account, rec); err != nil {
+			s.warnf("fill quote %s: %v", rec.ExecID, err)
+		}
+		return
+	}
 	read, err := s.readFillQuote(ctx, rec.Contract)
 	rec.Quote = fillQuoteFromRead(read, err, rec.ExecTime, started, s.orderNow())
 	rec.BaseCurrency, rec.FXRate, rec.FXSource, rec.FXReason = s.fillQuoteFX(ctx, rec.Contract.Currency)

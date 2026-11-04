@@ -21,8 +21,11 @@ const (
 
 	// FillQuoteSeenCallback: the fill arrived on this client's own execDetails
 	// callback. FillQuoteSeenPoll: the periodic reqExecutions poll found it.
+	// FillQuoteSeenBackfill: the first poll of a broker session found it by
+	// asking for earlier days; the fill is retained without a quote.
 	FillQuoteSeenCallback = "callback"
 	FillQuoteSeenPoll     = "poll"
+	FillQuoteSeenBackfill = "backfill"
 
 	// FillQuoteQuoted means both sides were read, so a mid exists.
 	FillQuoteQuoted = "quoted"
