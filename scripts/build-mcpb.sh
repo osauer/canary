@@ -22,15 +22,24 @@ stage="${dist_dir}/mcpb/canary"
 bundle="${dist_dir}/canary-${version}.mcpb"
 stable_bundle="${dist_dir}/canary.mcpb"
 
-mcpb_package="${MCPB_PACKAGE:-@anthropic-ai/mcpb@2.1.2}"
+repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+tool_dir="$repo_root/tools/mcpb"
+# The script, manifest and lock belong to the release tag checkout. A failed
+# install must never fall back to npx, PATH or a controller's installation.
+npm --prefix "$tool_dir" ci --include=dev --ignore-scripts --no-audit --no-fund --dry-run=false
+mcpb_bin="$tool_dir/node_modules/.bin/mcpb"
+if [[ ! -x "$mcpb_bin" ]]; then
+    echo "build-mcpb: locked installation did not provide an executable mcpb" >&2
+    exit 1
+fi
 mcpb() {
-    npx -y "$mcpb_package" "$@"
+    "$mcpb_bin" "$@"
 }
 
 rm -rf "$stage" "$bundle" "$stable_bundle"
 mkdir -p "$stage/server/bin"
-install -m 0644 web/app/icon-512.png "$stage/icon.png"
-install -m 0644 LICENSE "$stage/LICENSE"
+install -m 0644 "$repo_root/web/app/icon-512.png" "$stage/icon.png"
+install -m 0644 "$repo_root/LICENSE" "$stage/LICENSE"
 
 for target in $targets; do
     tarball="${dist_dir}/canary-${version}-${target}.tar.gz"
@@ -167,6 +176,10 @@ cmp -s "$bundle" "$stable_bundle" || {
 unpack_dir="$(mktemp -d)"
 trap 'rm -rf "$unpack_dir"' EXIT
 mcpb unpack "$bundle" "$unpack_dir" >/dev/null
+cmp -s "$repo_root/LICENSE" "$unpack_dir/LICENSE" || {
+    echo "build-mcpb: unpacked bundle does not preserve the full repository license" >&2
+    exit 1
+}
 # Read the whole output, then keep line one: `| head -n1` under pipefail fails
 # the build with SIGPIPE whenever head exits before `canary version` has
 # written its later lines (v3.18.1, 2026-10-06).

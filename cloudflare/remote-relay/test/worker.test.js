@@ -46,17 +46,6 @@ async function waitFor(predicate) {
   assert.fail("condition was not reached");
 }
 
-function activeTomlStringArray(config, key) {
-  const assignment = new RegExp(`^\\s*${key}\\s*=\\s*(\\[[^#]*\\])\\s*(?:#.*)?$`);
-  const matches = config.split(/\r?\n/)
-    .map((line) => assignment.exec(line))
-    .filter(Boolean);
-  assert.equal(matches.length, 1, `${key} must have one active TOML assignment`);
-  const value = JSON.parse(matches[0][1]);
-  assert.ok(value.every((item) => typeof item === "string"), `${key} must be a string array`);
-  return value;
-}
-
 test("requestPath preserves path and query", () => {
   assert.equal(
     __test.requestPath("https://remote.osauer.dev/pair.html?remote=r1&pair=p1"),
@@ -72,21 +61,22 @@ test("route cookie round trips route id", () => {
 });
 
 test("production config carries request cancellation through the Worker-to-DO hop", () => {
-  const config = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
-  assert.deepEqual(activeTomlStringArray(config, "compatibility_flags").sort(), [
+  const config = JSON.parse(readFileSync(new URL("../deploy.json", import.meta.url), "utf8"));
+  assert.equal(config.compatibility_date, "2026-06-01");
+  assert.deepEqual(config.compatibility_flags.toSorted(), [
     "enable_request_signal",
     "request_signal_passthrough",
   ]);
 });
 
 test("deployed relay continuity pins remain stable while package identity is Canary", () => {
-  const config = readFileSync(new URL("../wrangler.toml", import.meta.url), "utf8");
+  const config = JSON.parse(readFileSync(new URL("../deploy.json", import.meta.url), "utf8"));
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   assert.equal(pkg.name, "canary-remote-relay");
-  assert.match(config, /^name = "ibkr-remote-relay"$/m);
-  assert.match(config, /^name = "RELAY_SESSION"$/m);
-  assert.match(config, /^class_name = "RelaySession"$/m);
-  assert.match(config, /^new_sqlite_classes = \["RelaySession"\]$/m);
+  assert.equal(config.name, "ibkr-remote-relay");
+  assert.equal(config.main, "src/worker.js");
+  assert.deepEqual(config.durable_objects.bindings, [{ name: "RELAY_SESSION", class_name: "RelaySession" }]);
+  assert.deepEqual(config.migrations, [{ tag: "v1", new_sqlite_classes: ["RelaySession"] }]);
 });
 
 test("headerMap removes hop by hop headers", () => {

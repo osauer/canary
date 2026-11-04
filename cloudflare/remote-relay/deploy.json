@@ -1,0 +1,10 @@
+{
+  "name": "ibkr-remote-relay",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-06-01",
+  "compatibility_flags": ["enable_request_signal", "request_signal_passthrough"],
+  "durable_objects": {
+    "bindings": [{"name": "RELAY_SESSION", "class_name": "RelaySession"}]
+  },
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["RelaySession"]}]
+}
