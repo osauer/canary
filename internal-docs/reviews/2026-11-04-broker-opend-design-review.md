@@ -511,3 +511,235 @@ Owner decision 2026-11-04 15:53 CET: no fifth review. The build session
 reads those five responses cold as its first step in WP1 and records what
 it finds in this file.
 
+## Fifth read: the build session's cold reads of the fourth responses
+
+Owner decision 2026-11-04 15:53 CET: no fifth reviewer. The build session
+instead gave each of the fourth review's five responses to a fresh
+read-only subagent before WP1, with the mechanism's passages and the
+file:line references, asked for defects with line evidence. Reads
+delivered 2026-11-04 16:17 to 16:21 CET at `e514c61b` (the design branch
+merged with local main); the build session verified each load-bearing
+claim against the tree before recording it. Responses applied 2026-11-04
+16:30 CET in the WP1 commit.
+
+### The witness stack's own `HOME` (response 1)
+
+1. **Blocking. The brief still described a six-variable stack.** Only the
+   design named `HOME`; the brief's gate table listed the four XDG roots,
+   `CANARY_CONFIG` and `CANARY_SOCKET` and closed "six environment
+   variables and one command". A builder following it would have run the
+   witness with the operator's `HOME`, and `Start` migrates and backs up
+   the four live policy files (`server.go:1542`, `policy_files.go:283-288`).
+   Response: the brief names `HOME=<dir>` as the seventh variable with the
+   reason, and says seven.
+2. **Confirmed clear.** No durable path escapes the seven variables
+   (grep of non-test Go for `UserHomeDir`, `UserConfigDir`, `Getenv("HOME")`
+   and `.config`): `config.toml` follows `CANARY_CONFIG`, else
+   `XDG_CONFIG_HOME`, else `$HOME/.config` (`config.go:429-438`); the
+   state, cache and socket families follow their roots; the four policy
+   files and their backups follow `HOME`. Autospawn inherits the caller's
+   environment (`autospawn.go:361`). `os.UserConfigDir` is not used.
+   `HOME` also governs the flex-token and ledger-token defaults, so the
+   witness reports reporting evidence absent by construction, which is
+   right.
+3. **The Desk architecture review's D2** (policy files under
+   `$XDG_CONFIG_HOME/ibkr/policies/`, no new key) is safe for this Mac's
+   daemon, which runs with `HOME` and no `XDG_*` variables and no
+   LaunchAgent, so the paths resolve to today's `~/.config/ibkr/policies/`;
+   it is a behaviour change for any operator whose daemon environment sets
+   `XDG_CONFIG_HOME` elsewhere (their policies would be orphaned and fresh
+   templates written) and needs a one-time migration note. It does not
+   retire the seventh variable. The design's owner-decision table gains the
+   row; the witness does not depend on it.
+
+### The per-kind account accessor (response 6)
+
+1. **Major. An accessor that returns an account cannot fix the mode.** All
+   eight reads feed `brokerStateScopeFromSnapshot` (nine callers with
+   `fill_quotes.go:658`), which fixes `Mode` through the free
+   `accountModeForStatus` (`DU` prefix, else the IBKR ports). An OpenD
+   `accID` is never `DU`, so every site would class an OpenD scope `live`
+   whatever its `trdEnv`; a simulate account would pass the live endpoint
+   check at `trading_status.go:157`. "`accountModeForStatus` becomes a
+   broker method" is unreachable from a free function called by a free
+   function. Response: the design replaces the accessor with a per-kind
+   identity built once from config and held on the `Server` (kind, pinned
+   account) and one scope function that takes the session observation:
+   under `ibkr` the endpoint account, port and connected account as today;
+   under `opend` the `trdEnv` the session's account list reported for the
+   pin, or unknown before it. `currentBrokerStateScope` and the nine
+   snapshot callers call that function; `accountModeForStatus` keeps its
+   IBKR body as the `ibkr` arm.
+2. **Major. Account-concrete is not scope-concrete.** `brokerScopeConcrete`
+   requires paper or live; under `opend` the mode arrives with
+   `Trd_GetAccList`, so a config-only scope is account-concrete and
+   mode-unknown until the list reports the pin. Response: the design
+   states both states and WP8's test pins both (the account from config
+   before any session; the mode from the list after).
+3. **Minor. The config shape.** The design's `[opend]` table does list
+   `client_id` (the `InitConnect` `clientID` string, a label Canary
+   chooses), but the trading-status client-id blockers
+   (`gateway_client_id_unpinned`, `_mismatch`) have no OpenD reading:
+   OpenD assigns `connID` itself. Response: under `opend` the two client-id
+   blockers never fire; stated in WP8.
+4. **Minor. Unlisted mode and connector reads.** `accountModeForStatus` is
+   also called from `handlers.go:3709`, `broker_permissions.go:310` and
+   `:409`, and `fill_quotes.go:318`, `:534`, `:561` on a stored account
+   alone; `trading_status.go:125-127` fires `gateway_unavailable` through
+   `gatewayConnector()` with IBKR wording, and the host, port and origin
+   rows at `trading_status.go:54-61`, `71-76`, `84-90` read `[gateway]`.
+   Response: all listed in WP8 as per-kind; a stored OpenD record's account
+   equals the pin, so its mode is the session's observed `trdEnv` or
+   unknown.
+5. **The `Scope()`-on-the-broker-instance alternative** (Desk review,
+   section 3) was weighed and rejected: the instance has two lifetimes (per
+   IBKR connector, discarded with it; constructed at start under `opend`),
+   and seven sites need a scope with no connector at all
+   (`mandate_verdict.go:170-184`, `alert_shadow_cadence.go:452-470`,
+   `handlers.go:3739-3743`, `trading_status.go:62-65` and `138-143`,
+   `broker_evidence.go:224-227`, `protection_order_snapshot.go:72-85`).
+   The identity lives on the server and the adapter contributes only the
+   observation; a later multi-broker daemon moves the identity into the
+   binding beside connector and epoch, which the write binding already
+   carries, so these files change once more only at the identity's source.
+
+### The key-form scope constructor (response 2)
+
+1. **Major. Twelve sites build the scope from `rpc.TradingStatus`**, which
+   carries no kind: `desk_execution.go:55`, `order_risk_authority.go:236`
+   and `:328`, `exercise_reservations.go:141`, `protective_exit.go:402`,
+   `protective_oca_trading.go:37`, `tws_order_control.go:203`,
+   `delta_reduction.go:643`, `fill_quotes.go:676`,
+   `broker_permissions.go:310` and `:409`. Under `opend` they would
+   normalise to `ibkr` and never match a record whose body says `opend`.
+   Response: `rpc.TradingStatus` gains the additive `Broker` kind in WP8
+   (WP9 adds `BrokerCapabilities` beside it) and these sites go through a
+   status form of the constructor.
+2. **Major. A third key shape: hashed identities with validators.**
+   `marketEventFeeRateScopeFingerprint` (`market_events_fee_rate.go:1021`)
+   hashes account and mode into `sha256:<hex>` and its store validates the
+   format (`market_events_fee_rate_store.go:131-132`, `172-174`); the same
+   family holds `risk.BuildAlertAuthorityScope`
+   (`internal/risk/alert_candidate.go:309-342`), `riskCapitalScopeKey`
+   (`risk_capital_state.go:240-245`), `recon_engine.go:273`,
+   `cash_sweep_trace.go:82-83`, `dailyPnLScopeSource`
+   (`daily_pnl_close_capture.go:31-33`) and `edgeScopeFingerprint`
+   (`edge_authority.go:496-504`, which the design had under string keys).
+   A leading segment breaks every validator. Response: hashed shapes take
+   the kind as an extra hash input under a non-IBKR kind, empty for IBKR
+   so the bytes are unchanged; formats and validators untouched.
+3. **Major. The `|` key and a second `:` parser.** The frozen-scope key is
+   built in `strategy_target.go:460` and `:469`
+   (`strategy|<id>|<account>|<mode>|<con>`), reused by
+   `strategy_kill_live.go:157`; `coreDecisionEventMatchesScope` strips
+   `strategy|<id>|` first and then splits. `core_rebalance.go:271` builds a
+   `:`-joined episode key and `:281` trims its `core:` prefix. Response:
+   the segment goes inside the account field, never in front of a family
+   prefix: `|` keys read `strategy|<id>|opend:<account>|<mode>|<con>`,
+   `:` keys read `core:opend:<account>:<mode>:<month>`, and the key form
+   of the constructor cuts the account field at its first `:` (an IBKR
+   account never contains one; the fixture asserts it).
+4. **Major. Typed terms undercounted.** `desk_override.go:107` rebuilds
+   from `rpc.DeskOverrideTerms`, not `QueuedAuthTerms`; and
+   `rpc.LevelingBundleTerms` (`proposal_currency_leveling_bundle.go:213`,
+   `:233`) was missing. Response: four terms gain the `omitempty` `Broker`
+   field (`DeskAuthorityTerms`, `QueuedAuthTerms`, `DeskOverrideTerms`,
+   `LevelingBundleTerms`) plus `AccountDataScope`.
+5. **Major. Readers that derive a mode from a stored account by the IBKR
+   rule**: `fill_quotes.go:318` and `:534`, `broker_permissions.go:310` and
+   `:409`. Response: the per-kind mode function above; listed in WP8.
+6. **Minor. "16 files" is 23** non-test daemon files that write account and
+   mode into a key, fingerprint, journal line or typed term, plus
+   `internal/risk`; the literal count reads 76 (27 empty). Not load
+   bearing; the design says 23. `orderJournalRouteIdentity`
+   (`order_read_model.go:1832-1836`), in-memory and endpoint-qualified, is
+   order-path and stays with phase D.
+7. **`<kind>:` rather than the literal `opend:`**, as the Desk review
+   suggests: the one helper writes the kind value for any non-IBKR kind.
+   Sort order is not a hazard: no prefix scan or `ORDER BY` over an
+   account-bearing key exists.
+
+### The `CI_ONLY_TARGETS` line and the protobuf gates (response 5)
+
+1. **Major. One Go package cannot hold the vendored files.** Every Futu
+   definition declares `package <File>` and a `go_package` under an
+   unresolvable path, and most declare top-level `Request`, `Response`,
+   `C2S` and `S2C`; `protoc-gen-go` would redeclare `Request` 26 times.
+   Response: one Go package per vendored file under
+   `pkg/futu/internal/pb/<lowername>/`, generated with
+   `--go_opt=module=github.com/osauer/canary/v2` and one
+   `--go_opt=M<File>.proto=<importpath>` per vendored file (the imported
+   `Common`, `Qot_Common`, `Trd_Common` included), derived from the
+   vendored list; the vendored files stay byte-identical to upstream.
+2. **Major. Two version strings.** `protoc --version` prints
+   `libprotoc 32.1`; the generated header carries `protoc v5.32.1`-style
+   text from the plugin request. Response: the manifest carries both, the
+   regen compares the first and `futu-proto-check` the second.
+3. **Major. The analysers see generated code.** `go-doc-audit` skips
+   generated files, gofmt is satisfied, but `vet`, `staticcheck`,
+   `modernize` and `govulncheck` take every tracked package, and the
+   modernize analysers at the pinned `x/tools` do not filter generated
+   files. Response: WP5's done includes those legs green on the generated
+   output; the remedy if one is red is to exclude
+   `./pkg/futu/internal/pb/...` from the analyser package list, named as a
+   change outside WP5's file set. Proof pending the first regeneration.
+4. **Minor.** Two pins of `google.golang.org/protobuf` (tool and runtime):
+   `futu-proto-check` compares them with the manifest. The plugin is
+   resolved as `go -C tools tool -n protoc-gen-go` and passed with
+   `--plugin`; `protoc` comes from `PATH`. The CI step is `run: make
+   futu-proto-regen` on its own line (the scope check's regex is
+   line-anchored) with a separate `git diff --exit-code` step. The regen
+   rewrites file hashes and version lines and preserves the hand-kept
+   archive checksum lines, else the Linux job's diff is never clean.
+5. **Confirmed.** `ci-gate-scope-check` parses `ci.yml` for `make <target>`
+   lines and requires each in `check`, `CHECK_TEST_LEGS` or
+   `CI_ONLY_TARGETS`; `CHECK_TARGETS` is an open list, so
+   `futu-proto-check` joins it with no `ci.yml` line; the dependency
+   script's `expected_direct` has seven entries and a literal count;
+   `pages-coverage` runs from `pages-deploy.yml`, which the scope check
+   does not parse.
+
+### The TWS order-control dial path (response 4)
+
+1. **Major. The gate was named below the dials.** `reconnectFlow` calls
+   `discover.Resolve` at `server.go:2627` and `2671` before
+   `connectWithFailover`; with `[gateway] port` unpinned that probes all
+   four standard ports (`discover.go:115-122`, `211`, `313`), a TCP connect
+   `newConnector` never sees, and on no listener `classifyClosedLocalPort`
+   runs `ps` and starts the app-watch poller, whose poll calls
+   `triggerReconnect` again. `Start` has the same shape. Response: the gate
+   is one early `return false` in `triggerReconnect` and the `opend` branch
+   of `Start`; `newConnector` is the backstop, not the mechanism.
+2. **Major. Six callers of `triggerReconnect`**, not two: `gatewayConnector`
+   (`server.go:2812`), `gateway_app_watch.go:300`, `handlers.go:3610` (the
+   status read), `order_risk_authority.go:84`, `answer_path.go:221` and
+   `:274`. Gating inside `triggerReconnect` covers all six.
+3. **Major. `newConnector` cannot refuse with its signature.** A nil
+   `*ibkrlib.Connector` wrapped in `connectAttempter` is a typed nil and
+   `tryOneHandshake` would call `Start` on it. Response: the signature
+   becomes `(*ibkrlib.Connector, error)` with both callers
+   (`buildAttempter`, `breadthConnectFlow`) handling the error.
+4. **Minor.** The TWS refusal is `broker_write_transaction.go:252`
+   (`connector == nil || !sessionCaptured`), not `:29-31` (struct fields);
+   the test seams at `:247-251` and `twsOrderControlRun` must stay nil in
+   the listening test. The claim narrows to "never opens the IBKR API
+   socket": the Flex fetch (HTTP, gated by `cfg.Flex.Enabled`), the
+   borrow-fee FTP dial and the Web API cash ledger are IBKR hosts on other
+   ports; the first two are gated by kind in WP8 and WP9. The breadth flow
+   is unreachable because `s.breadth` is not constructed under `opend`.
+5. **Test shape.** Not bind-or-skip on the four standard ports: on this Mac
+   the skip would remove the test exactly where a wrong gate dials the live
+   TWS. Four `127.0.0.1:0` listeners whose `Accept` fails the test,
+   injected through `discover.StandardPorts` (the package variable, with
+   the restore pattern of `auto_endpoint_test.go:283-288`), `[gateway]
+   port` unpinned so the probe runs, `discover.Probe` and
+   `s.attempterFactory` not replaced, `CashLedger.URL` empty,
+   `Flex.Enabled` false; no `t.Parallel()` beside other discover-reading
+   tests.
+
+Of the five responses, four changed a mechanism again (the accessor, the
+constructor, the protobuf layout, the dial gate); only the `HOME` variable
+was right as written and wrong only in the brief. These responses were
+written by the build session and were not cold-read; the build proves them
+by the tests the brief names.
+

@@ -68,7 +68,12 @@ directory `<dir>` holding `config.toml` with `[broker] kind = "opend"` and
 `[opend]` pointed at the simulator's loopback port, and one environment
 for every command of the witness, daemon and CLI alike: `XDG_CONFIG_HOME`,
 `XDG_STATE_HOME`, `XDG_CACHE_HOME` and `XDG_RUNTIME_DIR` under `<dir>`,
-`CANARY_CONFIG=<dir>/config.toml` and `CANARY_SOCKET=<dir>/canary.sock`.
+`CANARY_CONFIG=<dir>/config.toml`, `CANARY_SOCKET=<dir>/canary.sock`, and
+`HOME=<dir>/home`: the four policy files and their backups resolve under
+`$HOME/.config/ibkr/policies/` (`policy_files.go:283-288`), and `Start`
+migrates and backs them up on every boot (`server.go:1542`), so a witness
+run with the operator's `HOME` would rewrite the operator's policy files
+(fifth read, 2026-11-04 16:30 CET; the brief had listed six variables).
 The daemon is the worktree's own build, `bin/canary daemon --foreground
 --config <dir>/config.toml --socket <dir>/canary.sock --log stderr`; the
 CLI commands are the same `bin/canary` by path, never `canary` from
@@ -83,7 +88,7 @@ the same OpenD witness daemon. The lock and startup lock derive from the
 socket directory, `--log stderr` writes no crash file, `--foreground`
 disables idle shutdown, and no app process or LaunchAgent is involved. The
 report names `<dir>` and the simulator flags. The `make opend-sim` target
-of WP12 starts the simulator; the stack itself is six environment
+of WP12 starts the simulator; the stack itself is seven environment
 variables and one command, so it gets no target that could be mistaken for
 `restart-daemon`.
 
@@ -218,29 +223,50 @@ guarantee), with `LICENSE` and a `NOTICE` naming the source repository and
 commit; `pkg/futu/internal/pb/MANIFEST` (the SHA-256 of each vendored
 `.proto`, the SHA-256 of each generated `.pb.go`, the `protoc` version and
 the `protoc-gen-go` version used, and the SHA-256 of the `protoc` release
-archive per supported platform);
-`pkg/futu/internal/pb/*.pb.go` generated; `tools/go.mod` pins
-`google.golang.org/protobuf/cmd/protoc-gen-go`; `go.mod` adds
-`google.golang.org/protobuf`; `scripts/check-go-dependencies.sh` allowlist
-and printed count; `Makefile` targets `futu-proto-regen` (a developer
-action: refuses unless `protoc --version` equals the manifest's, then
-regenerates and rewrites the manifest) and `futu-proto-check` (no `protoc`:
-recompute the vendored and the generated hashes, compare both sets with the
-manifest, check every generated file's header names the manifest's
-generator versions), the check wired into `check`; a CI job
-(`.github/workflows/ci.yml`) that fetches the `protoc` release named in
-the manifest, refuses it unless the archive's SHA-256 matches the
-manifest, runs `make futu-proto-regen` and fails on `git diff --exit-code
-pkg/futu/internal/pb`. What each check binds is stated in the design:
-`futu-proto-check` binds files to the manifest and headers to the
-generator versions, and only the regeneration proves the generated code
-came from these definitions.
+archive per supported platform; the `protoc` version in both of its
+forms, `libprotoc 32.1` as `protoc --version` prints it and the
+`protoc v5.32.1` form the generated header carries, because the regen
+compares the first and `futu-proto-check` the second);
+`pkg/futu/internal/pb/<lowername>/<File>.pb.go` generated, one Go package
+per vendored file, because every Futu definition declares its own
+`package` and most declare top-level `Request`, `Response`, `C2S` and
+`S2C`, which one package cannot hold (the generator is run with
+`--go_opt=module=github.com/osauer/canary/v2` and one
+`--go_opt=M<File>.proto=<import path>` per vendored file, the imported
+`Common`, `Qot_Common` and `Trd_Common` included, derived from the
+vendored list, so the vendored files stay byte-identical to upstream and
+their unresolvable `go_package` is never used); `tools/go.mod` pins
+`google.golang.org/protobuf/cmd/protoc-gen-go` (resolved as `go -C tools
+tool -n protoc-gen-go` and passed to `protoc` with `--plugin`; `protoc`
+itself from `PATH`); `go.mod` adds `google.golang.org/protobuf`, and
+`futu-proto-check` compares the tool pin, the runtime pin and the manifest
+line; `scripts/check-go-dependencies.sh` allowlist and printed count;
+`Makefile` targets `futu-proto-regen` (a developer action: refuses unless
+`protoc --version` equals the manifest's, then regenerates and rewrites
+the file hashes and version lines while preserving the hand-kept archive
+checksum lines) and `futu-proto-check` (no `protoc`: recompute the
+vendored and the generated hashes, compare both sets with the manifest,
+check every generated file's header names the manifest's generator
+versions), the check added to `CHECK_TARGETS` (an open list; no `ci.yml`
+line is needed for it); a CI job (`.github/workflows/ci.yml`) that fetches
+the `protoc` release named in the manifest, refuses it unless the
+archive's SHA-256 matches the manifest, runs `make futu-proto-regen` as
+its own `run:` line (the scope check's regex is line-anchored) and fails
+in a separate step on `git diff --exit-code pkg/futu/internal/pb`. What
+each check binds is stated in the design: `futu-proto-check` binds files
+to the manifest and headers to the generator versions, and only the
+regeneration proves the generated code came from these definitions.
 
 Tests: `futu-proto-check` green, and red on each of two one-byte changes
 in a scratch copy without a manifest update: a vendored definition and a
 generated file; the regeneration zero-diff, run locally before the commit
 and named in its body, and green in the CI job at the landed revision;
-`go-dependencies-check` green with eight modules; `govulncheck` green.
+`go-dependencies-check` green with eight modules; `govulncheck` green;
+the `vet`, `staticcheck` and `modernize` legs green on the generated
+packages (they take every tracked package and the modernize analysers do
+not skip generated files; if one is red, the remedy is to exclude
+`./pkg/futu/internal/pb/...` from that analyser's package list, a change
+outside this package's file set, named in the commit body).
 
 Gate: `make test`. Done: one commit that builds, with the
 dependency's purpose in one sentence in the commit body.
@@ -312,21 +338,45 @@ Account, ClientID}` with doc strings), `docs/docs/reference/config.md`
 probe and process name, behind the kind), `internal/daemon/server.go`
 (construct one broker by kind; under `opend` the concrete `connector` stays
 nil, `Start` runs no IBKR discovery or connect (`server.go:1573`, `1642`),
-`newConnector` at `server.go:1816` refuses with the typed reason so the
-breadth flow (`1128`, `1247`, `1285`) and the reconnect flow
-(`triggerReconnect` 2563-2590, `reconnectFlow` 2616, `connectWithFailover`
-1892) cannot dial, `gatewayConnector()` at `server.go:2805` returns the
-typed unavailable reason without arming the trigger for its 46 callers,
-`gateway_app_watch.go:300` likewise, and the TWS order control's own
-client-0 dial at `tws_order_control.go:245-265` is unreachable because
-its write transaction refuses first), `broker_evidence.go`
-(`brokerStateScope.Kind` with the zero value meaning `ibkr`, normalised in
-`sameBrokerScope` and every comparison; the current scope's account at
-`broker_evidence.go:53` and `223`, and the same `[gateway] account` reads
-at `broker_write_transaction.go:214` and `283`, `mandate_verdict.go:174`,
-`handlers.go:3725`, `alert_shadow_cadence.go:455` and
-`protection_order_snapshot.go:74`, go through one accessor that returns
-the pinned account of the configured kind; the 27 empty literals stay; the
+and the reconnect gate is one early `return false` in `triggerReconnect`
+(`server.go:2563-2590`), which covers all six of its callers
+(`gatewayConnector` 2812, `gateway_app_watch.go:300`, `handlers.go:3610`,
+`order_risk_authority.go:84`, `answer_path.go:221` and `274`): the gate
+must sit there and not in `newConnector`, because `reconnectFlow` calls
+`discover.Resolve` at `server.go:2627` and `2671` before any constructor
+and, with `[gateway] port` unpinned, probes the four standard ports and on
+no listener starts the app-watch poller; `newConnector` at
+`server.go:1816` is the backstop, its signature becomes
+`(*ibkrlib.Connector, error)` (a nil connector wrapped in
+`connectAttempter` is a typed nil that `tryOneHandshake` would call) and
+both callers, `buildAttempter` and `breadthConnectFlow`, handle the error;
+the breadth flow (`1128`, `1247`, `1285`) is unreachable because
+`s.breadth` is not constructed under `opend`; `gatewayConnector()` returns
+the typed unavailable reason without arming the trigger for its 46
+callers; the TWS order control's own client-0 dial at
+`tws_order_control.go:245-265` is unreachable because its write
+transaction refuses first (`broker_write_transaction.go:252`, `connector
+== nil || !sessionCaptured`); the Flex fetch (gated by `cfg.Flex.Enabled`)
+and the borrow-fee FTP dial are gated by kind here, so the claim is
+"never opens the IBKR API socket and never dials an IBKR host"),
+`broker_evidence.go` (`brokerStateScope.Kind` with the zero value meaning
+`ibkr`, normalised in `sameBrokerScope` and every comparison; a per-kind
+identity built once from config and held on the `Server`, the kind and the
+pinned account, and one scope function that takes the session observation
+and yields the current scope: under `ibkr` the endpoint account, port and
+connected account as today, under `opend` the `trdEnv` the session's
+account list reported for the pin, or an unknown mode before it; the
+current scope's reads at `broker_evidence.go:53` and `223`, and the same
+`[gateway] account` reads at `broker_write_transaction.go:214` and `283`,
+`mandate_verdict.go:174`, `handlers.go:3725`, `alert_shadow_cadence.go:455`
+and `protection_order_snapshot.go:74`, go through it, as do
+`currentBrokerStateScope` and the nine `brokerStateScopeFromSnapshot`
+callers, whose free `accountModeForStatus` (`DU` prefix, else the IBKR
+ports) would class every OpenD account `live`; the readers that derive a
+mode from a stored account alone, `fill_quotes.go:318`, `534` and `561`,
+`broker_permissions.go:310` and `409`, `handlers.go:3709`, use the same
+per-kind mode (a stored OpenD record's account equals the pin, so its mode
+is the observed `trdEnv` or unknown); the 27 empty literals stay; the
 readers that rebuild a scope from a persisted record's body, about 25 of
 the 50 field-naming literals, among them `mandate_reduction.go:192`,
 `policy_identity.go:64` and `93`, `exercise_reservations.go:109`,
@@ -334,54 +384,100 @@ the 50 field-naming literals, among them `mandate_reduction.go:192`,
 constructor that takes account, mode and kind from the body, and every
 record body with an account and a mode gains the `omitempty` `broker`
 field (the `rpc` proposal and opportunity snapshots, the daemon-local
-exercise reservation and resolution records, and the three terms below);
-the one key reader, `core_rebalance.go:858-869`, uses the constructor's
-key form, which strips the `opend:` segment; the 16 files
-that write the scope into a persisted key or a typed term go through one
-helper per shape: the leading `opend:` segment for string keys, and the
-`omitempty` `Broker` field written only for `opend` on
-`rpc.DeskAuthorityTerms` (its field-wise account and mode checks at
-`desk_execution_submit.go:204`, `desk_authority_fence.go:41` and
+exercise reservation and resolution records, and the four terms below);
+the twelve sites that build a scope from `rpc.TradingStatus`
+(`desk_execution.go:55`, `order_risk_authority.go:236` and `328`,
+`exercise_reservations.go:141`, `protective_exit.go:402`,
+`protective_oca_trading.go:37`, `tws_order_control.go:203`,
+`delta_reduction.go:643`, `fill_quotes.go:676`,
+`broker_permissions.go:310` and `409`) go through a status form of the
+constructor, for which `rpc.TradingStatus` gains the additive `Broker`
+kind; the one key reader, `core_rebalance.go:858-869`, uses the
+constructor's key form, which cuts the account field at its first `:` (an
+IBKR account never contains one); the 23 non-test daemon files, plus
+`internal/risk`, that write the scope into a persisted key, fingerprint,
+journal line or typed term go through one helper per shape, three shapes:
+a string key carries the kind inside the account field, never in front of
+a family prefix (`|` keys `strategy|<id>|<kind>:<account>|<mode>|<con>`
+at `strategy_target.go:460`, `469` and `strategy_kill_live.go:157`; `:`
+keys `core:<kind>:<account>:<mode>:<month>` at `core_rebalance.go:271`,
+whose reader at `281` trims `core:` first); a hashed identity with a
+format validator (`marketEventFeeRateScopeFingerprint` at
+`market_events_fee_rate.go:1021`, validated at
+`market_events_fee_rate_store.go:131-132` and `172-174`;
+`risk.BuildAlertAuthorityScope`, `internal/risk/alert_candidate.go:309-342`;
+`riskCapitalScopeKey`, `risk_capital_state.go:240-245`;
+`recon_engine.go:273`; `cash_sweep_trace.go:82-83`; `dailyPnLScopeSource`,
+`daily_pnl_close_capture.go:31-33`; `edgeScopeFingerprint`,
+`edge_authority.go:496-504`) takes the kind as an extra hash input only
+for a non-IBKR kind, empty for IBKR so the bytes are unchanged, formats
+and validators untouched; and the `omitempty` `Broker` field written only
+for `opend` on `rpc.DeskAuthorityTerms` (its field-wise account and mode
+checks at `desk_execution_submit.go:204`, `desk_authority_fence.go:41` and
 `desk_authority.go:179` move to the constructor and `sameBrokerScope`; its
 byte and digest comparisons at `desk_authority_device.go:81` and
 `desk_authority.go:149`, `162-166` are unchanged),
-`rpc.QueuedAuthTerms` (`desk_override.go:107`, `proposal_queue.go:231`)
-and `rpc.AccountDataScope` (`internal/rpc/account_data_authority.go:49`)),
-`trading_status.go` (`accountModeForStatus` becomes a broker method:
-prefix-then-port for IBKR, `trdEnv` of the pinned account for OpenD; the
-pin block at lines 134-149, `gateway_account_unconfirmed`, `_unpinned`,
-`_not_concrete`, `_mismatch`, `gateway_client_id_unpinned` and the
-client-id mismatch, reads its pins from `[opend]` and its connected
-account from the OpenD session under `opend`, with hints that name
-`[opend]`; the `AccountOrigin` and `ClientIDOrigin` rows at lines 62, 78
-and 80 read the same per-kind pins; the `cfg.Gateway.Account != ""`
-guards at lines 153 and 157 become the per-kind pin, so the paper and
+`rpc.QueuedAuthTerms` (`proposal_queue.go:231`), `rpc.DeskOverrideTerms`
+(`desk_override.go:107`), `rpc.LevelingBundleTerms`
+(`proposal_currency_leveling_bundle.go:213`, `233`) and
+`rpc.AccountDataScope` (`internal/rpc/account_data_authority.go:49`);
+`orderJournalRouteIdentity` (`order_read_model.go:1832-1836`) is in-memory
+and order-path and stays with phase D), `trading_status.go` (the mode
+comes from the per-kind scope function above, `accountModeForStatus`
+keeping its IBKR body as the `ibkr` arm; the pin block at lines 134-149,
+`gateway_account_unconfirmed`, `_unpinned`, `_not_concrete` and
+`_mismatch`, reads its pins from `[opend]` and its connected account from
+the OpenD session under `opend`, with hints that name `[opend]`;
+`gateway_client_id_unpinned` and the client-id mismatch never fire under
+`opend`, because OpenD assigns `connID` itself and `[opend] client_id` is
+only a label Canary sends; `gateway_unavailable` at lines 125-127 fires
+from the OpenD session's health under `opend`, with OpenD wording; the
+`AccountOrigin` and `ClientIDOrigin` rows at lines 62, 78 and 80 read the
+same per-kind pins, and the host, port and origin rows at lines 54-61,
+71-76 and 84-90 read `[opend]` under `opend`; the `cfg.Gateway.Account !=
+""` guards at lines 153 and 157 become the per-kind pin, so the paper and
 live endpoint checks still run under `opend`; and the
-`*_endpoint_unconfirmed` blockers gain the OpenD reading; `[opend] account` is required at startup,
-so `_unpinned` cannot fire under `opend`, and a pinned account the list
-does not report is `_mismatch` and fails closed with no mode), `internal/broker/opend/*.go` (the adapter over
+`*_endpoint_unconfirmed` blockers gain the OpenD reading; `[opend]
+account` is required at startup, so `_unpinned` cannot fire under `opend`,
+and a pinned account the list does not report is `_mismatch` and fails
+closed with no mode), `internal/broker/opend/*.go` (the adapter over
 `*futu.Connector`), `auto_endpoint.go` (rediscovery only for IBKR).
 
 Tests: config decode with and without `[broker]`; a kind other than the two
-refuses startup with a clear error; `kind = "opend"` without `[opend] account` refuses startup; a daemon
-under `opend` constructs no IBKR connector and every IBKR-only read answers
-unavailable with the typed reason; a test listens on the four IBKR ports
-(`discover.StandardPorts`), drives an `opend` daemon through `Start`, the
-status and brief reads, a breadth question, a reconnect trigger, the
-auto-endpoint path, the app watch and a TWS cancel attempt, and fails if
-the daemon connects to any of them; under `opend` with `[gateway]` absent
-the current scope's account equals `[opend] account` and is concrete; a
-core decision event stored under `opend` matches its frozen scope; the trading-status pin block under `opend` names `[opend]`
+refuses startup with a clear error; `kind = "opend"` without `[opend]
+account` refuses startup with the documented message; a daemon under
+`opend` constructs no IBKR connector and every IBKR-only read answers
+unavailable with the typed reason; the listening test does not bind the
+four standard ports (on the operator's machine the skip would remove the
+test exactly where a wrong gate would dial the live TWS): it opens four
+`127.0.0.1:0` listeners whose `Accept` fails the test, injects them
+through `discover.StandardPorts` with the restore pattern of
+`auto_endpoint_test.go:283-288`, leaves `[gateway] port` unpinned so the
+probe would run, replaces neither `discover.Probe` nor
+`s.attempterFactory`, leaves `CashLedger.URL` empty and `Flex.Enabled`
+false, runs without `t.Parallel()`, and drives an `opend` daemon through
+`Start`, the status and brief reads, a breadth question, a reconnect
+trigger, the auto-endpoint path, the app watch and a TWS cancel attempt;
+under `opend` with `[gateway]` absent the current scope's account equals
+`[opend] account` before any session and its mode is unknown, and after
+the account list reports the pin the scope is concrete with the list's
+`trdEnv` (both states pinned); a simulate account never passes the live
+endpoint check; a core decision event stored under `opend` matches its
+frozen scope; the trading-status pin block under `opend` names `[opend]`
 in every hint and never `[gateway]`; a fixture test pins the IBKR key and
 fingerprint bytes of every scoped document family (broker permissions,
 proposal and opportunity snapshots, desk executions, core rebalance, the
-Edge scope fingerprint) and the IBKR JSON of `rpc.DeskAuthorityTerms`,
-`rpc.QueuedAuthTerms` and `rpc.AccountDataScope` to today's values,
-asserts that the zero kind and `ibkr` produce the same bytes, that a
-record stored under `opend` rebuilds to a scope equal to the current one,
-and that an OpenD scope's keys carry the `opend:` segment and its terms
-the `Broker` field; the Asia synthetic book keeps its IBKR scope; the
-OpenD adapter against the simulator for every seam method.
+frozen strategy scope, the fee-rate, alert-authority, risk-capital,
+reconciliation, cash-sweep, daily P&L and Edge fingerprints) and the IBKR
+JSON of the four terms and `rpc.AccountDataScope` to today's values,
+asserts that the zero kind and `ibkr` produce the same bytes, that no IBKR
+account in the fixtures contains `:`, that a record stored under `opend`
+rebuilds to a scope equal to the current one, that an OpenD scope's keys
+carry the kind inside the account field and its terms the `Broker` field,
+and that the same account id under `ibkr` and `opend` never produces the
+same key, fingerprint or term bytes in any family (owner ask 2026-11-04
+16:03 CET); the Asia synthetic book keeps its IBKR scope; the OpenD
+adapter against the simulator for every seam method.
 
 Gate: release tier, OpenD path; spine on local main after landing; docs.
 Done: `canary status --json` against the in-process simulator reports

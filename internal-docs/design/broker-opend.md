@@ -151,20 +151,48 @@ one constructor that takes account, mode and kind from the body. One
 reader parses a key instead: `coreDecisionEventMatchesScope`
 (`core_rebalance.go:858-869`) splits the frozen core scope string on `|`
 and takes its first segment as the account, so it goes through the
-constructor's key form, which strips a leading `opend:` segment before the
-split. Under `opend` a stored record then compares equal to the current
-scope; an IBKR record names no kind, the constructor yields the zero kind,
-and the comparison normalises it. Of the 81 files that use the
-scope, 16 write its fields into a persisted key or a typed term; each keeps
-producing today's bytes for IBKR and carries the kind only when it is
-`opend`, in one of two shapes per family: a string key (broker
-permissions, proposal and opportunity snapshots, desk executions, core
-rebalance, the Edge scope fingerprint) gains a leading `opend:` segment; a
-typed term that carries `AccountID` and `AccountMode` gains the
-`omitempty` `Broker` field above, so an IBKR term serialises as today.
-Two such terms exist: `rpc.DeskAuthorityTerms` (which already has a
-`Kind` field naming the mandate kind, hence the name `Broker`) and
-`rpc.QueuedAuthTerms`. The desk terms are compared two ways: as bytes or
+constructor's key form, which cuts the account field at its first `:` (an
+IBKR account never contains one; the fixture asserts it). Twelve more
+sites build a scope from an `rpc.TradingStatus`, which carries no kind
+(`desk_execution.go:55`, `order_risk_authority.go:236` and `328`,
+`exercise_reservations.go:141`, `protective_exit.go:402`,
+`protective_oca_trading.go:37`, `tws_order_control.go:203`,
+`delta_reduction.go:643`, `fill_quotes.go:676`, `broker_permissions.go:310`
+and `409`); the status gains an additive `Broker` kind and those sites go
+through a status form of the constructor. Under `opend` a stored record
+then compares equal to the current scope; an IBKR record names no kind,
+the constructor yields the zero kind, and the comparison normalises it.
+Of the 81 files that use the scope, 23 non-test daemon files and
+`internal/risk` write its fields into a persisted key, a fingerprint, a
+journal line or a typed term; each keeps producing today's bytes for IBKR
+and carries the kind only when it is not `ibkr`, in one of three shapes
+per family. A string key carries the kind inside the account field, never
+in front of a family prefix, because two readers parse by prefix first:
+the frozen strategy scope `strategy|<id>|<account>|<mode>|<con>`
+(`strategy_target.go:460`, `469`, `strategy_kill_live.go:157`), whose
+reader strips `strategy|<id>|` before it splits, reads
+`strategy|<id>|<kind>:<account>|<mode>|<con>`; the `:`-joined core
+episode key (`core_rebalance.go:271`), whose reader at `281` trims
+`core:` first, reads `core:<kind>:<account>:<mode>:<month>`; the broker
+permissions, proposal and opportunity snapshots and desk executions keys
+the same way. A hashed identity with a format validator takes the kind as
+an extra hash input only for a non-IBKR kind, empty for IBKR so the bytes
+are unchanged and no validator changes: the fee-rate fingerprint
+(`market_events_fee_rate.go:1021`, `sha256:<hex>` validated at
+`market_events_fee_rate_store.go:131-132` and `172-174`),
+`risk.BuildAlertAuthorityScope` (`internal/risk/alert_candidate.go:309-342`),
+`riskCapitalScopeKey` (`risk_capital_state.go:240-245`),
+`recon_engine.go:273`, `cash_sweep_trace.go:82-83`, `dailyPnLScopeSource`
+(`daily_pnl_close_capture.go:31-33`) and `edgeScopeFingerprint`
+(`edge_authority.go:496-504`). A typed term that carries `AccountID` and
+`AccountMode` gains the `omitempty` `Broker` field above, so an IBKR term
+serialises as today. Four such terms exist: `rpc.DeskAuthorityTerms`
+(which already has a `Kind` field naming the mandate kind, hence the name
+`Broker`), `rpc.QueuedAuthTerms`, `rpc.DeskOverrideTerms`
+(`desk_override.go:107`) and `rpc.LevelingBundleTerms`
+(`proposal_currency_leveling_bundle.go:213`, `233`). Sort order is not a
+hazard: no prefix scan or ordered query runs over an account-bearing key.
+The desk terms are compared two ways: as bytes or
 a digest of the daemon-built JSON (`desk_authority_device.go:81`,
 `desk_authority.go:149` and `162-166`), which `omitempty` keeps identical
 for IBKR; and field-wise on account and mode against the current scope
@@ -178,13 +206,36 @@ construction rather than by account-id format. The current scope's account comes
 (`broker_evidence.go:53` and `223`, and the same read at
 `broker_write_transaction.go:214` and `283`, `mandate_verdict.go:174`,
 `handlers.go:3725`, `alert_shadow_cadence.go:455`,
-`protection_order_snapshot.go:74`); it becomes one accessor that returns
-the pinned account of the configured kind, `[opend] account` under
-`opend`, so the current scope is concrete without an IBKR connector. There
-is no migration, no rewritten document and no cutover step: a running
-`daemon.db` reads exactly as before, and a fixture test pins the IBKR key bytes and the IBKR
-JSON of both terms and of the receipt scope to today's values and asserts
-that the zero kind and `ibkr` produce the same bytes.
+`protection_order_snapshot.go:74`), and its mode from the free
+`accountModeForStatus` (`DU` prefix, else the IBKR ports), which an
+account accessor alone cannot fix: an OpenD account is never `DU`, so
+every site would class it `live`. The identity therefore lives on the
+`Server`, built once from config (the kind and the pinned account,
+`[opend] account` under `opend`), and one scope function takes the
+session observation and yields the current scope: under `ibkr` the
+endpoint account, port and connected account as today; under `opend` the
+`trdEnv` the session's account list reported for the pin. The eight reads
+above, `currentBrokerStateScope` and the nine
+`brokerStateScopeFromSnapshot` callers call that function, and
+`accountModeForStatus` keeps its IBKR body as the `ibkr` arm; the readers
+that derive a mode from a stored account alone (`fill_quotes.go:318`,
+`534`, `561`, `broker_permissions.go:310`, `409`, `handlers.go:3709`) use
+the same per-kind mode, which under `opend` is the observed `trdEnv` of
+the pin or unknown. So the scope has two states under `opend`:
+account-concrete from config before any session, with the mode unknown;
+and concrete once the account list has reported the pin. A `Scope()` on
+the broker instance was weighed and rejected: the instance has two
+lifetimes (per IBKR connector; from start under `opend`) and seven sites
+need a scope with no connector at all. A later multi-broker daemon moves
+the identity into the binding beside connector and epoch, which the write
+binding already carries, so these sites change once more only at the
+identity's source. There is no migration, no rewritten document and no
+cutover step: a running `daemon.db` reads exactly as before, and a
+fixture test pins the IBKR key and fingerprint bytes of every family and
+the IBKR JSON of the four terms and of the receipt scope to today's values
+and asserts that the zero kind and `ibkr` produce the same bytes, and
+that the same account id under `ibkr` and `opend` never produces the same
+bytes in any family.
 An IBKR store is never read as OpenD state because no OpenD key can
 collide with an IBKR key, and the Asia-style synthetic book in
 `asia_simulation_test.go` keeps its IBKR scope.
@@ -228,16 +279,35 @@ from 46 non-test daemon files) on a nil connector and by
 path does not: the TWS order control opens its one-request client-0
 connection itself (`tws_order_control.go:245-265`,
 `ibkrlib.RunTWSOrderControl` with the host and port from the status), but
-only inside an authorised write transaction whose binding carries an IBKR
-connector (`broker_write_transaction.go:29-31`), so under `opend` the
-authorisation refuses before any dial. Under `opend`, `Start` builds the
-OpenD broker and runs no IBKR discovery or connect, `newConnector` refuses
-with the typed reason, so neither the breadth flow nor the reconnect can
-dial, and the IBKR-only features answer unavailable without dialling. A
-test listens on the four IBKR ports, drives an `opend` daemon through
-`Start`, the status and brief reads, a breadth question, a reconnect
-trigger, the auto-endpoint path, the app watch and a TWS cancel attempt,
-and fails if the daemon ever connects to one of them.
+only inside an authorised write transaction that refuses without a
+captured IBKR session (`broker_write_transaction.go:252`), so under
+`opend` the authorisation refuses before any dial. Under `opend`, `Start`
+builds the OpenD broker and runs no IBKR discovery or connect, and the
+reconnect gate is one early `return false` in `triggerReconnect`, which
+has six callers (`gatewayConnector`, `gateway_app_watch.go:300`,
+`handlers.go:3610`, `order_risk_authority.go:84`, `answer_path.go:221` and
+`274`). The gate cannot sit in `newConnector` alone: `reconnectFlow` calls
+`discover.Resolve` (`server.go:2627`, `2671`) before any constructor, and
+with `[gateway] port` unpinned that probes the four standard ports with a
+TCP connect `newConnector` never sees, and on no listener runs `ps` and
+starts the app-watch poller, whose poll triggers the reconnect again.
+`newConnector` is the backstop: its signature becomes `(*ibkrlib.Connector,
+error)`, because a nil connector wrapped in `connectAttempter` is a typed
+nil that `tryOneHandshake` would call, and both callers handle the error.
+The breadth flow is unreachable because `s.breadth` is not constructed
+under `opend`. Three IBKR hosts on other ports remain and are gated by
+kind: the Flex fetch (HTTP, behind `cfg.Flex.Enabled`), the borrow-fee
+FTP dial and the Web API cash ledger; so the claim is "never opens the
+IBKR API socket and never dials an IBKR host", and the IBKR-only features
+answer unavailable without dialling. The test does not bind the four
+standard ports (on the operator's machine, where TWS holds them, the skip
+would remove the test exactly where a wrong gate dials the live TWS): it
+opens four `127.0.0.1:0` listeners whose `Accept` fails the test, injects
+them through `discover.StandardPorts`, leaves `[gateway] port` unpinned so
+the probe would run, replaces neither `discover.Probe` nor the attempter
+factory, and drives an `opend` daemon through `Start`, the status and
+brief reads, a breadth question, a reconnect trigger, the auto-endpoint
+path, the app watch and a TWS cancel attempt.
 
 ## The read seam: `internal/broker`
 
@@ -250,18 +320,25 @@ interface at a time.
 ```go
 package broker
 
-type Kind string // "ibkr" | "opend"
+type Kind string // "ibkr" | "opend"; the zero value reads as ibkr
 
-// Instrument is the broker-neutral identity of one tradable thing.
+// Instrument is the broker-neutral identity of one tradable thing. The
+// fields beyond the id are what the daemon reads off a contract today, so
+// the mapping to a client's contract type and back is total for every
+// security type the daemon uses (STK, OPT, FUT, IND, BOND, BILL, CASH, BAG).
 type Instrument struct {
     Broker   Kind
     ID       string // IBKR: the ConID as text; OpenD: "HK.00700"
     Symbol   string
-    SecType  string // STK | OPT | FUT | IND | BOND | BILL | CASH, as rpc uses them
+    SecType  string // STK | OPT | FUT | IND | BOND | BILL | CASH | BAG, as rpc uses them
     Market   string // us | de | hk | sg | cn | jp (the route family rpc.ContractParams.Market already carries)
-    Venue    string // the listing venue as the broker names it (SEHK, NASDAQ, SGX, XETRA)
+    Venue    string // the routing or listing venue as the broker names it (SMART, SEHK, NASDAQ, SGX, XETRA)
+    Primary  string // the primary listing venue behind a smart route
     Currency string
-    // Option and future fields as today: Expiry, Strike, Right, Multiplier.
+    LocalSymbol, TradingClass string
+    Expiry string; Strike float64; Right string; Multiplier int
+    SecIDType, SecID string // ISIN for bonds
+    Legs []Leg              // a combination's legs
 }
 
 // SessionBinding is a value: the broker kind, the daemon's generation of
@@ -272,11 +349,11 @@ type SessionBinding struct { Kind Kind; Generation uint64; Epoch uint64 }
 type Session interface {
     Capture() (SessionBinding, bool)
     Current(SessionBinding) bool
-    Health() SessionHealth // phase, server version, logins, last error, answer path
+    Health() SessionHealth // connected, ready, confirmed account, server version, last error
 }
 
 type Account interface {
-    Summary(ctx context.Context, timeout time.Duration) (AccountSummary, Provenance, error)
+    Summary(ctx context.Context, timeout time.Duration) (*AccountSummary, Provenance, error)
 }
 
 type Positions interface {
@@ -284,17 +361,24 @@ type Positions interface {
 }
 
 type Quotes interface {
-    // Subscribe returns the key the broker files the line under; for IBKR
-    // that is the symbol today's subscription manager keys on, so the
-    // manager's behaviour does not change.
+    // Key is the key the broker files a line under; for IBKR that is the
+    // symbol or routed contract key today's subscription manager keys on,
+    // so the manager's behaviour does not change. The two subscribes mirror
+    // the two IBKR paths (bare symbol, exact contract) one to one.
+    Key(in Instrument) string
+    SubscribeSymbol(ctx context.Context, symbol string, fields []string) (key string, binding SessionBinding, err error)
     Subscribe(ctx context.Context, in Instrument, fields []string) (key string, binding SessionBinding, err error)
-    Unsubscribe(key string) error
+    Unsubscribe(ctx context.Context, key string) error
+    UnsubscribeForSession(ctx context.Context, binding SessionBinding, key string) error
     Snapshot() map[string]*Quote // keyed by the subscription key
     Load() (Load, bool)          // lines held and capacity, last refusal
 }
 
 type Bars interface {
-    Bars(ctx context.Context, in Instrument, from, to time.Time, interval string, timeout time.Duration) ([]Bar, error)
+    // ChartBars is the chart shape (a window of days at an interval);
+    // SessionBars is the intraday session shape the setup evaluations read.
+    ChartBars(ctx context.Context, in Instrument, days int, interval string, timeout time.Duration) (BarSeries, error)
+    SessionBars(ctx context.Context, in Instrument, from, to time.Time, timeout time.Duration) ([]Bar, error)
 }
 
 type Instruments interface {
@@ -306,6 +390,19 @@ type Broker interface {
     Session; Account; Positions; Quotes; Bars; Instruments
 }
 ```
+
+The sketch above is the shape as built in WP1 (2026-11-04 16:40 CET).
+Two departures from the first draft, both so the IBKR adapter is a
+mapping and not a reinterpretation: `Quotes` keeps IBKR's two subscribe
+paths apart (a bare symbol resolves its default route inside the client;
+an exact contract does not) and exposes the key function and the
+session-bound release the manager already uses; `Bars` has the two read
+shapes the daemon has (chart days at an interval, and session bars between
+two instants), because `FetchChartBars` and `FetchSetupBars` are different
+requests with different pacing and the OpenD adapter serves both from
+`Qot_RequestHistoryKL` with its own windowing. `Instrument` carries the
+listing names, the external id and the legs because the positions view and
+the market-data key read them.
 
 Rules for the seam:
 
@@ -540,19 +637,41 @@ simulator fails the test that owns it on any 2005 frame it receives.
 The `.proto` definitions ship under the Apache-2.0 licence. The build
 vendors the files Canary uses under `pkg/futu/internal/pb/proto/` with the
 licence and a NOTICE naming the source repository and commit, and generates
-Go code with `protoc-gen-go` into `pkg/futu/internal/pb/`. Generated code is
-committed. The `internal` path keeps every protobuf type out of `pkg/futu`'s
-API.
+Go code with `protoc-gen-go` into one Go package per vendored file,
+`pkg/futu/internal/pb/<lowername>/`: every Futu definition declares its own
+`package <File>` and most declare top-level `Request`, `Response`, `C2S`
+and `S2C`, which a single Go package cannot hold. The vendored files stay
+byte-identical to upstream; their `go_package` points at a Futu path that
+does not resolve, so the generator is run with
+`--go_opt=module=github.com/osauer/canary/v2` and one
+`--go_opt=M<File>.proto=<import path>` per vendored file (the imported
+`Common`, `Qot_Common` and `Trd_Common` included), derived from the
+vendored list. Generated code is committed. The `internal` path keeps every
+protobuf type out of `pkg/futu`'s API. The `vet`, `staticcheck`,
+`modernize` and `govulncheck` legs take every tracked package and the
+modernize analysers do not skip generated files, so WP5 is done only with
+those legs green on the generated packages; if one is red, the remedy is
+to exclude `pkg/futu/internal/pb/...` from that analyser's package list.
 
 `protoc` is a C++ binary and cannot be pinned in a Go module;
 `protoc-gen-go` can and is, in `tools/go.mod`, never in the product module
-(the dependency gate forbids a tool block there). Regeneration is a
+(the dependency gate forbids a tool block there); the regeneration
+resolves it as `go -C tools tool -n protoc-gen-go` and passes it to
+`protoc` with `--plugin`, and `protoc` comes from `PATH`. Regeneration is a
 developer action, `make futu-proto-regen`, which refuses to run unless
 `protoc --version` matches the version recorded in
 `pkg/futu/internal/pb/MANIFEST` beside the SHA-256 of every vendored
 `.proto`, the SHA-256 of every generated `.pb.go`, the `protoc-gen-go`
 version, and the SHA-256 of the `protoc` release archive for each platform
-the regeneration supports. Two checks, and what each binds is stated
+the regeneration supports. The manifest carries the `protoc` version in
+both of its forms, because the two checks read different ones: `protoc
+--version` prints `libprotoc 32.1`, and the generated header carries the
+`protoc v5.32.1` form the plugin request reports. The regeneration
+rewrites the file hashes and the version lines and preserves the hand-kept
+archive checksum lines, so the CI job's diff can be clean. The tool pin
+and the runtime pin of `google.golang.org/protobuf` are two lines in two
+`go.mod` files; `futu-proto-check` compares both with the manifest. Two
+checks, and what each binds is stated
 because neither does the other's job. `futu-proto-check`, a leg of `check`,
 needs no `protoc`: it binds every vendored and generated file to its
 manifest line and every generated header to the manifest's generator
@@ -565,9 +684,13 @@ the directory and names the run in the commit body, and a CI job runs the
 same two commands with a `protoc` fetched at the manifest's version and
 refused unless its archive matches the manifest's checksum. That job is
 the one place `protoc` runs unattended, and the checksum is what pins it.
-`futu-proto-regen` joins `CI_ONLY_TARGETS` with its reason (it needs
-`protoc`), which is what `ci-gate-scope-check` requires of a `make`
-target that CI runs outside `check`.
+The job runs `make futu-proto-regen` as its own `run:` line, because
+`ci-gate-scope-check` matches `make <target>` lines with a line-anchored
+expression, and the diff check is a separate step. `futu-proto-regen`
+joins `CI_ONLY_TARGETS` with its reason (it needs `protoc`), which is what
+the scope check requires of a `make` target that CI runs outside `check`;
+`futu-proto-check` joins `CHECK_TARGETS`, an open list, and needs no
+`ci.yml` line.
 
 `google.golang.org/protobuf` becomes the eighth direct product dependency.
 `scripts/check-go-dependencies.sh` carries the allowlist and prints the
@@ -1029,5 +1152,6 @@ OpenD contact:
 | `google.golang.org/protobuf` as a direct dependency | Proposed: accept. Gates B2 and everything after it. |
 | The additive instrument identity in `internal/rpc` | Proposed: accept. Gates C4; phases A, B and C1 to C3 proceed without it. |
 | Phases A to C shipped without Edge and reconciliation, the gap named on the surface | Proposed: accept. Gates C3's wording; the code is the same either way. |
+| Policy files under `$XDG_CONFIG_HOME/ibkr/policies/` instead of `$HOME/.config/ibkr/policies/` (the Desk architecture review's D2, 2026-11-04) | Open, the owner's; nothing here depends on it. A no-op for this Mac's daemon, which runs with `HOME` and no `XDG_*` variable; a behaviour change for an operator whose daemon environment sets `XDG_CONFIG_HOME` elsewhere (their policies would be orphaned and fresh templates written), so it needs a one-time migration note. It would not retire the witness stack's own `HOME`. |
 
 The reasoning for the three proposed decisions is in the build brief.
