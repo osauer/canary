@@ -1,0 +1,7 @@
+{
+  "name": "canary-mcpb-release-tool",
+  "private": true,
+  "devDependencies": {
+    "@anthropic-ai/mcpb": "2.1.2"
+  }
+}

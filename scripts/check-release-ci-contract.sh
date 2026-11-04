@@ -924,12 +924,12 @@ def direct_step_mapping(path, job_name, step):
 
 def require_full_history_checkout(path, job_name, steps, reason):
     checkout_steps = [
-        step for step in steps if step.get("uses") == "actions/checkout@v4"
+        step for step in steps if step.get("uses") == CHECKOUT_ACTION
     ]
     if len(checkout_steps) != 1:
         fail(
             f"{path}: {job_name} job needs exactly one "
-            "actions/checkout@v4 step"
+            f"{CHECKOUT_ACTION} step"
         )
     checkout_children = [
         (indent, content)
@@ -1020,6 +1020,13 @@ def validate_workflow_inventory(root, manifest_entries, enforce_commands):
             continue
         if path.is_symlink() or not path.is_file():
             fail(f"{path}: workflow must be a regular repo-owned file")
+        if enforce_commands:
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                match = re.match(r"^\s*(?:-\s*)?uses:\s*(.+)$", line)
+                if match:
+                    action = yaml_scalar(match.group(1), f"{path}:{number} uses")
+                    if not re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", action):
+                        fail(f"{path}:{number}: action uses must pin a full commit SHA")
         files.append(path)
     if not files:
         fail(f"{directory}: no workflow YAML files found")
