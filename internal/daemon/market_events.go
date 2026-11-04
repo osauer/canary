@@ -365,12 +365,13 @@ func (s *Server) marketEventsForSymbols(ctx context.Context, symbols []string) r
 	symbols = normalizeMarketEventSymbols(symbols)
 	_, canonical := s.marketEvents.scopeFor(symbols, s.currentBrokerStateScope())
 	connector := s.gatewayConnector()
+	a := s.adapterFor(connector)
 	// Fence the whole acquisition. Capturing after it would attach a late
 	// old-session inventory result to a newly connected broker session.
-	binding, _ := connector.CaptureSession()
+	binding, _ := a.Capture()
 	result := s.marketEvents.snapshot(ctx, symbols, s.subs, connector, s.currentBrokerStateScope)
 	if canonical {
-		s.observeEventHealth(result, connector, binding)
+		s.observeEventHealth(result, sessionOf(a), binding)
 	}
 	return result
 }

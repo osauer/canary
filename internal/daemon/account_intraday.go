@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 // The intraday account value (internal-docs/design/account-intraday.md):
@@ -251,7 +251,7 @@ func accountIntradayWindow(sess marketcal.Session, at time.Time) bool {
 // refuses it. Every guard fails toward a gap.
 func accountIntradaySample(sess marketcal.Session, scope brokerStateScope, snap accountSnapshot) (rpc.AccountIntradayPoint, string, bool) {
 	raw := snap.raw
-	if raw == nil || snap.provenance != ibkrlib.AccountSummaryProvenanceRequest || snap.observedAt.IsZero() ||
+	if raw == nil || snap.provenance != broker.ProvenanceRequest || snap.observedAt.IsZero() ||
 		!sameBrokerScope(snap.source.scope, scope) || raw.NetLiquidation == nil || !accountIntradayValue(*raw.NetLiquidation) ||
 		!raw.BaseCurrencyProvenance.Proven() || strings.TrimSpace(raw.BaseCurrency) == "" ||
 		!accountIntradayWindow(sess, snap.observedAt) {
@@ -295,7 +295,7 @@ func (s *Server) sampleAccountIntraday(ctx context.Context) {
 		return
 	}
 	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	snap, err := s.readAccountSnapshot(readCtx, connector)
+	snap, err := s.readAccountSnapshot(readCtx, s.adapterFor(connector))
 	cancel()
 	if err != nil {
 		return

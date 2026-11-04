@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -214,7 +215,7 @@ func TestReconReportIdentityPinsValuationEvidence(t *testing.T) {
 
 func TestReconCapturesBrokerBasisWithoutInventingMissingRates(t *testing.T) {
 	_, _, sample := reconValuationFixture()
-	raw := &ibkrlib.RawAccountSummary{BaseCurrency: "EUR", BaseCurrencyProvenance: ibkrlib.AccountBaseCurrencyExplicitTag, NetLiquidation: new(sample.EquityBase), CurrencyLedger: map[string]ibkrlib.CurrencyLedger{
+	raw := &broker.AccountSummary{BaseCurrency: "EUR", BaseCurrencyProvenance: broker.BaseCurrencyExplicitTag, NetLiquidation: new(sample.EquityBase), CurrencyLedger: map[string]broker.CurrencyLedger{
 		"EUR": {NetLiquidationByCurrency: 50000, NetLiquidationObserved: true},
 		"USD": {NetLiquidationByCurrency: 50000, NetLiquidationObserved: true, StockMarketValue: 10000, StockMarketValueText: "10000", ExchangeRate: .96, ExchangeRateObserved: true},
 	}}
@@ -275,7 +276,7 @@ func TestReconLatestStatementCannotBorrowOlderComparableEvidence(t *testing.T) {
 
 func TestReconCaptureRespectsPublishedWholeUnitPrecision(t *testing.T) {
 	_, _, sample := reconValuationFixture()
-	raw := &ibkrlib.RawAccountSummary{BaseCurrency: "EUR", BaseCurrencyProvenance: ibkrlib.AccountBaseCurrencyExplicitTag, NetLiquidation: new(sample.EquityBase), Raw: map[string]string{"$LEDGER:StockMarketValue_USD": "10000"}, CurrencyLedger: map[string]ibkrlib.CurrencyLedger{
+	raw := &broker.AccountSummary{BaseCurrency: "EUR", BaseCurrencyProvenance: broker.BaseCurrencyExplicitTag, NetLiquidation: new(sample.EquityBase), Raw: map[string]string{"$LEDGER:StockMarketValue_USD": "10000"}, CurrencyLedger: map[string]broker.CurrencyLedger{
 		"EUR": {NetLiquidationByCurrency: 50000, NetLiquidationObserved: true},
 		"USD": {NetLiquidationByCurrency: 50000, NetLiquidationObserved: true, StockMarketValue: 10000, StockMarketValueText: "10000", ExchangeRate: .96, ExchangeRateObserved: true},
 	}}

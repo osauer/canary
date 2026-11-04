@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -26,10 +28,10 @@ const dataHealthHistoryLimit = 128
 const dataHealthPageBytes = 30 * 1024
 
 type dataHealthObservation struct {
-	row       rpc.DataSourceHealth
-	connector *ibkr.Connector
-	binding   ibkr.ConnectorSessionBinding
-	broker    bool
+	row     rpc.DataSourceHealth
+	session broker.Session
+	binding broker.SessionBinding
+	broker  bool
 }
 
 type dataHealthState struct {
@@ -50,7 +52,7 @@ func unknownDataSource(id, name, provider, kind string, affects ...string) rpc.D
 	return rpc.DataSourceHealth{ID: id, Name: name, Provider: provider, Kind: kind, Required: true, State: "unknown", Receiving: "Not checked", Affects: affects, Action: "Awaiting producer observation"}
 }
 
-func (s *Server) recordDataHealth(row rpc.DataSourceHealth, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, broker bool) {
+func (s *Server) recordDataHealth(row rpc.DataSourceHealth, session broker.Session, binding broker.SessionBinding, bound bool) {
 	if row.ID == "" || instrumentHealthID(row.ID) {
 		return
 	}
@@ -101,7 +103,7 @@ func (s *Server) recordDataHealth(row rpc.DataSourceHealth, c *ibkr.Connector, b
 	if truncated {
 		state.diagnosticRevision++
 	}
-	state.observations[row.ID] = dataHealthObservation{row: row, connector: c, binding: binding, broker: broker}
+	state.observations[row.ID] = dataHealthObservation{row: row, session: session, binding: binding, broker: bound}
 }
 
 func dataHealthCondition(row rpc.DataSourceHealth) string {
@@ -202,13 +204,15 @@ func projectQuoteSource(q *rpc.Quote, err error, now time.Time) rpc.DataSourceHe
 	return row
 }
 
-func (s *Server) observeQuoteHealth(contract rpc.ContractParams, q *rpc.Quote, err error, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding) {
-	if c != nil && !c.SessionCurrent(binding) {
+// observeQuoteHealth records the quote source against the session the read
+// ran in; the entitlement rows still come from the client's own absence table.
+func (s *Server) observeQuoteHealth(contract rpc.ContractParams, q *rpc.Quote, err error, a *brokerIBKR.Adapter, binding broker.SessionBinding) {
+	if a != nil && !a.Current(binding) {
 		return
 	}
 	row := projectQuoteSource(q, err, s.orderNow())
-	s.attachQuoteAccess(&row, contract, c)
-	s.recordFeedHealth(row, c, binding)
+	s.attachQuoteAccess(&row, contract, a.Connector())
+	s.recordFeedHealth(row, sessionOf(a), binding)
 }
 
 func projectSourceHealth(id, name, provider, kind string, health rpc.SourceHealth, now time.Time, affects ...string) rpc.DataSourceHealth {

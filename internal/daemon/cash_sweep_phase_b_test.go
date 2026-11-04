@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -1107,7 +1108,7 @@ func TestMarketBondCheckFindsABillAskedAsBond(t *testing.T) {
 // sweep's ledger; an absent field stays nil.
 func TestLedgerSettledCashReachesTheSweep(t *testing.T) {
 	res := &rpc.AccountResult{BaseCurrency: "EUR", CurrencyExposure: []rpc.CurrencyExposure{{Currency: "USD", CashCcy: 12000}, {Currency: "GBP", CashCcy: 5}}}
-	annotateLedgerCash(res, map[string]ibkrlib.CurrencyLedger{
+	annotateLedgerCash(res, map[string]broker.CurrencyLedger{
 		"USD": {CashBalance: 12000, SettledCash: 11500, SettledCashObserved: true, ExchangeRate: 0.9},
 		"GBP": {CashBalance: 5, ExchangeRate: 1.1},
 		"EUR": {CashBalance: 8000, SettledCash: 7000, SettledCashObserved: true, NetLiquidationByCurrency: 9000, ExchangeRate: 1},

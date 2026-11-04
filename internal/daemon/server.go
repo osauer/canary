@@ -25,6 +25,7 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/broker"
 	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
@@ -2840,6 +2841,9 @@ func (s *Server) brokerReads() *brokerIBKR.Adapter {
 // adapterFor returns the adapter over c, building it when c is not the
 // connector the current adapter wraps.
 func (s *Server) adapterFor(c *ibkrlib.Connector) *brokerIBKR.Adapter {
+	if c == nil {
+		return nil
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.brokerAdapter == nil || !s.brokerAdapter.Wraps(c) {
@@ -2851,6 +2855,15 @@ func (s *Server) adapterFor(c *ibkrlib.Connector) *brokerIBKR.Adapter {
 		s.brokerAdapter = brokerIBKR.New(c, s.brokerGeneration, logf)
 	}
 	return s.brokerAdapter
+}
+
+// sessionOf is the seam view of an adapter for the data-health recorder: a
+// nil adapter is a nil Session, never an interface holding a nil pointer.
+func sessionOf(a *brokerIBKR.Adapter) broker.Session {
+	if a == nil {
+		return nil
+	}
+	return a
 }
 
 func (s *Server) openSocket() error {

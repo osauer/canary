@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -707,7 +708,7 @@ func TestStressEvaluationTickRejectsRestampedCachedAccountFallback(t *testing.T)
 	account.GrossPositionValue = 200_000
 
 	account.AsOf = accountResultAuthorityAsOf(accountSummaryAuthority{
-		Provenance: ibkrlib.AccountSummaryProvenanceCachedFallback,
+		Provenance: broker.ProvenanceCachedFallback,
 		AsOf:       now,
 	}, now)
 	positions := &rpc.PositionsResult{

@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
@@ -34,7 +36,7 @@ func (s *Server) handleAccountSummary(ctx context.Context) (*rpc.AccountResult, 
 }
 
 type accountSummaryAuthority struct {
-	Provenance              ibkrlib.AccountSummaryProvenance
+	Provenance              broker.Provenance
 	AsOf                    time.Time
 	NetLiquidationAvailable bool
 	TotalCashAvailable      bool
@@ -59,6 +61,7 @@ func (s *Server) buildAccountSummary(ctx context.Context, observe bool) (*rpc.Ac
 // typed provenance. Cached fallback is never fresh Rulebook evidence.
 func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe bool) (healthResult *rpc.AccountResult, healthAuthority accountSummaryAuthority, healthErr error) {
 	c := s.gatewayConnector()
+	a := s.adapterFor(c)
 	var healthBinding ibkrlib.ConnectorSessionBinding
 	if c != nil {
 		healthBinding, _ = c.CaptureSession()
@@ -68,7 +71,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		if healthErr == nil {
 			healthAuthority = finalizeAccountSummarySession(healthResult, healthAuthority,
 				c != nil && c.SessionCurrent(healthBinding) && sameBrokerScope(scope, s.currentBrokerStateScope()))
-			s.observeAccountRPC(healthResult, c, healthBinding)
+			s.observeAccountRPC(healthResult, sessionOf(a), a.BindingFor(healthBinding))
 			s.recordOrderLimitsNLV(healthResult)
 		}
 	}()
@@ -79,15 +82,15 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	if !brokerScopeConcrete(scope) {
 		return nil, accountSummaryAuthority{}, errors.New("account summary requires one selected account; configure an account pin for a multi-account login")
 	}
-	snapshot, err := s.readAccountSnapshot(ctx, c)
+	snapshot, err := s.readAccountSnapshot(ctx, a)
 	raw := snapshot.raw
 	provenance := snapshot.provenance
 	observedAt := snapshot.observedAt
 	if err != nil {
 		if cached := c.CachedAccountSummary(); cached != nil {
 			s.logger.Debugf("account summary one-shot failed; using cached account update snapshot: %v", err)
-			raw = cached
-			provenance = ibkrlib.AccountSummaryProvenanceCachedFallback
+			raw = brokerIBKR.Summary(cached)
+			provenance = broker.ProvenanceCachedFallback
 			observedAt = time.Time{}
 		} else {
 			return nil, accountSummaryAuthority{}, err
@@ -116,7 +119,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 		baseCurrency = normCcy(raw.BaseCurrency)
 	}
 	res := &rpc.AccountResult{
-		SettlementObservation: accountSettlementObservation(raw, provenance),
+		SettlementObservation: accountSettlementObservation(raw.Settlement, provenance),
 		StreamObservation:     accountStreamObservation(c.CaptureAccountStreamObservationForSession(healthBinding, scope.Account)),
 		AccountID:             raw.AccountID,
 		AccountType:           raw.AccountType,
@@ -225,8 +228,11 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 	}
 	res.DailyPnLObservation = &pnlObservation
 	res.Authority = accountResultDataAuthority(scope, raw, provenance, res)
-	if currentPortfolioAuthority(res.Authority) && provenance == ibkrlib.AccountSummaryProvenanceRequest {
-		res.Authority.BrokerReadSession = s.cashSweepReadSession(snapshot.source.connector, snapshot.source.session)
+	if currentPortfolioAuthority(res.Authority) && provenance == broker.ProvenanceRequest {
+		// The wire value carries the client's own socket epoch, so the read's
+		// session goes back through the adapter that captured it.
+		origin, _ := a.Concrete(snapshot.source.binding)
+		res.Authority.BrokerReadSession = s.cashSweepReadSession(c, origin)
 	}
 	// Successful account reads feed the cash-flow-adjusted capital state.
 	if observe && s.riskCapital != nil && res.NetLiquidation > 0 {
@@ -258,7 +264,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 				if s.fillQuotes != nil {
 					pnl.Fills = func(from, to time.Time) ([]rpc.FillQuoteRecord, bool) { return s.mandateFillsBetween(scope, from, to) }
 				}
-				if currentPortfolioAuthority(res.Authority) && provenance == ibkrlib.AccountSummaryProvenanceRequest {
+				if currentPortfolioAuthority(res.Authority) && provenance == broker.ProvenanceRequest {
 					valuation = captureReconValuation(raw, positions, res.AsOf)
 				}
 			}
@@ -310,7 +316,7 @@ func finalizeAccountSummarySession(res *rpc.AccountResult, authority accountSumm
 // accountResultDataAuthority projects the daemon's internal account summary
 // evidence onto the shared RPC truth contract. The legacy scalar values remain
 // float64 for compatibility; Fields distinguishes missing from a real zero.
-func accountResultDataAuthority(scope brokerStateScope, raw *ibkrlib.RawAccountSummary, provenance ibkrlib.AccountSummaryProvenance, res *rpc.AccountResult) *rpc.AccountDataAuthority {
+func accountResultDataAuthority(scope brokerStateScope, raw *broker.AccountSummary, provenance broker.Provenance, res *rpc.AccountResult) *rpc.AccountDataAuthority {
 	authority := &rpc.AccountDataAuthority{
 		Scope:        accountDataScope(scope),
 		Availability: rpc.AccountDataAvailable,
@@ -343,10 +349,10 @@ func accountResultDataAuthority(scope brokerStateScope, raw *ibkrlib.RawAccountS
 		DailyPnL:             res.DailyPnL != nil,
 		PnLUnrealizedTotal:   res.PnLUnrealizedTotal != nil,
 		PnLRealizedTotal:     res.PnLRealizedTotal != nil,
-		CurrencyExposure:     provenance == ibkrlib.AccountSummaryProvenanceRequest && res.BaseCurrency != "",
+		CurrencyExposure:     provenance == broker.ProvenanceRequest && res.BaseCurrency != "",
 	}
 	switch provenance {
-	case ibkrlib.AccountSummaryProvenanceRequest:
+	case broker.ProvenanceRequest:
 		authority.Source = rpc.AccountDataSourceAccountSummaryRequest
 		authority.LedgerCurrencyCount = len(raw.CurrencyLedger)
 		authority.AsOf = res.AsOf.UTC()
@@ -356,7 +362,7 @@ func accountResultDataAuthority(scope brokerStateScope, raw *ibkrlib.RawAccountS
 		} else {
 			authority.Freshness = rpc.AccountDataFreshnessCurrent
 		}
-	case ibkrlib.AccountSummaryProvenanceCachedFallback:
+	case broker.ProvenanceCachedFallback:
 		authority.Source = rpc.AccountDataSourceAccountUpdatesCache
 		authority.Reason = rpc.AccountDataReasonUnstampedCache
 	default:
@@ -371,7 +377,7 @@ func accountResultDataAuthority(scope brokerStateScope, raw *ibkrlib.RawAccountS
 // so only a completed one-shot request supplies an authoritative observation.
 func accountResultAuthorityAsOf(authority accountSummaryAuthority, completedAt time.Time) time.Time {
 	asOf := authority.AsOf.UTC()
-	if authority.Provenance != ibkrlib.AccountSummaryProvenanceRequest ||
+	if authority.Provenance != broker.ProvenanceRequest ||
 		asOf.IsZero() || asOf.After(completedAt.UTC()) {
 		return time.Time{}
 	}
@@ -399,7 +405,7 @@ func waitForAccountDailyPnL(ctx context.Context, reader accountDailyPnLReader, d
 // wire-shape CurrencyExposure rows, sorted by currency for stable output.
 // It drops the base row and invalid exchange rates; when base is unknown, a
 // rate of exactly one is conservatively treated as the likely base row.
-func buildCurrencyExposure(ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) []rpc.CurrencyExposure {
+func buildCurrencyExposure(ledger map[string]broker.CurrencyLedger, baseCcy string) []rpc.CurrencyExposure {
 	if len(ledger) == 0 {
 		return nil
 	}
@@ -449,13 +455,14 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 		return nil, err
 	}
 	c := s.gatewayConnector()
+	a := s.adapterFor(c)
 	var healthBinding ibkrlib.ConnectorSessionBinding
 	if c != nil {
 		healthBinding, _ = c.CaptureSession()
 	}
 	defer func() {
 		if healthErr == nil {
-			s.observeAccountRPC(healthResult, c, healthBinding)
+			s.observeAccountRPC(healthResult, sessionOf(a), a.BindingFor(healthBinding))
 		}
 	}()
 
@@ -463,11 +470,13 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 		return nil, s.gatewayUnavailableError()
 	}
 	session, sessionOK := c.CaptureSession()
-	var positions []*ibkrlib.RawPosition
-	positions, health, err := c.CachedPositionsWithHealth()
+	positions, receipt, err := a.Positions()
 	if err != nil {
 		return nil, err
 	}
+	// The daemon classifies the receipt on the client's own type, which the
+	// seam's PositionsHealth mirrors field for field.
+	health := brokerIBKR.StreamHealth(receipt)
 	if !brokerScopeConcrete(expectedScope) {
 		if portfolioHealth != nil {
 			*portfolioHealth = health
@@ -475,9 +484,9 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 		return newPositionsResult(expectedScope, health, time.Now().UTC()), nil
 	}
 	if brokerScopeConcrete(expectedScope) {
-		var scoped bool
-		health, scoped = scopedPortfolioStreamHealth(positions, health, expectedScope, time.Now())
+		scoped := positionsMatchBrokerScope(positions, expectedScope)
 		if !scoped {
+			health.ScopeConflictAt = time.Now().UTC()
 			if portfolioHealth != nil {
 				*portfolioHealth = health
 			}
@@ -495,55 +504,54 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	conIDByPositionKey := map[string]int{}
 
 	for _, pos := range positions {
-		if pos == nil {
-			continue
-		}
-		isOpt := pos.Contract.SecType == "OPT"
+		in := pos.Instrument
+		isOpt := in.SecType == "OPT"
 		if wantType == "stk" && isOpt {
 			continue
 		}
 		if wantType == "opt" && !isOpt {
 			continue
 		}
-		sym := pos.Contract.Symbol
+		sym := in.Symbol
 		if wantSym != "" && wantSym != strings.ToUpper(sym) {
 			continue
 		}
-		multiplier := positionViewMultiplier(pos.Contract.SecType, pos.Contract.Multiplier)
+		multiplier := positionViewMultiplier(in.SecType, in.Multiplier)
+		conID, _ := in.IDInt()
 		view := rpc.PositionView{
 			Symbol:        sym,
-			SecType:       positionSecType(pos.Contract.SecType),
-			ConID:         pos.Contract.ConID,
-			Exchange:      pos.Contract.Exchange,
-			PrimaryExch:   pos.Contract.PrimaryExch,
-			Currency:      pos.Contract.Currency,
-			LocalSymbol:   pos.Contract.LocalSymbol,
-			TradingClass:  pos.Contract.TradingClass,
-			Quantity:      pos.Position,
+			SecType:       positionSecType(in.SecType),
+			ConID:         conID,
+			Exchange:      in.Venue,
+			PrimaryExch:   in.Primary,
+			Currency:      in.Currency,
+			LocalSymbol:   in.LocalSymbol,
+			TradingClass:  in.TradingClass,
+			Quantity:      pos.Quantity,
 			Multiplier:    multiplier,
 			AvgCost:       pos.AverageCost,
 			Mark:          pos.MarketPrice,
 			ValuationMark: pos.MarketPrice,
 			// Use broker market value; price × quantity is wrong for bonds.
 			MarketValue:   pos.MarketValue,
-			UnrealizedPnL: pos.UnrealizedPNL,
-			RealizedPnL:   pos.RealizedPNL,
+			UnrealizedPnL: pos.UnrealizedPnL,
+			RealizedPnL:   pos.RealizedPnL,
 		}
 		if isOpt {
-			view.Expiry = pos.Contract.Expiry
-			view.Right = pos.Contract.Right
-			view.Strike = pos.Contract.Strike
+			view.Expiry = in.Expiry
+			view.Right = in.Right
+			view.Strike = in.Strike
 			res.Options = append(res.Options, view)
 		} else {
-			if pos.Contract.SecType == "FUT" {
+			if in.SecType == "FUT" {
 				// A future's month names the contract (the hedge's roll
 				// reads it); a stock has none.
-				view.Expiry = pos.Contract.Expiry
+				view.Expiry = in.Expiry
 			}
 			res.Stocks = append(res.Stocks, view)
 		}
-		if pos.Contract.ConID > 0 {
-			conIDByPositionKey[positionViewKey(view)] = pos.Contract.ConID
+		if conID > 0 {
+			conIDByPositionKey[positionViewKey(view)] = conID
 		}
 	}
 	slices.SortStableFunc(res.Stocks, func(a, b rpc.PositionView) int { return cmp.Compare(a.Symbol, b.Symbol) })
@@ -584,7 +592,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	// Use one bounded account refresh before filling incomplete FX rates.
 	baseCcy := ""
 	var netLiquidationBase *float64
-	ledger := c.CurrencyLedgerSnapshot()
+	ledger := brokerIBKR.Ledger(c.CurrencyLedgerSnapshot())
 	if cachedAccount := c.CachedAccountSummary(); cachedAccount != nil &&
 		strings.EqualFold(strings.TrimSpace(cachedAccount.AccountID), strings.TrimSpace(expectedScope.Account)) {
 		if cachedAccount.BaseCurrencyProvenance.Proven() {
@@ -592,7 +600,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 		}
 		if baseCcy != "" {
 			netLiquidationBase = cachedAccount.NetLiquidation
-			ledger = mergeCurrencyLedgers(cachedAccount.CurrencyLedger, ledger)
+			ledger = mergeCurrencyLedgers(brokerIBKR.Ledger(cachedAccount.CurrencyLedger), ledger)
 		}
 	}
 	ledger = s.repairCurrencyLedgerFXRatesCached(ctx, c, ledger, baseCcy)
@@ -600,7 +608,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	if baseCcy == "" || netLiquidationBase == nil || len(missing) > 0 {
 		// Reuse the shared account-snapshot flight across position polls.
 		refreshCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		snapshot, err := s.readAccountSnapshot(refreshCtx, c)
+		snapshot, err := s.readAccountSnapshot(refreshCtx, a)
 		cancel()
 		if raw := snapshot.raw; err == nil && raw != nil {
 			if baseCcy == "" && raw.BaseCurrencyProvenance.Proven() {
@@ -1057,18 +1065,18 @@ const fxRepairQuoteBudget = 1200 * time.Millisecond
 type currencyRateResolver func(context.Context, string, string, time.Duration) (float64, bool)
 
 // repairCurrencyLedgerFXRates repairs missing streaming-ledger FX rates.
-func repairCurrencyLedgerFXRates(ctx context.Context, c *ibkrlib.Connector, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) map[string]ibkrlib.CurrencyLedger {
+func repairCurrencyLedgerFXRates(ctx context.Context, c *ibkrlib.Connector, ledger map[string]broker.CurrencyLedger, baseCcy string) map[string]broker.CurrencyLedger {
 	return repairCurrencyLedgerFXRatesWithResolver(ctx, ledger, baseCcy, fxRepairQuoteBudget, func(ctx context.Context, baseCcy, ccy string, timeout time.Duration) (float64, bool) {
 		return resolveBasePerCurrencyFXRate(ctx, c, baseCcy, ccy, timeout)
 	})
 }
 
-func repairCurrencyLedgerFXRatesWithResolver(ctx context.Context, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string, timeout time.Duration, resolver currencyRateResolver) map[string]ibkrlib.CurrencyLedger {
+func repairCurrencyLedgerFXRatesWithResolver(ctx context.Context, ledger map[string]broker.CurrencyLedger, baseCcy string, timeout time.Duration, resolver currencyRateResolver) map[string]broker.CurrencyLedger {
 	if len(ledger) == 0 {
 		return nil
 	}
 	baseCcy = normCcy(baseCcy)
-	out := make(map[string]ibkrlib.CurrencyLedger, len(ledger))
+	out := make(map[string]broker.CurrencyLedger, len(ledger))
 	needsRepair := make([]string, 0)
 	for ccy, row := range ledger {
 		ccy = normCcy(ccy)
@@ -1141,11 +1149,11 @@ func snapshotFXPrice(ctx context.Context, c *ibkrlib.Connector, pair string, tim
 	return q.price, true
 }
 
-func mergeCurrencyLedgers(primary, fallback map[string]ibkrlib.CurrencyLedger) map[string]ibkrlib.CurrencyLedger {
+func mergeCurrencyLedgers(primary, fallback map[string]broker.CurrencyLedger) map[string]broker.CurrencyLedger {
 	if len(primary) == 0 {
 		return fallback
 	}
-	out := make(map[string]ibkrlib.CurrencyLedger, len(primary)+len(fallback))
+	out := make(map[string]broker.CurrencyLedger, len(primary)+len(fallback))
 	for ccy, row := range primary {
 		if ccy = normCcy(ccy); ccy != "" {
 			out[ccy] = row
@@ -1163,7 +1171,7 @@ func mergeCurrencyLedgers(primary, fallback map[string]ibkrlib.CurrencyLedger) m
 	return out
 }
 
-func missingPositionFXCurrencies(stocks, options []rpc.PositionView, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) []string {
+func missingPositionFXCurrencies(stocks, options []rpc.PositionView, ledger map[string]broker.CurrencyLedger, baseCcy string) []string {
 	baseCcy = normCcy(baseCcy)
 	missing := map[string]struct{}{}
 	check := func(rows []rpc.PositionView) {
@@ -1189,7 +1197,7 @@ func missingPositionFXCurrencies(stocks, options []rpc.PositionView, ledger map[
 }
 
 // fillFXRates copies the per-currency ExchangeRate into each non-base
-func fillFXRates(rows []rpc.PositionView, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) {
+func fillFXRates(rows []rpc.PositionView, ledger map[string]broker.CurrencyLedger, baseCcy string) {
 	for i := range rows {
 		p := &rows[i]
 		ccy := normCcy(p.Currency)
@@ -1341,7 +1349,7 @@ func optionWarningScope(p rpc.PositionView) string {
 
 // addFXSensitivity computes the portfolio-wide 1%-FX-move sensitivity
 // — never fabricates a zero when the answer is "unknown".
-func addFXSensitivity(p *rpc.PositionsPortfolio, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) {
+func addFXSensitivity(p *rpc.PositionsPortfolio, ledger map[string]broker.CurrencyLedger, baseCcy string) {
 	if p == nil || len(ledger) == 0 {
 		return
 	}
@@ -2059,11 +2067,12 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (res
 		return nil, errBadRequest("contract.symbol required")
 	}
 	c := s.gatewayConnector()
+	a := s.adapterFor(c)
 	var healthBinding ibkrlib.ConnectorSessionBinding
 	if c != nil {
 		healthBinding, _ = c.CaptureSession()
 	}
-	defer func() { s.observeQuoteHealth(p.Contract, result, resultErr, c, healthBinding) }()
+	defer func() { s.observeQuoteHealth(p.Contract, result, resultErr, a, a.BindingFor(healthBinding)) }()
 	if c == nil {
 		return nil, s.gatewayUnavailableError()
 	}

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func accountIntradayTestSession(t *testing.T, date string) marketcal.Session {
@@ -40,8 +40,8 @@ func TestAccountIntradaySampleAdmitsOnlyAProvenRequestReadInsideTheSession(t *te
 	scope := brokerStateScope{Account: "U1234567", Mode: rpc.AccountModeLive}
 	value := 200000.0
 	good := accountSnapshot{
-		raw:        &ibkrlib.RawAccountSummary{NetLiquidation: &value, BaseCurrency: "eur", BaseCurrencyProvenance: ibkrlib.AccountBaseCurrencyExplicitTag},
-		provenance: ibkrlib.AccountSummaryProvenanceRequest,
+		raw:        &broker.AccountSummary{NetLiquidation: &value, BaseCurrency: "eur", BaseCurrencyProvenance: broker.BaseCurrencyExplicitTag},
+		provenance: broker.ProvenanceRequest,
 		observedAt: sess.Open.Add(2 * time.Minute),
 		source:     accountSnapshotSource{scope: scope},
 	}
@@ -52,11 +52,11 @@ func TestAccountIntradaySampleAdmitsOnlyAProvenRequestReadInsideTheSession(t *te
 	zero, nan := 0.0, 0.0
 	nan = nan / nan
 	for name, mutate := range map[string]func(*accountSnapshot){
-		"cached fallback":   func(s *accountSnapshot) { s.provenance = ibkrlib.AccountSummaryProvenanceCachedFallback },
+		"cached fallback":   func(s *accountSnapshot) { s.provenance = broker.ProvenanceCachedFallback },
 		"no value":          func(s *accountSnapshot) { s.raw.NetLiquidation = nil },
 		"zero value":        func(s *accountSnapshot) { s.raw.NetLiquidation = &zero },
 		"not a number":      func(s *accountSnapshot) { s.raw.NetLiquidation = &nan },
-		"unproven currency": func(s *accountSnapshot) { s.raw.BaseCurrencyProvenance = ibkrlib.AccountBaseCurrencyUnknown },
+		"unproven currency": func(s *accountSnapshot) { s.raw.BaseCurrencyProvenance = broker.BaseCurrencyUnknown },
 		"other scope": func(s *accountSnapshot) {
 			s.source.scope = brokerStateScope{Account: "DU7654321", Mode: rpc.AccountModePaper}
 		},

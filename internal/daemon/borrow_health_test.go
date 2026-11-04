@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -116,7 +117,7 @@ func TestBorrowHealthApplicabilityIndependentOfCadence(t *testing.T) {
 			stubBorrowFeeFetch(t, tc.fetch)
 			result := c.snapshot(t.Context(), syntheticBorrowSymbols, nil, nil, func() brokerStateScope { return borrowHealthScope })
 			s := &Server{now: func() time.Time { return now }}
-			s.observeEventHealth(result, nil, ibkr.ConnectorSessionBinding{})
+			s.observeEventHealth(result, nil, broker.SessionBinding{})
 			fee := eventHealthRow(t, s, "events:borrow_fee", now)
 			inventory := eventHealthRow(t, s, "events:borrow_inventory", now)
 
@@ -189,7 +190,7 @@ func TestBorrowApplicabilityBridgesPortfolioStreamGaps(t *testing.T) {
 		now, streamAt = at, received
 		cache.rememberCanonicalScope(symbols, nil, scope)
 		result := cache.snapshot(t.Context(), symbols, nil, nil, func() brokerStateScope { return scope })
-		s.observeEventHealth(result, nil, ibkr.ConnectorSessionBinding{})
+		s.observeEventHealth(result, nil, broker.SessionBinding{})
 		for _, id := range []string{"events:borrow_fee", "events:borrow_inventory"} {
 			if row := eventHealthRow(t, s, id, now); row.Required != wantRequired {
 				t.Fatalf("%s at +%s: required=%v applicability=%q, want required=%v", id, at.Sub(t0), row.Required, row.Applicability, wantRequired)
@@ -303,7 +304,7 @@ func TestLegacyDiagnosticsLastSuccessNotRestoredWithoutReceipt(t *testing.T) {
 			s.loadDataHealthHistory()
 			// Outside the session the producer reports only its retained state.
 			_, health, _ := s.marketEvents.loadBorrowFees(t.Context())
-			s.observeEventHealth(rpc.MarketEventsResult{AsOf: now, SourceHealth: []rpc.SourceHealth{health}}, nil, ibkr.ConnectorSessionBinding{})
+			s.observeEventHealth(rpc.MarketEventsResult{AsOf: now, SourceHealth: []rpc.SourceHealth{health}}, nil, broker.SessionBinding{})
 
 			if fee := eventHealthRow(t, s, "events:borrow_fee", now); !fee.LastSuccess.Equal(tc.wantBorrow) {
 				t.Fatalf("borrow-fee last_success %s, want %s: a legacy clock outlived its producer receipts", fee.LastSuccess, tc.wantBorrow)

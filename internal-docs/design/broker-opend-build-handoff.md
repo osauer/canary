@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 17:00 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-04 17:27 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -27,7 +27,8 @@ work package so a fresh session resumes without the conversation.
 | --- | --- | --- | --- |
 | (before WP1) the no-room mandate render fixture's synthetic capital moved away from the live book; the account-data gate's two-percent band for files not yet on origin/main had caught it and the pre-commit hook refused every commit | `0b074572` | `check-no-account-data.sh` on the index, `make test` | `gate test at canary--v3.33.1-9-ge514c61b-dirty exit 0` |
 | WP1 `internal/broker` types, the fifth read recorded, design and brief corrected | `599cf806` | `make test` | `gate test at canary--v3.33.1-9-ge514c61b-dirty exit 0` (one run, both diffs in the tree) |
-| WP2 IBKR adapter (session, quotes, bars) and the daemon seams on it | the commit carrying this note | `make test`; side check `git diff --exit-code HEAD -- internal/cli/testdata/golden pkg/ibkr` empty | see the commit body |
+| WP2 IBKR adapter (session, quotes, bars) and the daemon seams on it | `7ea49dd3` | `make test` on the tree before the commit; `make regression-spine-check` on `7ea49dd3`; side check `git diff --exit-code HEAD -- internal/cli/testdata/golden pkg/ibkr` empty | `gate test at canary--v3.33.1-11-g599cf806-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 147s elapsed ... exit 0` |
+| WP3 IBKR adapter (account, positions) and the data-health recorder on the seam | the commit carrying this note | `make test` on the tree before the commit; spine on the landed revision (stamp recorded in the next package's tree); side check empty | `gate test at canary--v3.33.1-12-g7ea49dd3-dirty exit 0` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -56,27 +57,61 @@ and design carry these; WP5 and WP8 build to them.
 - The subscription manager (`subs.go`) holds `marketQuotes` (the seam's
   `Quotes` plus `Current`); fakes must issue a non-zero binding
   (`fakeSession`), since a zero binding is never current.
-- The history read keeps one concrete capture for the data-health
-  observation (`observeHistorySource` is still connector-typed); WP3 moves
-  the recorder onto the seam. `handleMarketSnapshot`'s front-future
-  enrichment and `setup_options.go`'s option listing stay on the
-  connector by design (IBKR-only paths); `setup_options` resolves the
-  underlying through the seam with `BindingFor` so the resolution memo is
-  shared with the evaluation path.
+- `handleMarketSnapshot`'s front-future enrichment and
+  `setup_options.go`'s option listing stay on the connector by design
+  (IBKR-only paths); `setup_options` resolves the underlying through the
+  seam with `BindingFor` so the resolution memo is shared with the
+  evaluation path.
+
+## How WP3 is wired
+
+- The account snapshot (`account_authority.go`) reads through
+  `accountReader` (the seam's `Session` plus `Account`); its source is the
+  reader and the neutral binding, and the snapshot holds
+  `broker.AccountSummary` with `broker.Provenance`. The daemon-wide
+  provenance (`accountSummaryAuthority.Provenance`, the rulebook, the cash
+  ledger, the intraday sampler) is `broker.Provenance`; the string values
+  are the client's. The ledger helpers (`buildCurrencyExposure`,
+  `mergeCurrencyLedgers`, FX repair and harvest, `annotateLedgerCash`,
+  `captureReconValuation`'s summary) take `broker.CurrencyLedger`; the
+  two stream caches the handlers still read on the connector
+  (`CurrencyLedgerSnapshot`, `CachedAccountSummary`) are mapped at the
+  site with `brokerIBKR.Ledger` and `brokerIBKR.Summary`.
+- `BrokerReadSession.SocketEpoch` is the client's own socket epoch, a
+  wire value: the account handler gets it back with `Adapter.Concrete`
+  (the side table's lookup, exported for this one IBKR-only consumer).
+- The positions handler reads `[]broker.Position` and
+  `broker.PositionsHealth` from `Adapter.Positions` and converts the
+  receipt once (`brokerIBKR.StreamHealth`) for the daemon's shared
+  classification helpers, which stay on the client's struct across the
+  order and rulebook paths; the two structs are field for field the same
+  and a test holds them so. The scope boundary is shared:
+  `heldOutsideBrokerScope` is the rule, `cachedPositionsMatchBrokerScope`
+  (order integrity, raw rows) and `positionsMatchBrokerScope` (the
+  handler, seam rows) apply it.
+- The data-health recorder (`dataHealthObservation`, `recordDataHealth`,
+  `recordFeedHealth`, `observeAccountRPC`, `observeEventHealth`,
+  `observeHistorySource`) stores `broker.Session` and the neutral
+  binding; a row is a previous-session observation when the session is
+  nil, the binding is not current, or `Health().BackendDown`.
+  `observeQuoteHealth` takes the adapter, since the entitlement rows
+  still come from the client's absence table. The bridge for concrete
+  captures is `BindingFor`; `sessionOf` turns a nil adapter into a nil
+  `Session`, never an interface around a nil pointer (that would read as
+  broker-bound).
+- Untouched by design: the daily P&L stream, the settlement cash probe,
+  the order and trading paths, `readOrderIntegrityCachedPositions`.
 
 ## In progress
 
-WP3 (account, positions, the observation): not started; the files are read.
+Nothing between packages: the WP3 commit carries this note; its spine run on the landed revision is recorded in the next package's tree, as WP2's was.
 
 ## Next
 
-WP3: `internal/broker/ibkr/account.go`, `positions.go`;
-`readAccountSnapshot` takes `broker.Account`; positions rows through
-`broker.Positions` with the stream health converted at the handler
-boundary; `observeAccountRPC` and the data-health recorder
-(`recordDataHealth`, `recordFeedHealth`, `dataHealthObservation`) onto
-`broker.Session` and the neutral binding with a daemon bridge for the
-concrete callers; `observeHistorySource` then loses its concrete capture.
+WP4 per the brief: `pkg/futu` frames, limits, book model and the test legs
+(`test-pkg` with the 80 percent coverage step, `pages-coverage`); new
+files only under `pkg/futu` plus the `Makefile`. Then the phase A message
+to the parent session (commits, gates, HEADs, stamps).
 
 ## Not done
 

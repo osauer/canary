@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -19,7 +20,7 @@ import (
 // The cash sweep reads cash per currency only through these two
 // (internal-docs/design/cash-sweep.md): a zero that was never observed must
 // not read as zero cash.
-func annotateLedgerCash(res *rpc.AccountResult, ledger map[string]ibkrlib.CurrencyLedger, raw map[string]string) {
+func annotateLedgerCash(res *rpc.AccountResult, ledger map[string]broker.CurrencyLedger, raw map[string]string) {
 	if res == nil {
 		return
 	}
@@ -121,7 +122,7 @@ func settledCashPoints(in []ibkrlib.SettledCashPoint) []rpc.SettledCashPoint {
 // ledgerSettledCash is a currency's SettledCash from the typed ledger, nil
 // when the gateway sent none. That $LEDGER:ALL sends it per currency is an
 // assumption the post-install proof checks (internal-docs/design/cash-sweep.md).
-func ledgerSettledCash(ledger map[string]ibkrlib.CurrencyLedger, ccy string) *float64 {
+func ledgerSettledCash(ledger map[string]broker.CurrencyLedger, ccy string) *float64 {
 	ccy = normCcy(ccy)
 	for key, row := range ledger {
 		if normCcy(key) == ccy && ccy != "" && row.SettledCashObserved {

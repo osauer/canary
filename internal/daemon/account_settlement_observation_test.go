@@ -1,26 +1,26 @@
 package daemon
 
 import (
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"testing"
 	"time"
 )
 
 func TestAccountSettlementObservationIsDetachedAndRetired(t *testing.T) {
 	now := time.Date(2026, 10, 2, 10, 0, 0, 0, time.UTC)
-	raw := &ibkrlib.RawAccountSummary{SettlementObservation: &ibkrlib.AccountSettlementObservation{AsOf: now, Callbacks: 1, Rows: []ibkrlib.AccountSettlementRow{{Currency: "EUR", Source: "account_total", Finite: true}}}}
-	if got := accountSettlementObservation(raw, ibkrlib.AccountSummaryProvenanceCachedFallback); got != nil {
+	raw := &broker.AccountSummary{Settlement: &broker.SettlementObservation{AsOf: now, Callbacks: 1, Rows: []broker.SettlementRow{{Currency: "EUR", Source: "account_total", Finite: true}}}}
+	if got := accountSettlementObservation(raw.Settlement, broker.ProvenanceCachedFallback); got != nil {
 		t.Fatal("cache published request receipt")
 	}
-	cloned := cloneRawAccountSummary(raw)
-	cloned.SettlementObservation.Rows[0].Currency = "GBP"
-	if raw.SettlementObservation.Rows[0].Currency != "EUR" {
+	cloned := cloneAccountSummary(raw)
+	cloned.Settlement.Rows[0].Currency = "GBP"
+	if raw.Settlement.Rows[0].Currency != "EUR" {
 		t.Fatal("snapshot receipt aliased")
 	}
-	got := accountSettlementObservation(raw, ibkrlib.AccountSummaryProvenanceRequest)
+	got := accountSettlementObservation(raw.Settlement, broker.ProvenanceRequest)
 	got.Rows[0].Currency = "USD"
-	if raw.SettlementObservation.Rows[0].Currency != "EUR" {
+	if raw.Settlement.Rows[0].Currency != "EUR" {
 		t.Fatal("RPC receipt aliased")
 	}
 	res := &rpc.AccountResult{SettlementObservation: got}

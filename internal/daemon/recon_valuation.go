@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -20,7 +21,7 @@ import (
 // The capital document retains the broker inputs, not display-repaired FX.
 // The original NLV remains the starting value: unexplained residuals are never
 // discarded by replacing it with a sum of statement components.
-func captureReconValuation(raw *ibkrlib.RawAccountSummary, positions []*ibkrlib.RawPosition, asOf time.Time) *rpc.ReconRuntimeValuation {
+func captureReconValuation(raw *broker.AccountSummary, positions []*ibkrlib.RawPosition, asOf time.Time) *rpc.ReconRuntimeValuation {
 	if raw == nil || raw.NetLiquidation == nil || !reconFinite(*raw.NetLiquidation) {
 		return nil
 	}

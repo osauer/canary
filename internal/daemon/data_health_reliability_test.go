@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -14,7 +16,7 @@ import (
 func TestDataHealthFrozenModeIsNotSourceFailure(t *testing.T) {
 	now := time.Now()
 	s := &Server{now: func() time.Time { return now }}
-	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTH"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayedFrozen, ReceivedAt: now}, nil, nil, ibkr.ConnectorSessionBinding{})
+	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTH"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayedFrozen, ReceivedAt: now}, nil, nil, broker.SessionBinding{})
 	row := s.feedDataHealth(quoteSourceID, now)
 	if row.State != "current" || len(row.ProblemIDs) != 0 || row.DataType != rpc.MarketDataDelayedFrozen {
 		t.Fatalf("mode misclassified as source failure: %+v", row)
@@ -93,7 +95,7 @@ func TestDataHealthHistoryKeepsWeekAndActualSuccessClock(t *testing.T) {
 		if i%2 != 0 {
 			row.State = "not_due"
 		}
-		s.recordDataHealth(row, nil, ibkr.ConnectorSessionBinding{}, false)
+		s.recordDataHealth(row, nil, broker.SessionBinding{}, false)
 	}
 	row, _ := s.observedDataHealth("synthetic", now.Add(12*time.Hour))
 	if len(row.History) != 12 {
@@ -157,7 +159,7 @@ func TestDataHealthRestartGapSurvivesOldProducerClock(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.loadDataHealthHistory()
-	s.recordDataHealth(rpc.DataSourceHealth{ID: "macro:synthetic", State: "limited", CheckedAt: old, ReceivedAt: old}, nil, ibkr.ConnectorSessionBinding{}, false)
+	s.recordDataHealth(rpc.DataSourceHealth{ID: "macro:synthetic", State: "limited", CheckedAt: old, ReceivedAt: old}, nil, broker.SessionBinding{}, false)
 	got, _ := s.observedDataHealth("macro:synthetic", now)
 	if len(got.History) != 3 || got.History[1].Reason != "daemon_restart_observation_gap" || got.History[2].At != now || got.LastSuccess != old || !got.HistoryTruncated {
 		t.Fatalf("old attempt erased/reordered restart evidence or hid legacy truncation: %+v", got)
@@ -178,7 +180,7 @@ func TestDataHealthHistoryLimitsAndOversizeAreExplicit(t *testing.T) {
 		if i%2 != 0 {
 			state = "limited"
 		}
-		s.recordDataHealth(rpc.DataSourceHealth{ID: "synthetic", State: state, CheckedAt: now}, nil, ibkr.ConnectorSessionBinding{}, false)
+		s.recordDataHealth(rpc.DataSourceHealth{ID: "synthetic", State: state, CheckedAt: now}, nil, broker.SessionBinding{}, false)
 	}
 	row, _ := s.observedDataHealth("synthetic", now)
 	if len(row.History) != 128 || !row.HistoryTruncated {
@@ -218,10 +220,10 @@ func TestDataHealthInventoryCannotOutliveBrokerSession(t *testing.T) {
 		{Source: "borrow_inventory", Status: rpc.SourceStatusOK, AsOf: now, MaxAgeSeconds: 120},
 		{Source: "borrow_fee", Status: rpc.SourceStatusOK, AsOf: now, MaxAgeSeconds: 5400},
 	}}
-	connector := ibkr.NewConnector(&ibkr.ConnectorConfig{})
-	s.observeEventHealth(result, connector, ibkr.ConnectorSessionBinding{})
+	session := brokerIBKR.New(ibkr.NewConnector(&ibkr.ConnectorConfig{}), 1, nil)
+	s.observeEventHealth(result, session, broker.SessionBinding{})
 	observation := s.dataHealth.observations["events:borrow_inventory"]
-	if !observation.broker || observation.connector != connector {
+	if !observation.broker || observation.session != broker.Session(session) {
 		t.Fatal("inventory health lost acquisition session ownership")
 	}
 	// There is no current binding after session loss. A just-received row's

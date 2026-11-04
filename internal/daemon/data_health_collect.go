@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
@@ -21,7 +22,7 @@ func (s *Server) observedDataHealth(id string, now time.Time) (rpc.DataSourceHea
 		return rpc.DataSourceHealth{}, false
 	}
 	row := o.row
-	if o.broker && (o.connector == nil || !o.connector.SessionCurrent(o.binding) || o.connector.BackendLink().Down) {
+	if o.broker && (o.session == nil || !o.session.Current(o.binding) || o.session.Health().BackendDown) {
 		row.State, row.Receiving = "unknown", "Previous session observation"
 		row.Detail = "Current availability is unverified after a broker session change. Previous observations are diagnostic history."
 		row.ProblemIDs = nil
@@ -170,7 +171,7 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		if row.CheckedAt.IsZero() {
 			row.CheckedAt = now
 		}
-		s.recordDataHealth(*row, nil, ibkr.ConnectorSessionBinding{}, false)
+		s.recordDataHealth(*row, nil, broker.SessionBinding{}, false)
 		s.dataHealth.mu.Lock()
 		history := s.dataHealth.observations[row.ID].row
 		row.FirstObserved, row.LastSuccess = history.FirstObserved, history.LastSuccess
@@ -439,7 +440,7 @@ func (s *Server) handleDataHealth(p rpc.DataHealthParams) (rpc.DataHealthResult,
 	return fitDataHealthPage(page)
 }
 
-func (s *Server) observeEventHealth(result rpc.MarketEventsResult, connector *ibkr.Connector, binding ibkr.ConnectorSessionBinding) {
+func (s *Server) observeEventHealth(result rpc.MarketEventsResult, session broker.Session, binding broker.SessionBinding) {
 	for _, health := range result.SourceHealth {
 		row := projectSourceHealth("events:"+health.Source, strings.ReplaceAll(health.Source, "_", " "), "Canary market events", "market_events", health, result.AsOf, "Market-event assessment")
 		for i := range row.DerivedFrom {
@@ -452,13 +453,13 @@ func (s *Server) observeEventHealth(result rpc.MarketEventsResult, connector *ib
 			}
 		}
 		if health.Source == "borrow_inventory" {
-			if !connector.SessionCurrent(binding) || connector.BackendLink().Down {
+			if session == nil || !session.Current(binding) || session.Health().BackendDown {
 				row.State, row.Availability, row.Receiving = "unknown", "unknown", "Previous session observation"
 				row.ProblemIDs = nil
 			}
-			s.recordDataHealth(row, connector, binding, true)
+			s.recordDataHealth(row, session, binding, true)
 		} else {
-			s.recordDataHealth(row, nil, ibkr.ConnectorSessionBinding{}, false)
+			s.recordDataHealth(row, nil, broker.SessionBinding{}, false)
 		}
 	}
 }
@@ -519,6 +520,10 @@ func (s *Server) observeDisplayDataHealth(snapshot ibkr.DisplaySnapshot, holds [
 	if c == nil || !c.SessionCurrent(snapshot.Session) {
 		return
 	}
+	// The display subscriber captured the client's own session; the
+	// observation is recorded against the seam's view of it.
+	a := s.adapterFor(c)
+	binding := a.BindingFor(snapshot.Session)
 	now := s.orderNow()
 	for _, hold := range holds {
 		md := snapshot.Quotes[hold.cacheKey]
@@ -539,7 +544,7 @@ func (s *Server) observeDisplayDataHealth(snapshot ibkr.DisplaySnapshot, holds [
 		default:
 			continue
 		}
-		s.observeQuoteHealth(q.Contract, q, nil, c, snapshot.Session)
+		s.observeQuoteHealth(q.Contract, q, nil, a, binding)
 	}
 }
 

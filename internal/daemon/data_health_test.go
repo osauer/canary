@@ -3,8 +3,8 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 	"slices"
 	"strings"
 	"testing"
@@ -214,7 +214,7 @@ func TestDataHealthBoundedPageAndDiagnosticExpiry(t *testing.T) {
 	}
 	s := &Server{}
 	row := rpc.DataSourceHealth{ID: "quote", State: "limited", DataType: "delayed", CheckedAt: now, ValidUntil: now.Add(time.Minute)}
-	s.recordDataHealth(row, nil, ibkr.ConnectorSessionBinding{}, false)
+	s.recordDataHealth(row, nil, broker.SessionBinding{}, false)
 	expired, ok := s.observedDataHealth("quote", now.Add(2*time.Minute))
 	if !ok || expired.State != "unknown" || len(expired.History) != 1 || expired.DataType != "delayed" || len(expired.ProblemIDs) != 0 {
 		t.Fatalf("expiry lost history or fabricated recovery: %+v", expired)
@@ -225,8 +225,8 @@ func TestDataHealthHistoryRestoresNoCurrentAccess(t *testing.T) {
 	s, _, _, now, _ := historyFixture(t)
 	s.now = func() time.Time { return now }
 	row := rpc.DataSourceHealth{ID: quoteSourceID, Name: "IBKR quote feed", State: "limited", DataType: "delayed-frozen", CheckedAt: now, ReceivedAt: now, ValidUntil: now.Add(time.Minute), Access: &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now}}
-	s.recordDataHealth(row, nil, ibkr.ConnectorSessionBinding{}, false)
-	s.recordDataHealth(rpc.DataSourceHealth{ID: "account", Name: "Account fields", Required: true, State: "current", CheckedAt: now}, nil, ibkr.ConnectorSessionBinding{}, false)
+	s.recordDataHealth(row, nil, broker.SessionBinding{}, false)
+	s.recordDataHealth(rpc.DataSourceHealth{ID: "account", Name: "Account fields", Required: true, State: "current", CheckedAt: now}, nil, broker.SessionBinding{}, false)
 	s.persistDataHealthHistory(t.Context())
 	restarted := &Server{coreStore: s.coreStore, now: func() time.Time { return now.Add(time.Minute) }}
 	restarted.loadDataHealthHistory()

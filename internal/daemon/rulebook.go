@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -655,7 +656,7 @@ func rulebookAccountSourceHealth(scope brokerStateScope, account *rpc.AccountRes
 		health.Notes = []string{"account snapshot is missing or belongs to another broker account"}
 		return risk.SourceState{Reason: "account_unavailable"}, health
 	}
-	if authority.Provenance != ibkrlib.AccountSummaryProvenanceRequest {
+	if authority.Provenance != broker.ProvenanceRequest {
 		health.Status = rpc.SourceStatusDegraded
 		health.Notes = []string{"one-shot account snapshot was unavailable; unstamped cache is context only"}
 		return risk.SourceState{Reason: "account_cached_fallback"}, health

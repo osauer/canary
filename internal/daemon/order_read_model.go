@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
@@ -522,19 +523,31 @@ func cachedPositionsMatchBrokerScope(raw []*ibkrlib.RawPosition, scope brokerSta
 		return false
 	}
 	for _, position := range raw {
-		if position != nil && position.Position != 0 && !brokerScopedAccountMatches(position.Account, scope) {
+		if position != nil && heldOutsideBrokerScope(position.Account, position.Position, scope) {
 			return false
 		}
 	}
 	return true
 }
 
-func scopedPortfolioStreamHealth(raw []*ibkrlib.RawPosition, health ibkrlib.PortfolioStreamHealth, scope brokerStateScope, observedAt time.Time) (ibkrlib.PortfolioStreamHealth, bool) {
-	if cachedPositionsMatchBrokerScope(raw, scope) {
-		return health, true
+// positionsMatchBrokerScope is the same boundary for rows read through the
+// broker seam (the positions handler).
+func positionsMatchBrokerScope(positions []broker.Position, scope brokerStateScope) bool {
+	if !brokerScopeConcrete(scope) {
+		return false
 	}
-	health.ScopeConflictAt = observedAt.UTC()
-	return health, false
+	for _, position := range positions {
+		if heldOutsideBrokerScope(position.Account, position.Quantity, scope) {
+			return false
+		}
+	}
+	return true
+}
+
+// heldOutsideBrokerScope is the rule both share: a held quantity on an
+// account outside the scope is conflict evidence; a flat row is not.
+func heldOutsideBrokerScope(account string, quantity float64, scope brokerStateScope) bool {
+	return quantity != 0 && !brokerScopedAccountMatches(account, scope)
 }
 
 // classifyPortfolioStreamHealth is the shared trust boundary for any complete

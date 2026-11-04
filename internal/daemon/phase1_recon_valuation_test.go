@@ -5,6 +5,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -14,10 +15,10 @@ import (
 // as an observed field must not promote it into historical valuation proof.
 func TestOperationalReconCaptureForeignUnitFXNeedsIndependentEvidence(t *testing.T) {
 	_, _, sample := reconValuationFixture()
-	raw := &ibkrlib.RawAccountSummary{
-		BaseCurrency: "EUR", BaseCurrencyProvenance: ibkrlib.AccountBaseCurrencyExplicitTag,
+	raw := &broker.AccountSummary{
+		BaseCurrency: "EUR", BaseCurrencyProvenance: broker.BaseCurrencyExplicitTag,
 		NetLiquidation: new(sample.EquityBase),
-		CurrencyLedger: map[string]ibkrlib.CurrencyLedger{
+		CurrencyLedger: map[string]broker.CurrencyLedger{
 			"EUR": {NetLiquidationByCurrency: 50000, NetLiquidationObserved: true},
 			"USD": {NetLiquidationByCurrency: 50000, NetLiquidationObserved: true,
 				StockMarketValue: 10000, StockMarketValueText: "10000",

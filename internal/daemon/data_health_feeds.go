@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 const (
@@ -32,7 +32,7 @@ func feedSource(id string) rpc.DataSourceHealth {
 // The health ledger is keyed only by source and bounded observation category.
 // Inactive contracts and absent instrument data belong to instrument evidence;
 // they cannot create, degrade, or schedule a data-source health record.
-func (s *Server) recordFeedHealth(row rpc.DataSourceHealth, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding) {
+func (s *Server) recordFeedHealth(row rpc.DataSourceHealth, session broker.Session, binding broker.SessionBinding) {
 	if row.ID != quoteSourceID && row.ID != historySourceID {
 		return
 	}
@@ -79,11 +79,11 @@ func (s *Server) recordFeedHealth(row rpc.DataSourceHealth, c *ibkr.Connector, b
 	// A success in one feed segment cannot clear a different segment's
 	// restriction or failure. Each source-level category has its own expiry.
 	if !observations[key].row.CheckedAt.After(row.CheckedAt) {
-		observations[key] = dataHealthObservation{row: row, connector: c, binding: binding, broker: c != nil}
+		observations[key] = dataHealthObservation{row: row, session: session, binding: binding, broker: session != nil}
 	}
 	s.dataHealth.mu.Unlock()
 	// Persist only the source assessment, not the request or its contract.
-	s.recordDataHealth(s.feedDataHealth(row.ID, s.orderNow()), c, binding, c != nil)
+	s.recordDataHealth(s.feedDataHealth(row.ID, s.orderNow()), session, binding, session != nil)
 }
 
 func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
@@ -105,7 +105,7 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 	success, failed := false, false
 	for _, observation := range observations {
 		o := observation.row
-		if !now.Before(o.ValidUntil) || observation.broker && (!observation.connector.SessionCurrent(observation.binding) || observation.connector.BackendLink().Down) {
+		if !now.Before(o.ValidUntil) || observation.broker && (!observation.session.Current(observation.binding) || observation.session.Health().BackendDown) {
 			continue
 		}
 		if o.CheckedAt.After(row.CheckedAt) {
@@ -184,8 +184,8 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 
 // Record the acquisition service result, never a selected chart window's
 // completeness. A short listing history is not a provider outage.
-func (s *Server) observeHistorySource(received bool, err error, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding) {
-	if c != nil && !c.SessionCurrent(binding) {
+func (s *Server) observeHistorySource(received bool, err error, session broker.Session, binding broker.SessionBinding) {
+	if session != nil && !session.Current(binding) {
 		return
 	}
 	row := feedSource(historySourceID)
@@ -201,5 +201,5 @@ func (s *Server) observeHistorySource(received bool, err error, c *ibkr.Connecto
 	} else {
 		row.ReceivedAt = row.CheckedAt
 	}
-	s.recordFeedHealth(row, c, binding)
+	s.recordFeedHealth(row, session, binding)
 }

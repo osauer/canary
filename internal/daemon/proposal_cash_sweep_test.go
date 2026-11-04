@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -834,7 +835,7 @@ func TestCashSweepLedgerFromAccount(t *testing.T) {
 		}
 	}
 	res := &rpc.AccountResult{BaseCurrency: "EUR", CurrencyExposure: []rpc.CurrencyExposure{{Currency: "USD", CashCcy: 12000}}}
-	annotateLedgerCash(res, map[string]ibkrlib.CurrencyLedger{"USD": {CashBalance: 12000, ExchangeRate: 0.9}, "EUR": {CashBalance: 8000, NetLiquidationByCurrency: 9000, ExchangeRate: 1}},
+	annotateLedgerCash(res, map[string]broker.CurrencyLedger{"USD": {CashBalance: 12000, ExchangeRate: 0.9}, "EUR": {CashBalance: 8000, NetLiquidationByCurrency: 9000, ExchangeRate: 1}},
 		map[string]string{"$LEDGER:CashBalance_USD": "12000", "$LEDGER:CashBalance_EUR": "8000"})
 	if !res.CurrencyExposure[0].CashObserved || res.BaseCurrencyLedger == nil || res.BaseCurrencyLedger.CashCcy != 8000 || !res.BaseCurrencyLedger.CashObserved || res.BaseCurrencyLedger.ExchangeRate != 1 {
 		t.Fatalf("annotated = %+v / %+v", res.CurrencyExposure, res.BaseCurrencyLedger)

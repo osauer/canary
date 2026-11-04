@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/ibkrledger"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -68,12 +69,13 @@ func (s *Server) annotateWebCash(ctx context.Context, res *rpc.AccountResult, co
 	res.CashLedger = &rpc.CashLedgerHealth{Source: "ibkr-web-api", Status: "unavailable"}
 	fail := func(reason string) { res.CashLedger.Reason = reason }
 	if connector == nil || !connector.SessionCurrent(session) || !brokerScopeConcrete(scope) ||
-		authority.Provenance != ibkrlib.AccountSummaryProvenanceRequest || authority.AsOf.IsZero() {
+		authority.Provenance != broker.ProvenanceRequest || authority.AsOf.IsZero() {
 		fail("cash ledger requires a current request-authored TWS account and concrete session")
 		return
 	}
+	reader := s.adapterFor(connector)
 	op := s.cfg.CashLedger
-	rows, err := s.cashLedger.read(ctx, ibkrledger.Options{URL: op.URL, BearerTokenFile: cashLedgerPath(op.BearerTokenFile), CACertFile: cashLedgerPath(op.CACertFile)}, accountSnapshotSource{connector: connector, session: session, scope: scope}, s.nowUTC)
+	rows, err := s.cashLedger.read(ctx, ibkrledger.Options{URL: op.URL, BearerTokenFile: cashLedgerPath(op.BearerTokenFile), CACertFile: cashLedgerPath(op.CACertFile)}, accountSnapshotSource{reader: reader, binding: reader.BindingFor(session), scope: scope}, s.nowUTC)
 	if err != nil {
 		fail(err.Error())
 		return

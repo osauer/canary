@@ -131,6 +131,14 @@ func (a *Adapter) concreteFor(b broker.SessionBinding) (ibkrlib.ConnectorSession
 	return cb, ok
 }
 
+// Concrete returns the connector's own binding behind b for the IBKR-only
+// wire values that carry the client's socket epoch (the cash-sweep read
+// session). A binding of another adapter or generation yields the zero
+// concrete binding and false.
+func (a *Adapter) Concrete(b broker.SessionBinding) (ibkrlib.ConnectorSessionBinding, bool) {
+	return a.concreteFor(b)
+}
+
 // Current reports whether b still names this connector's ready session.
 func (a *Adapter) Current(b broker.SessionBinding) bool {
 	cb, ok := a.concreteFor(b)

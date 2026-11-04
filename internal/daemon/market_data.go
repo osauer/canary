@@ -173,22 +173,19 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 		if a == nil {
 			return broker.BarSeries{}, s.gatewayUnavailableError()
 		}
-		// The data-health observation is still recorded against the
-		// connector's own binding (WP3 moves the recorder onto the seam),
-		// so the session the read ran in is captured here, once, and used
-		// for both the continuity check and the observation.
-		c := a.Connector()
-		binding, ok := c.CaptureHistoricalSession()
+		// The session the read ran in is captured once and used for both
+		// the continuity check and the data-health observation.
+		binding, ok := a.Capture()
 		if !ok {
 			return broker.BarSeries{}, s.gatewayUnavailableError()
 		}
 		series, err := a.ChartBars(ctx, in, days, interval, timeout)
-		if !c.HistoricalSessionCurrent(binding) {
+		if !a.Current(binding) {
 			// The read was cut by a lost broker session: a symptom of the
 			// gateway incident, which logGatewayDependency joins.
 			return broker.BarSeries{}, fmt.Errorf("%w: broker session changed during history read", ibkrlib.ErrIBKRUnavailable)
 		}
-		s.observeHistorySource(len(series.Bars) > 0, err, c, binding)
+		s.observeHistorySource(len(series.Bars) > 0, err, a, binding)
 		return series, err
 	})
 }

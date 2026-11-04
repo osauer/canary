@@ -1,14 +1,14 @@
 package daemon
 
 import (
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 	"time"
 )
 
 // Capture successful producer authority without issuing a second read. Market
 // values and account identity never enter the health record.
-func (s *Server) observeAccountRPC(value any, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding) {
+func (s *Server) observeAccountRPC(value any, session broker.Session, binding broker.SessionBinding) {
 	var authority *rpc.AccountDataAuthority
 	var id, name string
 	switch r := value.(type) {
@@ -27,7 +27,7 @@ func (s *Server) observeAccountRPC(value any, c *ibkr.Connector, binding ibkr.Co
 	default:
 		return
 	}
-	if authority == nil || c == nil || !c.SessionCurrent(binding) {
+	if authority == nil || session == nil || !session.Current(binding) {
 		return
 	}
 	row := unknownDataSource(id, name, "IBKR", "account_data", "Portfolio display and assessments")
@@ -46,5 +46,5 @@ func (s *Server) observeAccountRPC(value any, c *ibkr.Connector, binding ibkr.Co
 		row.ProblemIDs = []string{id}
 	}
 	row.Action = "Managed by Canary's account-data producer"
-	s.recordDataHealth(row, c, binding, true)
+	s.recordDataHealth(row, session, binding, true)
 }

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -166,7 +167,7 @@ func (f *fxRateCache) persistLocked() {
 
 // harvest stores valid streaming-ledger rates so the cache is warm before
 // the first repair failure. The ==1.0 exclusion mirrors the repair's
-func (f *fxRateCache) harvest(ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) {
+func (f *fxRateCache) harvest(ledger map[string]broker.CurrencyLedger, baseCcy string) {
 	if f == nil {
 		return
 	}
@@ -210,7 +211,7 @@ func (f *fxRateCache) markDegraded(baseCcy, ccy string, degraded bool) bool {
 // that single response — flipping SPA money formats between consecutive
 // SSE snapshots and churning the positions fingerprint. A cached rate
 // fresher than fxCacheFreshWindow short-circuits the quote entirely.
-func (s *Server) repairCurrencyLedgerFXRatesCached(ctx context.Context, c *ibkrlib.Connector, ledger map[string]ibkrlib.CurrencyLedger, baseCcy string) map[string]ibkrlib.CurrencyLedger {
+func (s *Server) repairCurrencyLedgerFXRatesCached(ctx context.Context, c *ibkrlib.Connector, ledger map[string]broker.CurrencyLedger, baseCcy string) map[string]broker.CurrencyLedger {
 	if s == nil || s.fxRates == nil {
 		return repairCurrencyLedgerFXRates(ctx, c, ledger, baseCcy)
 	}

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func TestHistoryRefreshBackoffBeginsAfterSlowFailure(t *testing.T) {
@@ -48,12 +48,12 @@ func TestHistoryRefreshBackoffBeginsAfterSlowFailure(t *testing.T) {
 func TestHistoryHealthTimeoutExpiresWithoutAnotherRequest(t *testing.T) {
 	now := time.Now().UTC()
 	s := &Server{now: func() time.Time { return now }}
-	s.observeHistorySource(true, nil, nil, ibkr.ConnectorSessionBinding{})
+	s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
 	now = now.Add(time.Minute)
-	s.observeHistorySource(false, context.DeadlineExceeded, nil, ibkr.ConnectorSessionBinding{})
+	s.observeHistorySource(false, context.DeadlineExceeded, nil, broker.SessionBinding{})
 	failureAt := now
 	now = now.Add(time.Minute)
-	s.observeHistorySource(true, nil, nil, ibkr.ConnectorSessionBinding{})
+	s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
 	successAt := now
 	row := s.feedDataHealth(historySourceID, now)
 	if row.State != "limited" || row.Failure == nil || row.Failure.Code != rpc.SourceFailureTimeout {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -17,12 +18,12 @@ func TestDataHealthInstrumentAbsenceDoesNotCreateOrDegradeSource(t *testing.T) {
 	now := time.Now()
 	s := &Server{now: func() time.Time { return now }}
 	live := &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataLive, ReceivedAt: now}
-	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_LIVE"}, live, nil, nil, ibkr.ConnectorSessionBinding{})
+	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_LIVE"}, live, nil, nil, broker.SessionBinding{})
 	before := s.feedDataHealth(quoteSourceID, now)
 	for i := range 100 {
 		contract := rpc.ContractParams{Symbol: fmt.Sprintf("SYNTHETIC_INACTIVE_%d", i)}
-		s.observeQuoteHealth(contract, nil, ibkr.ErrSymbolInactive, nil, ibkr.ConnectorSessionBinding{})
-		s.observeQuoteHealth(contract, nil, nil, nil, ibkr.ConnectorSessionBinding{})
+		s.observeQuoteHealth(contract, nil, ibkr.ErrSymbolInactive, nil, broker.SessionBinding{})
+		s.observeQuoteHealth(contract, nil, nil, nil, broker.SessionBinding{})
 		s.rememberMarketHistory(rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: contract.Symbol, SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1Y"})
 	}
 	if after := s.feedDataHealth(quoteSourceID, now); !reflect.DeepEqual(before, after) || after.State != "current" {
@@ -50,21 +51,21 @@ func TestDataHealthDelayedReceiptKeepsAccessInformational(t *testing.T) {
 	now := time.Now()
 	s := &Server{now: func() time.Time { return now }}
 	delayed := projectQuoteSource(&rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: now}, nil, now)
-	s.recordFeedHealth(delayed, nil, ibkr.ConnectorSessionBinding{})
+	s.recordFeedHealth(delayed, nil, broker.SessionBinding{})
 	if row := s.feedDataHealth(quoteSourceID, now); row.State != "current" || len(row.ProblemIDs) != 0 || row.DataType != rpc.MarketDataDelayed {
 		t.Fatalf("usable delayed receipt became a source problem: %+v", row)
 	}
 	delayed.Access = &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now, RetryAt: now.Add(30 * time.Minute)}
-	s.recordFeedHealth(delayed, nil, ibkr.ConnectorSessionBinding{})
+	s.recordFeedHealth(delayed, nil, broker.SessionBinding{})
 	if row := s.feedDataHealth(quoteSourceID, now); row.State != "current" || len(row.ProblemIDs) != 0 || row.Access == nil {
 		t.Fatalf("usable delayed fallback became a source problem or lost access evidence: %+v", row)
 	}
 	now = now.Add(time.Minute)
-	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_OTHER_DELAYED"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: now}, nil, nil, ibkr.ConnectorSessionBinding{})
+	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_OTHER_DELAYED"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: now}, nil, nil, broker.SessionBinding{})
 	if row := s.feedDataHealth(quoteSourceID, now); row.Access == nil || row.Access.Code != 354 || !row.NextAttempt.Equal(delayed.Access.RetryAt) {
 		t.Fatal("same-mode success hid another segment's source restriction")
 	}
-	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_LIVE"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataLive, ReceivedAt: now}, nil, nil, ibkr.ConnectorSessionBinding{})
+	s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_LIVE"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataLive, ReceivedAt: now}, nil, nil, broker.SessionBinding{})
 	row := s.feedDataHealth(quoteSourceID, now)
 	if row.State != "current" || row.DataType != "mixed" || row.Access == nil || row.Access.Code != 354 || len(row.ProblemIDs) != 0 {
 		t.Fatalf("mixed receipt became a source problem or lost access evidence: %+v", row)
@@ -96,10 +97,10 @@ func TestDataHealthDelayedSuccessDoesNotHideFeedProblems(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Server{now: func() time.Time { return now }}
-			s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_DELAYED"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: now}, nil, nil, ibkr.ConnectorSessionBinding{})
+			s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_DELAYED"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: now}, nil, nil, broker.SessionBinding{})
 			problem := projectQuoteSource(tc.quote, tc.err, now)
 			problem.Access = tc.access
-			s.recordFeedHealth(problem, nil, ibkr.ConnectorSessionBinding{})
+			s.recordFeedHealth(problem, nil, broker.SessionBinding{})
 			row := s.feedDataHealth(quoteSourceID, now)
 			if row.State != "limited" || len(row.ProblemIDs) != 1 || !strings.Contains(row.Receiving, "delayed") {
 				t.Fatalf("delayed receipt hid a feed problem: %+v", row)
@@ -121,13 +122,13 @@ func TestDataHealthDelayedSuccessDoesNotHideFeedProblems(t *testing.T) {
 func TestDataHealthHistoryTracksServiceNotRequestedWindow(t *testing.T) {
 	now := time.Now()
 	s := &Server{now: func() time.Time { return now }}
-	s.observeHistorySource(true, nil, nil, ibkr.ConnectorSessionBinding{})
-	s.observeHistorySource(false, ibkr.ErrContractNoDefinition, nil, ibkr.ConnectorSessionBinding{})
-	s.observeHistorySource(false, nil, nil, ibkr.ConnectorSessionBinding{})
+	s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
+	s.observeHistorySource(false, ibkr.ErrContractNoDefinition, nil, broker.SessionBinding{})
+	s.observeHistorySource(false, nil, nil, broker.SessionBinding{})
 	if row := s.feedDataHealth(historySourceID, now); row.State != "current" || row.Failure != nil {
 		t.Fatalf("empty instrument history poisoned service: %+v", row)
 	}
-	s.observeHistorySource(false, &ibkr.HistoricalRequestError{Category: rpc.SourceFailurePacing}, nil, ibkr.ConnectorSessionBinding{})
+	s.observeHistorySource(false, &ibkr.HistoricalRequestError{Category: rpc.SourceFailurePacing}, nil, broker.SessionBinding{})
 	if row := s.feedDataHealth(historySourceID, now); row.State != "limited" || row.Failure == nil || row.Failure.Code != rpc.SourceFailurePacing {
 		t.Fatalf("provider failure lost: %+v", row)
 	}
@@ -138,12 +139,12 @@ func TestDataHealthDeniedQuoteShellKeepsSourceRestriction(t *testing.T) {
 	s := &Server{now: func() time.Time { return now }}
 	row := projectQuoteSource(&rpc.Quote{}, nil, now)
 	row.Access = &rpc.DataAccessObservation{Code: 200, ObservedAt: now}
-	s.recordFeedHealth(row, nil, ibkr.ConnectorSessionBinding{})
+	s.recordFeedHealth(row, nil, broker.SessionBinding{})
 	if len(s.dataHealth.feedObservations) != 0 {
 		t.Fatal("contract refusal became a source problem")
 	}
 	row.Access = &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now}
-	s.recordFeedHealth(row, nil, ibkr.ConnectorSessionBinding{})
+	s.recordFeedHealth(row, nil, broker.SessionBinding{})
 	got := s.feedDataHealth(quoteSourceID, now)
 	if got.State == "current" || got.Failure == nil || got.Failure.Code != rpc.SourceFailureNotEntitled || got.Access == nil || len(got.ProblemIDs) != 1 {
 		t.Fatalf("quote shell hid a source restriction: %+v", got)
@@ -162,7 +163,7 @@ func TestDataHealthDiscardsLegacyInstrumentDiagnostics(t *testing.T) {
 	if len(s.dataHealth.observations) != 1 {
 		t.Fatal("legacy instrument health was restored")
 	}
-	s.recordDataHealth(rpc.DataSourceHealth{ID: "quote:legacy"}, nil, ibkr.ConnectorSessionBinding{}, false)
+	s.recordDataHealth(rpc.DataSourceHealth{ID: "quote:legacy"}, nil, broker.SessionBinding{}, false)
 	s.persistDataHealthHistory(t.Context())
 	raw, _, err := loadMarketState(s.coreStore, "data-health-diagnostics", dataHealthHistoryKind)
 	if err != nil || strings.Contains(string(raw), "legacy") {
@@ -173,7 +174,7 @@ func TestDataHealthDiscardsLegacyInstrumentDiagnostics(t *testing.T) {
 func TestDataHealthCatalogueUsesProducerSourceIdentity(t *testing.T) {
 	now := time.Now()
 	s := &Server{now: func() time.Time { return now }}
-	s.observeEventHealth(rpc.MarketEventsResult{AsOf: now, SourceHealth: []rpc.SourceHealth{{Source: "borrow_fee", Status: rpc.SourceStatusOK, AsOf: now, RefreshState: rpc.SourceRefreshNotDue}}}, nil, ibkr.ConnectorSessionBinding{})
+	s.observeEventHealth(rpc.MarketEventsResult{AsOf: now, SourceHealth: []rpc.SourceHealth{{Source: "borrow_fee", Status: rpc.SourceStatusOK, AsOf: now, RefreshState: rpc.SourceRefreshNotDue}}}, nil, broker.SessionBinding{})
 	rows, _ := s.collectDataHealth(now)
 	matched := 0
 	for _, row := range rows {

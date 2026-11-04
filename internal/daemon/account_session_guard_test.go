@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func TestAccountSummaryFinalSessionGuardRetiresAllAuthorityTogether(t *testing.T) {
@@ -29,7 +29,7 @@ func TestAccountSummaryFinalSessionGuardRetiresAllAuthorityTogether(t *testing.T
 				BaseCurrencyLedger: &rpc.CurrencyExposure{Currency: "USD", CashObserved: true, CashCcy: 12000, WebCash: web},
 				CurrencyExposure:   []rpc.CurrencyExposure{{Currency: "USD", CashObserved: true, CashCcy: 12000, WebCash: web}},
 				CashLedger:         &rpc.CashLedgerHealth{Source: "ibkr-web-api", Status: "ok", AsOf: now}}
-			authority := accountSummaryAuthority{Provenance: ibkrlib.AccountSummaryProvenanceRequest, AsOf: now,
+			authority := accountSummaryAuthority{Provenance: broker.ProvenanceRequest, AsOf: now,
 				NetLiquidationAvailable: true, TotalCashAvailable: true, AvailableFundsAvailable: true, BaseCurrencyAvailable: true,
 				ExcessLiquidityAvailable: true, InitialMarginAvailable: true, MaintenanceMarginAvailable: true}
 			got := finalizeAccountSummarySession(res, authority, tc.session && sameBrokerScope(scope, tc.scope))
@@ -50,7 +50,7 @@ func TestAccountSummaryFinalSessionGuardRetiresAllAuthorityTogether(t *testing.T
 
 func TestAccountSummaryFinalSessionGuardPreservesCurrentEvidence(t *testing.T) {
 	now := time.Date(2026, 10, 1, 10, 0, 0, 0, time.UTC)
-	authority := accountSummaryAuthority{Provenance: ibkrlib.AccountSummaryProvenanceRequest, AsOf: now, TotalCashAvailable: true}
+	authority := accountSummaryAuthority{Provenance: broker.ProvenanceRequest, AsOf: now, TotalCashAvailable: true}
 	res := &rpc.AccountResult{AccountID: "DU1234567", Authority: &rpc.AccountDataAuthority{Availability: rpc.AccountDataAvailable},
 		CashLedger: &rpc.CashLedgerHealth{Status: "partial", AsOf: now}}
 	before := *res

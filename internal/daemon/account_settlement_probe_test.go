@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -15,8 +16,8 @@ func TestSettlementComparisonWireHasNoFinancialAuthority(t *testing.T) {
 	now := time.Now().UTC()
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
-	normal := func(context.Context, time.Duration) (*ibkrlib.RawAccountSummary, ibkrlib.AccountSummaryProvenance, error) {
-		return &ibkrlib.RawAccountSummary{AccountID: "DU1234567", AsOf: now, NetLiquidation: new(7654321.), TotalCashValue: new(9876543.), CurrencyLedger: map[string]ibkrlib.CurrencyLedger{"EUR": {SettledCash: 1234567, SettledCashObserved: true}}, Raw: map[string]string{"private": "account balances"}, SettlementObservation: &ibkrlib.AccountSettlementObservation{AsOf: now, Callbacks: 1, Rows: []ibkrlib.AccountSettlementRow{{Currency: "EUR", Source: "account_total", Finite: true}}}}, ibkrlib.AccountSummaryProvenanceRequest, nil
+	normal := func(context.Context, time.Duration) (*broker.AccountSummary, broker.Provenance, error) {
+		return &broker.AccountSummary{AccountID: "DU1234567", AsOf: now, NetLiquidation: new(7654321.), TotalCashValue: new(9876543.), CurrencyLedger: map[string]broker.CurrencyLedger{"EUR": {SettledCash: 1234567, SettledCashObserved: true}}, Raw: map[string]string{"private": "account balances"}, Settlement: &broker.SettlementObservation{AsOf: now, Callbacks: 1, Rows: []broker.SettlementRow{{Currency: "EUR", Source: "account_total", Finite: true}}}}, broker.ProvenanceRequest, nil
 	}
 	probeCalls := 0
 	probe := func(context.Context, time.Duration) ibkrlib.AccountSettlementProbe {
@@ -49,16 +50,16 @@ func TestSettlementComparisonBudgetAndScopeStopBeforeProbe(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), duration)
 			defer cancel()
 			normalCalls, probeCalls, currentCalls := 0, 0, 0
-			normal := func(context.Context, time.Duration) (*ibkrlib.RawAccountSummary, ibkrlib.AccountSummaryProvenance, error) {
+			normal := func(context.Context, time.Duration) (*broker.AccountSummary, broker.Provenance, error) {
 				normalCalls++
 				if mode == "normal_error" {
 					return nil, "", context.DeadlineExceeded
 				}
-				provenance := ibkrlib.AccountSummaryProvenanceRequest
+				provenance := broker.ProvenanceRequest
 				if mode == "fallback" {
-					provenance = ibkrlib.AccountSummaryProvenanceCachedFallback
+					provenance = broker.ProvenanceCachedFallback
 				}
-				return &ibkrlib.RawAccountSummary{SettlementObservation: &ibkrlib.AccountSettlementObservation{}}, provenance, nil
+				return &broker.AccountSummary{Settlement: &broker.SettlementObservation{}}, provenance, nil
 			}
 			probe := func(context.Context, time.Duration) ibkrlib.AccountSettlementProbe {
 				probeCalls++

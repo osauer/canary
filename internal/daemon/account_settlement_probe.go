@@ -6,6 +6,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -36,14 +38,12 @@ func (s *Server) handleAccountSummaryRequest(ctx context.Context, req *rpc.Reque
 		return nil, ibkrlib.ErrIBKRUnavailable
 	}
 	return buildSettlementComparison(ctx,
-		func(readCtx context.Context, budget time.Duration) (*ibkrlib.RawAccountSummary, ibkrlib.AccountSummaryProvenance, error) {
-			return c.RequestAccountSummaryWithProvenance(readCtx, budget)
-		},
+		s.adapterFor(c).Summary,
 		c.RequestSettlementCashProbe,
 		func() bool { return c.SessionCurrent(session) && sameBrokerScope(scope, s.currentBrokerStateScope()) })
 }
 
-func buildSettlementComparison(ctx context.Context, normal func(context.Context, time.Duration) (*ibkrlib.RawAccountSummary, ibkrlib.AccountSummaryProvenance, error), probeRead func(context.Context, time.Duration) ibkrlib.AccountSettlementProbe, current func() bool) (*rpc.AccountSettlementComparison, error) {
+func buildSettlementComparison(ctx context.Context, normal func(context.Context, time.Duration) (*broker.AccountSummary, broker.Provenance, error), probeRead func(context.Context, time.Duration) ibkrlib.AccountSettlementProbe, current func() bool) (*rpc.AccountSettlementComparison, error) {
 	// Reserve three seconds for the bounded probe plus ordered cancellation.
 	deadline, ok := ctx.Deadline()
 	if !ok || time.Until(deadline) < 4*time.Second {
@@ -62,14 +62,14 @@ func buildSettlementComparison(ctx context.Context, normal func(context.Context,
 	if !current() {
 		return nil, ibkrlib.ErrIBKRUnavailable
 	}
-	result := &rpc.AccountSettlementComparison{NormalStatus: "completed", NormalObservation: accountSettlementObservation(raw, provenance)}
-	if provenance != ibkrlib.AccountSummaryProvenanceRequest {
+	result := &rpc.AccountSettlementComparison{NormalStatus: "completed", NormalObservation: accountSettlementObservation(raw.Settlement, provenance)}
+	if provenance != broker.ProvenanceRequest {
 		result.NormalStatus = "completed_without_request_rows"
 	}
 	probe := probeRead(ctx, 2*time.Second)
 	result.Probe = rpc.AccountSettlementProbe{Status: probe.Status, CancelStatus: probe.CancelStatus, BrokerErrorCode: probe.BrokerErrorCode}
 	if probe.Observation != nil {
-		result.Probe.Observation = accountSettlementObservation(&ibkrlib.RawAccountSummary{SettlementObservation: probe.Observation}, ibkrlib.AccountSummaryProvenanceRequest)
+		result.Probe.Observation = accountSettlementObservation(brokerIBKR.Settlement(probe.Observation), broker.ProvenanceRequest)
 	}
 	if !current() {
 		return nil, ibkrlib.ErrIBKRUnavailable

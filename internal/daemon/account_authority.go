@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
@@ -23,19 +24,26 @@ const accountSnapshotFreshFor = 15 * time.Second
 // shorter poll only determines how soon it notices that threshold was crossed.
 const accountPnLMonitorEvery = 15 * time.Second
 
+// accountReader is the seam the account snapshot reads through: the session
+// it binds to and the one-shot summary.
+type accountReader interface {
+	broker.Session
+	broker.Account
+}
+
 type accountSnapshotSource struct {
-	connector *ibkrlib.Connector
-	session   ibkrlib.ConnectorSessionBinding
-	scope     brokerStateScope
+	reader  accountReader
+	binding broker.SessionBinding
+	scope   brokerStateScope
 }
 
 func (s accountSnapshotSource) same(other accountSnapshotSource) bool {
-	return s.connector == other.connector && s.session == other.session && sameBrokerScope(s.scope, other.scope)
+	return s.reader == other.reader && s.binding == other.binding && sameBrokerScope(s.scope, other.scope)
 }
 
 type accountSnapshot struct {
-	raw        *ibkrlib.RawAccountSummary
-	provenance ibkrlib.AccountSummaryProvenance
+	raw        *broker.AccountSummary
+	provenance broker.Provenance
 	observedAt time.Time
 	source     accountSnapshotSource
 }
@@ -61,7 +69,7 @@ type accountSnapshotAuthority struct {
 	freshFor time.Duration
 }
 
-type accountSnapshotFetch func(context.Context) (*ibkrlib.RawAccountSummary, ibkrlib.AccountSummaryProvenance, error)
+type accountSnapshotFetch func(context.Context) (*broker.AccountSummary, broker.Provenance, error)
 
 func (a *accountSnapshotAuthority) read(ctx, operationCtx context.Context, source accountSnapshotSource, fetch accountSnapshotFetch) (accountSnapshot, error) {
 	if ctx == nil {
@@ -85,7 +93,7 @@ func (a *accountSnapshotAuthority) read(ctx, operationCtx context.Context, sourc
 			freshFor = accountSnapshotFreshFor
 		}
 		if a.hasValue && a.current.source.same(source) &&
-			a.current.provenance == ibkrlib.AccountSummaryProvenanceRequest &&
+			a.current.provenance == broker.ProvenanceRequest &&
 			!a.current.observedAt.IsZero() {
 			age := now.Sub(a.current.observedAt)
 			if age >= 0 && age < freshFor {
@@ -130,16 +138,16 @@ func (a *accountSnapshotAuthority) read(ctx, operationCtx context.Context, sourc
 func (a *accountSnapshotAuthority) runFlight(ctx context.Context, flight *accountSnapshotFlight, fetch accountSnapshotFetch) {
 	raw, provenance, err := fetch(ctx)
 	result := accountSnapshot{
-		raw: cloneRawAccountSummary(raw), provenance: provenance, source: flight.source,
+		raw: cloneAccountSummary(raw), provenance: provenance, source: flight.source,
 	}
-	if err == nil && raw != nil && provenance == ibkrlib.AccountSummaryProvenanceRequest {
+	if err == nil && raw != nil && provenance == broker.ProvenanceRequest {
 		result.observedAt = raw.AsOf.UTC()
 	}
 
 	a.mu.Lock()
 	flight.result = result
 	flight.err = err
-	if err == nil && result.raw != nil && provenance == ibkrlib.AccountSummaryProvenanceRequest && !result.observedAt.IsZero() {
+	if err == nil && result.raw != nil && provenance == broker.ProvenanceRequest && !result.observedAt.IsZero() {
 		a.current = cloneAccountSnapshot(result)
 		a.hasValue = true
 	}
@@ -151,19 +159,19 @@ func (a *accountSnapshotAuthority) runFlight(ctx context.Context, flight *accoun
 }
 
 func cloneAccountSnapshot(in accountSnapshot) accountSnapshot {
-	in.raw = cloneRawAccountSummary(in.raw)
+	in.raw = cloneAccountSummary(in.raw)
 	return in
 }
 
-func cloneRawAccountSummary(in *ibkrlib.RawAccountSummary) *ibkrlib.RawAccountSummary {
+func cloneAccountSummary(in *broker.AccountSummary) *broker.AccountSummary {
 	if in == nil {
 		return nil
 	}
 	out := *in
-	if in.SettlementObservation != nil {
-		observation := *in.SettlementObservation
-		observation.Rows = append([]ibkrlib.AccountSettlementRow(nil), observation.Rows...)
-		out.SettlementObservation = &observation
+	if in.Settlement != nil {
+		observation := *in.Settlement
+		observation.Rows = append([]broker.SettlementRow(nil), observation.Rows...)
+		out.Settlement = &observation
 	}
 	out.NetLiquidation = cloneFloat64Ptr(in.NetLiquidation)
 	out.BuyingPower = cloneFloat64Ptr(in.BuyingPower)
@@ -181,7 +189,7 @@ func cloneRawAccountSummary(in *ibkrlib.RawAccountSummary) *ibkrlib.RawAccountSu
 	out.LookAheadAvailable = cloneFloat64Ptr(in.LookAheadAvailable)
 	out.LookAheadExcess = cloneFloat64Ptr(in.LookAheadExcess)
 	if in.CurrencyLedger != nil {
-		out.CurrencyLedger = make(map[string]ibkrlib.CurrencyLedger, len(in.CurrencyLedger))
+		out.CurrencyLedger = make(map[string]broker.CurrencyLedger, len(in.CurrencyLedger))
 		maps.Copy(out.CurrencyLedger, in.CurrencyLedger)
 	}
 	if in.Raw != nil {
@@ -191,15 +199,15 @@ func cloneRawAccountSummary(in *ibkrlib.RawAccountSummary) *ibkrlib.RawAccountSu
 	return &out
 }
 
-func (s *Server) readAccountSnapshot(ctx context.Context, connector *ibkrlib.Connector) (accountSnapshot, error) {
-	if connector == nil {
+func (s *Server) readAccountSnapshot(ctx context.Context, reader accountReader) (accountSnapshot, error) {
+	if reader == nil {
 		return accountSnapshot{}, ibkrlib.ErrIBKRUnavailable
 	}
-	session, ok := connector.CaptureSession()
+	binding, ok := reader.Capture()
 	if !ok {
 		return accountSnapshot{}, ibkrlib.ErrIBKRUnavailable
 	}
-	source := accountSnapshotSource{connector: connector, session: session, scope: s.currentBrokerStateScope()}
+	source := accountSnapshotSource{reader: reader, binding: binding, scope: s.currentBrokerStateScope()}
 	operationCtx := context.Background()
 	s.mu.Lock()
 	if s.serverCtx != nil {
@@ -207,15 +215,15 @@ func (s *Server) readAccountSnapshot(ctx context.Context, connector *ibkrlib.Con
 	}
 	s.mu.Unlock()
 
-	result, err := s.accountSnapshots.read(ctx, operationCtx, source, func(parent context.Context) (*ibkrlib.RawAccountSummary, ibkrlib.AccountSummaryProvenance, error) {
+	result, err := s.accountSnapshots.read(ctx, operationCtx, source, func(parent context.Context) (*broker.AccountSummary, broker.Provenance, error) {
 		requestCtx, cancel := context.WithTimeout(parent, 8*time.Second)
 		defer cancel()
-		return connector.RequestAccountSummaryWithProvenance(requestCtx, 8*time.Second)
+		return reader.Summary(requestCtx, 8*time.Second)
 	})
 	if err != nil {
 		return accountSnapshot{}, err
 	}
-	if !connector.SessionCurrent(session) || !sameBrokerScope(source.scope, s.currentBrokerStateScope()) {
+	if !reader.Current(binding) || !sameBrokerScope(source.scope, s.currentBrokerStateScope()) {
 		return accountSnapshot{}, ibkrlib.ErrIBKRUnavailable
 	}
 	if result.raw != nil && brokerScopeAccountConcrete(source.scope.Account) &&

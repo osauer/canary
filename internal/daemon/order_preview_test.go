@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/discover"
@@ -361,10 +362,10 @@ func mintPreviewTokenForConfirmTest(t *testing.T, srv *Server, whatIf rpc.OrderW
 	return token
 }
 
-func testAccountSnapshot(at time.Time, value float64) *ibkrlib.RawAccountSummary {
-	return &ibkrlib.RawAccountSummary{
+func testAccountSnapshot(at time.Time, value float64) *broker.AccountSummary {
+	return &broker.AccountSummary{
 		AccountID: "DU123", Currency: "USD", NetLiquidation: &value, AsOf: at,
-		CurrencyLedger: map[string]ibkrlib.CurrencyLedger{"EUR": {ExchangeRate: 1.1}},
+		CurrencyLedger: map[string]broker.CurrencyLedger{"EUR": {ExchangeRate: 1.1}},
 		Raw:            map[string]string{"NetLiquidation": "100"},
 	}
 }
@@ -373,9 +374,9 @@ func TestAccountSnapshotAuthorityDoesNotCrossBrokerScope(t *testing.T) {
 	now := time.Date(2026, 7, 22, 14, 0, 0, 0, time.UTC)
 	authority := accountSnapshotAuthority{now: func() time.Time { return now }}
 	var calls atomic.Int32
-	fetch := func(context.Context) (*ibkrlib.RawAccountSummary, ibkrlib.AccountSummaryProvenance, error) {
+	fetch := func(context.Context) (*broker.AccountSummary, broker.Provenance, error) {
 		calls.Add(1)
-		return testAccountSnapshot(now, 100), ibkrlib.AccountSummaryProvenanceRequest, nil
+		return testAccountSnapshot(now, 100), broker.ProvenanceRequest, nil
 	}
 	first := accountSnapshotSource{scope: brokerStateScope{Account: "DU123", Mode: rpc.AccountModePaper}}
 	second := accountSnapshotSource{scope: brokerStateScope{Account: "DU123", Mode: rpc.AccountModeLive}}
