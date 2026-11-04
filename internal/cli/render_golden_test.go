@@ -822,7 +822,7 @@ func goldenMandateNoRoom() rpc.MandateRiskResult {
 	v := res.Verdict
 	v.Status = mandate.StatusReduce
 	c := &v.Capital
-	c.EquityBase, c.TaxReserveBase, c.RiskBase, c.DrawdownBase, c.DrawdownPct, c.Room, c.BudgetAnnualSD = 240000, 85000, 155000, 75000, 31.91, 0, 0
+	c.EquityBase, c.TaxReserveBase, c.RiskBase, c.DrawdownBase, c.DrawdownPct, c.Room, c.BudgetAnnualSD = 180000, 63750, 116250, 56250, 31.91, 0, 0
 	v.Risk.RatioToBudget = math.Inf(1)
 	v.Loss.RoomBase, v.Loss.RatioToRoom = 0, math.Inf(1)
 	v.Stresses.GapCapBase, v.Stresses.GapBreaches = 0, []string{"SYNA", "SYNB"}
