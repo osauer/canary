@@ -661,19 +661,23 @@ pages-build: ## Build the deployable Pages artifact from tracked sources
 	@node scripts/check-docs-html-structure.mjs dist/pages
 	@node scripts/check-pages-links.mjs dist/pages
 
-# The published statement-coverage report for pkg/ibkr, the surface listing
-# sites read instead of a README claim. Runs after pages-build, in the deploy
-# workflow only: the tests already run in the check legs, and the report is
-# not an input to any link check.
-pages-coverage: ## Write pkg/ibkr's coverage report and badge JSON into dist/pages/coverage
+# The published statement-coverage reports for pkg/ibkr and pkg/futu, the
+# surface listing sites read instead of a README claim. Runs after
+# pages-build, in the deploy workflow only: the tests already run in the
+# check legs, and the report is not an input to any link check. pkg/futu is
+# measured on the client package alone, as test-pkg's floor measures it.
+pages-coverage: ## Write pkg/ibkr's and pkg/futu's coverage reports and badge JSON into dist/pages/coverage
 	@mkdir -p dist/pages/coverage
 	@go test -count=1 -coverprofile=dist/pages/coverage/pkg-ibkr.cov ./pkg/ibkr/... >/dev/null
-	@go tool cover -html=dist/pages/coverage/pkg-ibkr.cov -o dist/pages/coverage/pkg-ibkr.html
-	@pct="$$(go tool cover -func=dist/pages/coverage/pkg-ibkr.cov | awk '/^total:/ {print $$NF}')"; \
+	@go test -count=1 -coverpkg=./pkg/futu -coverprofile=dist/pages/coverage/pkg-futu.cov ./pkg/futu >/dev/null
+	@for pkg in ibkr futu; do \
+		go tool cover -html=dist/pages/coverage/pkg-$$pkg.cov -o dist/pages/coverage/pkg-$$pkg.html; \
+		pct="$$(go tool cover -func=dist/pages/coverage/pkg-$$pkg.cov | awk '/^total:/ {print $$NF}')"; \
 		n="$${pct%\%}"; n="$${n%.*}"; \
 		color=red; [ "$$n" -ge 60 ] && color=yellow; [ "$$n" -ge 80 ] && color=brightgreen; \
-		printf '{"schemaVersion":1,"label":"pkg/ibkr coverage","message":"%s","color":"%s"}\n' "$$pct" "$$color" > dist/pages/coverage/pkg-ibkr.json; \
-		echo "pages-coverage: pkg/ibkr $$pct -> dist/pages/coverage/"
+		printf '{"schemaVersion":1,"label":"pkg/%s coverage","message":"%s","color":"%s"}\n' "$$pkg" "$$pct" "$$color" > dist/pages/coverage/pkg-$$pkg.json; \
+		echo "pages-coverage: pkg/$$pkg $$pct -> dist/pages/coverage/"; \
+	done
 
 # Pull the current S&P-500 membership list from Wikipedia and rewrite
 # internal/breadth/spx/members_data.go. Invoked by `make release` so a
@@ -709,9 +713,29 @@ fmt: ## Apply gofmt -w to every tracked / non-gitignored .go file
 # inputs, so nothing green is taken on faith — a flake reruns on any
 # input change. test/integration keeps -count=1 below because gateway
 # state is invisible to the cache key.
-test-pkg: trading-package-scope-check ## Run pkg/ibkr/... tests under -race in both build modes (TWS protocol library; cached when unchanged)
+#
+# pkg/futu (the OpenD client) runs under -race beside pkg/ibkr and then
+# again for its coverage floor: 80 percent of the client package alone
+# (-coverpkg=./pkg/futu; the simulator and the generated protobuf code do
+# not count), measured with the awk the Pages badge uses, so a commit below
+# the bar fails this leg on every machine and in CI. The trading-tagged
+# build of pkg/futu arrives with its order writes, on its own line outside
+# TRADING_PKG_TESTS so trading-package-scope-check stays exact.
+test-pkg: trading-package-scope-check ## Run pkg/ibkr/... (both build modes) and pkg/futu/... tests under -race, then hold pkg/futu to its 80% coverage floor
 	$(LEG) pkg go test -race -timeout=180s ./pkg/ibkr/...
 	$(LEG) pkg-trading go test -race -timeout=180s -tags trading $(TRADING_PKG_TESTS)
+	$(LEG) pkg-futu go test -race -timeout=180s ./pkg/futu/...
+	@set -eu; \
+		prof="$$(mktemp "$${TMPDIR:-/tmp}/pkg-futu-cover.XXXXXX")"; \
+		trap 'rm -f "$$prof"' EXIT HUP INT TERM; \
+		go test -coverpkg=./pkg/futu -coverprofile="$$prof" ./pkg/futu >/dev/null; \
+		pct="$$(go tool cover -func="$$prof" | awk '/^total:/ {print $$NF}')"; \
+		n="$${pct%\%}"; n="$${n%.*}"; \
+		if [ "$$n" -lt 80 ]; then \
+			echo "test-pkg: pkg/futu statement coverage $$pct is below the 80% floor (go test -coverpkg=./pkg/futu ./pkg/futu)" >&2; \
+			exit 1; \
+		fi; \
+		echo "test-pkg: pkg/futu statement coverage $$pct (floor 80%)"
 
 # Command entrypoints, the public Go client (the root package and its fake
 # daemon in canarytest) and the hermetic registry metadata helper are shipped
