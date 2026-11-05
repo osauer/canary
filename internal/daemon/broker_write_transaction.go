@@ -154,7 +154,7 @@ func (s *Server) daemonPreAuthorisedOriginBlockers(status rpc.TradingStatus) []r
 	if !policy.preAuthorised(grant.Bucket) {
 		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: fmt.Sprintf("bucket %q is not listed under [authority].pre_authorised in the active protection policy", grant.Bucket), Action: "List the bucket under [authority].pre_authorised and bump policy_version, or submit by hand."}}
 	}
-	if disarmed := s.standingAuthorityBlocker(context.Background(), status.Account, status.Mode); disarmed != nil {
+	if disarmed := s.automaticGrantBlocker(context.Background(), status.Account, status.Mode); disarmed != nil {
 		return []rpc.TradingBlocker{*disarmed}
 	}
 	return nil

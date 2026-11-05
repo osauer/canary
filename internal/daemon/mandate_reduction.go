@@ -449,7 +449,9 @@ func mandateBookDrift(in mandate.Input, pos *rpc.PositionsResult, now time.Time)
 		}
 		return qty, names
 	}
-	was, wasNames := sum(in.Legs)
+	// The verdict splits a holding the owner and a strategy share; the broker
+	// holds it whole.
+	was, wasNames := sum(mandateMergedLegs(in.Legs))
 	is, isNames := sum(held)
 	var diffs []string
 	for id, q := range was {

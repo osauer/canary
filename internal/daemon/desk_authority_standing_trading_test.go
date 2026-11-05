@@ -77,6 +77,37 @@ func TestAutomaticArmingStartsAFullWindow(t *testing.T) {
 	}
 }
 
+// A disarm and a new arming between two scheduler passes leave the record
+// waiting with its old clock, and the new arming still starts a full window
+// (independent review, 2026-11-05: one order went out at once on the rearm).
+func TestAutomaticRearmBetweenCyclesStartsAFullWindow(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
+	broker := &brokerCallLog{}
+	broker.install(rig.server)
+	prop := rig.stopProposal()
+	revision := rig.install(prop)
+	rig.cycle()
+	rig.notice(rig.record(prop.Key, revision))
+	rig.advance(31 * time.Minute)
+	rig.disarmStanding()
+	rig.advance(time.Second)
+	rig.armStanding("protect")
+	rig.cycle()
+	if broker.count() != 0 {
+		t.Fatalf("broker calls right after the rearm = %d, want 0; record = %+v", broker.count(), rig.record(prop.Key, revision))
+	}
+	rig.notice(rig.record(prop.Key, revision))
+	if rec := rig.record(prop.Key, revision); rec.State != rpc.TradeProposalAutomaticPending || rec.SubmitAt.Before(rig.now.Add(30*time.Minute)) {
+		t.Fatalf("record after the rearm = %+v, want a full window from %v", rec, rig.now)
+	}
+	rig.advance(31 * time.Minute)
+	rig.cycle()
+	if broker.count() != 1 {
+		t.Fatalf("broker calls after the new window = %d, want 1", broker.count())
+	}
+}
+
 // Standing authority survives a daemon restart and needs no running
 // controller; a breach holding Fully armed at Protection still allows it.
 func TestAutomaticStandingAuthorityStandsWithoutAController(t *testing.T) {
@@ -107,9 +138,9 @@ func TestAutomaticDisarmReachesTheWireGate(t *testing.T) {
 	t.Parallel()
 	rig := newAutomaticTradingRig(t, automaticTrailingStopAuthority)
 	status := rig.server.currentTradingStatus()
-	rig.server.automaticGrant.Store(&automaticWriteGrant{Key: "k", Revision: "r", Bucket: preAuthorisedBucketTrailingStop})
-	defer rig.server.automaticGrant.Store(nil)
 	rig.armStanding("protect")
+	rig.server.automaticGrant.Store(&automaticWriteGrant{Key: "k", Revision: "r", Bucket: preAuthorisedBucketTrailingStop, ArmedAt: rig.server.standingAuthorityConfirmedAt(t.Context())})
+	defer rig.server.automaticGrant.Store(nil)
 	if got := rig.server.standingAuthorityBlocker(t.Context(), rig.scope.Account, rig.scope.Mode); got != nil {
 		t.Fatalf("armed: %+v", got)
 	}
@@ -129,5 +160,15 @@ func TestAutomaticDisarmReachesTheWireGate(t *testing.T) {
 	rig.armStanding("protect")
 	if got := rig.server.standingAuthorityBlocker(t.Context(), "another-account", rig.scope.Mode); got == nil {
 		t.Fatal("authority for another account passed")
+	}
+	// A rearm landing after the cycle's read: the grant names the old arming.
+	rig.advance(time.Second)
+	rig.disarmStanding()
+	rig.armStanding("protect")
+	if blockers := rig.server.daemonPreAuthorisedOriginBlockers(status); !automaticDisarmedRefusal(blockers) {
+		t.Fatalf("origin blockers for a grant of the old arming = %+v", blockers)
+	}
+	if _, err := rig.server.lockStandingAuthorityForWire(t.Context(), rpc.TradingStatus{Account: rig.scope.Account, Mode: rig.scope.Mode}); !errors.Is(err, ErrTradingDisabled) {
+		t.Fatalf("wire lock for a grant of the old arming: %v", err)
 	}
 }

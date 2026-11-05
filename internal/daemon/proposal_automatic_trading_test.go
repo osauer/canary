@@ -678,7 +678,7 @@ func TestAutomaticOriginIsAcceptedOnlyUnderAGrantForAListedBucket(t *testing.T) 
 	}
 	// A grant for the listed bucket passes the origin gate; the other
 	// gates are untouched by the origin.
-	rig.server.automaticGrant.Store(&automaticWriteGrant{Key: "k", Revision: "r", Bucket: preAuthorisedBucketOptionLossExit})
+	rig.server.automaticGrant.Store(&automaticWriteGrant{Key: "k", Revision: "r", Bucket: preAuthorisedBucketOptionLossExit, ArmedAt: rig.server.standingAuthorityConfirmedAt(t.Context())})
 	if blockers := rig.server.brokerWriteOriginBlockers(status, rpc.OrderOriginDaemonPreAuthorised); len(blockers) != 0 {
 		t.Fatalf("origin blockers for listed bucket = %+v", blockers)
 	}
