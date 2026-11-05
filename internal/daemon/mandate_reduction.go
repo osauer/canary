@@ -492,10 +492,15 @@ func (e *proposalEngine) mandateHeldRows(policy protectionPolicy, status rpc.Pro
 	}
 	note := "held: " + why + "; not sent, by the daemon or by hand, until a fresh verdict confirms the sizing; the veto window keeps running"
 	rows := mandatePositionRows(pos)
+	pol := e.rulebookPolicy()
 	var out []rpc.TradeProposal
 	for _, prev := range standing {
 		row, ok := rows[mandateLegID(rpc.PositionView{ConID: prev.Contract.ConID})]
 		if !ok || row.Quantity != prev.PositionQuantity {
+			continue
+		}
+		if mandateHedgePut(pol, row) {
+			st.LeftOut = append(st.LeftOut, legDesc(row)+mandateProtectionLeftOut)
 			continue
 		}
 		full := int(math.Floor(math.Abs(row.Quantity) + 1e-9))
@@ -532,6 +537,16 @@ func (e *proposalEngine) mandateHeldRows(policy protectionPolicy, status rpc.Pro
 	}
 	st.Reason = fmt.Sprintf("%d standing %s held: %s", len(out), pluralNoun(len(out), "row"), why)
 	return out, st
+}
+
+const mandateProtectionLeftOut = " (protection: the reduction never sells it)"
+
+// mandateHedgePut is a hedge-listed long put, which stays whatever it measures
+// as, in a fresh batch and in one held over from before: the mandate flattens
+// to its hedges (owner, 2026-10-14; 2026-11-04 21:04 CET, after the plan named
+// the SPY puts).
+func mandateHedgePut(pol risk.RulebookPolicy, row rpc.PositionView) bool {
+	return row.Quantity > 0 && strings.EqualFold(strings.TrimSpace(row.Right), "P") && pol.IsHedgeSymbol(row.Symbol)
 }
 
 // mandatePositionRows indexes the held stock and option rows by leg id.
@@ -640,12 +655,8 @@ func (e *proposalEngine) mandateCandidates(policy protectionPolicy, in mandateRe
 		case option && leg.Quantity < 0:
 			leftOut = append(leftOut, name+" (a short option: buying it back is yours, the reduction never does)")
 			continue
-		case option && (strings.EqualFold(strings.TrimSpace(row.Right), "P") && pol.IsHedgeSymbol(row.Symbol) ||
-			budgetLegRole(cfg, row, pos, unitLegs, ambiguous, pol, now) == risk.IndexPutRoleProtection):
-			// A hedge-listed long put stays whatever it measures as: the
-			// mandate flattens to its hedges (owner, 2026-10-14; 2026-11-04
-			// 21:04 CET, after the plan named the SPY puts).
-			leftOut = append(leftOut, name+" (protection: the reduction never sells it)")
+		case option && (mandateHedgePut(pol, row) || budgetLegRole(cfg, row, pos, unitLegs, ambiguous, pol, now) == risk.IndexPutRoleProtection):
+			leftOut = append(leftOut, name+mandateProtectionLeftOut)
 			continue
 		case option && budgetLegRole(cfg, row, pos, unitLegs, ambiguous, pol, now) == risk.IndexPutRoleUnclassified:
 			leftOut = append(leftOut, name+" (index-put classification unavailable; reduction waits for complete position data)")

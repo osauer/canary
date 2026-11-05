@@ -106,6 +106,24 @@ func TestReductionIncompleteLongBookLeavesTheIndexPutsAlone(t *testing.T) {
 	}
 }
 
+// A batch sized before that rule stands over a restart while no verdict can be
+// trusted: holding it must not keep naming the put as a sale (2026-11-05, the
+// first start on the new build still listed both puts of the 4 November batch).
+func TestMandateHeldBatchDropsAHedgeListedPut(t *testing.T) {
+	pos := reductionRoleBook(100)
+	policy := budgetTestPolicy(rpc.BudgetReductionModeActive, 0, 0)
+	put, stock := rpc.TradeProposal{Bucket: rpc.TradeProposalBucketMandateReduction, Action: "SELL", Quantity: 5, PositionQuantity: 40, Mandate: &rpc.TradeProposalMandate{Rank: 1}}, rpc.TradeProposal{Bucket: rpc.TradeProposalBucketMandateReduction, Action: "SELL", Quantity: 10, PositionQuantity: 100, Mandate: &rpc.TradeProposalMandate{Rank: 2}}
+	put.Contract.ConID, stock.Contract.ConID = 990001, 990002
+	st := &rpc.TradeProposalMandateStatus{}
+	rows, st := (&proposalEngine{}).mandateHeldRows(policy, rpc.ProtectionPolicyStatus{}, []rpc.TradeProposal{put, stock}, nil, pos, rpc.TradeProposalSourceFingerprints{}, nil, optionExitTestTime(), st, "no verdict")
+	if len(rows) != 1 || rows[0].Contract.ConID != 990002 || st.Rows != 1 || len(st.Plan) != 1 {
+		t.Fatalf("held rows = %+v, status %+v, want only the stock row", rows, st)
+	}
+	if len(st.LeftOut) != 1 || !strings.Contains(st.LeftOut[0], "the reduction never sells it") {
+		t.Fatalf("left out = %v, want the put named as protection", st.LeftOut)
+	}
+}
+
 // The owner's rule (2026-11-04 21:04 CET): the forced reduction never sells a
 // hedge-listed long put, measured as a hedge or not. The mandate flattens to
 // its hedges. A budget row may still name one, and that row waits for a tap.
