@@ -142,10 +142,16 @@ func TestPagesCarryLinkPreviews(t *testing.T) {
 			`property="og:locale" content="zh_HK"`,
 			`property="og:locale:alternate" content="en_GB"`,
 			`property="og:url" content="https://osauer.dev/canary/docs/zh-hant/start/install.html"`,
-			`property="og:image" content="https://osauer.dev/canary/social/social-preview.png"`,
+			`property="og:image" content="https://osauer.dev/canary/social/social-preview-zh-hant.png"`,
 			`name="twitter:card"`,
 		}},
-		{"docs/zh-hans/start/install.html", []string{`property="og:locale" content="zh_CN"`}},
+		{"docs/zh-hans/start/install.html", []string{
+			`property="og:locale" content="zh_CN"`,
+			`property="og:image" content="https://osauer.dev/canary/social/social-preview-zh-hans.png"`,
+		}},
+		{"docs/start/install.html", []string{
+			`property="og:image" content="https://osauer.dev/canary/social/social-preview.png"`,
+		}},
 		{"docs/understand/policy.html", []string{
 			`property="og:locale" content="en_GB"`,
 			`property="og:image" content="https://osauer.dev/canary/diagrams/policy-lifecycle.png"`,
@@ -153,6 +159,8 @@ func TestPagesCarryLinkPreviews(t *testing.T) {
 		{"zh-hant/index.html", []string{
 			`property="og:locale" content="zh_HK"`,
 			`property="og:locale:alternate" content="zh_CN"`,
+			`property="og:image" content="https://osauer.dev/canary/social/social-preview-zh-hant.png"`,
+			`name="twitter:image" content="https://osauer.dev/canary/social/social-preview-zh-hant.png"`,
 		}},
 	}
 	for _, c := range cases {

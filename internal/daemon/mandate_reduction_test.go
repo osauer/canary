@@ -951,3 +951,26 @@ func TestMandateCycleQuantityHoldsAnOptionToTheContractCap(t *testing.T) {
 		t.Fatalf("stock cut under the contract cap: %d %q", qty, waits)
 	}
 }
+
+// A holding the owner and a strategy share is split in the verdict and whole at
+// the broker: that is no change to the book, and it must not hold the batch
+// (independent review, 2026-11-05).
+func TestMandateBookDriftReadsASplitHoldingAsOneLine(t *testing.T) {
+	pos := mandateReductionBook(mandateReductionStock("SYNA", 9001, 3000, 100), mandateReductionStock("SYNB", 9002, 500, 80))
+	original := mandateReductionFixture(t, pos, 1.1, 1e7, 2)
+	book := *original.Input
+	book.Legs = slices.Clone(book.Legs)
+	for i := range book.Legs {
+		if book.Legs[i].ID == mandateConLegID(9001) {
+			split := book.Legs[i]
+			split.ID, split.Quantity = strategyLegID("overlay", 9001), 1000
+			book.Legs[i].Quantity -= split.Quantity
+			book.Legs = append(book.Legs, split)
+			break
+		}
+	}
+	got, after := mandateReductionRun(t, mandateReductionVerdict(book, 2), pos)
+	if after.State != rpc.MandateReductionReducing || len(got) == 0 {
+		t.Fatalf("unchanged book with a split allocation: state=%s rows=%d reason=%s", after.State, len(got), after.Reason)
+	}
+}

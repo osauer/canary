@@ -6,7 +6,8 @@
 // Simplified), when there is one, and that becomes the stored choice. From then on the
 // stored choice rules, and the selector in the header (and every link that
 // carries data-lang) changes it. A page that exists in one language only
-// never redirects, so a search result always opens.
+// never redirects, so a search result always opens. A redirect keeps the
+// section the link named: the translated pages carry the same anchors.
 (function () {
   var key = "canary-lang";
   var html = document.documentElement;
@@ -37,12 +38,12 @@
     }
     if (chosen && chosen !== here && available[chosen]) {
       try { localStorage.setItem(key, chosen); } catch (e) { /* same */ }
-      location.replace(available[chosen]);
+      location.replace(available[chosen] + location.hash);
       return;
     }
   } else if (stored !== here && available[stored]) {
     // A stored choice rules: the selector and every data-lang link set it.
-    location.replace(available[stored]);
+    location.replace(available[stored] + location.hash);
     return;
   }
   document.addEventListener("click", function (event) {

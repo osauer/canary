@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
+import vm from "node:vm";
 import { withEdgeLearning } from "./edge-learning-fixture.mjs";
 import { marketTapeFixture } from "./market-tape-fixture.mjs";
 import { lendingFixture, lendingPositionFixture } from "./lending-fixture.mjs";
@@ -1612,11 +1613,16 @@ test("pre-authorised rows show the countdown and a veto that follows the daemon 
   proposal.automatic.latch_skipped_window = true;
   assert.match(protection.protectionAutomaticText(proposal), /placing this now.*brake is latched/);
 
-  // Held by the settling rule: still pending, the copy names the hand order,
-  // and the veto stays available.
-  proposal.automatic = { pre_authorised: true, state: "pending", submit_at: "2026-09-21T14:30:00Z", held_at: "2026-09-21T14:30:30Z" };
-  assert.match(protection.protectionAutomaticText(proposal), /^Held while an order placed or modified outside Canary since this proposal appeared/);
+  // Held: still pending, the copy gives the daemon's own reason, never a hand
+  // order that may not exist, and the veto stays available.
+  proposal.automatic = { pre_authorised: true, state: "pending", submit_at: "2026-09-21T14:30:00Z", held_at: "2026-09-21T14:30:30Z", reason: "settling: the broker's open-order inventory is unavailable, so a new or modified hand order cannot be ruled out" };
+  assert.match(protection.protectionAutomaticText(proposal), /^Held: the broker's open-order inventory is unavailable/);
   assert.equal(protection.protectionVetoAvailable(proposal), true);
+  proposal.automatic = { ...proposal.automatic, reason: "held: the mandate verdict this reduction was sized on cannot be confirmed right now" };
+  assert.match(protection.protectionAutomaticText(proposal), /^Held: the mandate verdict/);
+  assert.doesNotMatch(protection.protectionAutomaticText(proposal), /outside Canary/);
+  proposal.automatic = { ...proposal.automatic, reason: "" };
+  assert.equal(protection.protectionAutomaticText(proposal), "Held: Canary has not said why");
 
   // Deferred by the freeze: not failed, resubmits once lifted, veto available.
   proposal.automatic = { pre_authorised: true, state: "deferred", deferred_at: "2026-09-21T14:30:00Z", resubmit_at: "2026-09-21T14:31:00Z" };
@@ -2244,4 +2250,34 @@ test("order result strings name the process of the daemon's broker", () => {
   } finally {
     state.broker = previous;
   }
+});
+
+const docsLanguageSource = await readFile(new URL("../../../docs/lang.js", import.meta.url), "utf8");
+
+// Runs the docs site's language script on a page at `hash` and returns where
+// it sent the reader, or null when it stayed.
+function docsLanguageRedirect({ stored = null, languages = ["en"], hash = "" }) {
+  let target = null;
+  const alternates = [
+    { hreflang: "en", href: "../install.html" },
+    { hreflang: "zh-Hant", href: "install.html" },
+  ];
+  vm.runInNewContext(docsLanguageSource, {
+    document: {
+      documentElement: { getAttribute: () => "en" },
+      querySelectorAll: () => alternates.map((link) => ({ getAttribute: (name) => (name === "hreflang" ? link.hreflang : link.href) })),
+      addEventListener() {},
+    },
+    localStorage: { getItem: () => stored, setItem() {} },
+    navigator: { languages },
+    location: { hash, replace: (url) => { target = url; } },
+  });
+  return target;
+}
+
+test("a language redirect keeps the section the link named", () => {
+  assert.equal(docsLanguageRedirect({ languages: ["zh-TW"], hash: "#pick-an-install-path" }), "install.html#pick-an-install-path");
+  assert.equal(docsLanguageRedirect({ stored: "zh-Hant", hash: "#pick-an-install-path" }), "install.html#pick-an-install-path");
+  assert.equal(docsLanguageRedirect({ stored: "zh-Hant" }), "install.html");
+  assert.equal(docsLanguageRedirect({ languages: ["en"], hash: "#pick-an-install-path" }), null);
 });

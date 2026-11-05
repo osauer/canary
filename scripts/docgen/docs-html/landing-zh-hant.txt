@@ -154,7 +154,7 @@ en: Plans before orders
 zh: 先有計劃，後有訂單
 
 en: Reduction plans compare an index fall and rise, the loss room left and quoted trading costs. Stock-entry reviews can add protection for the new shares. A plan never places an order.
-zh: 減倉計劃會比較指數下跌及上升、尚餘虧損空間及按報價計算的交易成本。買入股票前的審查可為新買入的股份加上保護。計劃本身絕不下單。
+zh: 減倉計劃會比較指數下跌及上升、尚餘虧損空間及按報價計算的交易成本。買入股票前的審查可為新買入的股份加上保護。計劃本身絕不落單。
 
 en: v3.27 to v3.29
 zh: v3.27 至 v3.29
@@ -298,7 +298,7 @@ en: Read-only by default
 zh: 預設唯讀
 
 en: The standard build and all MCP tools cannot place an order. MCP cannot change your limits; in Claude Code, the plugin’s hook blocks the commands that can.
-zh: 標準版本及所有 MCP 工具都不能下單。MCP 不能更改你的限額；在 Claude Code 中，外掛程式的 hook 會阻止能夠更改限額的指令。
+zh: 標準版本及所有 MCP 工具都不能落單。MCP 不能更改你的限額；在 Claude Code 中，外掛程式的 hook 會阻止能夠更改限額的指令。
 
 en: Evidence
 zh: 證據
@@ -427,7 +427,7 @@ en: Keep up to 20 US stocks on one watchlist. Canary compares each completed fiv
 zh: 在一份觀察名單上保留最多 20 隻美股。Canary 將每根已完成的五分鐘 K 線與過往可比較的交易日對比，當異常成交量之後價格守穩或上升時便會報告。
 
 en: For a setup you want to pursue, it lists the standard calls and reads one dated quote for the exact call you choose. After a fill Canary placed, it checks the entry against later quotes at two points.
-zh: 對於你想跟進的形態，它會列出標準認購期權，並讀取你所選認購期權的一個附日期報價。Canary 下單成交後，會在兩個時點以其後報價檢查入場表現。
+zh: 對於你想跟進的形態，它會列出標準認購期權，並讀取你所選認購期權的一個附日期報價。Canary 落單成交後，會在兩個時點以其後報價檢查入場表現。
 
 en: Setups are observations, not validated signals. Markouts leave out commissions and never replace account P&amp;L. Watchlist edits change local preferences only, and there are no MCP setup tools.
 zh: 形態只是觀察，並非經驗證的訊號。成交後價格追蹤（markout）不計佣金，也絕不取代帳戶盈虧。編輯觀察名單只會更改本機偏好設定，而且沒有 MCP 形態工具。
@@ -808,7 +808,7 @@ en: Entry markouts · v3.17
 zh: 入場後價格追蹤（markout） · v3.17
 
 en: Later quotes for fills Canary placed. Missed checkpoints stay missing; commissions and P&amp;L stay separate.
-zh: Canary 下單成交後的其後報價。缺失的檢查點保持缺失；佣金及盈虧分開計算。
+zh: Canary 落單成交後的其後報價。缺失的檢查點保持缺失；佣金及盈虧分開計算。
 
 en: Performance
 zh: 表現
@@ -880,7 +880,7 @@ en: Index hedge · v3.29
 zh: 指數對沖 · v3.29
 
 en: A Micro E-mini S&amp;P 500 hedge sized in whole contracts, placed and bought back only through the gated trading path.
-zh: 以整張合約計算的 Micro E-mini 標普 500 對沖，只經受檢查的交易路徑下單及買回。
+zh: 以整張合約計算的 Micro E-mini 標普 500 對沖，只經受檢查的交易路徑落單及買回。
 
 en: Broker permissions · v3.29.1
 zh: 券商權限 · v3.29.1
@@ -928,7 +928,7 @@ en: In trading builds, Canary shrinks or cancels its own stops when you hold few
 zh: 在交易版本中，當你持有的股數少於 Canary 自己的止蝕盤將沽出的數量時，Canary 會縮減或取消這些止蝕盤。你手動設下的止蝕盤絕不會被更改。
 
 en: Opt-in order execution, with your confirmation or pre-authorised rules and Canary’s checks. Bills and bonds can be ordered by ISIN or CUSIP.
-zh: 需自行選用的訂單執行，由你確認或按規則預先授權，並經 Canary 檢查。票據及債券可按 ISIN 或 CUSIP 下單。
+zh: 需自行選用的訂單執行，由你確認或按規則預先授權，並經 Canary 檢查。票據及債券可按 ISIN 或 CUSIP 落單。
 
 en: Where you use it
 zh: 使用場景

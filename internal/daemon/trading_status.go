@@ -263,13 +263,16 @@ func tradingBlockersFreezeOnly(blockers []rpc.TradingBlocker) bool {
 }
 
 // tradingBlockersError renders a refused write authorization as the error
-// its callers return, typed as errTradingFrozen when the freeze is the whole
-// cause.
+// its callers return, preserving typed freeze and standing-authority causes.
 func tradingBlockersError(blockers []rpc.TradingBlocker) error {
 	if tradingBlockersFreezeOnly(blockers) {
 		return fmt.Errorf("%w: %w", ErrTradingDisabled, errTradingFrozen)
 	}
-	return fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(blockers))
+	err := fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(blockers))
+	if automaticDisarmedRefusal(blockers) {
+		return &automaticDisarmedError{err}
+	}
+	return err
 }
 
 // forCancel strips the runtime trading-freeze blocker from a write

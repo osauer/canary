@@ -32,3 +32,8 @@ it never builds or installs Canary, uses release signing credentials, publishes
 artifacts, or contacts the broker. It does not prove trusted release signing.
 Updating the tool is a deliberate edit to
 this manifest followed by npm lockfile generation and both test modes.
+
+The `tmp` override patches GHSA-ph9p-34f9-6g65 and GHSA-52f5-9888-hmc6. MCPB
+2.1.2 reaches `tmp` only through `external-editor`, which asks for `^0.0.33` and
+has no patched release in that range. Drop the override when an MCPB update stops
+depending on `external-editor`.

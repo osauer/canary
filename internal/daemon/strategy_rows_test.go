@@ -702,3 +702,24 @@ func TestSignalMonthWaitsForTheFinalRate(t *testing.T) {
 		t.Fatalf("after the roll: %s %v", res.Status, res.Reasons)
 	}
 }
+
+// The same through the production placement of a strategy fill beside the
+// owner's units on one contract.
+func TestStrategyPlacementInventsNoBookDrift(t *testing.T) {
+	base := mandateTestPositions(100)
+	srv, _ := liveTrendServer(t, testLiveTrendConstitution(), withSYNF(base, 500, 90), coreDecisionNow)
+	own := *srv.mandateHistorySeries(t.Context(), strategySeriesKey(trendFundID, trendFundConID))
+	own.Key = "u:SYNF"
+	if err := srv.saveMandateSeries(t.Context(), &own); err != nil {
+		t.Fatal(err)
+	}
+	recordEntryFill(t, srv, "synthetic-placement", "exec-placement", rpc.OrderActionBuy, 159, 90, coreDecisionNow.Add(-time.Hour))
+	pos := withSYNF(base, 659, 90)
+	input := withPositions(t, srv, pos)
+	if strategyUnitsInBook(input, trendLiveSleeve, trendFundConID) != 159 || strategyOwnerUnitsInBook(input, trendFundConID) != 500 {
+		t.Fatal("the fixture did not split the holding")
+	}
+	if drift := mandateBookDrift(*input, pos, coreDecisionNow); drift != "" {
+		t.Fatalf("a fresh verdict invents book drift: %s", drift)
+	}
+}

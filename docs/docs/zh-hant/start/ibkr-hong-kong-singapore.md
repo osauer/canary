@@ -1,6 +1,6 @@
 ---
 translation-of: docs/docs/start/ibkr-hong-kong-singapore.md
-source-revision: cab44ba9f1ef59630f47e55c0b5eb42f7b14da34
+source-revision: 03f02bf456e4224c63f26231bd58c62091533453
 nav-title: 香港及新加坡帳戶
 summary: 相同的閘道步驟、以港元、新加坡元或日圓計的基礎貨幣、亞洲交易所日曆，以及何時執行簡報。
 description: 盈透證券（Interactive Brokers）帳戶設於香港、新加坡、日本或澳洲，持有港股或其他亞洲股票時有何不同：IB Gateway 步驟完全相同、港元、新加坡元與日圓數字如何顯示、港交所、新交所、東京、ASX 與滬深港通的日曆，以及亞洲早上的簡報時段。
@@ -8,7 +8,7 @@ description: 盈透證券（Interactive Brokers）帳戶設於香港、新加坡
 
 # 以盈透證券（Interactive Brokers）香港或新加坡帳戶使用 Canary {#canary-with-an-interactive-brokers-hong-kong-or-singapore-account}
 
-更新：2026-11-05 08:40 CET
+更新：2026-11-05 08:55 CET
 
 Canary 透過你自己的 IB Gateway 或 TWS 工作階段，讀取一個盈透證券（Interactive Brokers）帳戶，包括持有港股的帳戶。帳戶由哪個 IBKR 實體持有，無論是 Interactive Brokers 香港、新加坡、日本、澳洲、印度、LLC、愛爾蘭或英國，都不會改變這個連線：API、通訊埠和客戶端 ID 在各地都相同，所以安裝步驟就是[安裝與首次運行](install.md) 所列的那些。守護程序（daemon）無法從閘道分辨實體，也不需要分辨。本頁說明當帳戶的基礎貨幣是港元、新加坡元或日圓，而股票在港交所、新交所、東京證券交易所或 ASX 掛牌時，有哪些地方不同。
 
@@ -39,6 +39,8 @@ Account  U1234567 · base=HKD · live
   Stock                      300 sh     ¥ 2,810     ¥ 2,955  -¥ 9,000 (-1.01%)           ¥ 886,500       ¥ 43,500
 ```
 
+IBKR 的代號會省去港股編號前面的零，所以 00700（0700.HK）會顯示為 `700`。
+
 港元和新加坡元以 ISO 代碼書寫，日圓以其符號書寫，且永不帶小數單位：以日圓為基礎貨幣的簡報會顯示 `session P&L ok ¥ 15,000,000 · day -¥ 82,500`。配對應用程式會按你裝置的地區設定格式化金額，所以同一個港元數字在那裏可能顯示為 `HK$1,842,310.55`。非基礎貨幣的價值會按經紀商分類帳所報的匯率換算，顯示在 `market_value_base` 和帳戶的貨幣敞口行。
 
 交易版本的訂單預覽會以常規貨幣對的精確 IDEALPRO 報價，衡量跨貨幣訂單是否超出每筆訂單上限。該貨幣對表涵蓋 EUR、GBP、AUD、NZD、USD、CAD、CHF 和 JPY。以港元或新加坡元為基礎貨幣的帳戶可以預覽本幣訂單。涉及港元或新加坡元的跨貨幣訂單會被預覽拒絕並列明原因，因為這些貨幣不在貨幣對表之內。
@@ -59,6 +61,8 @@ Account  U1234567 · base=HKD · live
 canary calendar --market hk --days 5
 canary calendar --market sg --date 2026-02-16
 ```
+
+香港已不再因颱風休市：自 2024 年 9 月 23 日起，港交所在八號或以上颱風信號、黑色暴雨警告或極端情況下照常交易，所以日曆會把這些日子顯示為正常交易時段。
 
 涵蓋期間以外的日期顯示 `unknown`，永不按星期幾猜測。 [市場日曆](../understand/concepts.md#market-calendars)列出 Canary 嵌入的每個日曆，以及各自涵蓋期間的確實結束日期。A 股透過滬深港通北向進入 IBKR 帳戶，只在香港與內地同時開市的日子交易；在接近假期的日子依賴某個日期之前，請先查閱港交所的滬深港通日曆。
 

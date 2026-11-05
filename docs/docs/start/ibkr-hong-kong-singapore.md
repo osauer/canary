@@ -1,6 +1,6 @@
 # Canary with an Interactive Brokers Hong Kong or Singapore account
 
-Updated: 2026-11-05 08:40 CET
+Updated: 2026-11-05 08:55 CET
 
 Canary reads one Interactive Brokers account through your own IB Gateway or
 TWS session. Which IBKR entity holds the account, Interactive Brokers Hong
@@ -48,6 +48,9 @@ Account  U1234567 · base=HKD · live
   Stock                      300 sh     ¥ 2,810     ¥ 2,955  -¥ 9,000 (-1.01%)           ¥ 886,500       ¥ 43,500
 ```
 
+IBKR's symbols drop the leading zeros of a Hong Kong stock code, so 00700
+(0700.HK) appears as `700`.
+
 Hong Kong and Singapore dollars are written with their ISO code, yen with its
 sign and never with minor units: a yen-base brief reads `session P&L ok
 ¥ 15,000,000 · day -¥ 82,500`. The paired app formats money with your device's
@@ -80,6 +83,10 @@ with its lunch break, half days and coverage window:
 canary calendar --market hk --days 5
 canary calendar --market sg --date 2026-02-16
 ```
+
+Hong Kong no longer closes for typhoons. Since 23 September 2024 HKEX has traded
+through Typhoon Signal No. 8 or above, Black Rainstorm warnings and extreme
+conditions, so the calendar shows those days as regular sessions.
 
 A date outside the coverage window reads `unknown`, never a guess from the
 weekday. [Market calendars](../understand/concepts.md#market-calendars) lists

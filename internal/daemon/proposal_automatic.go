@@ -115,15 +115,18 @@ type automaticSubmissionRecord struct {
 	AccountMode  string `json:"account_mode"`
 	State        string `json:"state"`
 	// VetoWindow is the window in force when the record was created.
-	VetoWindow         string    `json:"veto_window,omitempty"`
-	LatchSkippedWindow bool      `json:"latch_skipped_window,omitempty"`
-	CreatedAt          time.Time `json:"created_at"`
-	SubmitAt           time.Time `json:"submit_at"`
-	NoticedAt          time.Time `json:"noticed_at,omitzero"`
-	VetoedAt           time.Time `json:"vetoed_at,omitzero"`
-	SubmittingAt       time.Time `json:"submitting_at,omitzero"`
-	SubmittedAt        time.Time `json:"submitted_at,omitzero"`
-	ResolvedAt         time.Time `json:"resolved_at,omitzero"`
+	VetoWindow         string `json:"veto_window,omitempty"`
+	LatchSkippedWindow bool   `json:"latch_skipped_window,omitempty"`
+	// ArmedAt is the device confirmation this record's veto clock runs under.
+	// A new arming starts a full window, even with no pass seeing the disarm.
+	ArmedAt      time.Time `json:"armed_at,omitzero"`
+	CreatedAt    time.Time `json:"created_at"`
+	SubmitAt     time.Time `json:"submit_at"`
+	NoticedAt    time.Time `json:"noticed_at,omitzero"`
+	VetoedAt     time.Time `json:"vetoed_at,omitzero"`
+	SubmittingAt time.Time `json:"submitting_at,omitzero"`
+	SubmittedAt  time.Time `json:"submitted_at,omitzero"`
+	ResolvedAt   time.Time `json:"resolved_at,omitzero"`
 	// PreviewTokenID is persisted before the broker call so a restart can
 	// find the journaled attempt for this exact record.
 	PreviewTokenID string `json:"preview_token_id,omitempty"`
@@ -666,6 +669,8 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 				// Disarming ends the veto clock with the authority: arming
 				// again starts a full window, whatever else happened to the row.
 				reason = disarmed.Message
+			case !rec.ArmedAt.Equal(armedAt):
+				reason = "armed again since this veto clock started; a new window starts"
 			case !ok:
 				reason, carry = "proposal disappeared from the current set", !disabled && !ignored[scopedIgnoreKey(scope, rec.Key)]
 			case prop.Revision != rec.Revision && rec.Episode != "" && prop.Mandate != nil && prop.Mandate.Episode == rec.Episode:
@@ -720,7 +725,7 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 				Version: automaticDocumentVersion, Key: prop.Key, Revision: prop.Revision, Bucket: bucket, EngineBucket: prop.Bucket,
 				Symbol: prop.Symbol, SecType: prop.SecType, Action: prop.Action, Quantity: prop.Quantity,
 				Broker: snap.Broker, AccountID: snap.AccountID, AccountMode: snap.AccountMode, State: rpc.TradeProposalAutomaticPending,
-				VetoWindow: window.String(), CreatedAt: now, SubmitAt: now.Add(window),
+				VetoWindow: window.String(), ArmedAt: armedAt, CreatedAt: now, SubmitAt: now.Add(window),
 				SettlingBaseline: slices.Clone(baseline), SettlingBaselineKnown: baselineKnown,
 			}
 			// A reduction to budget is a discretionary-scale action, not a
@@ -758,6 +763,13 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 						// Same start and notice: the alert episode re-opens.
 						if (prior.CarryClock || prior.Reason == automaticEpisodeResizedReason) && prior.ResolvedAt.Before(prior.SubmitAt) && now.After(prior.ResolvedAt) {
 							rec.SubmitAt = prior.SubmitAt.Add(now.Sub(prior.ResolvedAt))
+						}
+						// The pause keeps the whole window usable, never more:
+						// a clock past its window (2026-11-04: a session wait
+						// carried into the pause, 62 minutes after the row came
+						// back) would let newer rows beat it.
+						if latest := now.Add(window); rec.SubmitAt.After(latest) {
+							rec.SubmitAt = latest
 						}
 						rec.SettlingBaseline, rec.SettlingBaselineKnown = slices.Clone(prior.SettlingBaseline), prior.SettlingBaselineKnown
 						rec.ClockQuantity = prior.clockQuantity()
@@ -1321,6 +1333,8 @@ type automaticWriteGrant struct {
 	Revision string
 	Bucket   string
 	Quantity int
+	// ArmedAt is the arming the record's veto clock ran under.
+	ArmedAt time.Time
 }
 
 // submitAutomatic performs one automatic submission. The intent (state
@@ -1341,7 +1355,7 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 		return
 	}
 	now := e.clock()
-	grant := &automaticWriteGrant{Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket, Quantity: rec.Quantity}
+	grant := &automaticWriteGrant{Key: rec.Key, Revision: rec.Revision, Bucket: rec.Bucket, Quantity: rec.Quantity, ArmedAt: current.ArmedAt}
 	s.automaticGrant.Store(grant)
 	defer s.automaticGrant.Store(nil)
 	params := rpc.TradeProposalSubmitParams{Key: rec.Key, Revision: rec.Revision, Origin: rpc.OrderOriginDaemonPreAuthorised, TimeoutMs: int(automaticSubmitTimeout.Milliseconds())}
@@ -1400,9 +1414,10 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 				r.HeldAt = rec.HeldAt
 			}
 			return []automaticSubmissionEvent{{At: finish, Type: automaticEventHeld, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, SubmitAt: r.SubmitAt, Reason: r.HoldReason}}
-		case !staged && automaticDisarmedRefusal(res.Blockers):
-			// Disarmed between the cycle's read and the send: nothing went
-			// out, and no clock survives for a later arming.
+		case !staged && automaticDisarmedRefusal(res.Blockers), automaticUnsentAuthorityRefusal(placeErr):
+			// Authority changed between the cycle's read and the send. A
+			// staged refusal must carry both the typed authority cause and
+			// proof of no transmission; no old clock survives a new arming.
 			r.ResolvedAt = finish
 			r.State = rpc.TradeProposalAutomaticSuperseded
 			r.Reason = automaticOutcomeReason(res, err)
@@ -1464,6 +1479,11 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 	default:
 		s.warnf("pre-authorised protection: %s bucket %s not submitted: %s", rec.Key, rec.Bucket, automaticOutcomeReason(res, err))
 	}
+}
+
+func automaticUnsentAuthorityRefusal(err error) bool {
+	_, authority := errors.AsType[*automaticDisarmedError](err)
+	return authority && ibkrlib.SendDispositionOf(err) == ibkrlib.SendDispositionDefinitelyUnsent
 }
 
 // automaticTransientRefusal only classifies pre-staging refusals. Every
