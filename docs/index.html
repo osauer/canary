@@ -14,6 +14,8 @@
   <script src="/assets/theme.js?v=20261008"></script>
   <link rel="stylesheet" href="/assets/site.css?v=20261008-footer">
   <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Canary">
+  <meta property="og:locale" content="en_GB">
   <meta property="og:url" content="https://osauer.dev/canary/">
   <meta property="og:title" content="Canary | Open-source Interactive Brokers tools for Claude, CLI and Go">
   <meta property="og:description" content="Open-source tools for an Interactive Brokers account: ask Claude Desktop about your portfolio, script the JSON CLI and Go library, or read IBKR data through read-only MCP tools.">
@@ -267,6 +269,8 @@ canary setup claude-desktop
         <p>Canary works with Interactive Brokers through a local TWS or IB Gateway session. Market data depends on your IBKR subscriptions.</p>
         <h3>Can Canary submit orders?</h3>
         <p>Yes, through the optional trading build and its approval checks. Standard downloads and all MCP tools are read-only. See the <a href="docs/operate/orders.html">order guide</a>.</p>
+        <h3>Does Canary work with an IBKR account in Hong Kong or Singapore?</h3>
+        <p>Yes. You connect the same way whichever IBKR company holds your account, and the brief, exchange calendars and currencies follow what you hold. See the <a href="docs/start/ibkr-hong-kong-singapore.html">Hong Kong and Singapore guide</a>. Claude may not be offered where you are: in November 2026 Anthropic’s <a href="https://www.anthropic.com/supported-countries">list of supported regions</a> did not include Hong Kong, Macau or mainland China. The CLI and paired app work without it, and other MCP hosts can use the same tools with a model that is available where you are.</p>
         <h3>Which TWS or IB Gateway settings does Canary need?</h3>
         <p>Run <code>canary status</code>. Its Gateway setup line names each setting that differs from what Canary needs, in plain words. Canary reads the settings once after each connect and never changes one. See <a href="docs/start/troubleshooting.html">troubleshooting</a>.</p>
       </div>
@@ -611,6 +615,9 @@ fmt.Println(summary.AccountID)</code></pre>
         <a href="interactive-brokers-mcp-server/">Interactive Brokers MCP server</a>
         <a href="claude-desktop-interactive-brokers/">Claude Desktop install</a>
         <a href="docs/start/hosts.html">Claude Code and other hosts</a>
+        <a href="docs/start/your-llm.html">Connect the LLM you already use</a>
+        <a href="docs/start/agentic-trading.html">Agentic trading</a>
+        <a href="docs/start/ibkr-hong-kong-singapore.html">Hong Kong and Singapore accounts</a>
         <a href="portfolio-review-with-claude-ibkr/">Portfolio review with Claude</a>
         <a href="canary-remote/">Remote access</a>
         <a href="docs/reference/mcp-tools.html">MCP tool reference</a>

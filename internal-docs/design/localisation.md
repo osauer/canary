@@ -58,8 +58,8 @@ Taiwan's (軟體, 資料), so one glossary covers the derived variant:
 | 未實現盈虧 | 未实现盈亏 | unrealised P&L |
 | 基礎貨幣 | 基础货币 | base currency |
 | 期權鏈 | 期权链 | option chain |
-| 保證金 | 保证金 | margin |
-| 追蹤止損 | 追踪止损 | trailing stop |
+| 孖展 | 保证金 | margin |
+| 追蹤止蝕 | 追踪止损 | trailing stop |
 | 結單 | 结单 | statement (IBKR uses 结单 in Simplified too) |
 | 沽空 | 卖空 | short selling (vocabulary differs) |
 | 業績 | 财报 | earnings (vocabulary differs) |
@@ -188,13 +188,15 @@ Each step leaves the English product byte-identical, which the goldens and
 
 1. Decided 2026-11-04 12:34 CET: Traditional Chinese in Hong Kong usage is
    the authored master, Simplified is generated from it and ships with it.
-2. `display.language` as the one source for the app and the CLI, English
-   before the daemon answers: confirm.
-3. MCP stays English end to end: confirm.
-4. The width padder's dependency: `golang.org/x/text/width`, `go-runewidth`,
-   or a hand-kept table. Each is a product-module dependency decision.
-5. Whether a documentation translation that is behind its English source
-   should fail `make check`. Today it is listed and rendered with a notice;
-   failing would make every English edit wait for a native reader.
-6. Who reads the Chinese: every translated page is machine-translated by a
-   model and needs a native reader's cold read before it is published.
+2. Decided 2026-11-05 08:10 CET: `display.language` is the one source for the
+   app and the CLI, English before the daemon answers.
+3. Decided 2026-11-05 08:10 CET: MCP stays English end to end.
+4. Decided 2026-11-05 08:10 CET: the width padder's dependency
+   (`golang.org/x/text/width`, `go-runewidth` or a hand-kept table) waits until
+   the product is translated.
+5. Decided 2026-11-05 08:10 CET: a documentation translation behind its English
+   source does not fail `make check`. It is listed and rendered with a notice.
+6. Decided 2026-11-05 08:10 CET: publish without a native read, time over
+   quality, with specialised proofreads once the pages are online. The note on
+   each page says a model translated it and no native speaker has reviewed it.
+   Terms stay in Hong Kong usage: 止蝕, 孖展, 風險敞口.

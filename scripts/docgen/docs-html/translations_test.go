@@ -130,6 +130,44 @@ func readSite(t *testing.T, root, rel string) string {
 
 var headingIDs = regexp.MustCompile(`<h[1-6] id="([^"]*)"`)
 
+// A shared link should preview in the reader's language on any page, with the
+// other languages named, whether or not the page has a diagram of its own.
+func TestPagesCarryLinkPreviews(t *testing.T) {
+	site := renderSite(t)
+	cases := []struct {
+		file string
+		want []string
+	}{
+		{"docs/zh-hant/start/install.html", []string{
+			`property="og:locale" content="zh_HK"`,
+			`property="og:locale:alternate" content="en_GB"`,
+			`property="og:url" content="https://osauer.dev/canary/docs/zh-hant/start/install.html"`,
+			`property="og:image" content="https://osauer.dev/canary/social/social-preview.png"`,
+			`name="twitter:card"`,
+		}},
+		{"docs/zh-hans/start/install.html", []string{`property="og:locale" content="zh_CN"`}},
+		{"docs/understand/policy.html", []string{
+			`property="og:locale" content="en_GB"`,
+			`property="og:image" content="https://osauer.dev/canary/diagrams/policy-lifecycle.png"`,
+		}},
+		{"zh-hant/index.html", []string{
+			`property="og:locale" content="zh_HK"`,
+			`property="og:locale:alternate" content="zh_CN"`,
+		}},
+	}
+	for _, c := range cases {
+		page := readSite(t, site, c.file)
+		for _, want := range c.want {
+			if !strings.Contains(page, want) {
+				t.Errorf("%s: missing %s", c.file, want)
+			}
+		}
+	}
+	if landing := readSite(t, site, "zh-hant/index.html"); strings.Contains(landing, `og:locale" content="en_GB"`) {
+		t.Error("the Traditional landing page still names English as its own locale")
+	}
+}
+
 func TestTranslatedPagesRender(t *testing.T) {
 	site := renderSite(t)
 	zh := readSite(t, site, "docs/zh-hant/start/ibkr-hong-kong-singapore.html")

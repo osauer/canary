@@ -27,7 +27,9 @@ type langSpec struct {
 	Tag  string
 	Slug string
 	Name string
-	ui   uiStrings
+	// OGLocale is the page's language in Open Graph's language_TERRITORY form.
+	OGLocale string
+	ui       uiStrings
 	// derivedFrom names the language this one is generated from at build
 	// time; its directory under docs/docs/ is never tracked.
 	derivedFrom *langSpec
@@ -67,9 +69,10 @@ type uiStrings struct {
 }
 
 var english = &langSpec{
-	Tag:  "en",
-	Slug: "",
-	Name: "English",
+	Tag:      "en",
+	Slug:     "",
+	Name:     "English",
+	OGLocale: "en_GB",
 	ui: uiStrings{
 		Documentation:  "Documentation",
 		Overview:       "Overview",
@@ -90,9 +93,10 @@ var english = &langSpec{
 // Simplified Chinese is derived from it, not written beside it: the
 // Traditional-to-Simplified mapping is almost one-to-one, the reverse is not.
 var zhHant = &langSpec{
-	Tag:  "zh-Hant",
-	Slug: "zh-hant",
-	Name: "繁體中文",
+	Tag:      "zh-Hant",
+	Slug:     "zh-hant",
+	Name:     "繁體中文",
+	OGLocale: "zh_HK",
 	ui: uiStrings{
 		Documentation:  "說明文件",
 		Overview:       "總覽",
@@ -114,7 +118,7 @@ var zhHant = &langSpec{
 		FooterSecurity: "安全",
 		Fineprint:      "本站內容並非投資建議。Canary 是分析軟件；本站任何內容均不構成買賣任何證券的建議。",
 		EnglishOnly:    "EN",
-		Translated:     "本頁譯自英文原文；兩者不一致時以英文版為準。",
+		Translated:     "本頁由 AI 模型譯自英文原文，尚未經母語人士審閱；兩者不一致時以英文版為準。",
 		Stale:          "英文原文在本譯文之後已有更新，本頁內容可能落後。",
 		ReadEnglish:    "閱讀英文版",
 	},
@@ -128,6 +132,7 @@ var zhHans = &langSpec{
 	Tag:         "zh-Hans",
 	Slug:        "zh-hans",
 	Name:        "简体中文",
+	OGLocale:    "zh_CN",
 	derivedFrom: zhHant,
 }
 

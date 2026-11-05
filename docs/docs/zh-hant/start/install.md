@@ -3,7 +3,7 @@ translation-of: docs/docs/start/install.md
 source-revision: b2211b4bca2bd59bd138c40d6d0bb2ebb8a78893
 nav-title: 安裝與首次運行
 summary: 先決條件、各種安裝方式，以及證明閘道可達的第一批指令。
-description: Canary 連線前必須運行甚麼、在 macOS 或 Linux 上選擇哪種安裝方式、如何解讀狀態健康檢查，以及二進位檔、設定、狀態和日誌寫到哪裏。
+description: 把 Canary 接上盈透證券（Interactive Brokers）帳戶：連線前必須運行甚麼、在 macOS 或 Linux 上選擇哪種安裝方式、如何解讀狀態健康檢查，以及二進位檔、設定、狀態和日誌寫到哪裏。
 ---
 
 # 安裝與首次運行 {#install-and-first-run}

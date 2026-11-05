@@ -1,6 +1,6 @@
 # Canary with an Interactive Brokers Hong Kong or Singapore account
 
-Updated: 2026-11-03 21:05 CET
+Updated: 2026-11-05 08:40 CET
 
 Canary reads one Interactive Brokers account through your own IB Gateway or
 TWS session. Which IBKR entity holds the account, Interactive Brokers Hong
@@ -133,6 +133,12 @@ The Activity Flex Query in [Set up broker reporting](reporting.md) is the
 same for every IBKR entity; reconciliation, statement-derived equity and
 Canary Edge read it in your base currency. The query's sections and fields do
 not depend on the account's region.
+
+## Using it with an AI host
+
+`canary mcp` works the same on these accounts, with any MCP host on your machine: see [Connect your account to the LLM you already use](your-llm.md) and [Agentic trading](agentic-trading.md).
+
+Claude may not be offered where you are: in November 2026 Anthropic's [list of supported regions](https://www.anthropic.com/supported-countries) did not include Hong Kong, Macau or mainland China. The CLI and paired app work without it, and other MCP hosts can use the same tools with a model that is available where you are.
 
 ## Next
 

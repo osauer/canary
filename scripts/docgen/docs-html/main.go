@@ -137,6 +137,22 @@ var pages = []pageSpec{
 		Status:      statusPublished,
 	},
 	{
+		Source:      "docs/docs/start/your-llm.md",
+		Section:     "start",
+		NavTitle:    "Connect the LLM you already use",
+		Summary:     "Connect an Interactive Brokers account to Claude, Cursor or another MCP host, and where the data goes.",
+		Description: "How to connect an Interactive Brokers account to the LLM you already use: Claude Desktop, Claude Code, Cursor, Zed or another MCP host, where your account data goes, and what to ask.",
+		Status:      statusPublished,
+	},
+	{
+		Source:      "docs/docs/start/agentic-trading.md",
+		Section:     "start",
+		NavTitle:    "Agentic trading",
+		Summary:     "What an AI agent can do on an Interactive Brokers account, and what it takes to send an order.",
+		Description: "Agentic trading on an Interactive Brokers account with Canary: what an AI agent can read and watch, and why an order needs the trading build, your instruction for that trade and Canary's checks.",
+		Status:      statusPublished,
+	},
+	{
 		Source:      "docs/docs/start/first-session.md",
 		Section:     "start",
 		NavTitle:    "Your first session",
@@ -582,6 +598,47 @@ func (r *siteRenderer) pageVersions(englishSource string) map[string]string {
 // alternatesHTML renders the hreflang links that let a search engine send a
 // reader straight to the page in their language. x-default is English, the
 // master.
+// defaultSocialImage stands in on a page that names no diagram of its own, so
+// a shared link never renders as a bare URL.
+const defaultSocialImage = "social/social-preview.png"
+
+// socialHeadHTML is a handbook page's link preview: what a chat app or social
+// site shows when the page is shared, in the page's language.
+func socialHeadHTML(lang *langSpec, page pageSpec, title, description, canonical string, versions map[string]string) string {
+	image := page.SocialImage
+	if image == "" {
+		image = defaultSocialImage
+	}
+	esc := template.HTMLEscapeString
+	fullTitle, description, imageURL := esc(title+" | Canary"), esc(description), esc(publicBaseURL+image)
+	var out strings.Builder
+	fmt.Fprintf(&out, "  <meta property=\"og:type\" content=\"article\">\n")
+	fmt.Fprintf(&out, "  <meta property=\"og:site_name\" content=\"Canary\">\n")
+	out.WriteString(localeTagsHTML(lang, versions))
+	fmt.Fprintf(&out, "  <meta property=\"og:url\" content=\"%s\">\n", esc(canonical))
+	fmt.Fprintf(&out, "  <meta property=\"og:title\" content=\"%s\">\n", fullTitle)
+	fmt.Fprintf(&out, "  <meta property=\"og:description\" content=\"%s\">\n", description)
+	fmt.Fprintf(&out, "  <meta property=\"og:image\" content=\"%s\">\n", imageURL)
+	fmt.Fprintf(&out, "  <meta name=\"twitter:card\" content=\"summary_large_image\">\n")
+	fmt.Fprintf(&out, "  <meta name=\"twitter:title\" content=\"%s\">\n", fullTitle)
+	fmt.Fprintf(&out, "  <meta name=\"twitter:description\" content=\"%s\">\n", description)
+	fmt.Fprintf(&out, "  <meta name=\"twitter:image\" content=\"%s\">", imageURL)
+	return out.String()
+}
+
+// localeTagsHTML names the page's Open Graph locale and the languages it also
+// exists in.
+func localeTagsHTML(lang *langSpec, versions map[string]string) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "  <meta property=\"og:locale\" content=\"%s\">\n", lang.OGLocale)
+	for _, other := range languages {
+		if _, ok := versions[other.Tag]; ok && other != lang {
+			fmt.Fprintf(&out, "  <meta property=\"og:locale:alternate\" content=\"%s\">\n", other.OGLocale)
+		}
+	}
+	return out.String()
+}
+
 func alternatesHTML(versions map[string]string) string {
 	if len(versions) < 2 {
 		return ""
@@ -904,12 +961,7 @@ func (r *siteRenderer) renderDoc(lang *langSpec, page pageSpec, t *translation, 
 		HomeHref:        lang.homeHref(),
 		UI:              lang.ui,
 	}
-	if page.SocialImage != "" {
-		data.SocialHead = template.HTML(fmt.Sprintf(
-			"<meta property=\"og:type\" content=\"article\">\n  <meta property=\"og:title\" content=\"%s | Canary\">\n  <meta property=\"og:description\" content=\"%s\">\n  <meta property=\"og:image\" content=\"%s\">\n  <meta name=\"twitter:card\" content=\"summary_large_image\">",
-			template.HTMLEscapeString(data.Title), template.HTMLEscapeString(data.Description), template.HTMLEscapeString(publicBaseURL+page.SocialImage),
-		))
-	}
+	data.SocialHead = template.HTML(socialHeadHTML(lang, page, data.Title, data.Description, canonical, versions))
 
 	var out bytes.Buffer
 	if err := documentTemplate.Execute(&out, data); err != nil {
