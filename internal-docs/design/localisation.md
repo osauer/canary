@@ -184,6 +184,21 @@ what a reader meets every day, then `--help`, then the rest of the app.
 Each step leaves the English product byte-identical, which the goldens and
 `make app-check` prove.
 
+## Cultural choices
+
+Reviewed 2026-11-05 08:43 CET at the owner's request; proofreaders may overrule.
+
+- The name stays `Canary` in Latin letters on every Chinese surface. 金絲雀 also
+  carries a pejorative slang sense, so a Chinese name needs a native naming
+  review first.
+- Red is not a page accent. It means warning or loss in Canary, and markets
+  disagree on price colours: mainland China, Taiwan and Japan show a rise in
+  red, Singapore in green, and Hong Kong awaits a native reader's confirmation.
+  The sign on every figure keeps it readable. Whether
+  the app's gain and loss colours follow the reader is a decision for when the
+  app is translated.
+- No figure in the product or docs is altered for luck.
+
 ## Decisions for the owner
 
 1. Decided 2026-11-04 12:34 CET: Traditional Chinese in Hong Kong usage is

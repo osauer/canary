@@ -598,16 +598,14 @@ func (r *siteRenderer) pageVersions(englishSource string) map[string]string {
 // alternatesHTML renders the hreflang links that let a search engine send a
 // reader straight to the page in their language. x-default is English, the
 // master.
-// defaultSocialImage stands in on a page that names no diagram of its own, so
-// a shared link never renders as a bare URL.
-const defaultSocialImage = "social/social-preview.png"
-
 // socialHeadHTML is a handbook page's link preview: what a chat app or social
 // site shows when the page is shared, in the page's language.
 func socialHeadHTML(lang *langSpec, page pageSpec, title, description, canonical string, versions map[string]string) string {
+	// A page without a diagram of its own still previews, so a shared link
+	// never renders as a bare URL.
 	image := page.SocialImage
 	if image == "" {
-		image = defaultSocialImage
+		image = lang.SocialImage
 	}
 	esc := template.HTMLEscapeString
 	fullTitle, description, imageURL := esc(title+" | Canary"), esc(description), esc(publicBaseURL+image)

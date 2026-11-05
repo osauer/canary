@@ -241,6 +241,7 @@ func (r *siteRenderer) renderLanding(lang *langSpec) ([]byte, error) {
 		page = r.rebaseLandingLinks(page, lang)
 		own := siteURL(output)
 		page = strings.ReplaceAll(page, `"`+publicBaseURL+`"`, `"`+own+`"`)
+		page = strings.ReplaceAll(page, publicBaseURL+english.SocialImage, publicBaseURL+lang.SocialImage)
 		page = strings.ReplaceAll(page, `href="/canary/"`, `href="/canary/`+lang.Slug+`/"`)
 		page, err = replaceOnce(page, `<html lang="en">`, fmt.Sprintf(`<html lang="%s">`, lang.Tag))
 		if err != nil {

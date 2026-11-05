@@ -29,7 +29,10 @@ type langSpec struct {
 	Name string
 	// OGLocale is the page's language in Open Graph's language_TERRITORY form.
 	OGLocale string
-	ui       uiStrings
+	// SocialImage is the site-root relative link preview for pages without a
+	// diagram of their own, with its words in this language.
+	SocialImage string
+	ui          uiStrings
 	// derivedFrom names the language this one is generated from at build
 	// time; its directory under docs/docs/ is never tracked.
 	derivedFrom *langSpec
@@ -69,10 +72,11 @@ type uiStrings struct {
 }
 
 var english = &langSpec{
-	Tag:      "en",
-	Slug:     "",
-	Name:     "English",
-	OGLocale: "en_GB",
+	Tag:         "en",
+	Slug:        "",
+	Name:        "English",
+	OGLocale:    "en_GB",
+	SocialImage: "social/social-preview.png",
 	ui: uiStrings{
 		Documentation:  "Documentation",
 		Overview:       "Overview",
@@ -93,10 +97,11 @@ var english = &langSpec{
 // Simplified Chinese is derived from it, not written beside it: the
 // Traditional-to-Simplified mapping is almost one-to-one, the reverse is not.
 var zhHant = &langSpec{
-	Tag:      "zh-Hant",
-	Slug:     "zh-hant",
-	Name:     "繁體中文",
-	OGLocale: "zh_HK",
+	Tag:         "zh-Hant",
+	Slug:        "zh-hant",
+	Name:        "繁體中文",
+	OGLocale:    "zh_HK",
+	SocialImage: "social/social-preview-zh-hant.png",
 	ui: uiStrings{
 		Documentation:  "說明文件",
 		Overview:       "總覽",
@@ -133,6 +138,7 @@ var zhHans = &langSpec{
 	Slug:        "zh-hans",
 	Name:        "简体中文",
 	OGLocale:    "zh_CN",
+	SocialImage: "social/social-preview-zh-hans.png",
 	derivedFrom: zhHant,
 }
 
