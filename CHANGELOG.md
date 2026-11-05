@@ -8,13 +8,8 @@ All notable changes to this project are documented here. The project adheres to 
 
 **If you have not listed anything under `[authority].pre_authorised` or `[cash].pre_authorised` in your protection policy, nothing changes for you here.** If you have, Canary now also needs a standing authority, a one-time confirmation on a paired device called Protection or Fully armed, before it places those orders itself. Until then they wait for you to confirm them, and `canary proposals status` names them. Today only the Desk console can give that confirmation, so an install without Desk cannot arm yet. An order already at the broker stays there.
 
-The documentation and landing page now read in Traditional and Simplified Chinese, with start pages on connecting Interactive Brokers to the LLM you already use and on what an AI agent can and cannot do on an account.
-
 ### Added
 
-- Handbook start pages and the landing page in Traditional Chinese, and in Simplified Chinese generated from them at build time, with a language selector, a first-visit choice from the browser's languages and link previews in each language. The English pages stay the master. The translations are machine-written and have not been reviewed by a native speaker.
-- Two start pages, in all three languages: connecting an Interactive Brokers account to your own LLM, and what an AI agent can and cannot do on it.
-- The Hong Kong and Singapore guide says how IBKR writes a Hong Kong stock code and that HKEX trades through severe weather.
 - `auto_trade.pre_authorised_disarmed` in `canary proposals` and a row in `canary proposals status` list the orders waiting for an arming.
 - `pkg/ibkr` can ask the broker for earlier days' executions: `FetchExecutionsFiltered` takes an `ExecutionsFilter` whose `LastNDays` fills the filter field Trader Workstation (TWS) API 10.30 added. On TWS server version 203 it returned up to seven calendar days including today, and an empty answer with no broker notice above seven.
 - Fills that landed while the daemon was down reach the execution record at the next connect: the first executions poll of each broker session also asks for the last seven days. They count in the record, and `canary reporting costs` shows them as found after their day, never as a cost.
@@ -32,7 +27,6 @@ The documentation and landing page now read in Traditional and Simplified Chines
 - A holding you share with a strategy read as a change to the book, because the mandate's reading splits it while the broker holds it whole, and that held every row of the forced reduction. Quantities are now compared per broker contract.
 - A long book with incomplete data no longer makes index puts read as directional bets: the reduction leaves them alone until the data is complete.
 - A held row in the paired app said an order outside Canary was working, even when the cause was missing broker data or an unavailable mandate reading. It now gives the daemon's own reason.
-- A language redirect on the documentation site keeps the section the link named.
 - After a crash, recovery no longer reuses a database it cannot verify, and keeps trading authority intact when it rebuilds.
 
 ## v3.33.1 — 2026-11-03 21:44 CET

@@ -16,9 +16,8 @@ https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
 English is the master.
 
 Version 3.34 requires an arming before Canary places pre-authorised orders by
-itself, keeps long puts on the rulebook's hedge indexes out of the forced
-reduction, and adds Chinese documentation, machine-written and not reviewed by
-a native speaker.
+itself and keeps long puts on the rulebook's hedge indexes out of the forced
+reduction.
 
 Version 3.33 adds Singapore, ASX and China A-share calendars, a brief whose
 session row follows the exchange holding most of the book, position figures

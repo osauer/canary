@@ -5,9 +5,7 @@ Updated: 2026-11-05 09:18 CET
 Version 3.34 requires an arming before Canary places pre-authorised orders by
 itself: a one-time confirmation on a paired device, Protection or Fully armed.
 The forced reduction no longer sells long puts on the rulebook's hedge indexes,
-and its nearest-expiry send order holds across veto windows. The documentation
-and landing page read in Traditional and Simplified Chinese, machine-written
-and not reviewed by a native speaker.
+and its nearest-expiry send order holds across veto windows.
 
 Version 3.33 serves accounts that trade from Asia: Singapore, ASX and China
 A-share calendars beside Hong Kong and Tokyo, a brief whose session row
