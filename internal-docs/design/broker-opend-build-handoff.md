@@ -226,7 +226,33 @@ Nothing between packages.
 
 ## Next
 
-WP10 is built: the owner's ack came 2026-11-05 07:47 CET ("Yes, add InstrumentID"). After it: Desk's re-pin, not done here. The regime and FX package is proposed in the design's owner table.
+**On hold by the owner's decision, 2026-11-05 08:43 CET: "We hold back the OpenD work until I have access to the account and we could iron out the biggest issues."**
+
+Resume when the owner has the account and OpenD access. Until then: no building, no landing, no merge to main, no push and no further merges of local main. The branch `cc-wt-/opend-build-27fd07` and this worktree stay as they are; the rule to remove a landed worktree does not apply yet.
+
+Head at the hold: the code is `85db5500`, and the commit carrying this note adds only Markdown on top. It contains local main at `82e5599a`; local main had reached at least `1b15ebd8` by 2026-11-05 08:53 CET. On resuming, merge local main and re-run the gate and the spine before anything else.
+
+First steps on resuming, with real OpenD: run the first-session checks under "Known gaps", then decide the regime and FX package. Desk's re-pin comes after landing.
+
+## Known gaps
+
+Fixed before the hold, recorded here because it was reported open: an OpenD daemon saying "IBKR connection unavailable" (`85db5500`, `TestALostOpenDSessionNamesOpenD`).
+
+Open:
+
+1. Regime and portfolio stress are off under OpenD, against the design's first text: the regime read stops at its IBKR connector check. A package of its own, proposed in the owner table.
+2. OpenD supplies no FX rate, so holdings outside the base currency read as not measured. With the regime package.
+3. Nothing has met a real OpenD. Proof pending, first real session: the `clientVer` low value, the RSA refusal shape, funds currency on a multi-market account, fixture conformance, and what `exchType` says for a US ETF (the simulator's NYSE for SPY is a fixture; IBKR may say ARCA, which would not join).
+4. Proof pending, next live session: the IBKR path on a real Gateway, including an IBKR identity resolved through it, proven here against a fake.
+5. Other IBKR wording in the daemon was not audited line by line; some may still reach an OpenD reader. The readiness blocker under OpenD carries `gateway_unavailable` even when its text says OpenD takes no writes. SPA strings naming TWS are unreachable before phase D.
+6. Labels waiting on the owner: "22/22 sources ok" above a line of unavailable sources, the "Not on OpenD" wording, and the handbook edit draft.
+7. The rulebook reads "10 data gaps" on the simulator's book.
+8. Log noise: the earnings path tries `ibkr_wsh` and warns per held name; one market tape archive warning at start, cause not traced.
+9. `market: hk` works on `quote.snapshot` only; `market.history` and the other paths on the shared IBKR normaliser take the venue or the identity.
+10. An IBKR row with only a smart route carries no identity and keeps `con_id`; all IBKR watchlist rows are in that state today.
+11. No LaunchAgent or install step for a permanent second daemon; the setup has run only in the witness and the dual-daemon test.
+12. The money check last ran at `85db5500`'s tree with local main at `82e5599a`; it is a landing step again after the next merge. The simulator witness last ran at `28119a91`.
+13. Not done before phase D: `broker` in Desk's and the companion's signed-term allowlists, the owner's account and OpenD build, and the OpenAPI agreement.
 
 ## Not done
 
