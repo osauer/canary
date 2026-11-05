@@ -117,6 +117,30 @@ TWS session, then run `canary app pair` and scan the QR code. The
 [app guide](docs/docs/operate/app.md) covers pairing, remote access, and push
 notifications.
 
+## Experimental: Futu OpenD
+
+Canary can also read a Futu account through OpenD, Futu's local gateway. This
+support is experimental. It has run only against a simulator, never a real
+OpenD, and it places no orders.
+
+```toml
+[broker]
+kind = "opend"
+
+[opend]
+account = "12345678" # the number OpenD lists as accID
+```
+
+A daemon set this way shows the account, stock positions and quotes on the Hong
+Kong, US and Singapore markets. Any options or futures you hold are listed as
+stocks. Holdings outside the account's base currency are not converted, so limit
+checks read them as not measured. Daily P&L, the regime, portfolio stress, Edge
+and statement reporting are not available.
+
+Each daemon serves one broker. To keep IBKR running, give the OpenD daemon its
+own XDG directories and `CANARY_SOCKET`. The
+[configuration reference](docs/docs/reference/config.md) lists every key.
+
 ## Go wire-protocol library
 
 [![pkg/ibkr coverage](https://img.shields.io/endpoint?url=https%3A%2F%2Fosauer.dev%2Fcanary%2Fcoverage%2Fpkg-ibkr.json)](https://osauer.dev/canary/coverage/pkg-ibkr.html)
@@ -157,7 +181,11 @@ P/L to the maintainer. [PRIVACY.md](PRIVACY.md) is the data map.
 Canary is an independent third-party client for Interactive Brokers' publicly
 documented TWS API. It is not built, endorsed, sponsored, or supported by
 Interactive Brokers Group, Inc. or its affiliates. `pkg/ibkr` redistributes no
-Interactive Brokers code, libraries, jars, or market data. Nothing here is
+Interactive Brokers code, libraries, jars, or market data. Canary's OpenD client
+is likewise independent and is not built, endorsed, sponsored, or supported by
+Futu or its affiliates; `pkg/futu` includes protocol definitions from Futu's
+public client under the Apache License 2.0, as
+[its notice](pkg/futu/internal/pb/proto/NOTICE) sets out. Nothing here is
 investment advice.
 
 Canary is a private project of Oliver Sauer.

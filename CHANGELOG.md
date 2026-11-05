@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.35.0 — Unreleased
+
+### What's new
+
+**Experimental: Canary can read a Futu account through OpenD, Futu's local gateway.** A daemon set to OpenD shows the account, stock positions and quotes on the Hong Kong, US and Singapore markets, in the terminal and the MCP tools. So far it has run only against a simulator, never a real OpenD, so it may misread a real one, and it places no orders. If you use IB Gateway or TWS, you need to act only if your daemon sets `XDG_CONFIG_HOME` (see Changed).
+
+### Added
+
+- **Experimental OpenD support.** Set `kind = "opend"` under `[broker]` and your account under `[opend]`; OpenD's host and port default to this machine and 11111. Each daemon serves one broker; to keep IBKR running, give the OpenD daemon its own XDG directories and `CANARY_SOCKET`.
+- OpenD covers stocks only, and any options or futures you hold are listed as stocks. Holdings outside the account's base currency are not converted, so limit checks read them as not measured. Daily P&L, the regime, portfolio stress, Edge, reconciliation, statement reporting, borrow availability, earnings, breadth, gamma and the cash sweep are not available, and every order is refused. `canary status` lists most of these, and shows OpenD's login state, markets and quotas, and quote rights once OpenD reports them.
+- `pkg/futu` is a Go client for the OpenD protocol, and `cmd/opend-sim` is the simulator it is tested against.
+- The daemon's `quote.snapshot`, `market.history` and `add.plan` methods take an optional `instrument`, which names a stock by broker and that broker's id, such as `opend` and `HK.00700`.
+
+### Changed
+
+- Policy files follow `XDG_CONFIG_HOME` as `config.toml` already does, so two daemons can keep separate policies. If your daemon's environment sets `XDG_CONFIG_HOME` to anything other than `~/.config`, move `~/.config/ibkr/policies/` to `$XDG_CONFIG_HOME/ibkr/policies/` before you update. Otherwise the daemon writes new default policy files there and your limits stop applying.
+- The `Capabilities` row of `canary trading status` names the kind of preview: `preview=true (what-if)`.
+
 ## v3.34.1 — 2026-11-05 11:28 CET
 
 ### What's new

@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-04 22:56 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-05 14:57 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -48,6 +48,7 @@ work package so a fresh session resumes without the conversation.
 | OpenD fails closed: no broker write, no IBKR port, no default path | `acec8305` | `make test` before the commit; spine on the landed revision | `gate test at canary--v3.33.1-31-g96446ed2-dirty exit 0` |
 | WP10 `rpc` instrument identity, the owner's ack of 2026-11-05 07:47 CET recorded | `e5cf6ec8` | `make test` before the commit | `gate test at canary--v3.33.1-32-gacec8305-dirty exit 0`. The account-data money check ran OK on that tree. Its commit body says "first time since WP8"; the correct wording is first since the owner's stop of 2026-11-04 20:38 CET, which WP8 to the merge all followed. |
 | Merge of local main (the held reduction batch fix `01668714`) | `28119a91` | `make test` and `make regression-spine-check` on `28119a91`; `scripts/opend-witness.sh` on its build | `gate test at canary--v3.33.1-35-g28119a91 exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 662s elapsed 429.0s user 126.8s sys exit 0`; `opend-witness: OK: operator paths unchanged`. The money check skipped on this run: `the daemon has no live account data (gateway_unavailable: IBKR connection unavailable)`. |
+| Merge of local main at `cac66db9` (v3.34.1), the owner's instruction of 2026-11-05 14:40 CET | `d983af3e` | `make test` before the commit; `make regression-spine-check` and `scripts/opend-witness.sh` on `d983af3e` | `gate test at canary--v3.33.1-41-g9c28e5b6-dirty exit 0`, money check OK; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 195s elapsed 402.8s user 80.4s sys exit 0`; `opend-witness: OK: operator paths unchanged` |
 | A lost OpenD session names OpenD, the owner's request of 2026-11-05 08:37 CET, on local main at `82e5599a` | `85db5500` | `make test` before the commit; `make regression-spine-check` on `85db5500` | `gate test at canary--v3.33.1-38-g04a34a7f-dirty exit 0`, money check OK against the running daemon; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 184s elapsed 367.0s user 66.1s sys exit 0` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
@@ -228,11 +229,13 @@ Nothing between packages.
 
 **On hold by the owner's decision, 2026-11-05 08:43 CET: "We hold back the OpenD work until I have access to the account and we could iron out the biggest issues."**
 
-Resume when the owner has the account and OpenD access. Until then: no building, no landing, no merge to main, no push and no further merges of local main. The branch `cc-wt-/opend-build-27fd07` and this worktree stay as they are; the rule to remove a landed worktree does not apply yet.
+Owner, 2026-11-05 14:40 CET: "ok start with the merge. I'm close before having access to the account. In the changelog, mark this as experimental support for OpenD. consider updating the README". So local main was merged at `cac66db9`, the changelog stub and README section were written, and the rest of the hold stands: resume building when the owner has the account and OpenD access; no landing, no merge to main and no push until the owner says so. The rule to remove a landed worktree does not apply yet.
 
-Head at the hold: the code is `85db5500`, and the commit carrying this note adds only Markdown on top. It contains local main at `82e5599a`; local main had reached at least `1b15ebd8` by 2026-11-05 08:53 CET. On resuming, merge local main and re-run the gate and the spine before anything else.
+Head: the code is `d983af3e`, and the commit carrying this note adds only Markdown on top. Merge local main again and re-run the gate and spine if main has moved.
 
 First steps on resuming, with real OpenD: run the first-session checks under "Known gaps", then decide the regime and FX package. Desk's re-pin comes after landing.
+
+Public text: `CHANGELOG.md` carries the stub `## v3.35.0 — Unreleased` at the owner's instruction, which release prep renames; `README.md` has an "Experimental: Futu OpenD" section and a line in its legal paragraph. A fresh reader cold-read both on 2026-11-05 and its ten findings were applied after checking them against the source. The changelog and README say what the gaps below make true, so each fix that closes a gap also edits them.
 
 ## Known gaps
 
@@ -240,6 +243,7 @@ Fixed before the hold, recorded here because it was reported open: an OpenD daem
 
 Open:
 
+0. Options and futures held on a Futu account read as stocks, found by the cold read on 2026-11-05 from the code, not from a run. `instrumentOf` in `internal/broker/opend/adapter.go` sets `SecType` to `STK` for every code, and `pkg/futu/positions.go` passes every row through. Risk figures would treat a contract as shares. The public text discloses it; the fix belongs before landing.
 1. Regime and portfolio stress are off under OpenD, against the design's first text: the regime read stops at its IBKR connector check. A package of its own, proposed in the owner table.
 2. OpenD supplies no FX rate, so holdings outside the base currency read as not measured. With the regime package.
 3. Nothing has met a real OpenD. Proof pending, first real session: the `clientVer` low value, the RSA refusal shape, funds currency on a multi-market account, fixture conformance, and what `exchType` says for a US ETF (the simulator's NYSE for SPY is a fixture; IBKR may say ARCA, which would not join).
@@ -251,8 +255,9 @@ Open:
 9. `market: hk` works on `quote.snapshot` only; `market.history` and the other paths on the shared IBKR normaliser take the venue or the identity.
 10. An IBKR row with only a smart route carries no identity and keeps `con_id`; all IBKR watchlist rows are in that state today.
 11. No LaunchAgent or install step for a permanent second daemon; the setup has run only in the witness and the dual-daemon test.
-12. The money check last ran at `85db5500`'s tree with local main at `82e5599a`; it is a landing step again after the next merge. The simulator witness last ran at `28119a91`.
-13. Not done before phase D: `broker` in Desk's and the companion's signed-term allowlists, the owner's account and OpenD build, and the OpenAPI agreement.
+12. The money check, the spine and the simulator witness last ran at `d983af3e`; they are landing steps again after the next merge. The paired app was last inspected at `28119a91` on the Monitor tab, where stress reads "Fault · transport unavailable", so the public text does not claim the app.
+13. Not done before phase D: `broker` in Desk's and the companion's signed-term allowlists, and the owner's account and OpenD build.
+14. Whether the OpenAPI agreement permits Canary is open and the owner's, read inside OpenD at first access. It comes before any landing, since landing publishes the README section at the next release.
 
 ## Not done
 
