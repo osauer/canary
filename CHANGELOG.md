@@ -2,13 +2,38 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.34.0 — Unreleased
+## v3.34.0 — 2026-11-05 09:18 CET
+
+### What's new
+
+**If you have not listed anything under `[authority].pre_authorised` or `[cash].pre_authorised` in your protection policy, nothing changes for you here.** If you have, Canary now also needs a standing authority, a one-time confirmation on a paired device called Protection or Fully armed, before it places those orders itself. Until then they wait for you to confirm them, and `canary proposals status` names them. Today only the Desk console can give that confirmation, so an install without Desk cannot arm yet. An order already at the broker stays there.
+
+The documentation and landing page now read in Traditional and Simplified Chinese, with start pages on connecting Interactive Brokers to the LLM you already use and on what an AI agent can and cannot do on an account.
 
 ### Added
 
-- The `pkg/ibkr` statement-coverage report is updated on each push to main at https://osauer.dev/canary/coverage/pkg-ibkr.html, with a badge in the README and a link in the package documentation.
-- `pkg/ibkr` can ask the broker for earlier days' executions: `FetchExecutionsFiltered` takes an `ExecutionsFilter` whose `LastNDays` fills the reqExecutions filter field TWS API 10.30 added, and `FetchExecutions` keeps sending it unset. Against TWS at server version 203 on 2026-11-04 the field returned up to seven calendar days including today and an empty, complete answer with no broker notice for anything above seven. The daemon does not use it yet.
-- Fills that landed while the daemon was down reach the execution record at the next connect: the first executions poll of each broker session also asks for the last seven days and retains what it finds with `seen: backfill` and no quote (`reason: backfilled`, shown by `canary reporting costs` as found after its day), so they count in the record and the visibility proof, never in a cost. Later polls in the session ask for the current day as before.
+- Handbook start pages and the landing page in Traditional Chinese, and in Simplified Chinese generated from them at build time, with a language selector, a first-visit choice from the browser's languages and link previews in each language. The English pages stay the master. The translations are machine-written and have not been reviewed by a native speaker.
+- Two start pages, in all three languages: connecting an Interactive Brokers account to your own LLM, and what an AI agent can and cannot do on it.
+- The Hong Kong and Singapore guide says how IBKR writes a Hong Kong stock code and that HKEX trades through severe weather.
+- `auto_trade.pre_authorised_disarmed` in `canary proposals` and a row in `canary proposals status` list the orders waiting for an arming.
+- `pkg/ibkr` can ask the broker for earlier days' executions: `FetchExecutionsFiltered` takes an `ExecutionsFilter` whose `LastNDays` fills the filter field Trader Workstation (TWS) API 10.30 added. On TWS server version 203 it returned up to seven calendar days including today, and an empty answer with no broker notice above seven.
+- Fills that landed while the daemon was down reach the execution record at the next connect: the first executions poll of each broker session also asks for the last seven days. They count in the record, and `canary reporting costs` shows them as found after their day, never as a cost.
+- The `pkg/ibkr` statement-coverage report is published at https://osauer.dev/canary/coverage/pkg-ibkr.html.
+
+### Changed
+
+- **Pre-authorised orders need an arming.** The daemon's scheduler and its final check before the broker both read the standing authority. With nothing armed there is no automatic record and no send. The veto window is the time you have to stop an order before Canary places it: arming starts a full one for every row, disarming ends every running one, and a window from before an arming never carries over, even if the disarm and the new arming both land between two scheduler passes.
+- **The forced reduction never sells a long put on an index in the rulebook's hedge list.** The forced reduction is the batch that cuts the book back when its mandate's loss limit is passed. These puts stay whatever they measure as, in a new batch or one held over from before, and their premium still counts against the limit, so the reduction alone may not bring the book back inside it. A row from the premium budget may still name one, and that row waits for you.
+- The reduction's send order (nearest expiry first) holds across veto windows. A row whose window has closed waits for a better-ranked row still inside its own, for at most one more window, and not once that line has sold since the row fell due.
+
+### Fixed
+
+- A veto window carried back into the batch could run past its length, which let a newer, later-ranked row go first. It now ends at most one window after the row's return.
+- A holding you share with a strategy read as a change to the book, because the mandate's reading splits it while the broker holds it whole, and that held every row of the forced reduction. Quantities are now compared per broker contract.
+- A long book with incomplete data no longer makes index puts read as directional bets: the reduction leaves them alone until the data is complete.
+- A held row in the paired app said an order outside Canary was working, even when the cause was missing broker data or an unavailable mandate reading. It now gives the daemon's own reason.
+- A language redirect on the documentation site keeps the section the link named.
+- After a crash, recovery no longer reuses a database it cannot verify, and keeps trading authority intact when it rebuilds.
 
 ## v3.33.1 — 2026-11-03 21:44 CET
 

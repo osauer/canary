@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-03 21:44 CET. Current release: v3.33.1.
+Updated: 2026-11-05 09:18 CET. Current release: v3.34.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -14,6 +14,11 @@ exist in Traditional Chinese (https://osauer.dev/canary/zh-hant/ and
 https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
 (https://osauer.dev/canary/zh-hans/ and https://osauer.dev/canary/docs/zh-hans/);
 English is the master.
+
+Version 3.34 requires an arming before Canary places pre-authorised orders by
+itself, keeps long puts on the rulebook's hedge indexes out of the forced
+reduction, and adds Chinese documentation, machine-written and not reviewed by
+a native speaker.
 
 Version 3.33 adds Singapore, ASX and China A-share calendars, a brief whose
 session row follows the exchange holding most of the book, position figures
