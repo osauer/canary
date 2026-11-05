@@ -877,13 +877,17 @@ so their goldens are unchanged.
 
 `rpc.ContractParams`, `PositionView`, `Quote`, the order views and the
 opportunity and watchlist rows identify instruments the IBKR way. The
-additive identity is one struct, embedded as an optional pointer wherever an
-instrument is named:
+additive identity is one struct, an optional field wherever an instrument is
+named. It is a plain value with `omitzero`, not a pointer: the wire is the same
+(an object or nothing), and `ContractParams` is compared with `==` and keys two
+maps in the daemon, where two requests naming one instrument would become two
+keys under a pointer (found building WP10, 2026-11-05):
 
 ```go
 // InstrumentID is the broker-neutral identity of an instrument. Present
-// when the daemon knows it; absent on responses from a daemon that
-// predates it. ConID stays the IBKR identity and stays optional.
+// when the daemon knows the id and the listing venue; absent otherwise and
+// on responses from a daemon that predates it. ConID stays the IBKR
+// identity and stays optional.
 type InstrumentID struct {
     Broker   string `json:"broker"`              // ibkr | opend
     ID       string `json:"id"`                  // ibkr: ConID as text; opend: "HK.00700"
@@ -893,28 +897,55 @@ type InstrumentID struct {
 }
 ```
 
-`ContractParams.Market` already exists with `us | de`; its vocabulary grows
-to `hk`, `sg`, `cn`, `jp` rather than a second market field. Request-side,
-a caller may give `instrument` instead of `con_id`; the daemon resolves
-either through `broker.Instruments`. Response-side, OpenD rows carry
-`instrument` and no `con_id`; IBKR rows carry both once the adapter fills
-the identity (`Broker: ibkr, ID: <conid>`). `InstrumentID` carries no listing
-symbol: the join for netting the same stock across brokers is the row's
-own `Symbol` with `InstrumentID.Venue` (`PositionView.Symbol`, and the
-symbol field of the quote, order and opportunity rows), which every
-adapter fills for every row; a reader that nets across two daemons groups
-on (venue, symbol) and never on `ID`, whose form is per broker (the
-multi-broker review, 2026-11-04).
+`ContractParams.Market` already exists; its vocabulary grows to `hk`, `sg`,
+`cn`, `jp` under OpenD rather than a second market field. An IBKR daemon still
+refuses those routes, because no IBKR path changes here. Under OpenD
+`quote.snapshot` reads the new words; `market.history` and the other paths that
+share the IBKR stock normaliser refuse them, and take the venue or the identity
+instead.
+
+Request-side, a caller may give `instrument` instead of `con_id` on
+`quote.snapshot`, `market.history` and `add.plan`. The dispatcher resolves it
+through `broker.Instruments` and rewrites the request to the plain contract
+fields, so no handler and no echo ever carries it. It refuses an identity of
+another broker and one that disagrees with the contract's own `con_id` or
+symbol. Every other method, the order paths among them, refuses an identity
+rather than ignore it, because a dropped identity would leave the symbol to
+decide what is traded; the watchlist's writes accept and drop it, so a list read
+and written back stores none.
+
+Response-side, the daemon fills the identity as an answer leaves, on a copy of
+the rows of `positions.list`, `quote.snapshot`, the three order reads, the
+opportunity and proposal snapshots and the watchlist. Its own rows, and the
+revisions and fingerprints computed from them, do not change. `Quote` and the
+opportunity and proposal rows carry it beside their `contract`, which stays
+bare so that a row's contract can be sent back to an order path. OpenD rows
+carry `instrument` and no `con_id`; IBKR rows carry both (`Broker: ibkr, ID:
+<conid>`). Other rows keep `con_id` and `symbol` as they were: order events, the
+sweep legs, and a quote nested in another answer.
+
+`InstrumentID` carries no listing symbol: the join for netting the same stock
+across brokers is the row's own `Symbol` with `InstrumentID.Venue`, through
+`InstrumentID.JoinKey`, and never `ID`, whose form is per broker (the
+multi-broker review, 2026-11-04). Three things make that join true:
+
+- The venue is the listing venue. A smart route names no listing, so an IBKR row
+  with only `SMART`, usually an option or a routed order, carries no identity;
+  `con_id` still names it. IBKR's own names map to the exchange's (`IBIS` to
+  `XETRA`, `ISLAND` to `NASDAQ`, `TSEJ` to `TSE`).
+- OpenD's family `US` is not a venue. A US row's exchange comes from `exchType`
+  in `Qot_GetStaticInfo`, read once per code; a US row whose exchange OpenD does
+  not name carries no identity.
+- A numeric symbol joins without its leading zeros: IBKR's `700` and OpenD's
+  `00700` are one listing.
 
 Consequences:
 
-- Goldens: the human renderers do not print the identity struct, so the
-  IBKR goldens are unchanged by the type change. OpenD fixtures get their
-  own goldens (`status_opend.txt`, `positions_opend.txt`, `brief_opend.txt`
-  and so on) as new files.
-- MCP: the `contract` object schemas in `internal/mcp/tools.go` and
-  `stock_add.go` gain the optional `instrument` property; `con_id`'s
-  description becomes "exact IBKR contract id when known". `make
+- Goldens: the human renderers do not print the identity struct, so no golden
+  changes, IBKR's or OpenD's (`status_opend.txt`, `trading_status_opend.txt`).
+- MCP: the `contract` object of `canary_market_history` and the arguments of
+  `canary_add` gain the optional `instrument` property; `con_id`'s description
+  becomes "Exact IBKR contract id when known". `make
   docs-regen` rewrites `docs/docs/reference/mcp-tools.md`; `parity-check`
   stays green because no tool is added.
 - Desk compiles Canary at a pinned pseudo-version and reads these structs
@@ -1216,8 +1247,8 @@ OpenD contact:
 | The owner's Futu account and the OpenD build to run | Open, the owner's; nothing here depends on it until phase D's paper proof. |
 | Whether the OpenAPI agreement permits Canary | Open, the owner's, after reading it inside OpenD; the build against the simulator does not touch OpenD. |
 | `google.golang.org/protobuf` as a direct dependency | Accepted by the owner, 2026-11-04 20:00 CET ("Yes, add protobuf"), the eighth direct product dependency. Added at v1.36.12 in the WP5 commit, the one that carries this row. |
-| The additive instrument identity in `internal/rpc` | Proposed: accept. Gates C4; phases A, B and C1 to C3 proceed without it. |
+| The additive instrument identity in `internal/rpc` | Accepted by the owner, 2026-11-05 07:47 CET ("Yes, add InstrumentID"), as the brief proposes it. Built in the WP10 commit, the one that carries this row; a value field rather than a pointer, the wire unchanged, for the reason in the identity section. |
 | Phases A to C shipped without Edge and reconciliation, the gap named on the surface | Proposed: accept. Gates C3's wording; the code is the same either way. |
 | Policy files under the XDG config root that `config.toml` already uses (`$XDG_CONFIG_HOME/ibkr/policies/`, else `$HOME/.config/ibkr/policies/`) | Follows the topology decision: a permanently running second daemon under its own LaunchAgent needs it, not only the witness stack (the multi-broker review, 2026-11-04; applied to C1 2026-11-04 17:54 CET). No new key. A no-op for this Mac's daemon, which runs with `HOME` and no `XDG_*` variable, so the operator's paths stay identical; an operator whose daemon environment sets `XDG_CONFIG_HOME` elsewhere gets a one-time migration note in the changelog. The witness stack keeps its own `HOME` for the paths that still resolve through it. |
 
-The reasoning for the three proposed decisions is in the build brief.
+The reasoning for the proposed decisions is in the build brief.

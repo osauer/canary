@@ -571,7 +571,10 @@ is in the report as the one intentional IBKR golden change.
 
 ### WP10 `rpc` instrument identity (C4)
 
-Needs: the owner's ack of the additive identity.
+Needs: the owner's ack of the additive identity. Given 2026-11-05 07:47 CET
+("Yes, add InstrumentID"); the design's identity section records where the build
+refined this text (a value field, the methods that take an identity, the US
+exchange read).
 
 Files: `internal/rpc/rpc.go` (`InstrumentID`; the optional pointer on
 `ContractParams`, `PositionView`, `Quote`, order and opportunity rows,
@@ -703,7 +706,8 @@ eight in the same commit. WP1 to WP4 proceed without the ack; WP5 is the first c
 needs it.
 
 **Accept the additive instrument identity in `internal/rpc` (gates
-WP10).** Every cross-surface contract names instruments by ConID, SMART-
+WP10).** Accepted by the owner, 2026-11-05 07:47 CET ("Yes, add InstrumentID").
+Every cross-surface contract names instruments by ConID, SMART-
 style exchange and a two-value market, which Futu's `HK.00700` cannot fill.
 One optional `InstrumentID` struct (broker, id, market, venue, currency),
 embedded as a pointer with `omitempty`, lets OpenD rows carry a real identity

@@ -8,8 +8,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/broker"
@@ -34,6 +36,10 @@ type Adapter struct {
 	now     func() time.Time
 	// allowLine is the daemon's line budget; nil admits every line.
 	allowLine func(code string) bool
+	// usVenues are the exchanges of the US lines read so far. A listing does not
+	// move within a session, and a failed read stores nothing.
+	usVenuesMu sync.Mutex
+	usVenues   map[string]string
 }
 
 // SetLineBudget gives the adapter the daemon's line budget. Set once, before the
@@ -298,6 +304,16 @@ func codeOf(in broker.Instrument) (string, error) {
 	if strings.Contains(symbol, ".") {
 		return symbol, nil
 	}
+	// Shanghai and Shenzhen share a market family and a currency, so only the
+	// venue tells them apart; a digit symbol in that family must not read as
+	// Hong Kong.
+	for _, prefix := range []string{"SH", "SZ"} {
+		for _, venue := range []string{in.Venue, in.Primary} {
+			if strings.EqualFold(strings.TrimSpace(venue), venues[prefix]) {
+				return prefix + "." + symbol, nil
+			}
+		}
+	}
 	for _, try := range []struct {
 		value string
 		table map[string]string
@@ -311,6 +327,9 @@ func codeOf(in broker.Instrument) (string, error) {
 				return prefix + "." + symbol, nil
 			}
 		}
+		if strings.ToUpper(try.table["SH"]) == want {
+			return "", fmt.Errorf("%w: %s needs its code or its venue, SSE or SZSE", futu.ErrInvalidCode, symbol)
+		}
 	}
 	return bareSymbolCode(symbol), nil
 }
@@ -323,6 +342,56 @@ func bareSymbolCode(symbol string) string {
 		return "HK." + symbol
 	}
 	return "US." + symbol
+}
+
+// Listed gives each instrument's identity with its listing venue, or a zero
+// Instrument when it cannot name one. A US line's exchange comes from OpenD's
+// static information and is read once; every other market has one venue.
+func (a *Adapter) Listed(ctx context.Context, in []broker.Instrument) []broker.Instrument {
+	out := make([]broker.Instrument, len(in))
+	codes := make([]string, len(in))
+	var missing []string
+	a.usVenuesMu.Lock()
+	for i, instrument := range in {
+		code, err := codeOf(instrument)
+		if err != nil {
+			continue
+		}
+		codes[i] = code
+		if strings.HasPrefix(code, "US.") && a.usVenues[code] == "" && !slices.Contains(missing, code) {
+			missing = append(missing, code)
+		}
+	}
+	a.usVenuesMu.Unlock()
+	if len(missing) > 0 {
+		if rows, err := a.conn.Instruments(ctx, missing...); err == nil {
+			a.usVenuesMu.Lock()
+			if a.usVenues == nil {
+				a.usVenues = make(map[string]string, len(rows))
+			}
+			for _, row := range rows {
+				if row.USVenue != "" {
+					a.usVenues[row.Code] = row.USVenue
+				}
+			}
+			a.usVenuesMu.Unlock()
+		}
+	}
+	a.usVenuesMu.Lock()
+	defer a.usVenuesMu.Unlock()
+	for i, code := range codes {
+		if code == "" {
+			continue
+		}
+		out[i] = instrumentOf(code)
+		if strings.HasPrefix(code, "US.") {
+			out[i].Venue = a.usVenues[code]
+		}
+		if out[i].Venue == "" {
+			out[i] = broker.Instrument{}
+		}
+	}
+	return out
 }
 
 // Key is the subscription key: the code. Empty when it cannot be subscribed.

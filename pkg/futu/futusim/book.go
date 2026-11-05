@@ -85,12 +85,14 @@ type Account struct {
 // Instrument is one listed security with the parameters of its quote walk.
 type Instrument struct {
 	// Code is OpenD's market-prefixed code, HK.00700.
-	Code       string  `json:"code"`
-	Name       string  `json:"name"`
-	Type       string  `json:"type"`
-	LotSize    int64   `json:"lot_size"`
-	Currency   string  `json:"currency"`
-	Listed     string  `json:"listed"`
+	Code     string `json:"code"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	LotSize  int64  `json:"lot_size"`
+	Currency string `json:"currency"`
+	Listed   string `json:"listed"`
+	// Exchange is the US exchange of a US line: NASDAQ, NYSE or AMEX.
+	Exchange   string  `json:"exchange,omitempty"`
 	Start      float64 `json:"start"`
 	Tick       float64 `json:"tick"`
 	Volatility float64 `json:"volatility"`

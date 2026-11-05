@@ -3093,6 +3093,11 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 	var cancel context.CancelFunc
 	ctx, cancel = requestCtx(ctx, req.Method)
 	defer cancel()
+	if err := s.resolveRequestInstrument(ctx, req); err != nil {
+		code, msg := classifyError(err)
+		writeError(enc, req.ID, code, msg)
+		return false
+	}
 	switch req.Method {
 	case rpc.MethodAccountSummary:
 		s.unary(req, enc, func() (any, error) { return s.handleAccountSummaryRequest(ctx, req) })
@@ -3402,7 +3407,7 @@ func (s *Server) unary(req *rpc.Request, enc *json.Encoder, fn func() (any, erro
 		writeError(enc, req.ID, code, msg)
 		return
 	}
-	buf, err := json.Marshal(res)
+	buf, err := json.Marshal(s.withInstrumentIDs(res))
 	if err != nil {
 		writeError(enc, req.ID, rpc.CodeInternal, "marshal result: "+err.Error()+rpc.DefectHint)
 		return

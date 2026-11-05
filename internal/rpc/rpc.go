@@ -240,19 +240,22 @@ func (e *Error) Error() string {
 // preserves the legacy US SMART/USD path; "de" selects the German/Xetra
 // EUR route used by IBKR's IBIS listing codes. Exchange/Currency/PrimaryExch
 type ContractParams struct {
-	ConID        int     `json:"con_id,omitempty"`
-	Symbol       string  `json:"symbol"`
-	SecType      string  `json:"sec_type,omitempty"` // STK | OPT | FUT | IND (request-side; see asymmetry note)
-	Market       string  `json:"market,omitempty"`   // us | de
-	Exchange     string  `json:"exchange,omitempty"` // SMART, IBIS, ...
-	PrimaryExch  string  `json:"primary_exchange,omitempty"`
-	Currency     string  `json:"currency,omitempty"`
-	LocalSymbol  string  `json:"local_symbol,omitempty"`
-	TradingClass string  `json:"trading_class,omitempty"`
-	Expiry       string  `json:"expiry,omitempty"` // YYYYMMDD
-	Strike       float64 `json:"strike,omitempty"`
-	Right        string  `json:"right,omitempty"` // C | P
-	Multiplier   int     `json:"multiplier,omitempty"`
+	ConID int `json:"con_id,omitempty"`
+	// Instrument may stand in for con_id on a request. The daemon resolves it
+	// to the fields here and clears it, so no handler and no echo carries it.
+	Instrument   InstrumentID `json:"instrument,omitzero"`
+	Symbol       string       `json:"symbol"`
+	SecType      string       `json:"sec_type,omitempty"` // STK | OPT | FUT | IND (request-side; see asymmetry note)
+	Market       string       `json:"market,omitempty"`   // IBKR: us | de | uk; OpenD also hk | sg | cn | jp
+	Exchange     string       `json:"exchange,omitempty"` // SMART, IBIS, ...
+	PrimaryExch  string       `json:"primary_exchange,omitempty"`
+	Currency     string       `json:"currency,omitempty"`
+	LocalSymbol  string       `json:"local_symbol,omitempty"`
+	TradingClass string       `json:"trading_class,omitempty"`
+	Expiry       string       `json:"expiry,omitempty"` // YYYYMMDD
+	Strike       float64      `json:"strike,omitempty"`
+	Right        string       `json:"right,omitempty"` // C | P
+	Multiplier   int          `json:"multiplier,omitempty"`
 	// MinTick is the venue minimum price increment, enriched daemon-side from
 	// broker contract details when known. Zero means unresolved: price
 	MinTick float64 `json:"min_tick,omitempty"`
@@ -1611,6 +1614,7 @@ type Quote struct {
 	ReceivedAt time.Time      `json:"received_at,omitzero"`
 	Symbol     string         `json:"symbol"`
 	Contract   ContractParams `json:"contract"`
+	Instrument InstrumentID   `json:"instrument,omitzero"`
 	// Delivery says how the quote arrived, stream or snapshot, on a broker with
 	// both; absent otherwise.
 	Delivery string   `json:"delivery,omitempty"`
@@ -1718,11 +1722,12 @@ type FrameError struct {
 // unavailable, never zero-substituted.
 // (illiquid leg, OOH model abstention, subscribe slot churn) — never zero-
 type PositionView struct {
-	Lending  *LendingPosition `json:"lending,omitempty"`
-	Symbol   string           `json:"symbol"`
-	SecType  string           `json:"sec_type"`
-	ConID    int              `json:"con_id,omitempty"`
-	Exchange string           `json:"exchange,omitempty"`
+	Lending    *LendingPosition `json:"lending,omitempty"`
+	Symbol     string           `json:"symbol"`
+	SecType    string           `json:"sec_type"`
+	ConID      int              `json:"con_id,omitempty"`
+	Instrument InstrumentID     `json:"instrument,omitzero"`
+	Exchange   string           `json:"exchange,omitempty"`
 	// PrimaryExch is the listing venue IBKR reports for the held contract
 	// (IBIS, NASDAQ, NYSE, ...). Position reports usually leave Exchange
 	// empty, so consumers that scope work by venue need this field.
@@ -3292,6 +3297,7 @@ type OrderView struct {
 	Symbol           string             `json:"symbol,omitempty"`
 	SecType          string             `json:"sec_type,omitempty"`
 	ConID            int                `json:"con_id,omitempty"`
+	Instrument       InstrumentID       `json:"instrument,omitzero"`
 	Exchange         string             `json:"exchange,omitempty"`
 	PrimaryExch      string             `json:"primary_exch,omitempty"`
 	Currency         string             `json:"currency,omitempty"`

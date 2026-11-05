@@ -404,8 +404,12 @@ func rpcQuoteOf(contract rpc.ContractParams, q *broker.Quote) *rpc.Quote {
 		}
 		return nil
 	}
+	symbol := contract.Symbol
+	if _, listed, coded := strings.Cut(symbol, "."); coded {
+		symbol = listed
+	}
 	out := &rpc.Quote{
-		Symbol:       contract.Symbol,
+		Symbol:       symbol,
 		Contract:     contract,
 		IVStatus:     "unavailable",
 		DataType:     "live",

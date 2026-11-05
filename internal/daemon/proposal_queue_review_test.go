@@ -324,13 +324,21 @@ func TestQueuedTermsFieldsAreTheSignedContract(t *testing.T) {
 			"contract", "action", "position_effect", "position_quantity", "max_quantity", "style", "concession", "worst_price",
 			"reference_mark", "reference_mark_at", "max_spread_pct_of_mid", "currency", "market", "session_date", "not_before",
 			"not_after", "tif", "arm_deadline", "row_terms_digest", "policy_fingerprint", "rulebook_fingerprint"}},
-		{reflect.TypeFor[rpc.ContractParams](), []string{"con_id", "symbol", "sec_type", "market", "exchange", "primary_exchange", "currency",
+		// instrument is request-side: the dispatcher resolves and clears it and
+		// a term never carries it, which the marshalled bytes below prove.
+		{reflect.TypeFor[rpc.ContractParams](), []string{"con_id", "instrument", "symbol", "sec_type", "market", "exchange", "primary_exchange", "currency",
 			"local_symbol", "trading_class", "expiry", "strike", "right", "multiplier", "min_tick"}},
 		{reflect.TypeFor[rpc.Fingerprint](), []string{"version", "key"}},
 	} {
 		if got := fields(tc.typ); !slices.Equal(got, tc.want) {
 			t.Errorf("%s JSON fields = %v, want %v: a change here needs Desk's and the companion's allowlists first", tc.typ.Name(), got, tc.want)
 		}
+	}
+	// What Desk and the companion read is the bytes, and a term's contract has
+	// no identity to write.
+	raw, err := json.Marshal(rpc.QueuedAuthTerms{Contract: rpc.ContractParams{Symbol: "SYNTH", ConID: 7}})
+	if err != nil || strings.Contains(string(raw), "instrument") {
+		t.Fatalf("a term carries an identity: %s %v", raw, err)
 	}
 }
 

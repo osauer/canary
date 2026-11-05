@@ -484,3 +484,50 @@ func TestRulesDescribesIssuerConcentrationContract(t *testing.T) {
 		}
 	}
 }
+
+// The identity is additive: what a client must send has not changed, on the
+// contract object or on the tool, and con_id stays.
+func TestInstrumentSchemaIsAdditive(t *testing.T) {
+	required := func(t *testing.T, raw json.RawMessage) ([]string, map[string]json.RawMessage) {
+		t.Helper()
+		var schema struct {
+			Required   []string                   `json:"required"`
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if err := json.Unmarshal(raw, &schema); err != nil {
+			t.Fatal(err)
+		}
+		return schema.Required, schema.Properties
+	}
+	history, ok := lookupTool("canary_market_history")
+	if !ok {
+		t.Fatal("no canary_market_history")
+	}
+	top, props := required(t, history.JSONSchema)
+	if !slices.Equal(top, []string{"contract", "range"}) {
+		t.Fatalf("market history requires %v", top)
+	}
+	inner, contract := required(t, props["contract"])
+	if !slices.Equal(inner, []string{"symbol", "sec_type", "exchange", "currency"}) {
+		t.Fatalf("contract requires %v", inner)
+	}
+	add, ok := lookupTool("canary_add")
+	if !ok {
+		t.Fatal("no canary_add")
+	}
+	addRequired, addProps := required(t, add.JSONSchema)
+	if !slices.Equal(addRequired, []string{"symbol", "currency", "limit_price"}) {
+		t.Fatalf("add requires %v", addRequired)
+	}
+	for name, schema := range map[string]map[string]json.RawMessage{"contract": contract, "add": addProps} {
+		if schema["con_id"] == nil || schema["instrument"] == nil {
+			t.Fatalf("%s: %v", name, schema)
+		}
+		var id struct {
+			Required []string `json:"required"`
+		}
+		if err := json.Unmarshal(schema["instrument"], &id); err != nil || !slices.Equal(id.Required, []string{"broker", "id"}) {
+			t.Fatalf("%s: %s %v", name, schema["instrument"], err)
+		}
+	}
+}

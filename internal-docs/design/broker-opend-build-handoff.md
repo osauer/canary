@@ -45,7 +45,8 @@ work package so a fresh session resumes without the conversation.
 | WP11 quota budgeting and snapshot delivery (WP10 waits for the identity ack) | `2b2d12b7` | `make test` on the tree before the commit; spine on the landed revision | `gate test at canary--v3.33.1-20-g18512599-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 131s elapsed 361.2s user 72.6s sys exit 0` |
 | WP12 `cmd/opend-sim`, the witness and the dual-daemon witness | `367b018a` | `make test` on the tree before the commit; `make account-data-check product-identity-check` | `gate test at canary--v3.33.1-21-g2b2d12b7-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 128s elapsed 359.3s user 73.0s sys exit 0` |
 | Merge of local main (standing authority, hedge rule, send order) | `96446ed2` | `make test` before the commit | `gate test at canary--v3.33.1-22-g367b018a-dirty exit 0` |
-| OpenD fails closed: no broker write, no IBKR port, no default path | the commit carrying this note | `make test` before the commit; spine on the landed revision | `gate test at canary--v3.33.1-31-g96446ed2-dirty exit 0` |
+| OpenD fails closed: no broker write, no IBKR port, no default path | `acec8305` | `make test` before the commit; spine on the landed revision | `gate test at canary--v3.33.1-31-g96446ed2-dirty exit 0` |
+| WP10 `rpc` instrument identity, the owner's ack of 2026-11-05 07:47 CET recorded | the commit carrying this note | `make test` before the commit | `gate test at canary--v3.33.1-32-gacec8305-dirty exit 0` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
 is in the review record under "Fifth read". Four of five mechanisms
@@ -223,10 +224,10 @@ Nothing between packages.
 
 ## Next
 
-WP10 waits for the owner's ack of the identity, asked of the parent session 2026-11-04 21:53 CET. After it: Desk's re-pin. The regime and FX package is proposed in the design's owner table.
+WP10 is built: the owner's ack came 2026-11-05 07:47 CET ("Yes, add InstrumentID"). After it: Desk's re-pin, not done here. The regime and FX package is proposed in the design's owner table.
 
 ## Not done
 
-WP10. No live proof (no Gateway in this session): every
+No live proof (no Gateway in this session): every
 IBKR-path package reports "proof pending: next live session". Phase D is
 out of scope.

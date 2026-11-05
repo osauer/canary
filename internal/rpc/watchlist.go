@@ -26,6 +26,9 @@ type WatchlistContract struct {
 	SecType  string `json:"sec_type"`
 	Currency string `json:"currency"`
 	Exchange string `json:"exchange"`
+	// Instrument is filled on answers only and never stored: a list read and
+	// written back drops it here.
+	Instrument InstrumentID `json:"instrument,omitzero"`
 }
 
 // Watchlist is the currently accepted owner list and optional mutation receipt.
@@ -74,6 +77,7 @@ func ValidateWatchlistMutation(revision int64, requestID string) error {
 
 // NormalizeWatchlistContract restricts owner input to supported stock identities.
 func NormalizeWatchlistContract(c WatchlistContract) (WatchlistContract, error) {
+	c.Instrument = InstrumentID{}
 	c.Symbol = strings.ToUpper(strings.TrimSpace(c.Symbol))
 	if !watchlistSymbol.MatchString(c.Symbol) {
 		return c, fmt.Errorf("symbol must match [A-Z0-9][A-Z0-9.]{0,31}")

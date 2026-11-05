@@ -16,6 +16,17 @@ type Instrument struct {
 	LotSize  int32
 	Listed   string
 	Delisted bool
+	// USVenue is the US exchange listing this security, as OpenD reports it;
+	// empty for a security elsewhere or when OpenD does not say.
+	USVenue string
+}
+
+// usVenues name the US exchanges a stock lists on.
+var usVenues = map[qotcommon.ExchType]string{
+	qotcommon.ExchType_ExchType_US_NYSE:   "NYSE",
+	qotcommon.ExchType_ExchType_US_Nasdaq: "NASDAQ",
+	qotcommon.ExchType_ExchType_US_AMEX:   "AMEX",
+	qotcommon.ExchType_ExchType_US_Pink:   "PINK",
 }
 
 func staticInfoRequest(secs []*qotcommon.Security) *qotgetstaticinfo.Request {
@@ -51,6 +62,7 @@ func readInstruments(ctx context.Context, conn *connection, codes []string) ([]I
 			LotSize:  basic.GetLotSize(),
 			Listed:   basic.GetListTime(),
 			Delisted: basic.GetDelisting(),
+			USVenue:  usVenues[qotcommon.ExchType(basic.GetExchType())],
 		})
 	}
 	return out, nil

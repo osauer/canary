@@ -276,3 +276,58 @@ func TestBarsAndResolve(t *testing.T) {
 		t.Fatal("an unknown instrument resolved")
 	}
 }
+
+func TestListedNamesTheExchangeAndReadsItOnce(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{})
+	a := connected(t, sim, simAccount)
+	ctx := t.Context()
+	in := []broker.Instrument{
+		{Symbol: "AAPL", Venue: "US"},
+		{Symbol: "SPY", SecType: "ETF", Venue: "US"},
+		{ID: "HK.00700", Broker: broker.KindOpenD},
+		{Symbol: "D05", Venue: "SGX"},
+		{Symbol: "x", SecType: "OPT"},
+	}
+	got := a.Listed(ctx, in)
+	for i, want := range []struct{ id, venue string }{{"US.AAPL", "NASDAQ"}, {"US.SPY", "NYSE"}, {"HK.00700", "SEHK"}, {"SG.D05", "SGX"}, {"", ""}} {
+		if got[i].ID != want.id || got[i].Venue != want.venue {
+			t.Errorf("%d: %+v, want %+v", i, got[i], want)
+		}
+	}
+	// The exchange was read: with OpenD gone it still answers.
+	sim.Close()
+	waitUntil(t, "the session to drop", func() bool { return !a.conn.IsReady() })
+	if again := a.Listed(ctx, in[:1]); again[0].Venue != "NASDAQ" {
+		t.Fatalf("not kept: %+v", again[0])
+	}
+}
+
+// A US name OpenD has not named has no join, so it has no identity rather than
+// the family "US", which matches no other broker.
+func TestListedGivesNoIdentityWithoutTheExchange(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{})
+	a := connected(t, sim, simAccount)
+	if got := a.Listed(t.Context(), []broker.Instrument{{Symbol: "NOSUCH", Venue: "US"}}); got[0].ID != "" || got[0].Venue != "" {
+		t.Fatalf("%+v", got[0])
+	}
+}
+
+// Shanghai and Shenzhen share a market family and a currency. A digit symbol in
+// that family reads by its venue, never as a Hong Kong code.
+func TestCodeOfTellsTheChinaVenuesApart(t *testing.T) {
+	for _, tc := range []struct {
+		in   broker.Instrument
+		want string
+	}{
+		{broker.Instrument{Symbol: "600519", Venue: "SSE"}, "SH.600519"},
+		{broker.Instrument{Symbol: "000001", Primary: "SZSE"}, "SZ.000001"},
+		{broker.Instrument{Symbol: "600519", Market: "cn"}, ""},
+		{broker.Instrument{Symbol: "600519", Currency: "CNH"}, ""},
+		{broker.Instrument{Symbol: "00700"}, "HK.00700"},
+	} {
+		got, err := codeOf(tc.in)
+		if got != tc.want || (tc.want == "") != (err != nil) {
+			t.Errorf("%+v: %q %v, want %q", tc.in, got, err, tc.want)
+		}
+	}
+}

@@ -14,8 +14,9 @@ Calculate the permitted whole-share addition to a selected stock, including open
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `con_id` | integer | no | Exact broker stock contract ID when known. |
+| `con_id` | integer | no | Exact IBKR contract id when known. |
 | `currency` | string | **yes** | Explicit stock trading currency, for example USD or EUR; no automatic conversion. |
+| `instrument` | object | no | Broker-neutral identity from an earlier answer, in place of con_id. It is refused when it names another broker or disagrees with symbol or con_id. |
 | `limit_price` | number | **yes** | Maximum price per share in the specified currency. |
 | `max` | boolean | no | Explicitly request the maximum for one order. Mutually exclusive with quantity; no automatic execution. |
 | `quantity` | integer | no | Exact additional whole shares. Choose this or max=true; never the current position or a target total. |

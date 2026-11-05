@@ -80,14 +80,17 @@ func (s *Server) loadMarketHistory(ctx context.Context, key string) (*storedMark
 	if err := json.Unmarshal(doc.JSON, &saved); err != nil {
 		return nil, time.Time{}, err
 	}
-	if saved.Version != 1 || saved.Identity != key || validStoredHistory(saved.Result) != nil {
+	if saved.Version != 1 || saved.Identity != key || s.validStoredHistory(saved.Result) != nil {
 		return nil, time.Time{}, errors.New("invalid retained chart history")
 	}
 	return &saved, doc.UpdatedAt, nil
 }
 
-func validStoredHistory(r rpc.MarketHistoryResult) error {
-	if r.Contract.ConID <= 0 || r.Contract.Currency == "" || r.AsOf.IsZero() || r.RequestedStart.IsZero() || r.End.After(r.AsOf.Add(time.Minute)) || len(r.Points) == 0 || len(r.Points) > 8000 {
+// validStoredHistory holds a series to an exact identity: a contract id on IBKR.
+// OpenD has none, and its code stands in the normalised symbol and venue the
+// record's key is built from.
+func (s *Server) validStoredHistory(r rpc.MarketHistoryResult) error {
+	if (r.Contract.ConID <= 0 && s.opend == nil) || r.Contract.Currency == "" || r.AsOf.IsZero() || r.RequestedStart.IsZero() || r.End.After(r.AsOf.Add(time.Minute)) || len(r.Points) == 0 || len(r.Points) > 8000 {
 		return errors.New("chart identity, observation or size invalid")
 	}
 	if r.PriceBasis != "TRADES" && r.PriceBasis != "MIDPOINT" {
@@ -392,7 +395,7 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		if fresh == nil {
 			fetchErr = errors.New("history response absent")
 		} else {
-			fetchErr = validStoredHistory(*fresh)
+			fetchErr = s.validStoredHistory(*fresh)
 		}
 	}
 	if fetchErr == nil && !historyResponseMatches(p, *fresh, now) {
@@ -406,7 +409,7 @@ func (s *Server) readRetainedHistory(ctx context.Context, key string, p rpc.Mark
 		tail = -min(1830, max(1, int(math.Ceil(now.Sub(saved.Result.RequestedStart).Hours()/24))))
 		fresh, fetchErr = fetch(ctx, p, tail, now)
 		if fetchErr == nil && fresh != nil {
-			fetchErr = validStoredHistory(*fresh)
+			fetchErr = s.validStoredHistory(*fresh)
 		} else if fetchErr == nil {
 			fetchErr = errors.New("history response absent")
 		}

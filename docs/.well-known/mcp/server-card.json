@@ -43,11 +43,36 @@
           "con_id": {
             "type": "integer",
             "minimum": 1,
-            "description": "Exact broker stock contract ID when known."
+            "description": "Exact IBKR contract id when known."
           },
           "currency": {
             "type": "string",
             "description": "Explicit stock trading currency, for example USD or EUR; no automatic conversion."
+          },
+          "instrument": {
+            "type": "object",
+            "description": "Broker-neutral identity from an earlier answer, in place of con_id. It is refused when it names another broker or disagrees with symbol or con_id.",
+            "properties": {
+              "broker": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "market": {
+                "type": "string"
+              },
+              "venue": {
+                "type": "string"
+              },
+              "currency": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "broker",
+              "id"
+            ]
           },
           "limit_price": {
             "type": "number",
@@ -275,7 +300,33 @@
                 "type": "string"
               },
               "con_id": {
-                "type": "integer"
+                "type": "integer",
+                "description": "Exact IBKR contract id when known."
+              },
+              "instrument": {
+                "type": "object",
+                "description": "Broker-neutral identity from an earlier answer, in place of con_id. It is refused when it names another broker or disagrees with symbol or con_id.",
+                "properties": {
+                  "broker": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "market": {
+                    "type": "string"
+                  },
+                  "venue": {
+                    "type": "string"
+                  },
+                  "currency": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "broker",
+                  "id"
+                ]
               },
               "primary_exchange": {
                 "type": "string"

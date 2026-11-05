@@ -235,7 +235,7 @@ func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays
 	if len(bars) == 0 {
 		return nil, errors.New("history unavailable: no observed bars")
 	}
-	result := &rpc.MarketHistoryResult{Contract: echo, Range: p.Range, Interval: interval, Source: "IBKR historical bars · " + series.WhatToShow, AsOf: now, CoverageStatus: "available"}
+	result := &rpc.MarketHistoryResult{Contract: echo, Range: p.Range, Interval: interval, Source: historyProviderOf(series.Instrument) + " historical bars · " + series.WhatToShow, AsOf: now, CoverageStatus: "available"}
 	result.TimestampKind = "instant"
 	if interval == "1 day" {
 		result.TimestampKind = "session_date"
@@ -337,4 +337,12 @@ func marketHistoryMonthsBefore(now time.Time, months int) time.Time {
 	first := time.Date(now.Year(), now.Month(), 1, now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), now.Location()).AddDate(0, -months, 0)
 	lastDay := first.AddDate(0, 1, -1).Day()
 	return time.Date(first.Year(), first.Month(), min(now.Day(), lastDay), now.Hour(), now.Minute(), now.Second(), now.Nanosecond(), now.Location())
+}
+
+// historyProviderOf names the broker that answered, in the reader's word.
+func historyProviderOf(in broker.Instrument) string {
+	if in.Broker.Normalized() == broker.KindOpenD {
+		return "OpenD"
+	}
+	return "IBKR"
 }

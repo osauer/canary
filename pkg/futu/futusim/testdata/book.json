@@ -28,9 +28,9 @@
     {"code": "HK.00700", "name": "SYNTH TENCENT", "type": "stock", "lot_size": 100, "currency": "HKD", "listed": "2004-06-16", "start": 412.6, "tick": 0.2, "volatility": 0.0008},
     {"code": "HK.00005", "name": "SYNTH HSBC", "type": "stock", "lot_size": 400, "currency": "HKD", "listed": "1972-01-01", "start": 71.35, "tick": 0.05, "volatility": 0.0005},
     {"code": "HK.02800", "name": "SYNTH TRACKER FUND", "type": "etf", "lot_size": 500, "currency": "HKD", "listed": "1999-11-12", "start": 23.44, "tick": 0.02, "volatility": 0.0004},
-    {"code": "US.AAPL", "name": "SYNTH APPLE", "type": "stock", "lot_size": 1, "currency": "USD", "listed": "1980-12-12", "start": 231.17, "tick": 0.01, "volatility": 0.0006},
-    {"code": "US.MSFT", "name": "SYNTH MICROSOFT", "type": "stock", "lot_size": 1, "currency": "USD", "listed": "1986-03-13", "start": 417.83, "tick": 0.01, "volatility": 0.0006},
-    {"code": "US.SPY", "name": "SYNTH S&P 500 ETF", "type": "etf", "lot_size": 1, "currency": "USD", "listed": "1993-01-22", "start": 587.42, "tick": 0.01, "volatility": 0.0003},
+    {"code": "US.AAPL", "name": "SYNTH APPLE", "type": "stock", "lot_size": 1, "currency": "USD", "exchange": "NASDAQ", "listed": "1980-12-12", "start": 231.17, "tick": 0.01, "volatility": 0.0006},
+    {"code": "US.MSFT", "name": "SYNTH MICROSOFT", "type": "stock", "lot_size": 1, "currency": "USD", "exchange": "NASDAQ", "listed": "1986-03-13", "start": 417.83, "tick": 0.01, "volatility": 0.0006},
+    {"code": "US.SPY", "name": "SYNTH S&P 500 ETF", "type": "etf", "lot_size": 1, "currency": "USD", "exchange": "NYSE", "listed": "1993-01-22", "start": 587.42, "tick": 0.01, "volatility": 0.0003},
     {"code": "SG.D05", "name": "SYNTH DBS", "type": "stock", "lot_size": 100, "currency": "SGD", "listed": "1968-11-01", "start": 43.27, "tick": 0.01, "volatility": 0.0005},
     {"code": "SG.ES3", "name": "SYNTH STI ETF", "type": "etf", "lot_size": 100, "currency": "SGD", "listed": "2002-04-17", "start": 3.93, "tick": 0.01, "volatility": 0.0003}
   ],

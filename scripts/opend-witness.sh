@@ -92,6 +92,7 @@ run status status
 run status-json status --json
 run account account
 run positions positions
+run positions-json positions --json
 run brief brief
 run edge edge
 run trading-status trading status
@@ -110,6 +111,9 @@ run status-after-reads status
 		id=$((id + 1))
 		sleep 3
 	done
+	# The same history by the identity a position row gave.
+	printf '{"jsonrpc":"2.0","id":%d,"method":"tools/call","params":{"name":"canary_market_history","arguments":{"contract":{"symbol":"00700","sec_type":"STK","exchange":"SEHK","currency":"HKD","instrument":{"broker":"opend","id":"HK.00700"}},"range":"1M"}}}\n' "$id"
+	sleep 3
 	sleep 2
 } | "$bin" mcp >"$out/mcp.jsonl" 2>"$out/mcp.err"
 

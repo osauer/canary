@@ -401,6 +401,19 @@ func securityType(in Instrument) qotcommon.SecurityType {
 	return qotcommon.SecurityType_SecurityType_Eqty
 }
 
+// exchTypeOf is the exchange a US line reports; other lines leave it unset.
+func exchTypeOf(in Instrument) *int32 {
+	exchange, known := map[string]qotcommon.ExchType{
+		"NASDAQ": qotcommon.ExchType_ExchType_US_Nasdaq,
+		"NYSE":   qotcommon.ExchType_ExchType_US_NYSE,
+		"AMEX":   qotcommon.ExchType_ExchType_US_AMEX,
+	}[in.Exchange]
+	if !known {
+		return nil
+	}
+	return new(int32(exchange))
+}
+
 func (s *Server) answerStaticInfo(secs []*qotcommon.Security) proto.Message {
 	rows := make([]*qotcommon.SecurityStaticInfo, 0, len(secs))
 	for i, sec := range secs {
@@ -415,6 +428,7 @@ func (s *Server) answerStaticInfo(secs []*qotcommon.Security) proto.Message {
 			SecType:  new(int32(securityType(in))),
 			Name:     new(in.Name),
 			ListTime: new(in.Listed),
+			ExchType: exchTypeOf(in),
 		}})
 	}
 	return &qotgetstaticinfo.Response{RetType: ok(), S2C: &qotgetstaticinfo.S2C{StaticInfoList: rows}}

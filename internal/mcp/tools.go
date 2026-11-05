@@ -139,7 +139,7 @@ var Tools = []Tool{
 	{
 		Name: "canary_market_history", Title: "Canary Price History", RPCMethods: []string{rpc.MethodMarketHistory},
 		Description: "Read bounded observed underlying price bars for a chart. Intraday ranges include extended hours; longer ranges use daily regular-session bars. Missing or rejected history is unavailable, never an empty healthy chart. Use canary_market for current quotes and canary_technical for analysis. No option history, continuous futures roll series, or trading authority. Futures history belongs to the exact dated contract.",
-		JSONSchema:  schemaObject(map[string]json.RawMessage{"contract": json.RawMessage(`{"type":"object","description":"Exact underlying identity; specify symbol, sec_type (STK, IND, CASH, FUT), exchange and currency; preserve con_id when known.","properties":{"symbol":{"type":"string"},"sec_type":{"type":"string"},"exchange":{"type":"string"},"currency":{"type":"string"},"con_id":{"type":"integer"},"primary_exchange":{"type":"string"},"local_symbol":{"type":"string"},"trading_class":{"type":"string"},"multiplier":{"type":"integer"},"expiry":{"type":"string"}},"required":["symbol","sec_type","exchange","currency"]}`), "range": schemaEnum([]string{"1D", "5D", "1M", "6M", "YTD", "1Y", "5Y"}, "Requested date range; 1D uses 5-minute bars, 5D 30-minute bars, longer ranges daily bars.")}, []string{"contract", "range"}),
+		JSONSchema:  schemaObject(map[string]json.RawMessage{"contract": json.RawMessage(`{"type":"object","description":"Exact underlying identity; specify symbol, sec_type (STK, IND, CASH, FUT), exchange and currency; preserve con_id when known.","properties":{"symbol":{"type":"string"},"sec_type":{"type":"string"},"exchange":{"type":"string"},"currency":{"type":"string"},"con_id":{"type":"integer","description":"Exact IBKR contract id when known."},"instrument":` + instrumentSchema + `,"primary_exchange":{"type":"string"},"local_symbol":{"type":"string"},"trading_class":{"type":"string"},"multiplier":{"type":"integer"},"expiry":{"type":"string"}},"required":["symbol","sec_type","exchange","currency"]}`), "range": schemaEnum([]string{"1D", "5D", "1M", "6M", "YTD", "1Y", "5Y"}, "Requested date range; 1D uses 5-minute bars, 5D 30-minute bars, longer ranges daily bars.")}, []string{"contract", "range"}),
 		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 			var p rpc.MarketHistoryParams
 			if err := unmarshalArgs(args, &p); err != nil {
@@ -1036,6 +1036,9 @@ func sortedKeys(m map[string]json.RawMessage) []string {
 	slices.Sort(keys)
 	return keys
 }
+
+// instrumentSchema is the optional broker-neutral identity on a contract.
+const instrumentSchema = `{"type":"object","description":"Broker-neutral identity from an earlier answer, in place of con_id. It is refused when it names another broker or disagrees with symbol or con_id.","properties":{"broker":{"type":"string"},"id":{"type":"string"},"market":{"type":"string"},"venue":{"type":"string"},"currency":{"type":"string"}},"required":["broker","id"]}`
 
 func unmarshalArgs(raw json.RawMessage, dst any) error {
 	if len(raw) == 0 || string(raw) == "null" {

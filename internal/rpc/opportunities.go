@@ -157,6 +157,7 @@ type Opportunity struct {
 	UnderlyingShareChange    float64                       `json:"underlying_share_change"`
 	PostExerciseRisk         *OpportunityPostExerciseRisk  `json:"post_exercise_risk,omitempty"`
 	Contract                 ContractParams                `json:"contract"`
+	Instrument               InstrumentID                  `json:"instrument,omitzero"`
 	UnderlyingContract       ContractParams                `json:"underlying_contract"`
 	ExpectedGain             float64                       `json:"expected_gain,omitempty"`
 	ExpectedGainCurrency     string                        `json:"expected_gain_currency,omitempty"`
@@ -1121,6 +1122,7 @@ type TradeProposal struct {
 	TIF                string                           `json:"tif"`
 	OutsideRTH         bool                             `json:"outside_rth"`
 	Contract           ContractParams                   `json:"contract"`
+	Instrument         InstrumentID                     `json:"instrument,omitzero"`
 	Reason             string                           `json:"reason"`
 	Details            []string                         `json:"details,omitempty"`
 	Score              float64                          `json:"score,omitempty"`
