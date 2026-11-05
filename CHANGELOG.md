@@ -10,6 +10,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### Added
 
+- The Hong Kong and Singapore guide says how IBKR writes a Hong Kong stock code and that HKEX trades through severe weather.
 - `auto_trade.pre_authorised_disarmed` in `canary proposals` and a row in `canary proposals status` list the orders waiting for an arming.
 - `pkg/ibkr` can ask the broker for earlier days' executions: `FetchExecutionsFiltered` takes an `ExecutionsFilter` whose `LastNDays` fills the filter field Trader Workstation (TWS) API 10.30 added. On TWS server version 203 it returned up to seven calendar days including today, and an empty answer with no broker notice above seven.
 - Fills that landed while the daemon was down reach the execution record at the next connect: the first executions poll of each broker session also asks for the last seven days. They count in the record, and `canary reporting costs` shows them as found after their day, never as a cost.
