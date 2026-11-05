@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-05 14:57 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-05 15:21 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -49,6 +49,7 @@ work package so a fresh session resumes without the conversation.
 | WP10 `rpc` instrument identity, the owner's ack of 2026-11-05 07:47 CET recorded | `e5cf6ec8` | `make test` before the commit | `gate test at canary--v3.33.1-32-gacec8305-dirty exit 0`. The account-data money check ran OK on that tree. Its commit body says "first time since WP8"; the correct wording is first since the owner's stop of 2026-11-04 20:38 CET, which WP8 to the merge all followed. |
 | Merge of local main (the held reduction batch fix `01668714`) | `28119a91` | `make test` and `make regression-spine-check` on `28119a91`; `scripts/opend-witness.sh` on its build | `gate test at canary--v3.33.1-35-g28119a91 exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 662s elapsed 429.0s user 126.8s sys exit 0`; `opend-witness: OK: operator paths unchanged`. The money check skipped on this run: `the daemon has no live account data (gateway_unavailable: IBKR connection unavailable)`. |
 | Merge of local main at `cac66db9` (v3.34.1), the owner's instruction of 2026-11-05 14:40 CET | `d983af3e` | `make test` before the commit; `make regression-spine-check` and `scripts/opend-witness.sh` on `d983af3e` | `gate test at canary--v3.33.1-41-g9c28e5b6-dirty exit 0`, money check OK; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 195s elapsed 402.8s user 80.4s sys exit 0`; `opend-witness: OK: operator paths unchanged` |
+| Options and futures no longer read as stocks, the owner's request of 2026-11-05 15:05 CET | `b3f0ea60` | `make test` before the commit; `make regression-spine-check` and `scripts/opend-witness.sh` on `b3f0ea60` | `gate test at canary--v3.34.1-28-g844989d2-dirty exit 0`; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 134s elapsed 366.2s user 73.5s sys exit 0`; `opend-witness: OK: operator paths unchanged` |
 | A lost OpenD session names OpenD, the owner's request of 2026-11-05 08:37 CET, on local main at `82e5599a` | `85db5500` | `make test` before the commit; `make regression-spine-check` on `85db5500` | `gate test at canary--v3.33.1-38-g04a34a7f-dirty exit 0`, money check OK against the running daemon; `regression-spine: OK (32/32 historical regressions killed)`, `leg regression-spine 184s elapsed 367.0s user 66.1s sys exit 0` |
 
 The fifth read (five cold subagent reads of the fourth review's responses)
@@ -221,6 +222,14 @@ and design carry these; WP5 and WP8 build to them.
 - The live daemon is stopped on purpose (owner, 2026-11-04 20:38:45 CET). Never run `canary restart`, `make restart-daemon` or anything that clears `~/.cache/ibkr/ibkr.sock.stopped`, and start no daemon on the default socket or roots.
 - Under `opend` write authorisation refuses every origin with `broker_writes_not_served`; phase D removes that on purpose. `[opend] port` and `opend-sim -listen` refuse IBKR's API ports.
 
+## How holdings that are not stocks are wired
+
+- A position row names no type, so `Adapter.secTypeOf` reads each held code from `Qot_GetStaticInfo`, one request per code, kept once read. One refused code cannot poison the rest. A type OpenD did not give stays `UNKNOWN` and is read again next time.
+- `opendPositions` takes only `STK` into the stock rows, the marks and the line budget. The rest go in `rpc.PositionsResult.NotServed` at OpenD's own price and value, with no analysis, and `PortfolioComplete` is false, which the stock-add and portfolio-plan paths already refuse on.
+- Surfaces: `renderPositionsNotServed` in both CLI position views, a brief coverage line, a warning row in the app's portfolio detail, the `not_served` field on `canary_positions`, `not_served_count` on the risk view.
+- If static information fails while OpenD's quote server is logged out, every uncached holding moves to this list until it returns: nothing is lost and the book reads as incomplete.
+- Captures in the shared notes `opend-witness-not-served` folder, with `app-held-not-analysed-1280x900.png`.
+
 ## In progress
 
 Nothing between packages.
@@ -231,7 +240,7 @@ Nothing between packages.
 
 Owner, 2026-11-05 14:40 CET: "ok start with the merge. I'm close before having access to the account. In the changelog, mark this as experimental support for OpenD. consider updating the README". So local main was merged at `cac66db9`, the changelog stub and README section were written, and the rest of the hold stands: resume building when the owner has the account and OpenD access; no landing, no merge to main and no push until the owner says so. The rule to remove a landed worktree does not apply yet.
 
-Head: the code is `d983af3e`, and the commit carrying this note adds only Markdown on top. Merge local main again and re-run the gate and spine if main has moved.
+Head: the code is `b3f0ea60`, and the commit carrying this note adds only Markdown on top. Merge local main again and re-run the gate and spine if main has moved.
 
 First steps on resuming, with real OpenD: run the first-session checks under "Known gaps", then decide the regime and FX package. Desk's re-pin comes after landing.
 
@@ -239,14 +248,13 @@ Public text: `CHANGELOG.md` carries the stub `## v3.35.0 — Unreleased` at the 
 
 ## Known gaps
 
-Fixed before the hold, recorded here because it was reported open: an OpenD daemon saying "IBKR connection unavailable" (`85db5500`, `TestALostOpenDSessionNamesOpenD`).
+Fixed, recorded here because each was reported open: an OpenD daemon saying "IBKR connection unavailable" (`85db5500`, `TestALostOpenDSessionNamesOpenD`), and options and futures reading as stocks (`b3f0ea60`, `TestOpenDHoldingThatIsNotAStockIsListedApart`).
 
 Open:
 
-0. Options and futures held on a Futu account read as stocks, found by the cold read on 2026-11-05 from the code, not from a run. `instrumentOf` in `internal/broker/opend/adapter.go` sets `SecType` to `STK` for every code, and `pkg/futu/positions.go` passes every row through. Risk figures would treat a contract as shares. The public text discloses it; the fix belongs before landing.
 1. Regime and portfolio stress are off under OpenD, against the design's first text: the regime read stops at its IBKR connector check. A package of its own, proposed in the owner table.
 2. OpenD supplies no FX rate, so holdings outside the base currency read as not measured. With the regime package.
-3. Nothing has met a real OpenD. Proof pending, first real session: the `clientVer` low value, the RSA refusal shape, funds currency on a multi-market account, fixture conformance, and what `exchType` says for a US ETF (the simulator's NYSE for SPY is a fixture; IBKR may say ARCA, which would not join).
+3. Nothing has met a real OpenD. Proof pending, first real session: the `clientVer` low value, the RSA refusal shape, funds currency on a multi-market account, fixture conformance, what `exchType` says for a US ETF (the simulator's NYSE for SPY is a fixture; IBKR may say ARCA, which would not join), what static information answers for an option or future code, including an expired one, whether a position's value carries the multiplier, and how OpenD types a US ETF.
 4. Proof pending, next live session: the IBKR path on a real Gateway, including an IBKR identity resolved through it, proven here against a fake.
 5. Other IBKR wording in the daemon was not audited line by line; some may still reach an OpenD reader. The readiness blocker under OpenD carries `gateway_unavailable` even when its text says OpenD takes no writes. SPA strings naming TWS are unreachable before phase D.
 6. Labels waiting on the owner: "22/22 sources ok" above a line of unavailable sources, the "Not on OpenD" wording, and the handbook edit draft.
@@ -255,7 +263,8 @@ Open:
 9. `market: hk` works on `quote.snapshot` only; `market.history` and the other paths on the shared IBKR normaliser take the venue or the identity.
 10. An IBKR row with only a smart route carries no identity and keeps `con_id`; all IBKR watchlist rows are in that state today.
 11. No LaunchAgent or install step for a permanent second daemon; the setup has run only in the witness and the dual-daemon test.
-12. The money check, the spine and the simulator witness last ran at `d983af3e`; they are landing steps again after the next merge. The paired app was last inspected at `28119a91` on the Monitor tab, where stress reads "Fault · transport unavailable", so the public text does not claim the app.
+12. The spine and the simulator witness last ran at `b3f0ea60`, the money check on its tree; they are landing steps again after the next merge. The paired app's Monitor tab was inspected on the simulator stack at `b3f0ea60`'s tree for the new row only; an earlier capture at `28119a91` shows stress as "Fault · transport unavailable", and the public text does not claim the app.
+15. A holding not analysed appears in the app's portfolio detail, not on its Positions tab, and the rulebook's checks do not name it. `canary positions`, the brief and `canary_positions` do.
 13. Not done before phase D: `broker` in Desk's and the companion's signed-term allowlists, and the owner's account and OpenD build.
 14. Whether the OpenAPI agreement permits Canary is open and the owner's, read inside OpenD at first access. It comes before any landing, since landing publishes the README section at the next release.
 
