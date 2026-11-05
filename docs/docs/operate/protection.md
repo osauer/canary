@@ -774,8 +774,11 @@ A submission that `trading.freeze` refuses is deferred, not failed. The record
 reads `deferred` with a resubmit time and is not tried again while the freeze
 stays set. Once you lift the freeze, the daemon resubmits it once, provided the
 proposal revision is still current; a changed revision supersedes it like a
-pending record, and a veto still applies while it waits. Any other refusal
-fails the record for that revision, as before.
+pending record, and a veto still applies while it waits. If standing authority
+changes before transmission, a refusal proven to have sent nothing ends the
+old record. The current proposal can receive a fresh notice and veto window
+under the new authority, with the drawdown-brake exception above unchanged.
+An unknown or possibly transmitted outcome is never retried.
 
 A due submission also does not fire while a hand order that is new to its
 proposal revision is still working at the broker. A hand order is one entered

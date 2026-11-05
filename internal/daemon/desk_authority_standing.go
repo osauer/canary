@@ -17,6 +17,12 @@ import (
 // An unreadable authority reads as disarmed.
 const automaticDisarmedCode = "automatic_trading_disarmed"
 
+// automaticDisarmedError preserves the standing-authority cause through the
+// place path without changing its public error text or ErrTradingDisabled class.
+type automaticDisarmedError struct{ error }
+
+func (e *automaticDisarmedError) Unwrap() error { return e.error }
+
 // standingAuthorityBlocker is nil while the standing authority covers this
 // account and mode. An empty account (no broker scope yet) checks the scope
 // only: nothing can be sent without a concrete scope, and the wire checks the
@@ -71,7 +77,7 @@ func (s *Server) lockStandingAuthorityForWire(ctx context.Context, status rpc.Tr
 	s.deskAuthorityMu.RLock()
 	if blocker := s.automaticGrantBlocker(ctx, status.Account, status.Mode); blocker != nil {
 		s.deskAuthorityMu.RUnlock()
-		return nil, fmt.Errorf("%w: %s", ErrTradingDisabled, blocker.Message)
+		return nil, tradingBlockersError([]rpc.TradingBlocker{*blocker})
 	}
 	return s.deskAuthorityMu.RUnlock, nil
 }

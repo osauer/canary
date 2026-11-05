@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.34.1 — 2026-11-05 11:28 CET
+
+### What's new
+
+Automatic protection can resume after a change of arming blocks an order before it leaves Canary. Existing limits, the drawdown-brake exception and safeguards against duplicate orders stay in force.
+
+### Fixed
+
+- Changing from Fully armed to Protection during an automatic submission no longer leaves the proposal permanently failed when the authority check proves nothing was sent. It receives a new veto window under the existing protection rules; uncertain sends are never retried.
+
 ## v3.34.0 — 2026-11-05 09:18 CET
 
 ### What's new

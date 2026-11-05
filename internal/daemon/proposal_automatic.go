@@ -1412,9 +1412,10 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 				r.HeldAt = rec.HeldAt
 			}
 			return []automaticSubmissionEvent{{At: finish, Type: automaticEventHeld, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, SubmitAt: r.SubmitAt, Reason: r.HoldReason}}
-		case !staged && automaticDisarmedRefusal(res.Blockers):
-			// Disarmed between the cycle's read and the send: nothing went
-			// out, and no clock survives for a later arming.
+		case !staged && automaticDisarmedRefusal(res.Blockers), automaticUnsentAuthorityRefusal(placeErr):
+			// Authority changed between the cycle's read and the send. A
+			// staged refusal must carry both the typed authority cause and
+			// proof of no transmission; no old clock survives a new arming.
 			r.ResolvedAt = finish
 			r.State = rpc.TradeProposalAutomaticSuperseded
 			r.Reason = automaticOutcomeReason(res, err)
@@ -1476,6 +1477,11 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 	default:
 		s.warnf("pre-authorised protection: %s bucket %s not submitted: %s", rec.Key, rec.Bucket, automaticOutcomeReason(res, err))
 	}
+}
+
+func automaticUnsentAuthorityRefusal(err error) bool {
+	_, authority := errors.AsType[*automaticDisarmedError](err)
+	return authority && ibkrlib.SendDispositionOf(err) == ibkrlib.SendDispositionDefinitelyUnsent
 }
 
 // automaticTransientRefusal only classifies pre-staging refusals. Every
