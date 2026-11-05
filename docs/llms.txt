@@ -66,6 +66,9 @@ canary brief
 
 The installer verifies the signed release checksum and installs to
 `~/.local/bin`. Hosts: https://osauer.dev/canary/docs/start/hosts.html
+Using it from your own LLM: https://osauer.dev/canary/docs/start/your-llm.html
+What an agent can and cannot do, and how an order is sent:
+https://osauer.dev/canary/docs/start/agentic-trading.html
 
 ## Where things live in the repository
 

@@ -4,6 +4,8 @@
 [![release](https://img.shields.io/github/v/release/osauer/canary?display_name=tag&sort=semver)](https://github.com/osauer/canary/releases/latest)
 [![license](https://img.shields.io/github/license/osauer/canary)](LICENSE)
 
+繁體中文：[網站及入門指南](https://osauer.dev/canary/zh-hant/) · 简体中文：[网站及入门指南](https://osauer.dev/canary/zh-hans/)
+
 **A risk desk for your Interactive Brokers account. It reads your account for
 you and your AI agent, checks it against your limits, and, in the trading build,
 places the trades you authorise.**

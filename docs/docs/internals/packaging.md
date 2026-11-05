@@ -48,7 +48,7 @@ hooks, and plugin-local `.mcp.json` for `canary mcp`.
 - `claude-plugin/.mcp.json` declares the Claude Code plugin MCP server.
 - `.claude-plugin/marketplace.json` exposes the self-hosted marketplace.
 - `skills/canary/SKILL.md` teaches Claude the retained desk-first workflow.
-- `hooks/hooks.json` allows order-status and proposal/opportunity preview reads, blocks broker-write Bash calls, and starts the install/version warning hook.
+- `hooks/hooks.json` allows order-status and proposal/opportunity preview reads, lets broker-write Bash calls through only when `canary trading status` shows the session ready to write, and starts the install/version warning hook.
 - `settings/canary.settings.json` is the optional global allow/deny template.
 
 ## Claude Desktop MCPB

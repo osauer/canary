@@ -29,6 +29,18 @@ var glossary = []string{
 	// Software terms. Hong Kong (and Taiwan) say 程式 for program and 程序
 	// for process; the mainland says 程序 for program and 进程 for process.
 	"守護程序", "守护进程",
+	// An AI agent: 代理 in Hong Kong, 智能体 in Singapore and the mainland.
+	// Every 代理 in these pages has that sense.
+	"代理", "智能体",
+	// Hong Kong places an order with 落單; on the mainland 落单 means being left alone.
+	"落那一張單", "下那一张单",
+	"落單", "下单",
+	"帳戶資料", "账户数据",
+	"遙測資料", "遥测数据",
+	"相關資產", "标的资产",
+	"結餘", "余额",
+	"瀏覽器分頁", "浏览器标签页",
+	"搜尋", "查找",
 	"外掛程式", "插件",
 	"個人檔案", "个人资料",
 	"執行檔", "可执行文件",
@@ -221,7 +233,7 @@ func deriveSimplifiedUI(c *converter) error {
 		sections[slug] = sectionSpec{Slug: slug, Title: title, Blurb: blurb}
 	}
 	ui.Sections = sections
-	ui.Translated = "本页由繁体中文译本自动转换而成；与英文原文不一致时以英文版为准。"
+	ui.Translated = "本页由 AI 模型译自英文原文，并自动转换为简体，尚未经母语人士审阅；与英文原文不一致时以英文版为准。"
 	ui.Stale = "英文原文在本译文之后已有更新，本页内容可能落后。"
 	zhHans.ui = ui
 	return nil

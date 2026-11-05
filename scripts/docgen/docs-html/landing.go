@@ -262,6 +262,10 @@ func (r *siteRenderer) renderLanding(lang *langSpec) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	localeTag := `  <meta property="og:locale" content="en_GB">` + "\n"
+	if page, err = replaceOnce(page, localeTag, localeTagsHTML(lang, landingVersions())); err != nil {
+		return nil, err
+	}
 	head := alternatesHTML(landingVersions()) +
 		fmt.Sprintf("  <script src=\"%slang.js\"></script>\n", relativeRootPrefix(output))
 	if page, err = replaceOnce(page, "</head>", head+"</head>"); err != nil {

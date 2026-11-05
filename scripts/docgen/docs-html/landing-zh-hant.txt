@@ -19,7 +19,7 @@ en: Open source · Go
 zh: 開源 · Go
 
 en: Portfolio, risk and order tools for Interactive Brokers.
-zh: Interactive Brokers 的投資組合、風險及訂單工具。
+zh: 盈透證券（Interactive Brokers）的投資組合、風險及訂單工具。
 
 en: Canary connects to your IBKR account on your own machine, reads your book and the market, checks your risk rules every minute and drafts the protection they call for. Claude, your scripts and the paired phone app all read the same figures.
 zh: Canary 在你自己的電腦上連接 IBKR 帳戶，讀取你的投資組合及市場數據，每分鐘檢查你的風險規則，並草擬規則要求的保護措施。Claude、你的腳本及已配對的手機應用程式，讀取的都是同一組數字。
@@ -993,6 +993,21 @@ zh: Interactive Brokers MCP 伺服器
 en: Claude Code and other hosts
 zh: Claude Code 及其他主機
 
+en: Connect the LLM you already use
+zh: 接入你慣用的 AI
+
+en: Agentic trading
+zh: AI 代理交易
+
+en: Hong Kong and Singapore accounts
+zh: 香港及新加坡帳戶
+
+en: Does Canary work with an IBKR account in Hong Kong or Singapore?
+zh: Canary 適用於香港或新加坡的盈透證券帳戶嗎？
+
+en: Yes. You connect the same way whichever IBKR company holds your account, and the brief, exchange calendars and currencies follow what you hold. See the <a href="docs/start/ibkr-hong-kong-singapore.html">Hong Kong and Singapore guide</a>. Claude may not be offered where you are: in November 2026 Anthropic’s <a href="https://www.anthropic.com/supported-countries">list of supported regions</a> did not include Hong Kong, Macau or mainland China. The CLI and paired app work without it, and other MCP hosts can use the same tools with a model that is available where you are.
+zh: 適用。無論你的帳戶由哪家 IBKR 公司持有，連接方式都相同；簡報、交易所日曆和貨幣會跟隨你的持倉，持有港股也一樣。見<a href="docs/start/ibkr-hong-kong-singapore.html">香港及新加坡指南</a>。你所在的地區未必可以使用 Claude：撰寫本文時（2026 年），Anthropic 的<a href="https://www.anthropic.com/supported-countries">支援地區列表</a>並未包括香港、澳門或中國內地。CLI 和已配對的應用程式不需要 Claude；其他 MCP 主機也可以使用同一套工具，但所用的模型同樣要在你的地區有提供。
+
 en: Portfolio review with Claude
 zh: 用 Claude 檢視投資組合
 
@@ -1084,10 +1099,10 @@ en: Canary links and profiles
 zh: Canary 連結及個人檔案
 
 en: Open-source tools for an Interactive Brokers account: ask Claude Desktop about your portfolio, script the JSON CLI and Go library, or read IBKR data through read-only MCP tools.
-zh: Interactive Brokers 帳戶的開源工具：向 Claude Desktop 查詢你的投資組合，編寫 JSON CLI 及 Go 函式庫的腳本，或透過唯讀 MCP 工具讀取 IBKR 數據。
+zh: 盈透證券（Interactive Brokers）帳戶的開源工具：向 Claude Desktop 查詢你的投資組合，編寫 JSON CLI 及 Go 函式庫的腳本，或透過唯讀 MCP 工具讀取 IBKR 數據。持有港股的帳戶同樣可用 CLI 及 MCP 工具。
 
 en: Canary | Open-source Interactive Brokers tools for Claude, CLI and Go
-zh: Canary | Claude、CLI 及 Go 適用的開源 Interactive Brokers 工具
+zh: Canary | 盈透證券（Interactive Brokers）開源工具：Claude、CLI 及 Go
 
 en: Independent Go implementation of the Interactive Brokers TWS protocol, with a CLI, a daemon, MCP tools and a paired app.
 zh: Interactive Brokers TWS 協定的獨立 Go 實作，附 CLI、守護程序、MCP 工具及配對應用程式。

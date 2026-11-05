@@ -1,16 +1,16 @@
 ---
 translation-of: docs/docs/start/ibkr-hong-kong-singapore.md
-source-revision: 9354710eaa61bd8b9cc42c9adc52e1096573a333
+source-revision: cab44ba9f1ef59630f47e55c0b5eb42f7b14da34
 nav-title: 香港及新加坡帳戶
 summary: 相同的閘道步驟、以港元、新加坡元或日圓計的基礎貨幣、亞洲交易所日曆，以及何時執行簡報。
-description: Interactive Brokers 帳戶設於香港、新加坡、日本或澳洲時有何不同：IB Gateway 步驟完全相同、港元、新加坡元與日圓數字如何顯示、港交所、新交所、東京、ASX 與滬深港通的日曆，以及亞洲早上的簡報時段。
+description: 盈透證券（Interactive Brokers）帳戶設於香港、新加坡、日本或澳洲，持有港股或其他亞洲股票時有何不同：IB Gateway 步驟完全相同、港元、新加坡元與日圓數字如何顯示、港交所、新交所、東京、ASX 與滬深港通的日曆，以及亞洲早上的簡報時段。
 ---
 
-# 以 Interactive Brokers 香港或新加坡帳戶使用 Canary {#canary-with-an-interactive-brokers-hong-kong-or-singapore-account}
+# 以盈透證券（Interactive Brokers）香港或新加坡帳戶使用 Canary {#canary-with-an-interactive-brokers-hong-kong-or-singapore-account}
 
-更新：2026-11-04 09:23 CET
+更新：2026-11-05 08:40 CET
 
-Canary 透過你自己的 IB Gateway 或 TWS 工作階段讀取一個 Interactive Brokers 帳戶。帳戶由哪個 IBKR 實體持有，無論是 Interactive Brokers 香港、新加坡、日本、澳洲、印度、LLC、愛爾蘭或英國，都不會改變這個連線：API、通訊埠和客戶端 ID 在各地都相同，所以安裝步驟就是[安裝與首次運行](install.md) 所列的那些。守護程序（daemon）無法從閘道分辨實體，也不需要分辨。本頁說明當帳戶的基礎貨幣是港元、新加坡元或日圓，而股票在港交所、新交所、東京證券交易所或 ASX 掛牌時，有哪些地方不同。
+Canary 透過你自己的 IB Gateway 或 TWS 工作階段，讀取一個盈透證券（Interactive Brokers）帳戶，包括持有港股的帳戶。帳戶由哪個 IBKR 實體持有，無論是 Interactive Brokers 香港、新加坡、日本、澳洲、印度、LLC、愛爾蘭或英國，都不會改變這個連線：API、通訊埠和客戶端 ID 在各地都相同，所以安裝步驟就是[安裝與首次運行](install.md) 所列的那些。守護程序（daemon）無法從閘道分辨實體，也不需要分辨。本頁說明當帳戶的基礎貨幣是港元、新加坡元或日圓，而股票在港交所、新交所、東京證券交易所或 ASX 掛牌時，有哪些地方不同。
 
 ## 閘道步驟：完全相同 {#gateway-steps-identical}
 
@@ -87,6 +87,12 @@ log_markets = ["hk_hkex", "sg_sgx"]
 ## 結單與對帳 {#statements-and-reconciliation}
 
 [設定經紀商報表](reporting.md)中的 Activity Flex Query 對每個 IBKR 實體都相同；對帳、按結單推算的權益和 Canary Edge 都以你的基礎貨幣讀取它。查詢的區段和欄位不取決於帳戶所在的地區。
+
+## 配合 AI 主機使用 {#using-it-with-an-ai-host}
+
+`canary mcp` 在這些帳戶上的運作方式完全相同，可配合你電腦上任何 MCP 主機使用：見[把盈透證券帳戶接入你慣用的 AI](your-llm.md)及[AI 代理交易](agentic-trading.md)。
+
+你所在的地區未必可以使用 Claude：撰寫本文時（2026 年），Anthropic 的[支援地區列表](https://www.anthropic.com/supported-countries)並未包括香港、澳門或中國內地。CLI 和已配對的應用程式不需要 Claude；其他 MCP 主機也可以使用同一套工具，但所用的模型同樣要在你的地區有提供。
 
 ## 下一步 {#next}
 
