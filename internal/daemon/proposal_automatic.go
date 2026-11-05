@@ -757,6 +757,13 @@ func (e *proposalEngine) reconcileAutomatic(ctx context.Context) {
 						if (prior.CarryClock || prior.Reason == automaticEpisodeResizedReason) && prior.ResolvedAt.Before(prior.SubmitAt) && now.After(prior.ResolvedAt) {
 							rec.SubmitAt = prior.SubmitAt.Add(now.Sub(prior.ResolvedAt))
 						}
+						// The pause keeps the whole window usable, never more:
+						// a clock past its window (2026-11-04: a session wait
+						// carried into the pause, 62 minutes after the row came
+						// back) would let newer rows beat it.
+						if latest := now.Add(window); rec.SubmitAt.After(latest) {
+							rec.SubmitAt = latest
+						}
 						rec.SettlingBaseline, rec.SettlingBaselineKnown = slices.Clone(prior.SettlingBaseline), prior.SettlingBaselineKnown
 						rec.ClockQuantity = prior.clockQuantity()
 					}

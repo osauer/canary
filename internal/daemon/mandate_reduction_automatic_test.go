@@ -439,6 +439,78 @@ func TestMandateReductionLegacyResizedRecordPausesTheClock(t *testing.T) {
 	}
 }
 
+// The hold keeps the order without collapsing the batch to one line: once the
+// better line has sold since this row fell due, its next tranche holds nothing,
+// and no row waits more than one window past its own clock (2026-11-05 replay:
+// 12 orders on one line in a session where the old build sent 32 on five).
+func TestMandateReductionSendOrderHoldEnds(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 11, 4, 18, 0, 0, 0, time.UTC)
+	const window = 30 * time.Minute
+	proposals := []rpc.TradeProposal{
+		{Key: "better", Revision: "r2", Bucket: rpc.TradeProposalBucketMandateReduction, Mandate: &rpc.TradeProposalMandate{Rank: 1}},
+		{Key: "worse", Revision: "r1", Bucket: rpc.TradeProposalBucketMandateReduction, Mandate: &rpc.TradeProposalMandate{Rank: 2}},
+	}
+	record := func(key, revision string, state string) automaticSubmissionRecord {
+		return automaticSubmissionRecord{Key: key, Revision: revision, Bucket: preAuthorisedBucketMandateReduction, State: state}
+	}
+	for name, tc := range map[string]struct {
+		dueAgo time.Duration
+		soldAt time.Time
+		waits  bool
+	}{
+		"nothing sold yet":                 {dueAgo: time.Minute, waits: true},
+		"sold before this row fell due":    {dueAgo: time.Minute, soldAt: now.Add(-2 * time.Minute), waits: true},
+		"sold since this row fell due":     {dueAgo: time.Minute, soldAt: now.Add(-30 * time.Second), waits: false},
+		"a full window past its own clock": {dueAgo: window, waits: false},
+	} {
+		worse := record("worse", "r1", rpc.TradeProposalAutomaticPending)
+		worse.SubmitAt = now.Add(-tc.dueAgo)
+		next := record("better", "r2", rpc.TradeProposalAutomaticPending)
+		next.SubmitAt = now.Add(25 * time.Minute)
+		records := []automaticSubmissionRecord{worse, next}
+		if !tc.soldAt.IsZero() {
+			sold := record("better", "r1", rpc.TradeProposalAutomaticSubmitted)
+			sold.SubmittedAt = tc.soldAt
+			records = append(records, sold)
+		}
+		if got := mandateWaitsForBetterRank(worse, records, proposals, now, window); got != tc.waits {
+			t.Errorf("%s: waits = %v, want %v", name, got, tc.waits)
+		}
+	}
+}
+
+// A clock carried back into the set never stands more than a window away. On
+// 2026-11-04 the pause added an hour to a clock already past its window, so the
+// November lines stood 62 minutes off and the December line went ahead of them.
+func TestMandateClockBackInTheSetStaysWithinAWindow(t *testing.T) {
+	t.Parallel()
+	rig := newAutomaticTestRig(t, automaticMandateAuthority)
+	row := rig.mandateProposal(automaticTestStockRow(), 20, 1, 1)
+	revision := rig.install(row)
+	rig.cycle()
+	rig.notice(rig.record(row.Key, revision))
+	if err := rig.engine.automatic.update(t.Context(), func(records map[string]*automaticSubmissionRecord) []automaticSubmissionEvent {
+		rec := records[automaticRecordKey(row.Key, revision)]
+		rec.SubmitAt = rig.now.Add(50 * time.Minute)
+		return []automaticSubmissionEvent{{At: rig.now, Type: automaticEventNoticed, Key: rec.Key, Revision: rec.Revision}}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rig.install()
+	rig.cycle()
+	if gone := rig.record(row.Key, revision); gone.State != rpc.TradeProposalAutomaticSuperseded || !gone.CarryClock {
+		t.Fatalf("the row that dropped out: %+v, want a carried clock", gone)
+	}
+	rig.advance(time.Hour)
+	revision = rig.install(rig.mandateProposal(automaticTestStockRow(), 20, 1, 1))
+	rig.cycle()
+	rec := rig.record(row.Key, revision)
+	if rec.State != rpc.TradeProposalAutomaticPending || rec.NoticedAt.IsZero() || rec.SubmitAt.After(rig.now.Add(30*time.Minute)) {
+		t.Fatalf("the row back in the set: %+v, want the old notice and at most a window from %v", rec, rig.now)
+	}
+}
+
 // The decided send order (nearest expiry first, owner 2026-11-03 11:21 CET)
 // holds across veto clocks: a row whose own clock has run waits for a
 // better-ranked row still inside its window, so a newer row cannot beat an
