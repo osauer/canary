@@ -1,0 +1,28 @@
+# canary positions · COLUMNS=80 · colour off
+
+Positions by underlying
+
+  LEG                           QTY         AVG        MARK  CHANGE / GREEKS      MKT VALUE     UNREAL P&L
+──────────────────────────────────────────────────────────────────────────────────────────────────────────
+
+Held, not analysed
+Canary reads stocks only on this broker. Exposure, limits and totals leave
+these out.
+  TCH261230C400000  OPTION          2  HKD 2,500.00
+  HSI2612           FUTURE         -1  -HKD 1,250,000.00
+
+  0 underlyings  ·  as of 14:00:00 TZ
+# canary positions · COLUMNS=80 · colour on, ESC written as \x1b
+
+Positions by underlying
+
+\x1b[2m  LEG                           QTY         AVG        MARK  CHANGE / GREEKS      MKT VALUE     UNREAL P&L\x1b[0m
+\x1b[2m──────────────────────────────────────────────────────────────────────────────────────────────────────────\x1b[0m
+
+\x1b[33mHeld, not analysed\x1b[0m
+Canary reads stocks only on this broker. Exposure, limits and totals leave
+these out.
+  TCH261230C400000  OPTION          2  HKD 2,500.00
+  HSI2612           FUTURE         -1  -HKD 1,250,000.00
+
+  0 underlyings  ·  as of 14:00:00 TZ

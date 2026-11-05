@@ -2238,6 +2238,17 @@ test("a safe test with no subscription on this device says what to do", async ()
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("a holding the broker cannot analyse stays in the portfolio detail", () => {
+  const notServed = [{ symbol: "TCH261230C400000", sec_type: "OPTION" }];
+  const rows = portfolio.portfolioDetailRows({}, { stocks: [], options: [], not_served: notServed }, "HKD");
+  const row = rows.find((candidate) => candidate.label === "Held, not analysed");
+  assert.equal(row?.title, "TCH261230C400000");
+  assert.equal(rows.some((candidate) => candidate.title === "No open positions"), false);
+  const empty = portfolio.portfolioDetailRows({}, { stocks: [], options: [] }, "HKD");
+  assert.equal(empty.some((candidate) => candidate.label === "Held, not analysed"), false);
+  assert.equal(empty.some((candidate) => candidate.title === "No open positions"), true);
+});
+
 test("order result strings name the process of the daemon's broker", () => {
   const previous = state.broker;
   try {

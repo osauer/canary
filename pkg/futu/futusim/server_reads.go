@@ -168,6 +168,12 @@ func (s *Server) answerRead(conn *simConn, frame futu.Frame) proto.Message {
 		if bad := decode(&req); bad != nil {
 			return bad
 		}
+		s.mu.Lock()
+		down := s.staticInfoDown
+		s.mu.Unlock()
+		if down {
+			return s.refused(futu.ProtoQotGetStaticInfo, errors.New("static information unavailable"))
+		}
 		return s.answerStaticInfo(req.GetC2S().GetSecurityList())
 	case futu.ProtoQotGetKL:
 		var req qotgetkl.Request
@@ -395,10 +401,28 @@ func (s *Server) answerSnapshot(secs []*qotcommon.Security) proto.Message {
 }
 
 func securityType(in Instrument) qotcommon.SecurityType {
-	if in.Type == "etf" {
+	switch in.Type {
+	case "etf":
 		return qotcommon.SecurityType_SecurityType_Trust
+	case "option":
+		return qotcommon.SecurityType_SecurityType_Drvt
+	case "future":
+		return qotcommon.SecurityType_SecurityType_Future
+	case "warrant":
+		return qotcommon.SecurityType_SecurityType_Warrant
+	case "bond":
+		return qotcommon.SecurityType_SecurityType_Bond
 	}
 	return qotcommon.SecurityType_SecurityType_Eqty
+}
+
+// contractMultiplier is what one unit of a position is worth in prices: OpenD's
+// lot size is the contract multiplier on an option or a future.
+func contractMultiplier(in Instrument) float64 {
+	if in.Type == "option" || in.Type == "future" {
+		return float64(in.LotSize)
+	}
+	return 1
 }
 
 // exchTypeOf is the exchange a US line reports; other lines leave it unset.
@@ -622,7 +646,7 @@ func (s *Server) answerPositions(c2s *trdgetpositionlist.C2S) proto.Message {
 			quantity = -quantity
 		}
 		symbol, secMarket := bareCode(p.Code)
-		pnl := (q.Last - p.Cost) * float64(p.Quantity)
+		pnl := (q.Last - p.Cost) * float64(p.Quantity) * contractMultiplier(in)
 		rows = append(rows, &trdcommon.Position{
 			PositionID:       new(positionID(p)),
 			PositionSide:     new(int32(side)),
@@ -631,7 +655,7 @@ func (s *Server) answerPositions(c2s *trdgetpositionlist.C2S) proto.Message {
 			Qty:              new(quantity),
 			CanSellQty:       new(quantity),
 			Price:            new(q.Last),
-			Val:              new(q.Last * quantity),
+			Val:              new(q.Last * quantity * contractMultiplier(in)),
 			PlVal:            new(pnl),
 			SecMarket:        secMarket,
 			UnrealizedPL:     new(pnl),

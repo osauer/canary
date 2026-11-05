@@ -214,3 +214,20 @@ func TestOpenDStatusListsOnlyWhatTheBrokerHas(t *testing.T) {
 		t.Fatalf("an IBKR session row survives: setup %+v executions %+v answer path %+v", h.GatewaySetup, h.Executions, h.AnswerPath)
 	}
 }
+
+// A brief under OpenD says which holdings its figures leave out.
+func TestBriefNamesAHoldingItDoesNotAnalyse(t *testing.T) {
+	book := futusim.Default()
+	book.AddHolding(futusim.Instrument{Code: "HK.TCH261230C400000", Name: "SYNTH CALL", Type: "option", LotSize: 100, Currency: "HKD", Start: 12.5, Tick: 0.01}, 1000001, 2, 10)
+	sim := futusim.Start(t, futusim.Options{Book: book})
+	srv, stop := startOpenDServer(t, sim, opendTestAccount)
+	defer stop()
+	waitOpenDReady(t, srv)
+	res, err := srv.handleBriefSnapshot(context.Background(), &rpc.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !coverageNames(res, "TCH261230C400000") {
+		t.Fatalf("coverage %+v", res.Narrative.Overview.Coverage)
+	}
+}

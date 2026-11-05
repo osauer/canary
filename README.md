@@ -132,10 +132,11 @@ account = "12345678" # the number OpenD lists as accID
 ```
 
 A daemon set this way shows the account, stock positions and quotes on the Hong
-Kong, US and Singapore markets. Any options or futures you hold are listed as
-stocks. Holdings outside the account's base currency are not converted, so limit
-checks read them as not measured. Daily P&L, the regime, portfolio stress, Edge
-and statement reporting are not available.
+Kong, US and Singapore markets. Options, futures and anything else you hold
+there are listed apart at OpenD's value, and exposure and limits leave them out.
+Holdings outside the account's base currency are not converted, so limit checks
+read them as not measured. Daily P&L, the regime, portfolio stress, Edge and
+statement reporting are not available.
 
 Each daemon serves one broker. To keep IBKR running, give the OpenD daemon its
 own XDG directories and `CANARY_SOCKET`. The

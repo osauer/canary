@@ -84,7 +84,7 @@ func applySort(rows []rpc.PositionView, by string) {
 func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quoteDetails bool) int {
 	fmt.Fprintln(out)
 	unavailable := renderPositionsAuthority(env, out, r)
-	if len(r.Stocks) == 0 && len(r.Options) == 0 {
+	if len(r.Stocks) == 0 && len(r.Options) == 0 && len(r.NotServed) == 0 {
 		if unavailable {
 			fmt.Fprintf(out, "Positions unavailable%s\n\n", env.suffixBadge(r.DataType))
 			return 0
@@ -106,8 +106,9 @@ func renderPositionsTextTo(env *Env, out io.Writer, r *rpc.PositionsResult, quot
 	renderBondsTable(env, out, r.Bonds)
 	renderBondRisk(env, out, r.Bonds, r.BondRisk)
 	renderBondFacts(env, out, r.Bonds)
+	renderPositionsNotServed(env, out, r)
 	fmt.Fprintf(out, "  %d positions  ·  as of %s\n",
-		len(r.Stocks)+len(r.Options), formatTimeShort(positionsDisplayAsOf(r).Local()))
+		len(r.Stocks)+len(r.Options)+len(r.NotServed), formatTimeShort(positionsDisplayAsOf(r).Local()))
 	return 0
 }
 
@@ -125,6 +126,26 @@ func renderPositionsAuthority(env *Env, out io.Writer, r *rpc.PositionsResult) b
 	}
 	writeAccountAuthorityNotice(env, out, r.Authority)
 	return r.Authority.Availability != rpc.AccountDataAvailable
+}
+
+// renderPositionsNotServed lists what is held but cannot be analysed on this
+// broker, so a holding never leaves the view with the analysis.
+func renderPositionsNotServed(env *Env, out io.Writer, r *rpc.PositionsResult) {
+	if len(r.NotServed) == 0 {
+		return
+	}
+	fmt.Fprintln(out, env.yellow("Held, not analysed"))
+	fmt.Fprintln(out, "Canary reads stocks only on this broker. Exposure, limits and totals leave")
+	fmt.Fprintln(out, "these out.")
+	symbolWidth := 0
+	for _, row := range r.NotServed {
+		symbolWidth = max(symbolWidth, len(row.Symbol))
+	}
+	for _, row := range r.NotServed {
+		fmt.Fprintf(out, "  %-*s  %-7s  %8s  %s\n", symbolWidth, row.Symbol, row.SecType,
+			formatPositionQuantity(row.Quantity, ""), formatMoneyCcy(row.MarketValue, row.Currency))
+	}
+	fmt.Fprintln(out)
 }
 
 func positionsDisplayAsOf(r *rpc.PositionsResult) time.Time {
@@ -675,7 +696,7 @@ func anyRealized(rows []rpc.PositionView) bool {
 func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResult) int {
 	fmt.Fprintln(out)
 	unavailable := renderPositionsAuthority(env, out, r)
-	if len(r.ByUnderlying) == 0 {
+	if len(r.ByUnderlying) == 0 && len(r.NotServed) == 0 {
 		if unavailable {
 			fmt.Fprintf(out, "Positions unavailable%s\n\n", env.suffixBadge(r.DataType))
 			return 0
@@ -774,6 +795,7 @@ func renderPositionsByUnderlyingTo(env *Env, out io.Writer, r *rpc.PositionsResu
 		}
 	}
 	fmt.Fprintln(out)
+	renderPositionsNotServed(env, out, r)
 	renderPortfolioSummaryTo(env, out, r)
 	fmt.Fprintf(out, "  %d underlyings  ·  as of %s\n",
 		len(r.ByUnderlying), formatTimeShort(positionsDisplayAsOf(r)))

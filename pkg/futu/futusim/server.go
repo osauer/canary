@@ -72,17 +72,19 @@ type Server struct {
 	// accountPacers hold the windows OpenD counts per account.
 	accountPacers map[uint64]*futu.Pacer
 
-	mu            sync.Mutex
-	conns         map[*simConn]struct{}
-	nextConnID    uint64
-	silent        bool
-	programStatus common.ProgramStatusType
-	quoteLoggedIn bool
-	tradeLoggedIn bool
-	hiddenAccount map[uint64]bool
-	refusals      map[uint32]int
-	forbidden     int
-	closed        bool
+	mu         sync.Mutex
+	conns      map[*simConn]struct{}
+	nextConnID uint64
+	silent     bool
+	// staticInfoDown refuses every static information request.
+	staticInfoDown bool
+	programStatus  common.ProgramStatusType
+	quoteLoggedIn  bool
+	tradeLoggedIn  bool
+	hiddenAccount  map[uint64]bool
+	refusals       map[uint32]int
+	forbidden      int
+	closed         bool
 
 	wg sync.WaitGroup
 }
@@ -181,6 +183,14 @@ func (s *Server) Close() {
 	s.mu.Unlock()
 	_ = s.listener.Close()
 	s.wg.Wait()
+}
+
+// SetStaticInfoDown makes OpenD refuse every static information request, as it
+// can while its quote server is not logged in.
+func (s *Server) SetStaticInfoDown(down bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.staticInfoDown = down
 }
 
 // SetSilent makes OpenD accept frames and answer none, as a hung OpenD does.

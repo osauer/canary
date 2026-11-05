@@ -1833,10 +1833,14 @@ type PositionView struct {
 // PositionsResult wraps the array so the daemon can attach metadata later.
 type PositionsResult struct {
 	// DataType reflects the per-position mark-price feed when the daemon
-	DataType           string                     `json:"data_type,omitempty"`
-	AsOf               time.Time                  `json:"as_of"`
-	Stocks             []PositionView             `json:"stocks"`
-	Options            []PositionView             `json:"options"`
+	DataType string         `json:"data_type,omitempty"`
+	AsOf     time.Time      `json:"as_of"`
+	Stocks   []PositionView `json:"stocks"`
+	Options  []PositionView `json:"options"`
+	// NotServed lists holdings this broker's reads cannot analyse, at the
+	// broker's own price and value. Exposure, limits and the portfolio totals
+	// leave them out, and the portfolio does not read as complete.
+	NotServed          []PositionView             `json:"not_served,omitempty"`
 	ByUnderlying       []PositionGroup            `json:"by_underlying"`
 	Strategies         []PositionStrategy         `json:"strategies,omitempty"`
 	StrategyIssues     []StrategyGroupingIssue    `json:"strategy_issues,omitempty"`

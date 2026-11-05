@@ -387,6 +387,12 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "brief", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
 		{name: "brief_tokyo_yen", argv: []string{"brief"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBriefTokyoYen()}},
 		{name: "positions_asia_book", argv: []string{"positions"}, render: func(env *Env) { renderPositionsByUnderlyingTo(env, env.Stdout, goldenAsiaBook()) }},
+		{name: "positions_not_served", argv: []string{"positions"}, render: func(env *Env) { renderPositionsByUnderlyingTo(env, env.Stdout, goldenNotServedBook()) }},
+		{name: "positions_only_not_served", argv: []string{"positions"}, render: func(env *Env) {
+			book := goldenNotServedBook()
+			book.Stocks, book.ByUnderlying = nil, nil
+			renderPositionsByUnderlyingTo(env, env.Stdout, book)
+		}},
 		{name: "calendar_singapore", argv: []string{"calendar", "--market", "sg", "--days", "3"}, conn: goldenConn{rpc.MethodMarketCalendar: goldenSingaporeCalendar()}},
 		{name: "macro", argv: []string{"macro"}, conn: goldenConn{rpc.MethodMacroSnapshot: goldenMacro()}},
 		{name: "rules", argv: []string{"rules"}, conn: goldenConn{rpc.MethodRulesSnapshot: goldenRules()}},
@@ -1453,6 +1459,18 @@ func goldenAsiaBook() *rpc.PositionsResult {
 			{Underlying: "D05", Stock: &sg, GroupMarketValue: 43750, GroupUnrealizedPnL: 2650},
 			{Underlying: "7203", Stock: &jp, Options: []rpc.PositionView{jpPut}, GroupMarketValue: 891300, GroupUnrealizedPnL: 42100},
 		}}
+}
+
+// goldenNotServedBook is an OpenD book holding a stock, an option and a future.
+func goldenNotServedBook() *rpc.PositionsResult {
+	hk := rpc.PositionView{Symbol: "00700", SecType: rpc.SecTypeStock, Exchange: "SEHK", Currency: "HKD", Quantity: 300, Multiplier: 1,
+		AvgCost: 352.40, Mark: 388.20, MarketValue: 116460, UnrealizedPnL: 10740, MarketValueBase: new(116460.0)}
+	return &rpc.PositionsResult{AsOf: goldenAt, DataType: "live", Stocks: []rpc.PositionView{hk},
+		NotServed: []rpc.PositionView{
+			{Symbol: "TCH261230C400000", SecType: rpc.SecTypeOption, Exchange: "SEHK", Currency: "HKD", Quantity: 2, Mark: 12.5, MarketValue: 2500},
+			{Symbol: "HSI2612", SecType: rpc.SecTypeFuture, Exchange: "SEHK", Currency: "HKD", Quantity: -1, Mark: 25000, MarketValue: -1250000},
+		},
+		ByUnderlying: []rpc.PositionGroup{{Underlying: "00700", Stock: &hk, GroupMarketValue: 116460, GroupUnrealizedPnL: 10740}}}
 }
 
 // goldenSingaporeCalendar is the Singapore securities calendar over the 2026

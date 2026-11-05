@@ -331,3 +331,87 @@ func TestCodeOfTellsTheChinaVenuesApart(t *testing.T) {
 		}
 	}
 }
+
+// bookWithContracts is the default book holding what OpenD's position rows do not
+// tell apart from a stock.
+func bookWithContracts() *futusim.Book {
+	book := futusim.Default()
+	book.AddHolding(futusim.Instrument{Code: "HK.TCH261230C400000", Name: "SYNTH CALL", Type: "option", LotSize: 100, Currency: "HKD", Start: 12.5, Tick: 0.01}, simAccount, 2, 10)
+	book.AddHolding(futusim.Instrument{Code: "HK.HSI2612", Name: "SYNTH FUTURE", Type: "future", LotSize: 50, Currency: "HKD", Start: 25000, Tick: 1}, simAccount, 1, 24000)
+	book.AddHolding(futusim.Instrument{Code: "HK.12345", Name: "SYNTH WARRANT", Type: "warrant", LotSize: 1000, Currency: "HKD", Start: 0.2, Tick: 0.001}, simAccount, 1000, 0.1)
+	return book
+}
+
+// A position row names no type, so each code's type comes from OpenD's static
+// information; a contract keeps the value OpenD gives it, multiplier included.
+func TestPositionsTakeTheirTypeFromOpenD(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{Book: bookWithContracts()})
+	a := connected(t, sim, simAccount)
+	rows, _, err := a.Positions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := map[string]string{}
+	for _, row := range rows {
+		types[row.Instrument.ID] = row.Instrument.SecType
+		if row.Instrument.ID == "HK.TCH261230C400000" && row.MarketValue != row.MarketPrice*2*100 {
+			t.Errorf("option value %v at price %v", row.MarketValue, row.MarketPrice)
+		}
+	}
+	want := map[string]string{"HK.00700": "STK", "US.AAPL": "STK", "SG.ES3": "STK", "HK.TCH261230C400000": "OPT", "HK.HSI2612": "FUT", "HK.12345": "WAR"}
+	for code, secType := range want {
+		if types[code] != secType {
+			t.Errorf("%s reads %q, want %q", code, types[code], secType)
+		}
+	}
+}
+
+// A type that could not be read is unknown and read again next time, and one
+// that was read does not need OpenD a second time.
+func TestPositionsKeepAnUnreadTypeUnknown(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{Book: bookWithContracts()})
+	a := connected(t, sim, simAccount)
+	typeOf := func(code string) string {
+		t.Helper()
+		rows, _, err := a.Positions()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, row := range rows {
+			if row.Instrument.ID == code {
+				return row.Instrument.SecType
+			}
+		}
+		t.Fatalf("%s not held", code)
+		return ""
+	}
+	sim.SetStaticInfoDown(true)
+	if got := typeOf("HK.00700"); got != secTypeUnknown {
+		t.Fatalf("with the lookup refused: %q", got)
+	}
+	sim.SetStaticInfoDown(false)
+	if got := typeOf("HK.00700"); got != "STK" {
+		t.Fatalf("after the refusal: %q", got)
+	}
+	sim.SetStaticInfoDown(true)
+	if got := typeOf("HK.00700"); got != "STK" {
+		t.Fatalf("a type already read: %q", got)
+	}
+}
+
+// An identity resolved through OpenD says what the instrument is.
+func TestResolveNamesTheTypeOpenDReports(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{Book: bookWithContracts()})
+	a := connected(t, sim, simAccount)
+	binding, ok := a.Capture()
+	if !ok {
+		t.Fatal("no session")
+	}
+	got, err := a.Resolve(t.Context(), binding, broker.Instrument{Broker: broker.KindOpenD, ID: "HK.TCH261230C400000"}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.SecType != "OPT" {
+		t.Fatalf("resolved %+v", got)
+	}
+}

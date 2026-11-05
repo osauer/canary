@@ -128,6 +128,9 @@ type RegimeMonitorIndicator struct {
 // PositionsRiskResult is a bounded portfolio-risk projection. TopRisks is
 // sorted and capped by the requested topN.
 type PositionsRiskResult struct {
+	// NotServedCount is how many holdings this broker's reads cannot analyse;
+	// the projection leaves them out.
+	NotServedCount     int                        `json:"not_served_count,omitempty"`
 	DataType           string                     `json:"data_type,omitempty"`
 	AsOf               time.Time                  `json:"as_of"`
 	AccountID          string                     `json:"account_id,omitempty"`
@@ -275,6 +278,7 @@ func CompactPositionsRisk(p *PositionsResult, topN int) PositionsRiskResult {
 	health, legs := optionHealthAndFlaggedLegs(*p, topN)
 	health.FlaggedLegsReturned = len(legs)
 	out := PositionsRiskResult{
+		NotServedCount:     len(p.NotServed),
 		DataType:           p.DataType,
 		AsOf:               p.AsOf,
 		AccountID:          p.AccountID,

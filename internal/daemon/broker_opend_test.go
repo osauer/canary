@@ -511,3 +511,49 @@ func TestClientVersionFollowsTheBuild(t *testing.T) {
 		}
 	}
 }
+
+// An option on a Futu account is not a stock: it stays out of the stock rows and
+// the exposure, takes no streaming line, keeps OpenD's value with its multiplier,
+// and the portfolio does not read as complete.
+func TestOpenDHoldingThatIsNotAStockIsListedApart(t *testing.T) {
+	book := futusim.Default()
+	const code, symbol = "HK.TCH261230C400000", "TCH261230C400000"
+	book.AddHolding(futusim.Instrument{Code: code, Name: "SYNTH CALL", Type: "option", LotSize: 100, Currency: "HKD", Start: 12.5, Tick: 0.01}, 1000001, 2, 10)
+	sim := futusim.Start(t, futusim.Options{Book: book})
+	srv, stop := startOpenDServer(t, sim, opendTestAccount)
+	defer stop()
+	waitOpenDReady(t, srv)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	positions, err := srv.handlePositionsList(ctx, &rpc.Request{Params: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range positions.Stocks {
+		if row.Symbol == symbol {
+			t.Errorf("an option in the stock rows: %+v", row)
+		}
+	}
+	if len(positions.Stocks) != 3 {
+		t.Errorf("stock rows %+v", positions.Stocks)
+	}
+	if len(positions.NotServed) != 1 {
+		t.Fatalf("not served %+v", positions.NotServed)
+	}
+	row := positions.NotServed[0]
+	if row.Symbol != symbol || row.SecType != rpc.SecTypeOption || row.Quantity != 2 || row.Mark <= 0 || row.MarketValue != row.Mark*2*100 {
+		t.Errorf("not-served row %+v", row)
+	}
+	for _, group := range positions.ByUnderlying {
+		if group.Underlying == symbol {
+			t.Errorf("an option in the exposure: %+v", group)
+		}
+	}
+	if positions.Authority.PortfolioComplete {
+		t.Errorf("a book with an unread holding reads as complete: %+v", positions.Authority)
+	}
+	if _, held := srv.opend.Connector().Lines()[code]; held {
+		t.Error("a streaming line was spent on the option")
+	}
+}

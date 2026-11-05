@@ -40,6 +40,8 @@ type Adapter struct {
 	// move within a session, and a failed read stores nothing.
 	usVenuesMu sync.Mutex
 	usVenues   map[string]string
+	// secTypes are the types of the held codes read so far, under the same lock.
+	secTypes map[string]string
 }
 
 // SetLineBudget gives the adapter the daemon's line budget. Set once, before the
@@ -224,14 +226,15 @@ func (a *Adapter) Positions() ([]broker.Position, broker.PositionsHealth, error)
 	out := make([]broker.Position, 0, len(rows))
 	account := strconv.FormatUint(a.account, 10)
 	for _, row := range rows {
-		out = append(out, positionOf(account, row, at))
+		out = append(out, positionOf(account, row, a.secTypeOf(ctx, row.Code), at))
 	}
 	return out, broker.PositionsHealth{Account: account, RequestedAt: requested, InitialCompletedAt: at, LastUpdateAt: at}, nil
 }
 
-func positionOf(account string, row futu.Position, at time.Time) broker.Position {
+func positionOf(account string, row futu.Position, secType string, at time.Time) broker.Position {
 	in := instrumentOf(row.Code)
 	in.Currency = row.Currency
+	in.SecType = secType
 	out := broker.Position{
 		ValuationAt: at,
 		Account:     account,
@@ -264,8 +267,52 @@ var (
 	marketZones    = map[string]string{"HK": "Asia/Hong_Kong", "US": "America/New_York", "SG": "Asia/Singapore", "SH": "Asia/Shanghai", "SZ": "Asia/Shanghai", "JP": "Asia/Tokyo"}
 )
 
-// instrumentOf is the seam's identity of an OpenD code. Symbol is the listing
-// symbol without its market prefix.
+// secTypeOf reads a held code's type: a position row names none. A listing does
+// not change type, so a type once read is kept; one OpenD did not give is unknown
+// and read again next time.
+func (a *Adapter) secTypeOf(ctx context.Context, code string) string {
+	a.usVenuesMu.Lock()
+	known := a.secTypes[code]
+	a.usVenuesMu.Unlock()
+	if known != "" {
+		return known
+	}
+	rows, err := a.conn.Instruments(ctx, code)
+	if err != nil || len(rows) == 0 {
+		return secTypeUnknown
+	}
+	secType := secTypeOfOpenD(rows[0].Type)
+	if secType != secTypeUnknown {
+		a.usVenuesMu.Lock()
+		if a.secTypes == nil {
+			a.secTypes = make(map[string]string)
+		}
+		a.secTypes[code] = secType
+		a.usVenuesMu.Unlock()
+	}
+	return secType
+}
+
+// secTypeOfOpenD is the seam's name for a type in OpenD's static information. A
+// trust is how OpenD types an ETF, and an ETF is a stock on the seam.
+func secTypeOfOpenD(openD string) string {
+	switch openD {
+	case "Eqty", "Trust":
+		return "STK"
+	case "Drvt":
+		return "OPT"
+	case "Future":
+		return "FUT"
+	case "Warrant", "Bwrt":
+		return "WAR"
+	case "Bond":
+		return "BOND"
+	}
+	return secTypeUnknown
+}
+
+// instrumentOf is the seam's identity of an OpenD code asked for as a stock.
+// Symbol is the listing symbol without its market prefix.
 func instrumentOf(code string) broker.Instrument {
 	prefix, symbol, _ := strings.Cut(code, ".")
 	return broker.Instrument{
@@ -278,6 +325,9 @@ func instrumentOf(code string) broker.Instrument {
 		Currency: currencies[prefix],
 	}
 }
+
+// secTypeUnknown is a holding whose type OpenD has not told us.
+const secTypeUnknown = "UNKNOWN"
 
 // ErrNotServed is an instrument OpenD's seam does not serve: options, futures,
 // bonds and combinations reach OpenD in a later phase.
@@ -610,6 +660,7 @@ func (a *Adapter) Resolve(ctx context.Context, binding broker.SessionBinding, in
 		return broker.Instrument{}, fmt.Errorf("%w: %s", futu.ErrInvalidCode, code)
 	}
 	out := instrumentOf(rows[0].Code)
+	out.SecType = secTypeOfOpenD(rows[0].Type)
 	if !a.Current(binding) {
 		return broker.Instrument{}, futu.ErrNotConnected
 	}

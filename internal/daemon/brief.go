@@ -99,6 +99,14 @@ func (s *Server) composeBrief(ctx context.Context) (*rpc.BriefResult, *rpc.Rules
 		})
 		res.Narrative.Overview.Coverage = append(res.Narrative.Overview.Coverage,
 			briefOverviewLine("Not on OpenD", strings.Join(opendNotServed, ", ")))
+		if pos != nil && len(pos.NotServed) > 0 {
+			held := make([]string, 0, len(pos.NotServed))
+			for _, row := range pos.NotServed {
+				held = append(held, row.Symbol)
+			}
+			res.Narrative.Overview.Coverage = append(res.Narrative.Overview.Coverage,
+				briefOverviewLine("Held, not analysed", strings.Join(held, ", ")+" are outside exposure and limits"))
+		}
 		if sentence := s.opendQuoteSentence(); sentence != "" {
 			res.Narrative.Overview.Coverage = append(res.Narrative.Overview.Coverage, briefOverviewLine("Quotes", sentence))
 		}

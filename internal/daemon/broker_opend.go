@@ -286,7 +286,9 @@ func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, 
 	wantSym := normSym(p.Symbol)
 	codes := make([]string, 0, len(positions))
 	for _, pos := range positions {
-		codes = append(codes, pos.Instrument.ID)
+		if pos.Instrument.SecType == "STK" {
+			codes = append(codes, pos.Instrument.ID)
+		}
 	}
 	if wantSym == "" {
 		s.refreshOpenDLines(ctx, codes)
@@ -297,6 +299,26 @@ func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, 
 	}
 	for _, pos := range positions {
 		in := pos.Instrument
+		// A contract's value carries a multiplier a quote does not, so it keeps
+		// the value OpenD gives it and no analysis reads it as shares.
+		if in.SecType != "STK" {
+			if wantSym == "" || wantSym == strings.ToUpper(in.Symbol) {
+				res.NotServed = append(res.NotServed, rpc.PositionView{
+					Symbol:        in.Symbol,
+					SecType:       positionSecType(in.SecType),
+					Exchange:      in.Venue,
+					Currency:      in.Currency,
+					Quantity:      pos.Quantity,
+					AvgCost:       pos.AverageCost,
+					Mark:          pos.MarketPrice,
+					ValuationMark: pos.MarketPrice,
+					MarketValue:   pos.MarketValue,
+					UnrealizedPnL: pos.UnrealizedPnL,
+					RealizedPnL:   pos.RealizedPnL,
+				})
+			}
+			continue
+		}
 		priceSource := ""
 		if quote := marks[in.ID]; quote != nil && quote.Last > 0 {
 			pos.MarketPrice = quote.Last
@@ -340,13 +362,14 @@ func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, 
 		ledger = raw.CurrencyLedger
 	}
 	fillBaseValues(res.Stocks, baseCcy)
+	fillBaseValues(res.NotServed, baseCcy)
 	res.ByUnderlying = groupByUnderlying(res.Stocks, res.Options, baseCcy, netLiquidationBase)
 	res.Portfolio = buildPortfolioAggregatesWithBase(res.Stocks, res.Options, baseCcy)
 	addPortfolioBaseContext(res.Portfolio, res.ByUnderlying, baseCcy, netLiquidationBase)
 	addFXSensitivity(res.Portfolio, ledger, baseCcy)
 	completedAt := time.Now().UTC()
 	res.Authority = positionsResultDataAuthority(expectedScope, health, completedAt)
-	res.Authority.PortfolioComplete = wantSym == "" && strings.TrimSpace(p.Type) == "" && currentPortfolioAuthority(res.Authority)
+	res.Authority.PortfolioComplete = wantSym == "" && strings.TrimSpace(p.Type) == "" && len(res.NotServed) == 0 && currentPortfolioAuthority(res.Authority)
 	authorityScope := expectedScope
 	if !s.opend.Current(binding) || !sameBrokerScope(expectedScope, s.currentBrokerStateScope()) {
 		authorityScope = brokerStateScope{}

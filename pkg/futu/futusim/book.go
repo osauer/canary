@@ -246,6 +246,15 @@ func Default() *Book {
 	return b
 }
 
+// AddHolding lists an instrument and holds it on an account.
+func (b *Book) AddHolding(in Instrument, account uint64, quantity int64, cost float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.instruments = append(b.instruments, in)
+	b.walks[in.Code] = newWalk(b.seed, in)
+	b.positions = append(b.positions, Position{AccountID: account, Code: in.Code, Quantity: quantity, Cost: cost})
+}
+
 // Load reads a book file.
 func Load(path string) (*Book, error) {
 	raw, err := os.ReadFile(path)

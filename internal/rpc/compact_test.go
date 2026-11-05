@@ -66,6 +66,14 @@ func TestCompactPositionsRiskOptionHealthAndHedge(t *testing.T) {
 	}
 
 	out := CompactPositionsRisk(&p, 5)
+	if out.NotServedCount != 0 {
+		t.Fatalf("not served = %d, want 0", out.NotServedCount)
+	}
+	notServed := p
+	notServed.NotServed = []PositionView{{Symbol: "TCH261230C400000"}}
+	if got := CompactPositionsRisk(&notServed, 5).NotServedCount; got != 1 {
+		t.Fatalf("not served = %d, want 1", got)
+	}
 	health := out.OptionHealth
 	if health.GreeksCoverage != 0 || health.GreeksTotal != 1 {
 		t.Fatalf("greeks coverage = %d/%d, want 0/1", health.GreeksCoverage, health.GreeksTotal)

@@ -322,12 +322,21 @@ function portfolioDetailRows(portfolio, positions, baseCurrency) {
       body: "The exposure rows below show dominant underlyings by absolute base-currency market value.",
       tone: "neutral",
     });
-  } else if ((positions.stocks || []).length === 0 && (positions.options || []).length === 0) {
+  } else if ((positions.stocks || []).length === 0 && (positions.options || []).length === 0 && (positions.not_served || []).length === 0) {
     rows.push({
       label: "Positions",
       title: "No open positions",
       body: "The portfolio-risk panel has no position rows to aggregate.",
       tone: "neutral",
+    });
+  }
+  const notServed = positions.not_served || [];
+  if (notServed.length > 0) {
+    rows.push({
+      label: "Held, not analysed",
+      title: notServed.map((row) => row.symbol).join(", "),
+      body: "Canary reads stocks only on this broker. Exposure, limits and totals leave these out.",
+      tone: "warn",
     });
   }
   return rows;
