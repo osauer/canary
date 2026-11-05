@@ -105,7 +105,7 @@ func (e *proposalEngine) classifyReadiness(prop rpc.TradeProposal, blockers []rp
 			add(rpc.TradingBlocker{Code: tradingFrozenBlockerCode, Message: tradingFrozenBlockerMessage})
 		}
 		if !e.server.tradingGatewayReady() {
-			add(rpc.TradingBlocker{Code: "gateway_unavailable", Message: "the broker link to IBKR Gateway/TWS is not ready"})
+			add(rpc.TradingBlocker{Code: "gateway_unavailable", Message: e.server.brokerLinkNotReady()})
 		}
 	}
 	out.CanaryCodes = codes

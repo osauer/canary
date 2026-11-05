@@ -121,6 +121,19 @@ func dataHealthIBKROnly(id string) bool {
 	return false
 }
 
+// brokerLinkNotReady is the readiness blocker's words for this daemon's broker.
+// An OpenD daemon holds no connector that can send, so the check stays closed
+// with its session up, and then the session is not the reason.
+func (s *Server) brokerLinkNotReady() string {
+	if s.opend != nil {
+		if s.opend.Connector().IsReady() {
+			return "this daemon serves OpenD, which takes no broker writes in this build"
+		}
+		return "the broker link to OpenD is not ready"
+	}
+	return "the broker link to IBKR Gateway/TWS is not ready"
+}
+
 // opendSubsystems lists the subsystems this broker has.
 func (s *Server) opendSubsystems(connected bool) []rpc.SubsystemHealth {
 	status := "ready"

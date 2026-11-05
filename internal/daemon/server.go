@@ -22,6 +22,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/osauer/canary/v2/pkg/futu"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
@@ -2285,10 +2286,20 @@ func (s *Server) gatewayUnavailableError() error {
 	s.mu.Lock()
 	lastErr := strings.TrimSpace(s.lastConnectError)
 	s.mu.Unlock()
-	if lastErr == "" {
-		return ibkrlib.ErrIBKRUnavailable
+	return s.brokerUnavailable(lastErr)
+}
+
+// brokerUnavailable is the unavailable error of this daemon's broker, naming the
+// gateway the reader must look at.
+func (s *Server) brokerUnavailable(detail string) error {
+	base := ibkrlib.ErrIBKRUnavailable
+	if s.opend != nil {
+		base = errOpenDUnavailable
 	}
-	return fmt.Errorf("%w: %s", ibkrlib.ErrIBKRUnavailable, lastErr)
+	if detail == "" {
+		return base
+	}
+	return fmt.Errorf("%w: %s", base, detail)
 }
 
 // postConnectSetup runs the best-effort initialization that follows a
@@ -3449,6 +3460,9 @@ func classifyError(err error) (string, string) {
 		return rpc.CodeSymbolInactive, err.Error()
 	case errors.Is(err, ibkrlib.ErrIBKRUnavailable):
 		return rpc.CodeGatewayUnavailable, err.Error()
+	case errors.Is(err, futu.ErrNotConnected), errors.Is(err, futu.ErrSessionEnded), errors.Is(err, futu.ErrNoScope):
+		// The session dropped between the daemon's check and the broker's read.
+		return rpc.CodeGatewayUnavailable, fmt.Errorf("%w: %w", errOpenDUnavailable, err).Error()
 	case errors.Is(err, ErrTradingDisabled):
 		return rpc.CodeTradingDisabled, err.Error()
 	case errors.Is(err, ibkrlib.ErrContractDetailsTimeout):

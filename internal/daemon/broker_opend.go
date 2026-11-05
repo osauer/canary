@@ -41,6 +41,17 @@ func newOpenDBroker(cfg *config.Resolved, version string) *brokerOpenD.Adapter {
 	return brokerOpenD.New(conn, account, nil)
 }
 
+// errOpenDUnavailable is the IBKR sentinel's meaning in OpenD's name. The daemon's
+// callers test for that sentinel to join an outage and to pick the wire code, so
+// it answers to it.
+var errOpenDUnavailable error = openDUnavailableError{}
+
+type openDUnavailableError struct{}
+
+func (openDUnavailableError) Error() string { return "OpenD connection unavailable" }
+
+func (openDUnavailableError) Is(target error) bool { return target == ibkrlib.ErrIBKRUnavailable }
+
 // clientVersionFor is the daemon's own version as InitConnect wants it:
 // major*100+minor. A build without a release version reports zero's successor,
 // which OpenD treats like any low version.
