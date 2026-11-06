@@ -719,7 +719,8 @@ drawdown brake latched. The cash sweep is pre-authorised in its own section,
 The list says which buckets may go; it does not let Canary act. The daemon
 places nothing itself until Protection or Fully armed stands, a standing
 authority signed once on a paired device and held in the daemon's store. It
-survives restarts and needs nothing else running. While nothing is armed no
+survives restarts and needs nothing else running but the daemon itself: while
+the machine sleeps, nothing is checked or sent. While nothing is armed no
 record is made, the rows wait for you, `canary proposals status` names the
 buckets as waiting, and `auto_trade.pre_authorised_disarmed` lists them. Arming
 starts a full veto window for every row; disarming ends every window that is
