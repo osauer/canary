@@ -293,6 +293,22 @@ a rehearsed restore runbook. Recovery is an offline procedure because the
 database head, preview signer generation, broker-open orders, and conservative
 order-ID floors must agree before writes resume.
 
+### When broker writes block on a missing commit
+
+`canary status` reads `daemon_storage_unavailable` with `lost_write`, and the
+daemon log has a `persistence latched fail-closed (lost_write)` line naming the
+document, or saying the commit counter went back. The daemon keeps running for
+reads and places nothing until it restarts. The latch copies the database, WAL,
+shared memory and watermark to `damaged/lost-write-<time>/`, and the log names
+the folder; the next open folds the WAL into the database, so that copy is the
+only record of the page images.
+
+Read that copy only with `sqlite3 "file:daemon.db?immutable=1"`. Opening it any
+other way can fold and empty its WAL too, as a read-write check of a copy did
+on 2026-11-06. Never open the live `daemon.db` with `sqlite3`. Confirm the
+folder exists, then run `canary restart`. The startup check still has the last
+word, as below.
+
 ### Recover from a failed startup check
 
 A damaged or rolled-back `daemon.db`, a missing `daemon.db.head` watermark, or
