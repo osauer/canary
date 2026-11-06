@@ -165,11 +165,16 @@ the statement's closing prices and FX before applying the existing divergence
 limit. The raw difference remains available in JSON as diagnostic evidence.
 A matching date alone is insufficient. Missing historical evidence or changed
 holdings leave the comparison unverified, and the clock does not extend.
-When the broker reports 1 as a foreign-currency rate, an earlier saved sample
-cannot establish that rate as historical evidence. Today's display FX cannot
-repair the historical comparison either. The original account value and the
-reported inputs remain available while the comparison waits for independent
-historical valuation evidence.
+When the broker reports 1 as a foreign-currency rate, which it does for every
+currency on some accounts, the sample takes that rate from a live two-sided
+quote of the pair on the same broker session, at most five minutes from the
+reading, and keeps the quote's source and time beside it. A real broker rate is
+never replaced. Without such a quote the sample stays incomplete, the broker's
+1 is kept as reported, and the comparison waits. An earlier saved sample cannot
+establish a rate of 1 as historical evidence, and today's display FX cannot
+repair it either, because a quote only ever values the reading it was taken
+with. A reading taken after the FX market closes on Friday has no live quote,
+so that day's last complete reading stands as its evidence.
 Each evaluated comparison is retained in the daemon's governance journal.
 
 The equity comparison itself is a data-quality reading about the runtime

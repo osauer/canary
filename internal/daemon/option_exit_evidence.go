@@ -167,11 +167,18 @@ func (b optionExitBrokerSource) fx(ctx context.Context, currency, base string) (
 	if currency == base {
 		return orderNotionalAuthority{ContractCurrency: currency, BaseCurrency: base, BasePerContract: 1, Source: orderFXSourceIdentity}, nil
 	}
+	return b.server.liveExactSessionFX(ctx, b.authority, currency, base)
+}
+
+// liveExactSessionFX is the mid of one live two-sided quote of the pair, read
+// on the given broker session, as base units per unit of currency. A delayed,
+// stale or one-sided quote is no evidence.
+func (s *Server) liveExactSessionFX(ctx context.Context, authority *orderPreviewBrokerAuthority, currency, base string) (orderNotionalAuthority, error) {
 	contract, inverted, err := canonicalOrderFXContract(currency, base)
 	if err != nil {
 		return orderNotionalAuthority{}, err
 	}
-	quote, err := b.server.previewExactSessionFXQuote(ctx, b.authority, contract, orderFXQuoteBudget)
+	quote, err := s.previewExactSessionFXQuote(ctx, authority, contract, orderFXQuoteBudget)
 	if err != nil || !optionExitLiveQuote(quote) {
 		return orderNotionalAuthority{}, fmt.Errorf("live FX unavailable")
 	}

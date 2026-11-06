@@ -1264,12 +1264,17 @@ type ReconRuntimeValuation struct {
 	Positions    []ReconPositionValuation        `json:"positions"`
 }
 
-// ReconNativeValuation preserves one observed native NLV and its broker FX rate.
+// ReconNativeValuation preserves one observed native NLV and its FX rate.
+// FXSource and FXObservedAt are set when the broker's account rows gave no
+// usable rate and FXRate is a live quote; without them FXRate is the account
+// row's own value.
 type ReconNativeValuation struct {
-	StockValueReported  string  `json:"stock_value_reported,omitempty"`
-	OptionValueReported string  `json:"option_value_reported,omitempty"`
-	Equity              float64 `json:"equity"`
-	FXRate              float64 `json:"fx_rate"`
+	StockValueReported  string    `json:"stock_value_reported,omitempty"`
+	OptionValueReported string    `json:"option_value_reported,omitempty"`
+	Equity              float64   `json:"equity"`
+	FXRate              float64   `json:"fx_rate"`
+	FXSource            string    `json:"fx_source,omitempty"`
+	FXObservedAt        time.Time `json:"fx_observed_at,omitzero"`
 }
 
 // ReconPositionValuation identifies a marked exact-contract position.
