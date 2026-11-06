@@ -38,6 +38,9 @@ var lifecyclePrefixes = []string{
 	"Connected to IB Gateway", // daemon: broker session established
 	"canary app serving",      // app host: process start
 	"Shutting down server.",   // app host (HyperServe): clean stop
+	// daemon: the reconcile clock's FX evidence changed state, once per change.
+	// Not a process event, but nothing else says why that clock stopped.
+	"reconciliation fx quote",
 }
 
 func lifecycleMessage(msg string) bool {
