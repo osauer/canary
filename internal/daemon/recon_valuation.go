@@ -20,7 +20,7 @@ import (
 // The capital document retains the broker inputs, not display-repaired FX.
 // The original NLV remains the starting value: unexplained residuals are never
 // discarded by replacing it with a sum of statement components.
-func captureReconValuation(raw *ibkrlib.RawAccountSummary, positions []*ibkrlib.RawPosition, asOf time.Time) *rpc.ReconRuntimeValuation {
+func captureReconValuation(raw *ibkrlib.RawAccountSummary, positions []*ibkrlib.RawPosition, asOf time.Time, quotes map[string]reconFXQuote) *rpc.ReconRuntimeValuation {
 	if raw == nil || raw.NetLiquidation == nil || !reconFinite(*raw.NetLiquidation) {
 		return nil
 	}
@@ -31,17 +31,24 @@ func captureReconValuation(raw *ibkrlib.RawAccountSummary, positions []*ibkrlib.
 	}
 	for c, row := range raw.CurrencyLedger {
 		rate := row.ExchangeRate
-		if c == v.BaseCurrency {
-			rate = 1
+		rateProven := row.ExchangeRateObserved && rate != 1
+		var quote reconFXQuote
+		switch {
+		case c == v.BaseCurrency:
+			rate, rateProven = 1, true
+		case !rateProven && quotes[c].validAt(asOf):
+			quote = quotes[c]
+			rate, rateProven = quote.Rate, true
 		}
 		if !reconFinite(rate) || !reconFinite(row.NetLiquidationByCurrency) {
 			v.Reason = "runtime_currency_basis_missing"
 			continue
 		}
-		v.Currencies[c] = rpc.ReconNativeValuation{Equity: row.NetLiquidationByCurrency, FXRate: rate, StockValueReported: row.StockMarketValueText, OptionValueReported: row.OptionMarketValueText}
-		// The account reader treats a foreign unit rate as unresolved. Keep the
-		// broker value, but do not promote it into historical FX evidence.
-		if !row.NetLiquidationObserved || (c != v.BaseCurrency && (!row.ExchangeRateObserved || rate == 1)) || rate <= 0 || !reconFinite(rate) || !reconFinite(row.NetLiquidationByCurrency) {
+		v.Currencies[c] = rpc.ReconNativeValuation{Equity: row.NetLiquidationByCurrency, FXRate: rate, FXSource: quote.Source, FXObservedAt: quote.At, StockValueReported: row.StockMarketValueText, OptionValueReported: row.OptionMarketValueText}
+		// The account reader treats a foreign unit rate as unresolved. Without a
+		// live quote of this moment, keep the broker value but do not promote it
+		// into historical FX evidence.
+		if !row.NetLiquidationObserved || !rateProven || rate <= 0 || !reconFinite(rate) || !reconFinite(row.NetLiquidationByCurrency) {
 			v.Reason = "runtime_currency_basis_missing"
 		}
 	}
