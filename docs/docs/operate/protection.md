@@ -309,9 +309,10 @@ In the mandate's gap stress the future moves with SPY and every other broad
 index fund or index on the list: one index gap moves them all together,
 each by the full gap. The
 gap cap applies to their net loss, so a hedge lowers the index gap loss and
-can bring a breached index line back under its cap. It breaches only when
-it hedges past neutral. A sale is refused for the gap cap only when it adds
-a breach or makes one worse. `canary mandate` shows the group under
+can bring a breached index line back under its cap. With nothing else in the
+group, as with a book of single-name calls, the hedge reads as a breach of its
+own, and the book reads `reduce` until it is bought back; that no longer
+refuses the sale. `canary mandate` shows the group under
 Stresses as `Index gap ±12% across` with its lines and their net figure.
 The stress does not model the difference between SPY and the future.
 
@@ -331,8 +332,34 @@ held hedge is bought back as a percent reduce of its own line,
 `canary proposals reduce --con-id ID --percent N --include-hedges`; no
 portfolio sweep selects it.
 
+A sale is admitted when it lowers the loss in the 10% fall without passing
+neutral and does not turn the 10% rise into a loss or deepen one. The loss room
+and the gap cap do not refuse it, so the hedge stays open at the maximum loss
+(owner, 2026-11-06 14:23 CET). The drawdown brake and the mandate gate read the
+same rule. A sale past neutral, or one that would make the rise lose, is refused
+(`index_hedge_past_neutral`, `index_hedge_rise_loss`), and the plan offers the
+largest sale that passes and says what holds it lower.
+
+During a mandate breach the reduction buys back what has passed neutral, in the
+`mandate_reduction` bucket with its veto window, as a limit at the ask in US
+regular hours (phase `hedge`). As the calls are sold, or a fall leaves them less
+to lose, the short would otherwise end a bare short of the index. A contract is
+bought back while the book without it is still even or ahead in the fall, or
+while the hedge makes the rise lose more than the book would without it. A
+locked hedge, an ignored row and a buy-back already working are left as they are
+and named under what was left out. Only this close is automatic: a hedge is only
+ever sold on the owner's confirmation. Within the loss room, with no owner sleeve
+stop to act on, nothing buys it back, because the measure already counts its rise
+loss; `hedge_not_needed` says so. The close waits out its veto window from the
+verdict that first sees the excess, and moves to the next open if that runs past
+the close, so a short past neutral can stay overnight.
+
+A hedge never makes the reduction sell. The cuts are sized on the book without
+its short hedges, and a book inside its room without them sells nothing. The
+hedge's rise loss still shows in the measure and the batch's projection.
+
 While a hedge is held, the hedge plan and preview carry two flags for the
-owner, who rolls and unwinds by hand; nothing acts on them:
+owner, who rolls by hand; the flags themselves trigger nothing:
 
 | Field | Set when | Message field |
 | --- | --- | --- |
@@ -340,11 +367,12 @@ owner, who rolls and unwinds by hand; nothing acts on them:
 | `hedge_not_needed` | the book without its held short hedges reads `within` on the mandate | `hedge_not_needed_message`: the loss measure without the hedge against the loss room |
 
 
-A hedge that increases the loss measure remains a risk addition, even when
-it reduces the modeled index-fall loss. Ordinary drawdown, mandate and owner
-sleeve gates still apply. The written contract cap bounds position size; it
-does not cap the loss of a short future if the index rises. The modeled
-upward shock is a comparison, not a maximum possible loss.
+The written contract cap bounds position size; it does not cap the loss of a
+short future if the index rises. The rule above reads the model's betas, so it
+assumes the names held follow the index: if the index rises and they do not, the
+short loses its face value times the rise, about the fall's loss it was sized to
+offset at 10% and more beyond, until it is bought back. The modeled upward shock
+is a comparison, not a maximum possible loss.
 
 A figure the plan cannot give is absent, and `index_loss_unknown`,
 `index_rise_loss_unknown`, `loss_measure_unknown` or `trade_cost_unknown`

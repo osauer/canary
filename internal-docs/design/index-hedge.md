@@ -70,11 +70,9 @@ Each item landed on local main with its own gate; the commits name them.
    index-fall loss decreases without crossing neutral, the loss measure
    does not increase, and it adds or deepens no gap-cap breach. Otherwise
    it remains a risk addition and the normal mandate and drawdown gates
-   apply. Counting the hedge's rise loss does not authorize weakening this
-   criterion. The plan offers the largest sale up to neutral that
-   placement admits (no gap-cap breach added or deepened, the loss measure
-   within the loss room) and names what holds it lower
-   (`hedgeSaleRefusal`, 2026-10-29 12:45 CET).
+   apply. **Replaced 2026-11-06, see "At the maximum loss" below.** The plan
+   offers the largest sale up to neutral that placement admits and names what
+   holds it lower (`hedgeSaleRefusal`, 2026-10-29 12:45 CET).
 6. **The index gap nets the hedge** (owner decision "1. A", 2026-10-30
    09:41 CET). One index gap scenario moves every broad-index line
    together, the hedge included: SPY, the other funds and indices on
@@ -101,6 +99,51 @@ Each item landed on local main with its own gate; the commits name them.
    from ten days before a held contract's expiry and `hedge_not_needed`
    while the book without its held hedges reads within the mandate, each
    with one plain message (`docs/docs/operate/protection.md`).
+
+## At the maximum loss (owner, 2026-11-06 14:23 CET)
+
+The owner's instruction, "Build the change", answered this finding: at zero loss
+room every sale was refused, because the hedge's own rise loss and its index gap
+exceed a room and a cap of zero, so the one hedge Canary trades closed when the
+book needed it most. A book of single-name calls has nothing in the index group
+to net against, so the gap test refused a sale at any room. This replaces the
+loss-measure and gap tests of items 4 and 6 for the sale, and leaves the measure
+itself unchanged (the owner decision of 2026-10-28 20:07 CET still counts the
+rise loss, so a hedged book reads `reduce` and `canary mandate` shows the measure
+higher by it, Fully armed staying refused meanwhile).
+
+- **The sale.** One rule at the plan, the classification and placement
+  (`indexHedgeSaleRefusal`): the 10% fall's loss is lower and not below zero, and
+  the 10% rise does not start to lose, or lose more than it already did. Sizing
+  to neutral makes the hedge's 10% rise loss at most the fall's loss it removes,
+  itself at most what the bought options are worth.
+- **The close.** The reduction buys back what has passed neutral on the book as
+  held (`mandateHedgeCloses`): a contract goes while the book without it is still
+  even or ahead in the fall, or while the hedge makes the rise lose more than the
+  book would with none of it. It is a `mandate_reduction` row of phase `hedge`,
+  rank 0, so it keeps its own veto clock, neither waiting behind the cuts nor
+  holding them. It stays out of the relief ranking, where a future's small value
+  would make it the cheapest relief and unwind the hedge before the first call
+  sold. It is priced at the ask, the mirror of the sale at the bid. Within the
+  room, with no owner sleeve stop to act on, the batch withdraws and nothing
+  buys it back: the measure already counts its rise loss.
+- **A hedge never makes the reduction sell.** The cuts are sized on the book
+  without its short hedges, and a book inside its room without them sells
+  nothing. Counting the rise loss in the sizing made a neutral hedge sell
+  extra calls to offset its own figure, which then left it past neutral (found
+  by review, 2026-11-06; a 75-contract hedge took a batch from 36 contracts to
+  306 at the same room). The rise loss still shows in the measure and the
+  batch's projection, and a hedge with nothing to cut reads `nothing_reducible`.
+- **What still bounds it.** `max_contracts`, neutral sizing, the rise rule, a
+  limit at the bid, DAY in regular hours, the WhatIf and the device for every
+  sale, and the standing authority and veto for every automatic close.
+- **Worst case.** The index rises and the names do not follow, which the model's
+  betas do not show: the short's face value times the rise. One contract costs
+  about 3,300 EUR in a 10% rise at 2026-11-06 prices, and 25 about 83,000 EUR. As
+  calls sell, the part past neutral stays short until the next verdict and one
+  veto window after it, and to the next open plus a window if that runs past the
+  close. The sales go in tranches, so that part is what the last tranches freed.
+  Nothing protects it while the machine sleeps.
 
 ## Held by the owner
 

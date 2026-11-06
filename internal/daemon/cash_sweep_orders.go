@@ -127,6 +127,11 @@ func (e *proposalEngine) proposalSessionAt(prop rpc.TradeProposal, at time.Time,
 		return idealproSessionMarket, session, true, known
 	}
 	market, hasMarket = quoteSessionMarketForContract(prop.Contract)
+	if isIndexFutureContract(prop.Contract) {
+		// The future trades nearly around the clock, but the hedge and its
+		// close only in US regular hours (indexFutureSessionRefusal).
+		market, hasMarket = marketcal.MarketUSEquity, true
+	}
 	if !hasMarket {
 		return "", marketcal.Session{}, false, false
 	}

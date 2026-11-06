@@ -2986,6 +2986,11 @@ func proposalOrderPreviewParams(prop rpc.TradeProposal, qty, timeoutMs int) rpc.
 		// entry's sleeve (strategy_placement.go), never by contract alone.
 		params.RegisterEntry = prop.Core.Strategy
 	}
+	if isIndexFutureContract(prop.Contract) {
+		// The reduction's close of the hedge: at the ask, the mirror of the
+		// sale at the bid, and the only way the future's path prices a limit.
+		params.Strategy, params.Allowance = rpc.OrderStrategyAllowanceLimit, &rpc.OrderAllowanceLimit{}
+	}
 	return params
 }
 
@@ -3098,8 +3103,8 @@ func proposalPreviewSafetyBlockers(prop rpc.TradeProposal, preview *rpc.OrderPre
 	}
 	// BOND is admitted for a cash_sweep row's own bill only, and a bill buy
 	// only while the broker's WhatIf agrees with its assumed unit.
-	if !(proposalSupportedSecType(prop.SecType) && proposalSupportedSecType(preview.Draft.Contract.SecType)) && !cashSweepBondAdmitted(prop, preview) && !currencyLevelingAdmitted(prop, preview) {
-		add("unsupported_security_type", "protection proposals support single-leg STK/ETF/OPT orders, BOND only for a cash_sweep row's own bill and CASH only for a currency_leveling row's own conversion", "Use a manual workflow for unsupported instruments.")
+	if !(proposalSupportedSecType(prop.SecType) && proposalSupportedSecType(preview.Draft.Contract.SecType)) && !hedgeCloseAdmitted(prop, preview) && !cashSweepBondAdmitted(prop, preview) && !currencyLevelingAdmitted(prop, preview) {
+		add("unsupported_security_type", "protection proposals support single-leg STK/ETF/OPT orders, BOND only for a cash_sweep row's own bill, CASH only for a currency_leveling row's own conversion and FUT only for the mandate reduction's buy-back of the index hedge", "Use a manual workflow for unsupported instruments.")
 	}
 	if b, mismatch, _ := cashSweepBillUnitCheck(prop, preview); mismatch {
 		add(b.Code, b.Message, b.Action)

@@ -340,14 +340,35 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 		st.Episode = "mandate-" + v.AsOf.UTC().Format("20060102T150405Z") + "-" + st.VerdictFingerprint
 	}
 	candidates, leftOut, covered := e.mandateCandidates(policy, in, pos, now)
-	batch := mandateSizeBatch(*in.Input, candidates, standing, now)
+	// A hedge never makes the reduction sell: the calls are sized as if it were
+	// not held, so a book inside its room without it sells nothing. Its rise
+	// loss stays in the measure (owner decision 2026-10-28 20:07 CET), but no
+	// call sale takes that off, and selling a call to offset it would only leave
+	// the hedge further past neutral. It stays out of the gap steps for the same
+	// reason: selling a call raises a neutral book's volatility.
+	sizing := mandateBookWithoutShortHedges(*in.Input)
+	alone := mandate.Evaluate(sizing)
+	hedgeLoss := max(0, mandateLoss(*v)-mandateLoss(alone))
+	if hedgeLoss > 0 && !stopOver && alone.Status == mandate.StatusWithin {
+		candidates = nil
+	}
+	batch := mandateSizeBatch(sizing, candidates, standing, now)
+	if hedgeLoss > 0 {
+		batch.lossBefore, batch.lossAfter = batch.lossBefore+hedgeLoss, batch.lossAfter+hedgeLoss
+		batch.reached = batch.reached && batch.lossAfter <= batch.target+mandateReductionEpsilon
+	}
 	batch.leftOut = append(leftOut, batch.leftOut...)
 	st.LeftOut = batch.leftOut
 	st.LossRoomBase, st.LossTargetBase, st.LossBase, st.RiskAnnualBase = batch.budget, batch.target, batch.lossBefore, batch.riskBefore
 	st.TargetReached = batch.reached
-	if len(batch.cuts) == 0 {
+	closes, hedgesLeft := e.mandateHedgeCloses(in, pos)
+	st.LeftOut = append(st.LeftOut, hedgesLeft...)
+	if len(batch.cuts) == 0 && len(closes) == 0 {
 		st.State = rpc.MandateReductionNothingReducible
 		st.Reason = fmt.Sprintf("%s, but no held leg can be reduced", mandateBreachSentence(v, batch.budget, ccy))
+		if hedgeLoss > 0 {
+			st.Reason += fmt.Sprintf("; %s of the measure is the index hedge's loss in a rise, which goes when it is bought back", mandateMoney(hedgeLoss, ccy))
+		}
 		if len(batch.leftOut) > 0 {
 			st.Reason += ": " + strings.Join(batch.leftOut, "; ")
 		}
@@ -377,10 +398,25 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 		applyMarketEventFlagsToProposal(&p, marketEvents)
 		out = append(out, p)
 	}
+	for _, c := range closes {
+		p := e.mandateHedgeCloseRow(policy, status, sources, now, in, st, batch, c, ccy)
+		st.Plan = append(st.Plan, rpc.TradeProposalMandatePlanOrder{Contract: budgetDisplayContract(c.row), Action: p.Action, Units: c.qty, Quantity: c.qty, Phase: rpc.MandatePhaseHedge,
+			LossBase: c.lossCut, LossCutBase: c.lossCut})
+		enrichProposalPositionContext(&p, c.row, acct)
+		applyMarketEventFlagsToProposal(&p, marketEvents)
+		out = append(out, p)
+	}
 	st.Rows = len(out)
 	st.State = rpc.MandateReductionReducing
 	st.Reason = fmt.Sprintf("%s; the full plan of %d %s is sized to take the loss measure to %s if all planned units fill", mandateBreachSentence(v, batch.budget, ccy), len(batch.cuts), pluralNoun(len(batch.cuts), "cut"), mandateMoney(batch.lossAfter, ccy))
+	if len(closes) > 0 {
+		st.Reason += fmt.Sprintf("; the index hedge is more than the book needs, so %d of its contracts are bought back", mandateHedgeCloseUnits(closes))
+	}
+	if hedgeLoss > 0 {
+		st.Reason += fmt.Sprintf("; %s of the measure is the index hedge's loss in a rise, which no call sale takes off", mandateMoney(hedgeLoss, ccy))
+	}
 	switch {
+	case len(batch.cuts) == 0:
 	case batch.reached && v.Status == mandate.StatusWithin && stopOver:
 		st.Reason += fmt.Sprintf(", the sleeve's risk to its stop target %s", mandateMoney(v.OwnerStop.TargetUseBase, ccy))
 	case batch.reached:
@@ -395,6 +431,169 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 		st.Reason += fmt.Sprintf("; this cycle offers %d %s, including %d partial %s; after fills, a fresh verdict measures the remaining cuts", len(out), pluralNoun(len(out), "order"), partialOrders, pluralNoun(partialOrders, "installment"))
 	}
 	return out, st
+}
+
+// mandateBookWithoutShortHedges is the book with its held short index futures
+// taken out.
+func mandateBookWithoutShortHedges(book mandate.Input) mandate.Input {
+	book.Legs = slices.DeleteFunc(slices.Clone(book.Legs), func(l mandate.Leg) bool { return mandate.IsIndexFuture(l) && l.Quantity < 0 })
+	return book
+}
+
+// mandateHedgeClose is one held index hedge's buy-back.
+type mandateHedgeClose struct {
+	row           rpc.PositionView
+	qty, full     int
+	fall, lossCut float64 // the book's loss in the fall as held (below zero: it gains); the rise loss the close takes off
+}
+
+func mandateHedgeCloseUnits(closes []mandateHedgeClose) int {
+	units := 0
+	for _, c := range closes {
+		units += c.qty
+	}
+	return units
+}
+
+// mandateHedgeCloses sizes the buy-back of the held index hedges that have
+// passed neutral on the book as held (owner, 2026-11-06 14:23 CET: a hedge
+// allowed at the maximum loss must not outlive what it hedged). As the
+// reduction sells the calls, or a fall leaves them with less to lose, the short
+// stays while the loss it was offsetting goes; left alone it would end a bare
+// short of the index. It is sized on the verdict's book, so a fill shows at the
+// next verdict, and it never enters the relief ranking: a future gives up almost
+// no value, so the ranking would unwind the hedge before the first call sold.
+// Nearest expiry first. A locked hedge, an ignored row and a buy-back already
+// working are left as they are.
+func (e *proposalEngine) mandateHedgeCloses(in mandateReductionInput, pos *rpc.PositionsResult) ([]mandateHedgeClose, []string) {
+	var rows []rpc.PositionView
+	for _, row := range pos.Stocks {
+		if heldIndexHedge(row) {
+			rows = append(rows, row)
+		}
+	}
+	slices.SortStableFunc(rows, func(a, b rpc.PositionView) int { return cmp.Compare(a.Expiry, b.Expiry) })
+	var out []mandateHedgeClose
+	var leftOut []string
+	book := *in.Input
+	for _, row := range rows {
+		id := mandateLegID(row)
+		i := slices.IndexFunc(book.Legs, func(l mandate.Leg) bool { return l.ID == id && mandate.IsIndexFuture(l) })
+		if i < 0 {
+			continue
+		}
+		leg, name := book.Legs[i], legDesc(row)
+		full := int(math.Floor(math.Min(-leg.Quantity, -row.Quantity) + 1e-9))
+		if full <= 0 {
+			continue
+		}
+		qty, fall := mandateHedgeExcess(book, leg, full)
+		if qty <= 0 {
+			continue
+		}
+		key := proposalKey(rpc.TradeProposalBucketMandateReduction, proposalContractFromPosition(row, positionWireSecType(row.SecType)), rpc.OrderActionBuy)
+		switch {
+		case in.Locked != nil && in.Locked(row.ConID):
+			leftOut = append(leftOut, name+" (locked: you keep it, past neutral as it is)")
+			continue
+		case in.Ignored != nil && in.Ignored(key):
+			leftOut = append(leftOut, name+" (its row is ignored, past neutral as it is)")
+			continue
+		}
+		if in.WorkingOrder != nil {
+			if found, _ := in.WorkingOrder(row, rpc.OrderActionBuy); found {
+				leftOut = append(leftOut, name+" (a buy-back is already working)")
+				continue
+			}
+			if found, _ := in.WorkingOrder(row, rpc.OrderActionSell); found {
+				leftOut = append(leftOut, name+" (a hedge sale is working; the next verdict sizes the book with its fill)")
+				continue
+			}
+		}
+		fx := 1.0
+		if ccy := strings.ToUpper(leg.Currency); !strings.EqualFold(ccy, book.BaseCurrency) {
+			fx = book.FXNow[ccy]
+		}
+		out = append(out, mandateHedgeClose{row: row, qty: qty, full: int(math.Ceil(math.Abs(row.Quantity))), fall: fall, lossCut: float64(qty) * mandate.IndexFutureLossPerUnit(leg, fx)})
+		leg.Quantity = float64(qty)
+		book = mandateInputWithLegs(book, []mandate.Leg{leg})
+	}
+	return out, leftOut
+}
+
+// mandateHedgeExcess is how many of the held contracts are past neutral, and
+// the book's loss in the fall as held: a contract goes while the book without
+// it is still even or ahead in the fall, so the hedge rests less than one
+// contract past neutral and a small move does not trade it, or while the
+// hedge makes the rise lose more than the book would without any of it. Both
+// are the sale's own rule read from the other side, so a sale to neutral is
+// never bought back by the next pass. An unmeasured book buys nothing.
+func mandateHedgeExcess(book mandate.Input, leg mandate.Leg, held int) (int, float64) {
+	eval := func(bought int) *mandate.Stresses {
+		leg.Quantity = float64(bought)
+		return mandate.Evaluate(mandateInputWithLegs(book, []mandate.Leg{leg})).Stresses
+	}
+	now, none := eval(0), eval(held)
+	if now == nil || none == nil {
+		return 0, 0
+	}
+	riseRoom := max(0, none.IndexRiseLossBase)
+	excess, at := 0, now
+	for excess < held {
+		next := eval(excess + 1)
+		if next == nil {
+			return 0, 0
+		}
+		if next.IndexLossBase > mandateReductionEpsilon && at.IndexRiseLossBase <= riseRoom+mandateReductionEpsilon {
+			break
+		}
+		excess, at = excess+1, next
+	}
+	return excess, now.IndexLossBase
+}
+
+// mandateHedgeCloseRow is the buy-back as a row of the batch: same bucket and
+// veto as a cut, rank 0 so it keeps its own clock, neither waiting behind the
+// cuts nor holding them (mandateWaitsForBetterRank).
+func (e *proposalEngine) mandateHedgeCloseRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, in mandateReductionInput, st *rpc.TradeProposalMandateStatus, batch mandateBatch, c mandateHedgeClose, ccy string) rpc.TradeProposal {
+	v := in.Result.Verdict
+	effect := rpc.OrderPositionEffectReduce
+	if c.qty == c.full {
+		effect = rpc.OrderPositionEffectClose
+	}
+	reason := fmt.Sprintf("the index hedge is past neutral: the book gains %s in a %g%% S&P fall, so what it hedged has gone; buy back %d of %d %s",
+		mandateMoney(-c.fall, ccy), mandate.IndexShockPct, c.qty, c.full, pluralNoun(c.full, "contract"))
+	if c.fall >= 0 {
+		reason = fmt.Sprintf("the index hedge would make the book lose in a %g%% S&P rise, because what it holds no longer gains enough to pay for it; buy back %d of %d %s",
+			mandate.IndexShockPct, c.qty, c.full, pluralNoun(c.full, "contract"))
+	}
+	p := baseProposal(policy, status, sources, now, rpc.TradeProposalBucketMandateReduction, c.row, rpc.OrderActionBuy, c.qty, effect, reason)
+	p.Details = []string{
+		fmt.Sprintf("takes %s of the hedge's loss in a %g%% rise off the loss measure", mandateMoney(c.lossCut, ccy), mandate.IndexShockPct),
+		fmt.Sprintf("sized on the %s verdict of %s (%s), afresh at every verdict", v.Status, mandateClock(v.AsOf), st.VerdictFingerprint),
+		"a limit at the ask in US regular hours; the hedge is only ever sold on your device, and only this close is automatic",
+		"waits the full veto window even under a latched brake",
+	}
+	p.Score = c.lossCut
+	p.NeverSkipVeto = true
+	p.Mandate = &rpc.TradeProposalMandate{
+		BatchRows: len(batch.cuts), Phase: rpc.MandatePhaseHedge, Units: c.qty,
+		LossBase: batch.lossBefore, LossRoomBase: batch.budget, LossTargetBase: batch.target,
+		LegLossBase: c.lossCut, LossCutBase: c.lossCut, LossAfterBase: batch.lossAfter - c.lossCut,
+		RiskAnnualBase: batch.riskBefore, BudgetAnnualSD: v.Capital.BudgetAnnualSD, RiskAfterAnnualBase: batch.riskAfter,
+		VerdictStatus: v.Status, VerdictAt: v.AsOf, VerdictFingerprint: st.VerdictFingerprint, Episode: st.Episode, BaseCurrency: ccy,
+		Lot: 1, Session: mandateSessionDate(v.AsOf),
+	}
+	return p
+}
+
+// hedgeCloseAdmitted is the one future a proposal may order: the reduction's
+// buy-back of the index hedge. The future path itself refuses a sale under the
+// proposal's source (indexFuturePreviewRefusal).
+func hedgeCloseAdmitted(prop rpc.TradeProposal, preview *rpc.OrderPreviewResult) bool {
+	return prop.Bucket == rpc.TradeProposalBucketMandateReduction && prop.Mandate != nil && prop.Mandate.Phase == rpc.MandatePhaseHedge &&
+		strings.EqualFold(prop.Action, rpc.OrderActionBuy) && strings.EqualFold(preview.Draft.Action, rpc.OrderActionBuy) &&
+		isIndexFutureContract(prop.Contract) && isIndexFutureContract(preview.Draft.Contract)
 }
 
 // mandateBreachSentence says what the batch answers: the loss measure over
@@ -494,6 +693,13 @@ func (e *proposalEngine) mandateHeldRows(policy protectionPolicy, status rpc.Pro
 	}
 	note := "held: " + why + "; not sent, by the daemon or by hand, until a fresh verdict confirms the sizing; the veto window keeps running"
 	rows := mandatePositionRows(pos)
+	// The hedge's close holds with the cuts and keeps its clock. It is no cut
+	// candidate, which is why mandatePositionRows leaves futures out.
+	for _, row := range pos.Stocks {
+		if heldIndexHedge(row) {
+			rows[mandateLegID(row)] = row
+		}
+	}
 	pol := e.rulebookPolicy()
 	var out []rpc.TradeProposal
 	for _, prev := range standing {
@@ -1762,7 +1968,7 @@ func (s *Server) mandateReductionView() *rpc.MandateReductionView {
 // shares, from the protection policy). Nil for any other row, or a row
 // without a mark; the cut then goes at the mid.
 func (e *proposalEngine) mandateReductionGive(prop rpc.TradeProposal) *rpc.OrderBoundedLimit {
-	if prop.Bucket != rpc.TradeProposalBucketMandateReduction || prop.LimitPrice == nil || !positiveFinite(*prop.LimitPrice) {
+	if prop.Bucket != rpc.TradeProposalBucketMandateReduction || prop.LimitPrice == nil || !positiveFinite(*prop.LimitPrice) || isIndexFutureContract(prop.Contract) {
 		return nil
 	}
 	policy, ok := e.automaticPolicy()

@@ -12,8 +12,8 @@ import (
 // broker hedge sale and the new sale together. The caller owns the complete
 // account inventory and its binding through the first broker byte. Pending
 // purchases never release hedge capacity before positions prove the close.
-// This check supplements the ordinary gates; it does not exempt the order
-// from the drawdown brake, owner stop or sleeve allocation.
+// A sale that passes is no risk addition for the drawdown brake and the mandate
+// gate (riskAddingOrder reads the same rule); one that fails is refused here.
 func indexHedgeProjectedRiskRefusal(input *mandate.Input, draft rpc.OrderDraft, pending []mandate.Leg) *rpc.TradingBlocker {
 	refuse := func(code, message string) *rpc.TradingBlocker {
 		return &rpc.TradingBlocker{Code: code, Message: message, Action: "Wait for working hedges to finish or cancel them, then preview the hedge again for the current book; nothing was sent."}
@@ -48,17 +48,35 @@ func indexHedgeProjectedRiskRefusal(input *mandate.Input, draft rpc.OrderDraft, 
 			return unknown(why)
 		}
 	}
-	if after.Stresses.IndexLossBase < -mandateReductionEpsilon || after.Stresses.IndexLossBase >= before.Stresses.IndexLossBase-mandateReductionEpsilon {
-		return refuse("index_hedge_past_neutral", "The held book with working hedge sales and this sale would pass neutral or would not reduce the loss in the index fall.")
+	if bar := indexHedgeSaleRefusal(&before, after, input.BaseCurrency); bar != nil {
+		return refuse(bar.code, "The held book with working hedge sales and this sale would "+bar.leaves+".")
 	}
-	if after.Loss.TotalBase > after.Loss.RoomBase+mandateReductionEpsilon {
-		return refuse("index_hedge_over_loss_room", fmt.Sprintf("The held book with working hedge sales and this sale would measure %s of loss, above the mandate's loss room %s.", mandateMoney(after.Loss.TotalBase, input.BaseCurrency), mandateMoney(after.Loss.RoomBase, input.BaseCurrency)))
-	}
-	// A breach the held book already carries is no reason to refuse a hedge
-	// that lessens it: the index gap nets the sale against the funds it
-	// hedges (owner decision "1. A", 2026-10-30 09:41 CET).
-	if u, added := mandateGapBreachAdded(&before, after); added {
-		return refuse("index_hedge_gap", "The held book with working hedge sales and this sale would breach the mandate's gap cap for "+u.Underlying+".")
+	return nil
+}
+
+// hedgeSaleBar is why a hedge sale is refused: its code, and what it would do
+// to the book, in words that follow "would".
+type hedgeSaleBar struct{ code, leaves string }
+
+// indexHedgeSaleRefusal is the one rule a hedge sale answers to, at the plan,
+// the gate classification and placement (owner, 2026-11-06 14:23 CET: the hedge
+// stays open at the maximum loss, when the book needs it most). The sale must
+// lower the loss in the 10% fall without passing neutral, and must not turn the
+// 10% rise into a loss or deepen one: what the book holds pays for the hedge
+// when the index rises, and once it no longer does the short is a bet. Neither
+// the loss room nor the gap cap reads here: the hedge's rise loss still counts
+// in the loss measure and its index gap in the verdict, so a hedged book reads
+// reduce until the hedge is bought back, but a limit at zero room would refuse
+// every hedge, and a book of single-name calls has nothing in the index group
+// to net the hedge against. What bounds it instead is at the head of
+// index_hedge_order.go.
+func indexHedgeSaleRefusal(before *mandate.Verdict, after mandate.Verdict, ccy string) *hedgeSaleBar {
+	fall, rise := after.Stresses.IndexLossBase, after.Stresses.IndexRiseLossBase
+	switch {
+	case fall < -mandateReductionEpsilon || fall >= before.Stresses.IndexLossBase-mandateReductionEpsilon:
+		return &hedgeSaleBar{"index_hedge_past_neutral", "pass neutral or not reduce the loss in the index fall"}
+	case rise > max(0, before.Stresses.IndexRiseLossBase)+mandateReductionEpsilon:
+		return &hedgeSaleBar{"index_hedge_rise_loss", fmt.Sprintf("lose %s in a %g%% index rise", mandateMoney(rise, ccy), mandate.IndexShockPct)}
 	}
 	return nil
 }

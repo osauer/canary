@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// Spending more loss room is an addition under the approved classification,
-// even when the future improves the index fall and the added loss fits.
-func TestIndexHedgeIncreasingLossCannotBypassDrawdownBrake(t *testing.T) {
+// The latched drawdown brake leaves a hedge to neutral open, though it spends
+// loss room (owner, 2026-11-06 14:23 CET), and still refuses one past neutral.
+func TestIndexHedgeToNeutralPassesTheDrawdownBrakeAndPastItDoesNot(t *testing.T) {
 	s, st, _, _ := brakeTestServer(t)
 	keepMandateEvaluationAt(t, s, mandateReductionBook(mandateReductionStock("SPY", 9101, 3000, 50)), 0.5)
 	st.now = s.now
@@ -35,8 +35,12 @@ func TestIndexHedgeIncreasingLossCannotBypassDrawdownBrake(t *testing.T) {
 	if after.Loss.TotalBase <= before.Loss.TotalBase || after.Loss.TotalBase > after.Loss.RoomBase {
 		t.Fatal("fixture must add loss within room")
 	}
-	if blocker, _ := s.riskPolicyBrake(draft, impact); blocker == nil || blocker.Code != drawdownBrakeCode {
-		t.Fatalf("loss %g -> %g bypassed active brake: %+v", before.Loss.TotalBase, after.Loss.TotalBase, blocker)
+	if blocker, _ := s.riskPolicyBrake(draft, impact); blocker != nil {
+		t.Fatalf("the brake refused a hedge to neutral (loss %g -> %g): %+v", before.Loss.TotalBase, after.Loss.TotalBase, blocker)
+	}
+	past := hedgeSale(6)
+	if blocker, _ := s.riskPolicyBrake(past, rpc.OrderPositionImpact{Before: 0, After: -6, Effect: rpc.OrderPositionEffectOpenShort}); blocker == nil || blocker.Code != drawdownBrakeCode {
+		t.Fatalf("a hedge past neutral bypassed the active brake: %+v", blocker)
 	}
 	draft.Action = rpc.OrderActionBuy
 	if blocker, _ := s.riskPolicyBrake(draft, rpc.OrderPositionImpact{Before: -5, After: 0, Effect: rpc.OrderPositionEffectClose}); blocker != nil {

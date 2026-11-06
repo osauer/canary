@@ -433,7 +433,11 @@ func renderMandateReduction(env *Env, r *rpc.MandateReductionView, ccy string) {
 	riskDisplayLine(env, "Reduction · ", briefJoin(state, head), style)
 	for _, o := range r.Orders {
 		verb := strings.ToLower(o.Action)
-		parts := []string{fmt.Sprintf("%d. %s %d %s", o.Rank, verb, o.Quantity, queuedContractLabel(o.Contract)), mandatePhaseWords(o.Phase)}
+		order := fmt.Sprintf("%s %d %s", verb, o.Quantity, queuedContractLabel(o.Contract))
+		if o.Rank > 0 { // the hedge's close keeps its own clock, outside the send order
+			order = fmt.Sprintf("%d. %s", o.Rank, order)
+		}
+		parts := []string{order, mandatePhaseWords(o.Phase)}
 		if o.LossBase > 0 {
 			parts = append(parts, mandateAmount(o.LossBase, ccy)+" of the loss measure")
 		}
@@ -582,6 +586,8 @@ func mandatePhaseWords(phase string) string {
 		return "expires in the money first"
 	case rpc.MandatePhaseGap:
 		return "gap over its cap"
+	case rpc.MandatePhaseHedge:
+		return "hedge past neutral"
 	case rpc.MandatePhasePremium:
 		return "largest premium at risk"
 	case rpc.MandatePhaseRisk:

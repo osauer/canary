@@ -171,19 +171,19 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 		return block("below_one_contract", fmt.Sprintf("the book loses %s in a %g%% fall; one %s contract offsets %s, so even one would hedge past neutral",
 			mandateMoney(fall, res.BaseCurrency), mandate.IndexShockPct, contract.LocalSymbol, mandateMoney(perContract, res.BaseCurrency)), "Keep the book as it is.")
 	}
-	// Placement refuses a sale that leaves a gap cap breached or the loss
-	// measure over the loss room (indexHedgeProjectedRiskRefusal), so the
-	// plan offers the largest sale up to neutral it would admit on the held
-	// book with the working sales and says what holds it lower; both grow
-	// with the hedge, so fewer contracts never fit worse.
+	// Placement refuses a sale that would make a rise lose
+	// (indexHedgeProjectedRiskRefusal), so the plan offers the largest sale up
+	// to neutral it would admit on the held book with the working sales and
+	// says what holds it lower; the rise's loss grows with the hedge, so fewer
+	// contracts never fit worse.
 	neutral := n
 	if why := hedgeSaleRefusal(book, hedge, 1); why == hedgeUnmeasured {
 		unknown("the mandate cannot measure the book with the hedge")
 		return block("hedge_unsized", "the hedge cannot be sized: the mandate cannot measure the book with one contract sold", "Retry once the mandate has measured the book.")
 	} else if why != "" {
 		unchanged()
-		return block("hedge_over_mandate_cap", fmt.Sprintf("even one %s contract would leave the book %s, and the hedge's placement refuses that", contract.LocalSymbol, why),
-			"Bring the book within the mandate first, or keep it as it is.")
+		return block("hedge_over_mandate_cap", fmt.Sprintf("even one %s contract would %s, and the hedge's placement refuses that", contract.LocalSymbol, why),
+			"Keep the book as it is, or cut what the hedge would not cover.")
 	}
 	lo, hi := 1, neutral
 	for lo < hi {
@@ -217,7 +217,7 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	res.TotalNotional = value * fx
 	res.Message = fmt.Sprintf("sell %d %s to neutral%s", n, contract.LocalSymbol, workingNote)
 	if n < neutral {
-		res.Message = fmt.Sprintf("sell %d %s; %d would reach neutral but leave the book %s%s", n, contract.LocalSymbol, neutral, hedgeSaleRefusal(book, hedge, n+1), workingNote)
+		res.Message = fmt.Sprintf("sell %d %s; %d would reach neutral but %s%s", n, contract.LocalSymbol, neutral, hedgeSaleRefusal(book, hedge, n+1), workingNote)
 	}
 	if p.PlanOnly {
 		return res
@@ -238,20 +238,17 @@ const hedgeUnmeasured = "unmeasured"
 
 // hedgeSaleRefusal says why placement would refuse a sale of n hedge
 // contracts on the input book, the held book with the working hedge sales
-// (indexHedgeProjectedRiskRefusal's gap and loss-room rules), or "" when it
-// would not. A gap breach counts only when the sale adds or deepens it.
+// (indexHedgeSaleRefusal), or "" when it would not. The plan sizes up to
+// neutral itself, so past neutral means the sale would not lower the fall.
 func hedgeSaleRefusal(input mandate.Input, hedge mandate.Leg, n int) string {
 	hedge.Quantity = -float64(n)
 	before := mandate.Evaluate(input)
 	v := mandate.Evaluate(mandateInputWithLegs(input, []mandate.Leg{hedge}))
-	if v.Stresses == nil || v.Loss == nil || v.Status == mandate.StatusUnknown || before.Stresses == nil {
+	if v.Stresses == nil || v.Status == mandate.StatusUnknown || before.Stresses == nil {
 		return hedgeUnmeasured
 	}
-	if u, added := mandateGapBreachAdded(&before, v); added {
-		return "over the gap cap for " + u.Underlying
-	}
-	if v.Loss.TotalBase > v.Loss.RoomBase+mandateReductionEpsilon {
-		return fmt.Sprintf("measuring %s of loss, above the loss room %s", mandateMoney(v.Loss.TotalBase, input.BaseCurrency), mandateMoney(v.Loss.RoomBase, input.BaseCurrency))
+	if bar := indexHedgeSaleRefusal(&before, v, input.BaseCurrency); bar != nil {
+		return bar.leaves
 	}
 	return ""
 }

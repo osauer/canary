@@ -25,20 +25,26 @@ import (
 //     may leave the contract at most [mandate.index_hedge] max_contracts
 //     short, and is refused while that table is not written;
 //   - its close: a BUY that closes or shrinks a held short of that future,
-//     a percent reduce of the held line (`proposals reduce --con-id ID
-//     --include-hedges`), priced as every reduce is.
+//     as a percent reduce of the held line (`proposals reduce --con-id ID
+//     --include-hedges`) or as the mandate reduction's own row, which buys
+//     back what has passed neutral (mandateHedgeCloses). A hedge is never
+//     sold automatically; the sale always needs the device.
 //
 // Every other future order is refused. What bounds cost and risk once a
 // hedge sale passes the order cap (whose face-value notional a single Micro
-// contract can exceed): max_contracts on the contract's position after the
-// order, read at preview, admission and the wire guard; at submit the whole
-// book's short Micro S&P contracts with Canary's working hedge sales; the
-// size to neutral on the kept mandate book; a limit at the bid, never at
-// market; DAY in regular hours only; the broker WhatIf; the owner's device
-// confirmation of the exact terms; and the mandate gate, which judges any
-// hedge that does not lower the fall's loss within the loss room as an
-// addition. Its worst case is max_contracts sold short at the bid: a 10%
-// rise then costs 10% of that face value.
+// contract can exceed), and since the owner's 2026-11-06 14:23 CET decision
+// lifted the loss-room and gap-cap tests on the sale: max_contracts on the
+// contract's position after the order, read at preview, admission and the wire
+// guard; at submit the whole book's short Micro S&P contracts with Canary's
+// working hedge sales; the size to neutral on the kept mandate book, so the
+// hedge's loss in a 10% rise is at most the fall's loss it removes, itself at
+// most what the bought options are worth; the rule that the sale does not turn
+// that rise into a loss on the model's betas (indexHedgeSaleRefusal); a limit at
+// the bid, never at market; DAY in regular hours only; the broker WhatIf; and
+// the owner's device confirmation of the exact terms. Its worst case is the
+// index rising while the names it hedges do not follow: the full short's face
+// value times the rise, 10% of up to max_contracts, until the short is bought
+// back.
 
 // hedgeOrderSource tags a hedge sale's draft; the token path and the place
 // boundary read it to apply the hedge's own checks.
@@ -69,6 +75,10 @@ func normalizePreviewFutureContract(in rpc.ContractParams) (rpc.ContractParams, 
 	return out, nil
 }
 
+// indexFutureOutsideHoursCode is the future's own session refusal: temporary,
+// so an automatic close waits for the next session rather than ending.
+const indexFutureOutsideHoursCode = "outside_regular_hours"
+
 // indexFutureSessionRefusal refuses a future order outside the US regular
 // session (owner decision 2026-10-28 20:07 CET: the hedge is placed in US
 // hours), and when the calendar cannot say: the futures trade nearly around
@@ -84,7 +94,7 @@ func (s *Server) indexFutureSessionRefusal(now time.Time) error {
 	default:
 		return nil
 	}
-	return refusePreview(errBadRequest(message), rpc.TradingBlocker{Code: "outside_regular_hours", Message: message,
+	return refusePreview(errBadRequest(message), rpc.TradingBlocker{Code: indexFutureOutsideHoursCode, Message: message,
 		Action: "Preview the hedge again in US regular hours; nothing was sent."})
 }
 
@@ -105,7 +115,7 @@ func indexFuturePreviewRefusal(p rpc.OrderPreviewParams, scope, action, orderTyp
 		if action != rpc.OrderActionSell || p.Allowance.Pct != 0 {
 			return errBadRequest("the index hedge sells at the bid")
 		}
-	case reduceOrderSource:
+	case reduceOrderSource, proposalOrderSource:
 		if action != rpc.OrderActionBuy || !(position.Before < 0) {
 			return errBadRequest("a future reduce only buys back a held short hedge")
 		}
@@ -155,8 +165,8 @@ func heldIndexHedge(row rpc.PositionView) bool {
 }
 
 // reduceSingleEligible is reduceEligible plus the held hedge: a percent
-// reduce of one line may buy the hedge back; a portfolio sweep never
-// selects it (closing a hedge is no risk cut).
+// reduce of one line may buy the hedge back; a portfolio sweep never selects
+// it (the mandate reduction sizes its own close, mandateHedgeCloses).
 func reduceSingleEligible(row rpc.PositionView) bool {
 	return reduceEligible(row) || heldIndexHedge(row)
 }

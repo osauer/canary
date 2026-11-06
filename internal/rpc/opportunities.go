@@ -756,6 +756,10 @@ const (
 	// loss measure fits the loss room (owner
 	// 2026-10-27 19:50 CET and 2026-11-03 10:51 CET).
 	MandatePhasePremium = "premium"
+	// MandatePhaseHedge: the buy-back of a held index hedge that has passed
+	// neutral as what it hedged went; it keeps its own veto clock, outside the
+	// batch's send order.
+	MandatePhaseHedge = "hedge"
 	// MandatePhaseRisk: the largest contributor to the simulated variance,
 	// the phase of batches sized before the loss measure headlined; kept for
 	// rows a reader may still hold.
