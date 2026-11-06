@@ -164,3 +164,58 @@ func TestShortPortfolioDownloadResubscribesWhileRowsAreRetained(t *testing.T) {
 		t.Fatalf("short download did not resubscribe after the throttle: %d subscriptions", got)
 	}
 }
+
+// TestPortfolioFootingDoesNotTakeTheUnitRateForARate replays TWS on a live
+// EUR-base account, which reports ExchangeRate 1 for USD. Taken at face value,
+// six of seven rows read as 107% of gross, so a download missing a seventh of
+// the book completed as current. A real rate of 0.8 puts them at 86%.
+func TestPortfolioFootingDoesNotTakeTheUnitRateForARate(t *testing.T) {
+	realRate := func(base, currency string) (float64, bool) {
+		return 0.8, base == "EUR" && currency == "USD"
+	}
+	feed := func(t *testing.T, rate func(string, string) (float64, bool), rows int) (*Connection, *Connector, string) {
+		t.Helper()
+		conn, connector, _, _, gate := newQueuedInstructionReconnectFixture(t)
+		conn.config.FXRateToBase = rate
+		account := gate.Account
+		if err := connector.RequestAccountUpdates(account); err != nil {
+			t.Fatalf("subscribe: %v", err)
+		}
+		feedAccountValue(conn, "NetLiquidation", "100000", "EUR", account)
+		feedAccountValue(conn, "GrossPositionValue", syntheticGrossValueEUR, "EUR", account)
+		feedAccountValue(conn, "OptionMarketValue", strconv.Itoa(syntheticBookRows*syntheticRowValueUSD), "USD", account)
+		feedAccountValue(conn, "ExchangeRate", "1", "USD", account)
+		for conID := 1; conID <= rows; conID++ {
+			feedOptionRow(conn, account, 800000+conID)
+		}
+		feedDownloadEnd(conn, account)
+		return conn, connector, account
+	}
+
+	t.Run("a short download is held on the real rate", func(t *testing.T) {
+		conn, connector, account := feed(t, realRate, syntheticBookRows-1)
+		short := captureProjection(t, connector)
+		if !short.Health.InitialCompletedAt.IsZero() || short.Health.DownloadShortAt.IsZero() || len(short.Positions) != 0 {
+			t.Fatalf("download missing a seventh of the book: completed=%v short=%v rows=%d",
+				short.Health.InitialCompletedAt, short.Health.DownloadShortAt, len(short.Positions))
+		}
+		feedOptionRow(conn, account, 800000+syntheticBookRows)
+		if complete := captureProjection(t, connector); complete.Health.InitialCompletedAt.IsZero() || len(complete.Positions) != syntheticBookRows {
+			t.Fatalf("the late row did not complete the book: completed=%v rows=%d", complete.Health.InitialCompletedAt, len(complete.Positions))
+		}
+	})
+
+	t.Run("a complete download is not held", func(t *testing.T) {
+		_, connector, _ := feed(t, realRate, syntheticBookRows)
+		if complete := captureProjection(t, connector); complete.Health.InitialCompletedAt.IsZero() || !complete.Health.DownloadShortAt.IsZero() {
+			t.Fatalf("complete book held: completed=%v short=%v", complete.Health.InitialCompletedAt, complete.Health.DownloadShortAt)
+		}
+	})
+
+	t.Run("with no real rate the end marker stands alone", func(t *testing.T) {
+		_, connector, _ := feed(t, func(string, string) (float64, bool) { return 0, false }, syntheticBookRows-1)
+		if alone := captureProjection(t, connector); alone.Health.InitialCompletedAt.IsZero() || !alone.Health.DownloadShortAt.IsZero() {
+			t.Fatalf("no provable coverage must not hold the book: completed=%v short=%v", alone.Health.InitialCompletedAt, alone.Health.DownloadShortAt)
+		}
+	})
+}

@@ -128,6 +128,12 @@ type ConnectionConfig struct {
 	// WireInterceptor records frames; nil uses the environment configuration.
 	WireInterceptor *WireInterceptor
 
+	// FXRateToBase supplies base-per-currency rates the broker's own ExchangeRate
+	// row cannot: TWS reports 1 for every currency on a live EUR-base account. It
+	// runs under the portfolio locks, so it must not touch the network; nil means
+	// the stream's rate is all there is.
+	FXRateToBase func(base, currency string) (float64, bool)
+
 	// startAPI retry settings for the configured client ID.
 	MaxClientIDRetries int // Max attempts for transient startAPI failures (default 5)
 
@@ -521,10 +527,10 @@ const portfolioFootingTolerance = 0.05
 
 // portfolioGrossCoverage returns the share of the account-updates stream's
 // GrossPositionValue that rows account for: the sum of absolute market values,
-// each converted to the account base with the stream's own ExchangeRate. ok is
-// false when the stream carries no positive gross position value or a row's
-// currency has no exchange rate; the end marker then stands alone.
-func portfolioGrossCoverage(rows map[string]*RawPosition, accountValues map[string]string) (coverage float64, ok bool) {
+// each converted to the account base. ok is false when the stream carries no
+// positive gross position value or a row's currency has no exchange rate; the
+// end marker then stands alone.
+func portfolioGrossCoverage(rows map[string]*RawPosition, accountValues map[string]string, fxRate func(base, currency string) (float64, bool)) (coverage float64, ok bool) {
 	summary := parseAccountSummary(accountValues, "")
 	if summary.GrossPositionValue == nil || !finiteFloat(*summary.GrossPositionValue) || *summary.GrossPositionValue <= 0 {
 		return 0, false
@@ -537,21 +543,35 @@ func portfolioGrossCoverage(rows map[string]*RawPosition, accountValues map[stri
 		}
 		rate := 1.0
 		if currency := strings.ToUpper(strings.TrimSpace(row.Contract.Currency)); currency != base {
-			ledger, known := summary.CurrencyLedger[currency]
-			if !known || !finiteFloat(ledger.ExchangeRate) || ledger.ExchangeRate <= 0 {
+			var known bool
+			if rate, known = portfolioRowRate(summary.CurrencyLedger[currency].ExchangeRate, base, currency, fxRate); !known {
+				portfolioLogger.Warnf("Portfolio download has no exchange rate for %s; its completeness rests on the end marker alone", currency)
 				return 0, false
 			}
-			rate = ledger.ExchangeRate
 		}
 		gross += math.Abs(row.MarketValue) * rate
 	}
 	return gross / *summary.GrossPositionValue, true
 }
 
+// portfolioRowRate prefers the stream's own rate. A 1 on a non-base currency is
+// not one: TWS sends it for every currency on a live EUR-base account, and
+// taking it overstates coverage by the difference, so a short download passes.
+func portfolioRowRate(streamRate float64, base, currency string, fxRate func(base, currency string) (float64, bool)) (float64, bool) {
+	if finiteFloat(streamRate) && streamRate > 0 && streamRate != 1 {
+		return streamRate, true
+	}
+	if fxRate == nil || base == "" {
+		return 0, false
+	}
+	rate, ok := fxRate(base, currency)
+	return rate, ok && finiteFloat(rate) && rate > 0
+}
+
 // portfolioGenerationShort reports whether rows are provably short of the
 // stream's gross position value, with the coverage for the log line.
-func portfolioGenerationShort(rows map[string]*RawPosition, accountValues map[string]string) (float64, bool) {
-	coverage, ok := portfolioGrossCoverage(rows, accountValues)
+func portfolioGenerationShort(rows map[string]*RawPosition, accountValues map[string]string, fxRate func(base, currency string) (float64, bool)) (float64, bool) {
+	coverage, ok := portfolioGrossCoverage(rows, accountValues, fxRate)
 	return coverage, ok && coverage < 1-portfolioFootingTolerance
 }
 
@@ -3523,7 +3543,7 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
 	if !c.portfolioStagingActive {
 		return false
 	}
-	if coverage, short := portfolioGenerationShort(c.portfolioStaging, accountValues); short {
+	if coverage, short := portfolioGenerationShort(c.portfolioStaging, accountValues, c.config.FXRateToBase); short {
 		if c.portfolioHealth.DownloadShortAt.IsZero() {
 			portfolioLogger.Warnf("Portfolio download ended with rows covering %.0f%% of gross position value; holding the book as not current until it is complete", coverage*100)
 		}
@@ -3563,7 +3583,7 @@ func (c *Connection) retryShortPortfolioDownloadLocked(observedAt time.Time) {
 	accountValues := c.GetAccountSummary()
 	c.portfolioHealthMu.Lock()
 	defer c.portfolioHealthMu.Unlock()
-	if _, short := portfolioGenerationShort(c.portfolioStaging, accountValues); short {
+	if _, short := portfolioGenerationShort(c.portfolioStaging, accountValues, c.config.FXRateToBase); short {
 		return
 	}
 	portfolioLogger.Warnf("Portfolio download now accounts for gross position value; the book is current")

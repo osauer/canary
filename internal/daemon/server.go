@@ -1829,6 +1829,7 @@ func (s *Server) newConnector(ep discover.Endpoint) *ibkrlib.Connector {
 	// a second reconnect loop on the same client ID.
 	conn.AutoReconnect = false
 	conn.ManagedConnectionLogging = true
+	conn.FXRateToBase = s.portfolioFootingFXRate
 
 	cc := &ibkrlib.ConnectorConfig{
 		PreferredClientID:        ep.ClientID,

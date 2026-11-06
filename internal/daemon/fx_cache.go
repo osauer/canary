@@ -218,6 +218,14 @@ func (s *Server) repairCurrencyLedgerFXRatesCached(ctx context.Context, c *ibkrl
 	return repairCurrencyLedgerFXRatesWithResolver(ctx, ledger, baseCcy, fxRepairQuoteBudget, s.cachedFXResolver(c))
 }
 
+// portfolioFootingFXRate gives the portfolio completeness check a real rate. It
+// reads the store only: the check runs under the portfolio locks on the broker
+// read loop, and a five percent tolerance outlasts 72 hours of G10 drift.
+func (s *Server) portfolioFootingFXRate(baseCcy, ccy string) (float64, bool) {
+	rate, _, ok := s.fxRates.get(baseCcy, ccy, fxCacheTTL)
+	return rate, ok
+}
+
 func (s *Server) cachedFXResolver(c *ibkrlib.Connector) currencyRateResolver {
 	return func(ctx context.Context, baseCcy, ccy string, timeout time.Duration) (float64, bool) {
 		if rate, _, ok := s.fxRates.get(baseCcy, ccy, fxCacheFreshWindow); ok {

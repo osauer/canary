@@ -255,14 +255,17 @@ paired with an existing reduce/cover proposal.
 with a `PortfolioStreamHealth` receipt, and the daemon reports positions as
 current only for a completed, account-scoped receipt. A generation completes
 when `accountDownloadEnd` arrives and its rows account for the same stream's
-`GrossPositionValue`: the sum of absolute market values, converted with the
-stream's `ExchangeRate`, must reach 95% of it. TWS answering a subscription
+`GrossPositionValue`: the sum of absolute market values, converted to the base
+currency, must reach 95% of it. The stream's `ExchangeRate` converts unless it
+reads 1 on a non-base currency, which TWS sends on a live EUR-base account;
+then `FXRateToBase` supplies the rate, in Canary's daemon its stored rate of at
+most 72 hours. TWS answering a subscription
 shortly after its own login can end a download before its book is loaded, so a
 short generation stays staged and unpublished, the receipt carries
 `DownloadShortAt` and reads as `unprimed`, and late rows or a throttled
-resubscribe complete it. Without a positive gross position value or an
-exchange rate for a held currency, the end marker alone completes the
-generation.
+resubscribe complete it. Without a positive gross position value the end marker
+alone completes the generation; so it does without a rate for a held currency,
+and the log says so.
 
 Tests exercise handshake and parser behavior across IB Gateway server versions
 100 through 203. Runtime connections reject versions below 124 and negotiate
