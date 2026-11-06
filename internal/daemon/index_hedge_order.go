@@ -41,7 +41,8 @@ import (
 // most what the bought options are worth; the rule that the sale does not turn
 // that rise into a loss on the model's betas (indexHedgeSaleRefusal); a limit at
 // the bid, never at market; DAY in regular hours only; the broker WhatIf; and
-// the owner's device confirmation of the exact terms. Its worst case is the
+// the owner's device confirmation of the exact terms. Neutral and the rise are
+// read on the book with its working sales (hedgeBookWithWorkingSales). Its worst case is the
 // index rising while the names it hedges do not follow: the full short's face
 // value times the rise, 10% of up to max_contracts, until the short is bought
 // back.
@@ -49,6 +50,9 @@ import (
 // hedgeOrderSource tags a hedge sale's draft; the token path and the place
 // boundary read it to apply the hedge's own checks.
 const hedgeOrderSource = "index_hedge"
+
+// hedgeRefreshAction is what the owner does about orders the hedge cannot read.
+const hedgeRefreshAction = "Refresh orders and preview the hedge again; nothing was sent."
 
 // isIndexFutureContract reports a Micro E-mini S&P 500 future in USD, the
 // one future Canary trades.
@@ -202,12 +206,12 @@ func (s *Server) indexHedgeCapRefusal(draft rpc.OrderDraft, heldShort float64) [
 	if why != "" {
 		return []rpc.TradingBlocker{{Code: "index_hedge_unplaceable", Message: why, Action: "Write [mandate.index_hedge] max_contracts with a higher policy_version to place a hedge; nothing was sent."}}
 	}
-	pending, _, _, err := s.indexHedgeCommitments(context.Background(), draft)
+	commitments, err := s.indexHedgeCommitments(context.Background(), draft)
 	if err != nil {
-		return []rpc.TradingBlocker{{Code: "index_hedge_unmeasured", Message: err.Error(), Action: "Refresh orders and preview the hedge again; nothing was sent."}}
+		return []rpc.TradingBlocker{{Code: "index_hedge_unmeasured", Message: err.Error(), Action: hedgeRefreshAction}}
 	}
 	committed := 0.0
-	for _, leg := range pending {
+	for _, leg := range commitments.pending {
 		committed -= leg.Quantity
 	}
 	if total := heldShort + committed + float64(draft.Quantity); total > float64(maxContracts)+1e-9 {
@@ -222,17 +226,29 @@ func (s *Server) indexHedgeCapRefusal(draft rpc.OrderDraft, heldShort float64) [
 type indexHedgeAuthority struct {
 	heldShort float64
 	pending   []mandate.Leg
+	lineSales []hedgeLineSale
+	orders    protectionOrderSnapshotBinding
+}
+
+// hedgeCommitments is what the account's orders commit the hedge to: pending
+// is the working sales of the hedge's own future, whose contracts count
+// against max_contracts; lineSales is every other working sale, which only
+// changes the book the hedge is measured on (hedgeBookWithWorkingSales).
+type hedgeCommitments struct {
+	pending   []mandate.Leg
+	lineSales []hedgeLineSale
+	filled    map[int]rpc.ContractParams
 	orders    protectionOrderSnapshotBinding
 }
 
 // indexHedgeCommitments joins the shared all-client snapshot to durable intents.
 // Unacknowledged/uncertain writes retain their capacity; a matched order counts
 // once. Pending buys never release capacity for a new short.
-func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft) ([]mandate.Leg, map[int]rpc.ContractParams, protectionOrderSnapshotBinding, error) {
+func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft) (hedgeCommitments, error) {
 	before := s.reduceFillBinding()
 	snapshot, scope, err := s.brokerOpenOrderInventory(ctx, false)
 	if err != nil || !sameBrokerScope(scope, before.scope) || !protectionOrderSnapshotUsable(snapshot, s.orderNow()) {
-		return nil, nil, before, fmt.Errorf("complete current hedge order inventory is unavailable")
+		return hedgeCommitments{}, fmt.Errorf("complete current hedge order inventory is unavailable")
 	}
 	var journal journalInventory
 	loaded := false
@@ -246,10 +262,11 @@ func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft
 		loaded = load()
 	}
 	if !loaded {
-		return nil, nil, before, fmt.Errorf("durable hedge commitments changed or are unavailable")
+		return hedgeCommitments{}, fmt.Errorf("durable hedge commitments changed or are unavailable")
 	}
 
 	var pending []mandate.Leg
+	var lineSales []hedgeLineSale
 	filled := map[int]rpc.ContractParams{}
 	addContract := func(c rpc.ContractParams, action string, remaining, fill, price float64) error {
 		if strings.TrimSpace(c.SecType) == "" && normSym(c.Symbol) == "MES" {
@@ -293,7 +310,8 @@ func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft
 		if relevant && strings.EqualFold(view.Status, "Filled") && !(view.Filled > 0) {
 			return fmt.Errorf("a completed hedge commitment has unknown fill quantity")
 		}
-		if relevant && view.Open && !positiveFinite(remaining) && !(view.Quantity > 0 && view.Filled >= view.Quantity) {
+		allFilled := view.Quantity > 0 && view.Filled >= view.Quantity
+		if relevant && view.Open && !positiveFinite(remaining) && !allFilled {
 			return fmt.Errorf("a working hedge commitment has unknown remaining quantity")
 		}
 		if strings.EqualFold(view.SecType, "BAG") {
@@ -305,6 +323,15 @@ func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft
 					return fmt.Errorf("a combination has unknown leg identity")
 				}
 				if !strings.EqualFold(leg.Contract.SecType, "FUT") {
+					if view.Open && !allFilled {
+						// A leg's direction and ratio are its own (journal
+						// lineage), so it is read as the competing-order count
+						// reads it, not from the combo's parent.
+						units := remaining * math.Abs(float64(leg.Ratio))
+						if sale, ok := workingLineSale(leg.Contract.ConID, leg.Contract.Symbol, leg.Action, view.OrderType, units, view.Trail != nil); ok {
+							lineSales = append(lineSales, sale)
+						}
+					}
 					continue
 				}
 				// A combo's net limit does not establish a future leg's
@@ -318,6 +345,11 @@ func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft
 				}
 			}
 			return nil
+		}
+		if view.Open && !allFilled && !strings.EqualFold(view.SecType, "FUT") {
+			if sale, ok := workingLineSale(view.ConID, view.Symbol, view.Action, view.OrderType, remaining, view.Trail != nil); ok {
+				lineSales = append(lineSales, sale)
+			}
 		}
 		c := rpc.ContractParams{ConID: view.ConID, Symbol: view.Symbol, SecType: view.SecType, Currency: view.Currency, Multiplier: view.Multiplier, Exchange: view.Exchange, Expiry: view.Expiry, LocalSymbol: view.LocalSymbol, TradingClass: view.TradingClass}
 		price := view.LimitPrice
@@ -342,7 +374,7 @@ func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft
 			view.OrderRef = row.Journal.OrderRef
 			view.Filled = max(view.Filled, row.Journal.Filled)
 			if (strings.EqualFold(view.SecType, "FUT") || strings.EqualFold(view.SecType, "BAG")) && (view.Quantity != row.Journal.Quantity || view.Action != row.Journal.Action || view.LimitPrice != row.Journal.LimitPrice) {
-				return nil, nil, before, fmt.Errorf("a modified future commitment is not reconciled")
+				return hedgeCommitments{}, fmt.Errorf("a modified future commitment is not reconciled")
 			}
 		}
 		remaining := brokerOrderRemaining(row.Order)
@@ -350,7 +382,7 @@ func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft
 			remaining = min(remaining, max(0, view.Quantity-view.Filled))
 		}
 		if err := add(view, remaining, legsOf(row.Journal)); err != nil {
-			return nil, nil, before, err
+			return hedgeCommitments{}, err
 		}
 		for i := range journal.views {
 			if row.Journal == &journal.views[i] {
@@ -373,7 +405,7 @@ func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft
 			}
 		}
 		if err := add(view, 0, legsOf(matched)); err != nil {
-			return nil, nil, before, err
+			return hedgeCommitments{}, err
 		}
 	}
 	for i, view := range journal.views {
@@ -387,20 +419,21 @@ func (s *Server) indexHedgeCommitments(ctx context.Context, draft rpc.OrderDraft
 			continue
 		}
 		if err := add(view, remaining, legsOf(&view)); err != nil {
-			return nil, nil, before, err
+			return hedgeCommitments{}, err
 		}
 	}
 	if !s.reduceFillBindingCurrent(before) {
-		return nil, nil, before, fmt.Errorf("hedge order evidence changed during admission")
+		return hedgeCommitments{}, fmt.Errorf("hedge order evidence changed during admission")
 	}
-	return pending, filled, before, nil
+	return hedgeCommitments{pending: pending, lineSales: lineSales, filled: filled, orders: before}, nil
 }
 
 func (s *Server) prepareIndexHedgeAuthority(ctx context.Context, binding brokerWriteTransactionBinding, draft rpc.OrderDraft, generation uint64) (*indexHedgeAuthority, error) {
-	pending, filled, orders, err := s.indexHedgeCommitments(ctx, draft)
+	commitments, err := s.indexHedgeCommitments(ctx, draft)
 	if err != nil {
 		return nil, err
 	}
+	filled, orders := commitments.filled, commitments.orders
 	held := map[int]reduceHeldPosition{}
 	book := map[int]reduceHeldPosition{}
 	addHeld := func(c rpc.ContractParams, q float64) error {
@@ -466,7 +499,7 @@ func (s *Server) prepareIndexHedgeAuthority(ctx context.Context, binding brokerW
 			}
 		}
 	}
-	out := &indexHedgeAuthority{pending: pending, orders: orders}
+	out := &indexHedgeAuthority{pending: commitments.pending, lineSales: commitments.lineSales, orders: orders}
 	for _, row := range held {
 		if row.quantity < 0 {
 			out.heldShort -= row.quantity
@@ -567,7 +600,11 @@ func (s *Server) validateIndexHedgeAuthority(a *indexHedgeAuthority, draft rpc.O
 	if input == nil {
 		return fmt.Errorf("%w: hedge book is unmeasured: %s", ErrTradingDisabled, why)
 	}
-	if blocker := indexHedgeProjectedRiskRefusal(input, draft, a.pending); blocker != nil {
+	book, _, unread := hedgeBookWithWorkingSales(*input, a.lineSales)
+	if unread != "" {
+		return tradingBlockersError([]rpc.TradingBlocker{{Code: "index_hedge_risk_unmeasured", Message: "The hedge cannot be measured: " + unread + ".", Action: hedgeRefreshAction}})
+	}
+	if blocker := indexHedgeProjectedRiskRefusal(&book, draft, a.pending); blocker != nil {
 		return tradingBlockersError([]rpc.TradingBlocker{*blocker})
 	}
 	return nil

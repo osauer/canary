@@ -9,7 +9,8 @@ closing everything stays a separate emergency action in Desk.
 ## Built: the plan (`proposals reduce --portfolio --mode hedge --plan`)
 
 - **Size.** The hedge is sized on the mandate's index stress of the whole
-  book (`stresses.index_loss_base`). Every line counts, locked hedges too:
+  book (`stresses.index_loss_base`), with its working sales counted as sold
+  (see "A cut still working" below). Every line counts, locked hedges too:
   neutral is about the book's own change in the fall, and a hedge the owner
   keeps pays in it. This differs from net mode, which leaves locked hedges out
   of its direction because it chooses what to trade.
@@ -134,16 +135,49 @@ higher by it, Fully armed staying refused meanwhile).
   by review, 2026-11-06; a 75-contract hedge took a batch from 36 contracts to
   306 at the same room). The rise loss still shows in the measure and the
   batch's projection, and a hedge with nothing to cut reads `nothing_reducible`.
+- **A cut still working** (2026-11-06 21:15 CET; found by review of Desk
+  70929f97, which sends the sale with one device confirmation). The plan and
+  placement sized on the held book and the hedge's own working sales, so a sale
+  of calls working at the broker was still counted as held, and the short stood
+  past neutral from its fill until the buy-back of a breach. Both now measure the
+  book as it reads once its working sales fill (`hedgeBookWithWorkingSales`), on
+  the same all-client order and journal evidence as the hedge's own sales and
+  bound through the wire the same way.
+  - **What counts.** A working sale of a line the book holds long, stocks and
+    options, its remaining units and at most what the line holds; the units left
+    keep the line's own valuation. A partly filled order counts what remains,
+    because its fills are already in the held quantity, and placement refuses
+    until they are. A combination's selling leg counts by its own direction and
+    ratio.
+  - **What does not.** A stop or trail sells only when the market reaches it,
+    and every protected line carries one, so counting it would leave such a book
+    unhedged. A sale that would raise the fall, such as a bought put's: the fall
+    adds up line by line, so leaving those out gives the lowest fall any set of
+    the fills could reach, and the size is safe whichever of them fill. A sale
+    opening or adding to a short, a buy, and a cut not yet sent.
+  - **Unread.** A working sale that may touch a long line and has no direction,
+    order type, remaining quantity or contract is left out of the size. The plan
+    says so, and the preview and placement refuse it, as for an unread hedge sale.
+    An unread sale of a line the book does not hold changes nothing.
+  - **What it costs.** While the cut works the hedge covers less of the fall than
+    the held book loses, by what the cut will take away. A cut that lapses leaves
+    the hedge short of neutral, never past it, and the next plan sells the rest.
+  - **Left as it is.** The gate classification (`indexHedgeReduces`) reads the
+    held book: it can only admit more than placement, which binds. The neutral
+    cap counts the hedge's own contracts alone. The sale's rule and the buy-back
+    are unchanged.
+  - **Proof pending:** the next live hedge sized beside a working cut.
 - **What still bounds it.** `max_contracts`, neutral sizing, the rise rule, a
   limit at the bid, DAY in regular hours, the WhatIf and the device for every
   sale, and the standing authority and veto for every automatic close.
 - **Worst case.** The index rises and the names do not follow, which the model's
   betas do not show: the short's face value times the rise. One contract costs
   about 3,300 EUR in a 10% rise at 2026-11-06 prices, and 25 about 83,000 EUR. As
-  calls sell, the part past neutral stays short until the next verdict and one
-  veto window after it, and to the next open plus a window if that runs past the
-  close. The sales go in tranches, so that part is what the last tranches freed.
-  Nothing protects it while the machine sleeps.
+  calls sell after the hedge was sized, the part past neutral stays short until
+  the next verdict and one veto window after it, and to the next open plus a
+  window if that runs past the close. The sales go in tranches, so that part is
+  what the tranches sent since the sizing freed; a sale working at the sizing no
+  longer adds to it. Nothing protects it while the machine sleeps.
 
 ## Held by the owner
 

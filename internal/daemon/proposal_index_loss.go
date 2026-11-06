@@ -96,8 +96,14 @@ func planLossMeasureUnknown(why string) rpc.PlanLossMeasure {
 // a stop or trail fills only when the market reaches it, so its effect on
 // the fall is not a figure.
 func proposalFillsNow(p rpc.TradeProposal) bool {
-	t := strings.ToUpper(strings.TrimSpace(p.OrderType))
-	return p.Trail == nil && !strings.HasPrefix(t, "STP") && !strings.HasPrefix(t, "TRAIL")
+	return p.Trail == nil && orderTypeFillsNow(p.OrderType)
+}
+
+// orderTypeFillsNow is false for an order type that waits for the market to
+// reach a trigger: a stop or a trail.
+func orderTypeFillsNow(orderType string) bool {
+	t := strings.ToUpper(strings.TrimSpace(orderType))
+	return !strings.HasPrefix(t, "STP") && !strings.HasPrefix(t, "TRAIL")
 }
 
 // proposalCarriesEquityRisk reports whether the row's bucket moves equity

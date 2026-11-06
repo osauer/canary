@@ -297,7 +297,13 @@ toward less hedge, so its modeled payout in that fall does not exceed the
 book's modeled loss. Every line
 counts toward the size, locked ones too, and hedge sales already working
 count as sold: the plan offers the rest to neutral and says how many are
-working. The plan carries one leg with its
+working. A working sale of a line you hold long counts as sold too, for what
+remains of it, when selling that line lowers the loss in the fall, so a cut
+still working cannot leave the hedge past neutral when it fills. A stop or trail
+does not count until the market reaches it. If that sale is cancelled, the hedge
+covers less of the fall than the book would lose, and the next plan sells the
+rest. A working sale Canary cannot read is left out of the size, the plan says
+so, and the sale is refused until it can be read. The plan carries one leg with its
 `contract` (month and multiplier) and the same scores as a cut. When the
 fall already leaves the book even or ahead, or its loss is less than one
 contract offsets, the plan sells nothing and says why. A held future counts
@@ -327,7 +333,7 @@ that would leave the book more contracts short than that says
 futures not enabled for the account, the sale says
 `broker_permission_not_enabled` ([Trading permissions at
 IBKR](orders.md#trading-permissions-at-ibkr)). At submit the hours,
-the cap and neutral sizing with all pending hedge sales across contracts and clients and the bid are read again. A
+the cap and neutral sizing with all pending sales across contracts and clients and the bid are read again. A
 held hedge is bought back as a percent reduce of its own line,
 `canary proposals reduce --con-id ID --percent N --include-hedges`; no
 portfolio sweep selects it.
