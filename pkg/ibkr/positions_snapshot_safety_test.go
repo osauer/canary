@@ -129,8 +129,12 @@ func TestRefreshPositionsTimeoutCancelsAndIgnoresLateResponse(t *testing.T) {
 	c, conn, wire, binding := positionsRefreshFixture(t, maxClientVersion)
 	first := startPositionsRefresh(c, t.Context(), binding, 30*time.Millisecond)
 	id := positionsRequestID(t, positionsFrames(t, conn, wire, 1)[0])
-	if _, err := c.RefreshPositionsForSession(t.Context(), binding, time.Second); err == nil {
+	// An overlap never opens a second subscription: its budget ends in the wait.
+	if _, err := c.RefreshPositionsForSession(t.Context(), binding, time.Millisecond); err == nil {
 		t.Fatal("overlapping refresh was admitted")
+	}
+	if frames := decodeOutboundFrames(t, conn, wire.Bytes()); len(frames) != 1 {
+		t.Fatalf("an overlapping refresh reached the wire: %d frames", len(frames))
 	}
 	if got := positionsAnswer(t, first); got.err == nil || got.rows != nil {
 		t.Fatal("unfinished snapshot did not time out")
@@ -232,5 +236,76 @@ func TestRefreshPositionsUnconfirmedCancelBlocksFurtherSubscriptions(t *testing.
 	}
 	if frames := decodeOutboundFrames(t, conn, wire.Bytes()); len(frames) != 1 {
 		t.Fatalf("new subscription reached wire after uncertain cancel: %+v", frames)
+	}
+}
+
+// A second caller waits its turn instead of being refused: Reduce risk asks for
+// several plans at once, and on a day with fills on held contracts each needs a
+// snapshot, so all but one card read "another positions snapshot is in progress".
+func TestPositionsSnapshotWaitsForTheOneInProgress(t *testing.T) {
+	c := &Connector{}
+	if err := c.lockPositionsRefresh(t.Context(), time.Second); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan error, 1)
+	go func() {
+		err := c.lockPositionsRefresh(t.Context(), 5*time.Second)
+		if err == nil {
+			c.positionsRefreshMu.Unlock()
+		}
+		got <- err
+	}()
+	select {
+	case err := <-got:
+		t.Fatalf("the second caller did not wait: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	c.positionsRefreshMu.Unlock()
+	select {
+	case err := <-got:
+		if err != nil {
+			t.Fatalf("the second caller was refused: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the second caller never got its turn")
+	}
+}
+
+// Two readers each get their own subscription, one after the other, never two
+// on the wire at once.
+func TestRefreshPositionsOverlapRunsInTurn(t *testing.T) {
+	c, conn, wire, binding := positionsRefreshFixture(t, maxClientVersion)
+	first := startPositionsRefresh(c, t.Context(), binding, 2*time.Second)
+	firstID := positionsRequestID(t, positionsFrames(t, conn, wire, 1)[0])
+	second := startPositionsRefresh(c, t.Context(), binding, 2*time.Second)
+	time.Sleep(3 * positionsRefreshPoll)
+	if frames := decodeOutboundFrames(t, conn, wire.Bytes()); len(frames) != 1 {
+		t.Fatalf("the second subscription opened beside the first: %d frames", len(frames))
+	}
+	feedPositionsMulti(conn, firstID, "DU_SYNTHETIC", "", "5")
+	conn.processMessage(conn.encodeMsg(msgPositionMultiEnd, 1, firstID))
+	if got := positionsAnswer(t, first); got.err != nil || len(got.rows) != 1 {
+		t.Fatalf("first = %+v %v", got.rows, got.err)
+	}
+	secondID := positionsRequestID(t, positionsFrames(t, conn, wire, 3)[2])
+	feedPositionsMulti(conn, secondID, "DU_SYNTHETIC", "", "2")
+	conn.processMessage(conn.encodeMsg(msgPositionMultiEnd, 1, secondID))
+	if got := positionsAnswer(t, second); got.err != nil || len(got.rows) != 1 || got.rows[0].Position != 2 {
+		t.Fatalf("second = %+v %v", got.rows, got.err)
+	}
+}
+
+// The wait is bounded by the caller's own budget and deadline.
+func TestPositionsSnapshotWaitIsBounded(t *testing.T) {
+	c := &Connector{}
+	c.positionsRefreshMu.Lock()
+	defer c.positionsRefreshMu.Unlock()
+	if err := c.lockPositionsRefresh(t.Context(), 30*time.Millisecond); err == nil {
+		t.Fatal("the budget did not end the wait")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := c.lockPositionsRefresh(ctx, time.Minute); !errors.Is(err, context.Canceled) {
+		t.Fatalf("a cancelled caller read %v", err)
 	}
 }
