@@ -51,6 +51,22 @@ type reconFXQuoteCache struct {
 	mu        sync.Mutex
 	latest    map[string]reconFXQuote
 	attempted map[string]time.Time
+	available map[string]bool
+}
+
+// availabilityChanged records one attempt's outcome and reports whether the
+// pair's state differs from the last attempt's. The sample's rate has no other
+// read surface until the next statement, and an FX market closed for the
+// weekend must not repeat in the log.
+func (c *reconFXQuoteCache) availabilityChanged(pair string, available bool) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	previous, known := c.available[pair]
+	if c.available == nil {
+		c.available = map[string]bool{}
+	}
+	c.available[pair] = available
+	return !known || previous != available
 }
 
 // quotes returns the held quotes for the currencies the account rows leave
@@ -94,6 +110,18 @@ func (c *reconFXQuoteCache) quotes(ctx context.Context, raw *ibkrlib.RawAccountS
 // fetchReconFXQuote reads one live quote on the current broker session, within
 // the budget the display repair has on the same account read.
 func (s *Server) fetchReconFXQuote(ctx context.Context, currency, base string) (reconFXQuote, error) {
+	quote, err := s.readReconFXQuote(ctx, currency, base)
+	if pair := fxPairKey(base, currency); s.reconFX.availabilityChanged(pair, err == nil) {
+		if err != nil {
+			s.infof("reconciliation fx quote %s: unavailable, today's reading waits for one: %v", pair, err)
+		} else {
+			s.infof("reconciliation fx quote %s: available", pair)
+		}
+	}
+	return quote, err
+}
+
+func (s *Server) readReconFXQuote(ctx context.Context, currency, base string) (reconFXQuote, error) {
 	if s.reconFXQuoteForTest != nil {
 		return s.reconFXQuoteForTest(ctx, currency, base)
 	}

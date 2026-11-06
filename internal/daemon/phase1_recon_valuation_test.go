@@ -206,3 +206,19 @@ func TestOperationalReconFXQuotesAreBoundedAndOnlyForMissingRates(t *testing.T) 
 		t.Fatalf("an unproven base currency cannot name a pair: asked=%v got=%v", asked, got)
 	}
 }
+
+// A failing quote explains itself once, and a market closed all weekend does
+// not repeat in the log.
+func TestOperationalReconFXAvailabilityReportsChangesOnly(t *testing.T) {
+	var cache reconFXQuoteCache
+	for i, step := range []struct{ available, reported bool }{
+		{true, true}, {true, false}, {false, true}, {false, false}, {false, false}, {true, true},
+	} {
+		if got := cache.availabilityChanged("EUR/USD", step.available); got != step.reported {
+			t.Errorf("step %d: available=%v reported=%v, want %v", i, step.available, got, step.reported)
+		}
+	}
+	if !cache.availabilityChanged("EUR/GBP", false) {
+		t.Error("a pair's first failure was not reported")
+	}
+}
