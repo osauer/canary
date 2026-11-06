@@ -17,6 +17,11 @@ import (
 // kept with its own observation time. It is observed at the sample, never
 // applied to an earlier one, and it is independent of the account value, so a
 // residual between that value and its currency slices stays visible.
+//
+// Owner decision 2026-11-06 14:41 CET, relayed by the review session: a live
+// same-session EUR.USD bid/ask quote may count as the sample's FX evidence. A
+// broker rate wins, the quote is at most five minutes from the reading, no
+// quote means rejected, and the unit-rate rejection and the 1% limit stay.
 const (
 	// reconFXQuoteMaxAge bounds the distance between a quote and the sample it
 	// values. An evidence window, not a policy limit: five minutes of drift on
