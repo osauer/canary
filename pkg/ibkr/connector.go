@@ -160,6 +160,7 @@ type Connector struct {
 	// Lightweight contract details cache to improve routing during OOH sessions
 	contractMu         sync.RWMutex
 	contractCache      map[string]ContractDetailsLite
+	listingRoutes      map[int]listingRoute // by conID; guarded by contractMu
 	inactiveMu         sync.RWMutex
 	inactiveSymbols    map[string]inactiveSymbolState
 	inactiveCandidates map[string]inactiveCandidateState
@@ -4716,21 +4717,17 @@ func (c *Connector) SubscribeMarketDataWithContract(ctx context.Context, contrac
 	if key == "" {
 		return "", fmt.Errorf("contract symbol is required for market data")
 	}
-	if reason, inactive := c.inactiveReason(key); inactive {
-		if reason == "" {
-			reason = "inactive"
-		}
-		c.logDebug("Skipping routed SubscribeMarketData for %s (%s)", key, reason)
-		return key, ErrSymbolInactive
+	if err := c.routedSubscribeGate(key); err != nil {
+		return key, err
 	}
-
-	// A routed subscribe can carry a position-derived ConID the broker no
-	// longer resolves (delisting): the request itself then draws code 200 on
-	// every poll cycle with no contract-details fetch involved, so the
-	// definition-miss backoff must gate this path too.
-	if missErr := c.contractResolutionMissFor(key); missErr != nil {
-		c.logDebug("Skipping routed SubscribeMarketData for %s (%v)", key, missErr)
-		return key, missErr
+	// The gates run first, and again on a changed route: a suppressed subscribe
+	// asks the broker nothing, and a listing's own route has its own verdict.
+	contract = c.routeListingForRead(contract)
+	if routed := MarketDataKeyForContract(contract); routed != key {
+		key = routed
+		if err := c.routedSubscribeGate(key); err != nil {
+			return key, err
+		}
 	}
 
 	ticks := sharedGenericTicks
@@ -4826,6 +4823,26 @@ func (c *Connector) UnsubscribeMarketDataForSession(ctx context.Context, binding
 	return binding.connection.cancelMarketDataForEpoch(ctx, sub.ReqID, binding.epoch)
 }
 
+// routedSubscribeGate refuses a routed subscribe the broker has already answered.
+func (c *Connector) routedSubscribeGate(key string) error {
+	if reason, inactive := c.inactiveReason(key); inactive {
+		if reason == "" {
+			reason = "inactive"
+		}
+		c.logDebug("Skipping routed SubscribeMarketData for %s (%s)", key, reason)
+		return ErrSymbolInactive
+	}
+	// A routed subscribe can carry a position-derived ConID the broker no
+	// longer resolves (delisting): the request itself then draws code 200 on
+	// every poll cycle with no contract-details fetch involved, so the
+	// definition-miss backoff must gate this path too.
+	if missErr := c.contractResolutionMissFor(key); missErr != nil {
+		c.logDebug("Skipping routed SubscribeMarketData for %s (%v)", key, missErr)
+		return missErr
+	}
+	return nil
+}
+
 func (c *Connector) hydrateExplicitMarketDataContract(contract Contract) Contract {
 	if contract.ConID != 0 || contract.Symbol == "" {
 		return contract
@@ -4912,6 +4929,7 @@ func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol str
 		if !hydrated {
 			return 0, fmt.Errorf("contract details pending for %s", symbol)
 		}
+		contract = c.routeListingForRead(contract)
 
 		var (
 			reqID int
@@ -8645,6 +8663,9 @@ func (c *Connector) fetchHistoricalWithContractOptions(ctx context.Context, symb
 	if contract.ConID == 0 {
 		c.logDebug("Skipping historical data request for %s: unresolved contract ID (exchange=%s primary=%s)", symbol, contract.Exchange, contract.PrimaryExch)
 		return nil, fmt.Errorf("contract ID unresolved for %s", symbol)
+	}
+	if !options.requireEpoch {
+		contract = c.routeListingForRead(contract)
 	}
 	stallSession := options.session
 	if !options.requireEpoch {

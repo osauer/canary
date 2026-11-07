@@ -2839,6 +2839,7 @@ func quoteHistoricalContract(q *rpc.Quote) ibkrlib.Contract {
 		return ibkrlib.Contract{}
 	}
 	c := ibkrlib.Contract{
+		ConID:        q.Contract.ConID,
 		Symbol:       q.Contract.Symbol,
 		SecType:      q.Contract.SecType,
 		Exchange:     q.Contract.Exchange,

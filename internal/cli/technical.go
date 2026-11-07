@@ -13,7 +13,7 @@ func runTechnical(ctx context.Context, env *Env, args []string) int {
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	benchmark := fs.String("benchmark", "SPY", "relative-strength benchmark")
 	lookback := fs.Int("lookback-days", 420, "calendar-day history lookback")
-	market := fs.String("market", "", "stock routing shortcut for symbols: us | de | uk | hk | sg")
+	market := fs.String("market", "", "market to read symbols on: us | de | uk | hk | sg")
 	exchange := fs.String("exchange", "", "IBKR exchange override for symbols, e.g. SMART, IBIS or SEHK")
 	primary := fs.String("primary", "", "IBKR primary exchange hint for symbols, e.g. ARCA or IBIS")
 	currency := fs.String("currency", "", "currency override for symbols, e.g. USD or EUR")

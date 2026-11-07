@@ -498,7 +498,7 @@
               "hk",
               "sg"
             ],
-            "description": "optional route for symbols, not the benchmark; omit/use us for SMART/USD, de for Xetra/IBIS EUR equities, uk for London equities (SMART, LSE, GBP by default), hk for Hong Kong (SEHK, HKD; IBKR drops leading zeros, so 00700 is 700), or sg for Singapore (SGX, SGD)"
+            "description": "optional market for symbols, not the benchmark; omit for a US stock or a share the account holds, us for SMART/USD, de for Xetra/IBIS EUR equities, uk for London equities (through SMART with LSE as primary, GBP by default), hk for Hong Kong (SEHK, HKD; IBKR drops leading zeros, so 00700 is 700), or sg for Singapore (SGX, SGD)"
           },
           "primary_exchange": {
             "type": "string",

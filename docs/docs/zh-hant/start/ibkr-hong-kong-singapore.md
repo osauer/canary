@@ -1,6 +1,6 @@
 ---
 translation-of: docs/docs/start/ibkr-hong-kong-singapore.md
-source-revision: 0c40db469411fbd8a35b21c8420a1472d804cf52
+source-revision: db97b043e0a856f6d25a3dd7a3bd79741bc8d262
 nav-title: 香港及新加坡帳戶
 summary: 相同的閘道步驟、以港元、新加坡元或日圓計的基礎貨幣、亞洲交易所日曆，以及何時執行簡報。
 description: 盈透證券（Interactive Brokers）帳戶設於香港、新加坡、日本或澳洲，持有港股或其他亞洲股票時有何不同：IB Gateway 步驟完全相同、港元、新加坡元與日圓數字如何顯示、港交所、新交所、東京、ASX 與滬深港通的日曆，以及亞洲早上的簡報時段。
@@ -8,7 +8,7 @@ description: 盈透證券（Interactive Brokers）帳戶設於香港、新加坡
 
 # 以盈透證券（Interactive Brokers）香港或新加坡帳戶使用 Canary {#canary-with-an-interactive-brokers-hong-kong-or-singapore-account}
 
-更新：2026-11-07 08:35 CET
+更新：2026-11-07 09:15 CET
 
 Canary 透過你自己的 IB Gateway 或 TWS 工作階段，讀取一個盈透證券（Interactive Brokers）帳戶，包括持有港股的帳戶。帳戶由哪個 IBKR 實體持有，無論是 Interactive Brokers 香港、新加坡、日本、澳洲、印度、LLC、愛爾蘭或英國，都不會改變這個連線：API、通訊埠和客戶端 ID 在各地都相同，所以安裝步驟就是[安裝與首次運行](install.md) 所列的那些。守護程序（daemon）無法從閘道分辨實體，也不需要分辨。本頁說明當帳戶的基礎貨幣是港元、新加坡元或日圓，而股票在港交所、新交所、東京證券交易所或 ASX 掛牌時，有哪些地方不同。
 
@@ -43,9 +43,9 @@ IBKR 的代號會省去港股編號前面的零，所以 00700（0700.HK）會�
 
 港元和新加坡元以 ISO 代碼書寫，日圓以其符號書寫，且永不帶小數單位：以日圓為基礎貨幣的簡報會顯示 `session P&L ok ¥ 15,000,000 · day -¥ 82,500`。配對應用程式會按你裝置的地區設定格式化金額，所以同一個港元數字在那裏可能顯示為 `HK$1,842,310.55`。非基礎貨幣的價值會按經紀商分類帳所報的匯率換算，顯示在 `market_value_base` 和帳戶的貨幣敞口行。
 
-## 查詢港股或新加坡股票 {#reading-a-hong-kong-or-singapore-share}
+## 查詢港股或新加坡股票 {#looking-up-a-hong-kong-or-singapore-share}
 
-查詢股票時請指明市場。只輸入 `canary technical 700` 會查詢一隻代號為 700 的美股，而盈透證券並無此股票。
+查詢股票時請指明市場。Canary 會把沒有指明市場的代號當作美股，除非你的帳戶已持有該股票。如未持有，`canary technical 700` 會查詢一隻代號為 700 的美股，而盈透證券並無此股票；若代號同時是美股代號，則會得到該美國公司的資料。
 
 ```sh
 canary technical 700,5,1299,9988 --market hk
@@ -54,15 +54,17 @@ canary market --symbol 700 --exchange SEHK --currency HKD --range 1M
 canary market --symbol D05 --exchange SGX --currency SGD --range 1M
 ```
 
-`--market hk` 等同 `--exchange SEHK --currency HKD`，`--market sg` 等同 `--exchange SGX --currency SGD`。盈透證券不會經 SMART 為這些上市股份傳送指令，所以 `--exchange SMART` 會回覆 `no security definition`，Canary 會在其所屬交易所讀取。東京、悉尼和歐洲的上市股份則可經 SMART。貨幣錯誤也會得到相同回覆，因為以美元計價的 700 並不是一項上市股份。
+在 `canary technical`，`--market hk` 等同 `--exchange SEHK --currency HKD`，`--market sg` 等同 `--exchange SGX --currency SGD`。`canary market` 則使用完整寫法。
 
-`canary technical` 的相對強度預設以美元計價的 SPY 為基準，與股票本身的貨幣無關。
+盈透證券的自動傳送系統 SMART 拒絕了我們試過的所有 SEHK 和 SGX 上市股份，所以 `--exchange SMART` 會顯示錯誤 `no security definition`。Canary 會直接在 SEHK 或 SGX 讀取這些股票。`--exchange SEHK --currency USD` 也會顯示相同錯誤，因為 700 並無以美元掛牌。東京、悉尼和歐洲的上市股份則可經 SMART 查詢。
+
+相對強度是股票相對基準的走勢，會以股票本身貨幣計算的回報，與美元計價的 SPY 回報比較（可用 `--benchmark` 更改），所以數字包含匯率變動。
 
 ## 訂單 {#orders}
 
-暫不支援在 SEHK 和 SGX 上市股份下單：Canary 的訂單路徑會經 SMART 傳送股票訂單，而盈透證券拒絕這些上市股份經 SMART 傳送。帳戶數字、持倉、結單及上述查詢不受影響。
+Canary 不支援 SEHK 或 SGX 上市股份的訂單，無論買入或賣出已持有的股份。不論預覽顯示甚麼，都不要據此行事。Canary 的訂單會經 SMART 傳送，而盈透證券拒絕這些上市股份經 SMART 傳送。這類訂單請在 TWS 或盈透證券的應用程式內處理。帳戶數據、持倉、結單及上述查詢不受影響。
 
-交易版本的訂單預覽會以常規貨幣對的精確 IDEALPRO 報價，衡量跨貨幣訂單是否超出每筆訂單上限。該貨幣對表涵蓋 EUR、GBP、AUD、NZD、USD、CAD、CHF 和 JPY。涉及港元或新加坡元的跨貨幣訂單會被預覽拒絕並列明原因，因為這些貨幣不在貨幣對表之內。
+如帳戶基礎貨幣為港元或新加坡元，預覽會拒絕任何以其他貨幣計價的訂單（包括美股）並列明原因；其他基礎貨幣的帳戶，以港元或新加坡元計價的訂單同樣會被拒絕。Canary 會以 IDEALPRO（盈透證券的外匯市場）報價，衡量跨貨幣訂單是否超出每筆訂單上限，而它只能為 EUR、GBP、AUD、NZD、USD、CAD、CHF 和 JPY 這樣做。
 
 ## 交易所日曆與簡報的交易時段 {#exchange-calendars-and-the-briefs-session}
 

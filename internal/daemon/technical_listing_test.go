@@ -117,3 +117,13 @@ func TestTechnicalRowReportsTheLastSettledClose(t *testing.T) {
 		t.Fatalf("Hong Kong row: as of %s bars %d", hk.PriceAsOf, hk.Bars)
 	}
 }
+
+// A quote's history fallback reads the contract the quote named, by its contract
+// id: the fill quote and the display know the listing only that way, and with no
+// id the read would look the stock up on SMART, which IBKR refuses for SEHK and SGX.
+func TestQuoteHistoryKeepsTheQuotesContractID(t *testing.T) {
+	c := quoteHistoricalContract(&rpc.Quote{Symbol: "700", Contract: rpc.ContractParams{ConID: 900700, Symbol: "700", SecType: "STK", Exchange: "SMART", Currency: "HKD"}})
+	if c.ConID != 900700 {
+		t.Fatalf("history contract = %+v, want the quote's contract id", c)
+	}
+}

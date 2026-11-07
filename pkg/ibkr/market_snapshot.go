@@ -74,6 +74,7 @@ func (c *Connector) FetchMarketSnapshot(ctx context.Context, symbol string, time
 
 	contract, ready := c.prepareContract(symbol, 2*time.Second, true)
 	contract, _ = c.waitForContractDetails(symbol, contract, ready)
+	contract = c.routeListingForRead(contract)
 
 	session := newSnapshotSession(symbol)
 

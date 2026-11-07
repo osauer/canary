@@ -360,7 +360,7 @@ var Tools = []Tool{
 			"symbols":          json.RawMessage(`{"type":"array","items":{"type":"string"},"minItems":1,"description":"ticker symbols, e.g. [\"AAPL\",\"MSFT\",\"NVDA\"]"}`),
 			"benchmark":        schemaString("relative-strength benchmark, default SPY"),
 			"lookback_days":    json.RawMessage(`{"type":"integer","minimum":30,"maximum":800,"description":"calendar-day history lookback; default 420, enough for 200-DMA and 126 trading-bar returns"}`),
-			"market":           json.RawMessage(`{"type":"string","enum":["us","de","uk","hk","sg"],"description":"optional route for symbols, not the benchmark; omit/use us for SMART/USD, de for Xetra/IBIS EUR equities, uk for London equities (SMART, LSE, GBP by default), hk for Hong Kong (SEHK, HKD; IBKR drops leading zeros, so 00700 is 700), or sg for Singapore (SGX, SGD)"}`),
+			"market":           json.RawMessage(`{"type":"string","enum":["us","de","uk","hk","sg"],"description":"optional market for symbols, not the benchmark; omit for a US stock or a share the account holds, us for SMART/USD, de for Xetra/IBIS EUR equities, uk for London equities (through SMART with LSE as primary, GBP by default), hk for Hong Kong (SEHK, HKD; IBKR drops leading zeros, so 00700 is 700), or sg for Singapore (SGX, SGD)"}`),
 			"exchange":         schemaString("optional IBKR exchange override for symbols, e.g. SMART, IBIS or SEHK"),
 			"primary_exchange": schemaString("optional primary-exchange hint for symbols, e.g. ARCA for ETFs or IBIS for Xetra"),
 			"currency":         schemaString("optional ISO currency override for symbols, e.g. USD or EUR"),

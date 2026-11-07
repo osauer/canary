@@ -3,6 +3,7 @@ package ibkr
 import (
 	"errors"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -202,4 +203,218 @@ func TestExplicitQuoteRouteFollowsTheBrokersListOfRoutes(t *testing.T) {
 			}
 		})
 	}
+}
+
+// heldListingBroker answers like the gateway for a holding read by contract id:
+// an exact lookup with no exchange names the listing and its routes, and a
+// quote or history request on SMART draws a code 200. It keeps which lookups it
+// was asked.
+func heldListingBroker(t *testing.T, c *Connector, conn *Connection, symbol, venue, currency, validExchanges string, smart bool) func([]string) {
+	t.Helper()
+	binding, _ := c.CaptureSession()
+	refuse := func(id string) {
+		go c.handleIBKRErrorFrom(binding, []string{"4", "2", id, "200", "No security definition has been found for the request"})
+	}
+	return func(fields []string) {
+		switch fields[0] {
+		case strconv.Itoa(reqContractData):
+			reqID, _ := strconv.Atoi(fields[2])
+			route := fields[10]
+			if route == "SMART" && !smart {
+				go c.failPendingContractDetails(reqID, 200, "No security definition has been found for the request")
+				return
+			}
+			conID, _ := strconv.Atoi(fields[3])
+			if route == "" {
+				route = venue
+			}
+			histTAnswerRoute(conn, reqID, listingDetailsFrame(t, conn, reqID, conID, symbol, route, venue, currency, validExchanges))
+		case strconv.Itoa(reqHistoricalData):
+			reqID, _ := strconv.Atoi(fields[1])
+			if fields[9] == "SMART" && !smart {
+				refuse(fields[1])
+				return
+			}
+			histTAnswerHistory(c, reqID, []HistoricalBar{histTBar("20260929", 101)})
+		case strconv.Itoa(reqMktData):
+			if fields[10] == "SMART" && !smart {
+				refuse(fields[2])
+			}
+		}
+	}
+}
+
+// A holding reaches Canary with its contract id, and many reads hard-code SMART
+// for it: mandate history, the quote at a fill, the display line, proposals and
+// Edge. Each one reads on the listing's own exchange in its own currency, by
+// asking the broker once for that contract.
+func TestReadsOfAHeldListingFollowTheBrokerWhenTheCallerSaysSMART(t *testing.T) {
+	held := Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", PrimaryExch: "SEHK", Currency: "HKD"}
+
+	t.Run("daily history", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "HKD", "SEHK", false))
+		bars, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), held, 30, 2*time.Second)
+		if err != nil || len(bars) != 1 {
+			t.Fatalf("bars = %+v, %v", bars, err)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{2, "4243", "conID"}, {9, "SEHK", "exchange"}, {10, "SEHK", "primary"}})
+	})
+	t.Run("forced trades history, as Edge reads it", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNH", "SGX", "SGD", "SGX", false))
+		bars, err := c.FetchHistoricalDailyTradeBarsWithContract(t.Context(), Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", Currency: "SGD"}, 30, 2*time.Second)
+		if err != nil || len(bars) != 1 {
+			t.Fatalf("bars = %+v, %v", bars, err)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{9, "SGX", "exchange"}})
+	})
+	t.Run("chart series, as mandate history reads it", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "HKD", "SEHK", false))
+		series, err := c.FetchChartBars(t.Context(), held, 30, "1 day", 2*time.Second)
+		if err != nil || len(series.Bars) != 1 || series.Contract.ConID != 4243 || series.Contract.PrimaryExch != "SEHK" || series.Contract.Currency != "HKD" {
+			t.Fatalf("series = %+v, %v", series, err)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{2, "4243", "conID"}, {9, "SEHK", "exchange"}})
+	})
+	t.Run("quote line, as the display and the fill quote read it", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "HKD", "SEHK", false))
+		key, err := c.SubscribeMarketDataWithContract(t.Context(), Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", Currency: "HKD"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		frames := g.waitFramesByID(t, reqMktData, 1)
+		assertFields(t, frames[0], []fieldAssertion{{3, "4243", "conID"}, {10, "SEHK", "exchange"}, {12, "HKD", "currency"}})
+		if !strings.Contains(key, "SEHK") {
+			t.Fatalf("subscription key %q does not name the route it holds", key)
+		}
+	})
+	t.Run("a bare symbol the book holds", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		c.contractMu.Lock()
+		c.contractCache["SYNH"] = ContractDetailsLite{Symbol: "SYNH", PrimaryExch: "SEHK", ConID: 4243, LocalSymbol: "SYNH"}
+		c.contractMu.Unlock()
+		g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "HKD", "SEHK", false))
+		bars, err := c.FetchHistoricalDailyBars(t.Context(), "SYNH", 30, 2*time.Second)
+		if err != nil || len(bars) != 1 {
+			t.Fatalf("bars = %+v, %v", bars, err)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{2, "4243", "conID"}, {9, "SEHK", "exchange"}, {11, "HKD", "currency"}})
+	})
+}
+
+// The broker is asked once per contract, and only about a listing that might
+// refuse SMART: a US dollar stock on a named US exchange costs no extra request.
+func TestListingRouteLookupIsBoundedAndChangesNothingElse(t *testing.T) {
+	t.Run("asked once", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "HKD", "SEHK", false))
+		held := Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", PrimaryExch: "SEHK", Currency: "HKD"}
+		for range 3 {
+			if _, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), held, 30, 2*time.Second); err != nil {
+				t.Fatal(err)
+			}
+		}
+		lookups := g.framesByID(reqContractData)
+		if len(lookups) != 1 {
+			t.Fatalf("lookups = %v, want one", lookups)
+		}
+		assertFields(t, lookups[0], []fieldAssertion{{3, "4243", "conID"}, {10, "", "no exchange"}, {11, "", "no primary"}, {12, "", "no currency"}})
+	})
+	t.Run("a US stock on a US exchange is not asked about", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNX", "NASDAQ", "USD", "SMART,NASDAQ", true))
+		held := Contract{ConID: 4243, Symbol: "SYNX", SecType: "STK", Exchange: "SMART", PrimaryExch: "NASDAQ", Currency: "USD"}
+		if _, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), held, 30, 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(g.framesByID(reqContractData)); n != 0 {
+			t.Fatalf("lookups = %d, want none", n)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{9, "SMART", "exchange"}})
+	})
+	t.Run("a US dollar stock listed in Singapore is", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNS", "SGX", "USD", "SGX", false))
+		held := Contract{ConID: 4243, Symbol: "SYNS", SecType: "STK", Exchange: "SMART", PrimaryExch: "SGX", Currency: "USD"}
+		if _, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), held, 30, 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{9, "SGX", "exchange"}})
+	})
+	t.Run("a US dollar contract whose holding names Singapore is too", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		c.contractMu.Lock()
+		c.contractCache["SYNS"] = ContractDetailsLite{Symbol: "SYNS", PrimaryExch: "SGX", ConID: 4243}
+		c.contractMu.Unlock()
+		g.script(heldListingBroker(t, c, conn, "SYNS", "SGX", "USD", "SGX", false))
+		if _, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), Contract{ConID: 4243, Symbol: "SYNS", SecType: "STK", Exchange: "SMART", Currency: "USD"}, 30, 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{9, "SGX", "exchange"}})
+	})
+	t.Run("a US dollar contract naming no exchange at all is read as before", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNX", "NASDAQ", "USD", "SMART,NASDAQ", true))
+		if _, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), Contract{ConID: 4243, Symbol: "SYNX", SecType: "STK", Exchange: "SMART", Currency: "USD"}, 30, 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(g.framesByID(reqContractData)); n != 0 {
+			t.Fatalf("lookups = %d, want none", n)
+		}
+	})
+	t.Run("a listing the broker offers on SMART stays there", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNJ", "TSEJ", "JPY", "SMART,TSEJ", true))
+		held := Contract{ConID: 4243, Symbol: "SYNJ", SecType: "STK", Exchange: "SMART", PrimaryExch: "TSEJ", Currency: "JPY"}
+		if _, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), held, 30, 2*time.Second); err != nil {
+			t.Fatal(err)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{9, "SMART", "exchange"}, {10, "TSEJ", "primary"}})
+	})
+	t.Run("a refused lookup leaves the route alone and is not repeated at once", func(t *testing.T) {
+		c, _, g := histTFixture(t)
+		binding, _ := c.CaptureSession()
+		g.script(func(fields []string) {
+			switch fields[0] {
+			case strconv.Itoa(reqContractData):
+				reqID, _ := strconv.Atoi(fields[2])
+				go c.failPendingContractDetails(reqID, 200, "No security definition has been found for the request")
+			case strconv.Itoa(reqHistoricalData):
+				go c.handleIBKRErrorFrom(binding, []string{"4", "2", fields[1], "200", "No security definition has been found for the request"})
+			}
+		})
+		held := Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", PrimaryExch: "SEHK", Currency: "HKD"}
+		for range 2 {
+			if _, err := c.FetchHistoricalDailyBarsWithContract(t.Context(), held, 30, 2*time.Second); err == nil {
+				t.Fatal("a contract the broker refuses read successfully")
+			}
+		}
+		if n := len(g.framesByID(reqContractData)); n != 1 {
+			t.Fatalf("lookups = %d, want one inside the retry window", n)
+		}
+		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{9, "SMART", "exchange"}})
+	})
+}
+
+// The order path resolves and routes through its own calls. A held listing's
+// route is decided for reads; an order draft's route is what the caller gave.
+func TestOrderContractResolutionKeepsTheCallersRoute(t *testing.T) {
+	c, conn, g := histTFixture(t)
+	g.script(heldListingBroker(t, c, conn, "SYNJ", "TSEJ", "JPY", "SMART,TSEJ", true))
+	binding, ok := c.CaptureSession()
+	if !ok {
+		t.Fatal("no session")
+	}
+	resolved, err := c.ResolveOrderContractForSession(t.Context(), binding, Contract{ConID: 4243, Symbol: "SYNJ", SecType: "STK", Exchange: "SMART", Currency: "JPY"}, time.Second)
+	if err != nil || resolved.Contract.Exchange != "SMART" {
+		t.Fatalf("resolved = %+v, %v", resolved, err)
+	}
+	lookups := g.framesByID(reqContractData)
+	if len(lookups) != 1 {
+		t.Fatalf("lookups = %v, want only the caller's", lookups)
+	}
+	assertFields(t, lookups[0], []fieldAssertion{{10, "SMART", "caller's exchange"}})
 }

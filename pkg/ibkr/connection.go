@@ -4942,8 +4942,10 @@ func (c *Connection) contractDetailsRequestMessage(ctx context.Context, contract
 
 	// Discovery requests need SMART defaults. An exact positive-ConID lookup
 	exchangeField := contract.Exchange
+	currencyField := contract.Currency
 	if contract.ConID == 0 {
 		exchangeField = ifEmpty(exchangeField, "SMART")
+		currencyField = ifEmpty(currencyField, "USD")
 	}
 
 	fields := []any{
@@ -4959,7 +4961,7 @@ func (c *Connection) contractDetailsRequestMessage(ctx context.Context, contract
 		multiplierField,
 		exchangeField,
 		primaryField,
-		ifEmpty(contract.Currency, "USD"),
+		currencyField,
 		localSymbol,
 		tradingClass,
 		0, // includeExpired = false

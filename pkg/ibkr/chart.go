@@ -34,6 +34,7 @@ func (c *Connector) FetchChartBars(ctx context.Context, contract Contract, days 
 	if !ok {
 		return result, fmt.Errorf("broker session unavailable")
 	}
+	contract = c.routeListingForRead(contract)
 	resolved, err := c.ResolveOrderContractForSession(ctx, binding, contract, min(timeout, 10*time.Second))
 	if err != nil {
 		return result, err
