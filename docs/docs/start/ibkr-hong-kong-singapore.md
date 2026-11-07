@@ -1,6 +1,6 @@
 # Canary with an Interactive Brokers Hong Kong or Singapore account
 
-Updated: 2026-11-07 18:24 CET
+Updated: 2026-11-07 18:42 CET
 
 Canary reads one Interactive Brokers account through your own IB Gateway or
 TWS session. Which IBKR entity holds the account, Interactive Brokers Hong
@@ -97,12 +97,14 @@ reduction says so in its terms, and asking for Adaptive by hand is refused with 
 reason. Interactive Brokers decides the rest, such as board lots and price steps, in
 its answer to the preview. Read that answer before you confirm.
 
-If your base currency is HKD or SGD, the preview refuses an order in any other
-currency, US shares included, and names the reason. An account in another base
-currency is refused the same way for an order in HKD or SGD. Canary checks a
-cross-currency order against your per-order limit with a quote from IDEALPRO,
-Interactive Brokers' currency market, and it can do that only for EUR, GBP, AUD,
-NZD, USD, CAD, CHF and JPY.
+Canary checks a cross-currency order against your per-order limit with a live quote
+from IDEALPRO, Interactive Brokers' currency market. HKD has a pair with EUR, GBP,
+AUD, USD, CAD, JPY and SGD, and SGD with EUR, GBP, AUD, USD, JPY and HKD. Interactive
+Brokers lists none for HKD or SGD against NZD or CHF, or for SGD against CAD, so an
+order that needs one of those is refused and the preview names the reason. Canary
+reads these pairs to check an order. It does not convert HKD or SGD for you: the
+currency conversions in [Cash](../operate/cash.md) cover EUR, GBP, AUD, NZD, USD, CAD,
+CHF and JPY.
 
 ## Exchange calendars and the brief's session
 

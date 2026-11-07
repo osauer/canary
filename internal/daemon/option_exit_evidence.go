@@ -174,7 +174,7 @@ func (b optionExitBrokerSource) fx(ctx context.Context, currency, base string) (
 // on the given broker session, as base units per unit of currency. A delayed,
 // stale or one-sided quote is no evidence.
 func (s *Server) liveExactSessionFX(ctx context.Context, authority *orderPreviewBrokerAuthority, currency, base string) (orderNotionalAuthority, error) {
-	contract, inverted, err := canonicalOrderFXContract(currency, base)
+	contract, inverted, err := orderFXEvidenceContract(currency, base)
 	if err != nil {
 		return orderNotionalAuthority{}, err
 	}
@@ -371,7 +371,7 @@ func collectOptionExitEvidence(ctx context.Context, src optionExitEvidenceSource
 			continue
 		}
 		if row.Currency != scope.BaseCurrency {
-			if _, _, err := canonicalOrderFXContract(row.Currency, scope.BaseCurrency); err != nil {
+			if _, _, err := orderFXEvidenceContract(row.Currency, scope.BaseCurrency); err != nil {
 				return fail("currency_data_unavailable")
 			}
 		}

@@ -64,7 +64,7 @@ canary market --symbol D05 --exchange SGX --currency SGD --range 1M
 
 SEHK 或 SGX 股份的訂單會送往該股份本身的交易所，因為盈透證券不會經 SMART 為這些上市股份傳送訂單。預覽會列明交易所，並按該市場的交易時段（包括午休）判斷。盈透證券的 Adaptive 演算法只在 SMART 上運作，所以這些訂單以普通限價單傳送：減倉訂單會在條款中說明，手動要求 Adaptive 則會被拒絕並列明原因。其餘事項，例如每手股數和最小價格變動，由盈透證券在預覽回覆中決定。確認前請先閱讀該回覆。
 
-如帳戶基礎貨幣為港元或新加坡元，預覽會拒絕任何以其他貨幣計價的訂單（包括美股）並列明原因；其他基礎貨幣的帳戶，以港元或新加坡元計價的訂單同樣會被拒絕。Canary 會以 IDEALPRO（盈透證券的外匯市場）報價，衡量跨貨幣訂單是否超出每筆訂單上限，而它只能為 EUR、GBP、AUD、NZD、USD、CAD、CHF 和 JPY 這樣做。
+Canary 會以 IDEALPRO（盈透證券的外匯市場）的即時報價，衡量跨貨幣訂單是否超出每筆訂單上限。港元有與 EUR、GBP、AUD、USD、CAD、JPY 和 SGD 的貨幣對，新加坡元有與 EUR、GBP、AUD、USD、JPY 和 HKD 的貨幣對。盈透證券沒有港元或新加坡元對 NZD 或 CHF 的貨幣對，也沒有新加坡元對 CAD 的貨幣對，所以需要這些貨幣對的訂單會被拒絕，預覽會列明原因。Canary 讀取這些貨幣對只為檢查訂單，不會替你兌換港元或新加坡元：貨幣兌換只涵蓋 EUR、GBP、AUD、NZD、USD、CAD、CHF 和 JPY。
 
 ## 交易所日曆與簡報的交易時段 {#exchange-calendars-and-the-briefs-session}
 

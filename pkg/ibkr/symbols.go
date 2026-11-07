@@ -11,10 +11,10 @@ import (
 // constructing a wire-side Contract must additionally call FxPair to lift
 // a valid IBKR symbol field on its own.
 
-// fxMajors is the G10 set we recognise as FX pairs. Keeping the list
+// fxMajors is the G10 set, with HKD and SGD, that we recognise as FX pairs. Keeping the list
 var fxMajors = map[string]struct{}{
 	"USD": {}, "EUR": {}, "JPY": {}, "GBP": {}, "CHF": {},
-	"AUD": {}, "NZD": {}, "CAD": {},
+	"AUD": {}, "NZD": {}, "CAD": {}, "HKD": {}, "SGD": {},
 }
 
 // FxPair parses an FX-pair symbol in either dotted (USD.JPY) or slash

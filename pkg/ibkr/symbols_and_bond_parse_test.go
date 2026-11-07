@@ -64,9 +64,10 @@ func TestClassifySymbolRoutingTable(t *testing.T) {
 	}
 }
 
-func TestFxPairRecognisesMajorsOnly(t *testing.T) {
+func TestFxPairRecognisesTheCurrenciesCanaryReads(t *testing.T) {
 	for symbol, want := range map[string][2]string{
 		"EUR.USD": {"EUR", "USD"}, "usd/jpy": {"USD", "JPY"}, " gbp.chf ": {"GBP", "CHF"}, "AUD/NZD": {"AUD", "NZD"}, "CAD.USD": {"CAD", "USD"},
+		"USD.HKD": {"USD", "HKD"}, "EUR.SGD": {"EUR", "SGD"}, "SGD.HKD": {"SGD", "HKD"}, "HKD.JPY": {"HKD", "JPY"},
 	} {
 		base, quote, ok := FxPair(symbol)
 		if !ok || base != want[0] || quote != want[1] {

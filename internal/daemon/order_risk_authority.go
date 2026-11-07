@@ -486,7 +486,7 @@ func (s *Server) captureOrderNotionalAuthority(ctx context.Context, authority *o
 		return orderNotionalAuthority{}, fmt.Errorf("%w: current typed FX evidence unavailable for %s/%s", ErrTradingDisabled, baseCurrency, contractCurrency)
 	}
 
-	fxContract, inverted, err := canonicalOrderFXContract(contractCurrency, baseCurrency)
+	fxContract, inverted, err := orderFXEvidenceContract(contractCurrency, baseCurrency)
 	if err != nil {
 		return orderNotionalAuthority{}, fmt.Errorf("%w: current typed FX evidence unavailable for %s/%s: %v", ErrTradingDisabled, baseCurrency, contractCurrency, err)
 	}
@@ -522,6 +522,40 @@ func canonicalOrderFXContract(contractCurrency, baseCurrency string) (rpc.Contra
 		Symbol: symbol, SecType: "CASH", Exchange: "IDEALPRO",
 		PrimaryExch: "IDEALPRO", Currency: currency,
 	}, inverted, nil
+}
+
+// orderFXReadPairs are the HKD and SGD pairs a rate is read from, as IDEALPRO
+// lists them (read live 2026-11-07 18:42 CET, each direction of
+// HKD and SGD against the majors and each other; every other pair drew code 200,
+// NZD and CHF against both, CAD against SGD). They price an order against its
+// cap. They are not pairs Canary converts: that stays orderFXBasePriority.
+var orderFXReadPairs = map[string]struct{}{
+	"EUR.HKD": {}, "GBP.HKD": {}, "AUD.HKD": {}, "USD.HKD": {}, "CAD.HKD": {}, "HKD.JPY": {},
+	"EUR.SGD": {}, "GBP.SGD": {}, "AUD.SGD": {}, "USD.SGD": {}, "SGD.JPY": {},
+	"SGD.HKD": {},
+}
+
+// orderFXEvidenceContract is the pair whose quote prices an order in
+// contractCurrency for an account in baseCurrency: a major pair, or a listed HKD
+// or SGD pair. inverted means baseCurrency is the pair's own base, as in
+// canonicalOrderFXContract. A pair the broker does not list is refused here,
+// before any request.
+func orderFXEvidenceContract(contractCurrency, baseCurrency string) (rpc.ContractParams, bool, error) {
+	if contract, inverted, err := canonicalOrderFXContract(contractCurrency, baseCurrency); err == nil {
+		return contract, inverted, nil
+	}
+	contractCurrency = strings.ToUpper(strings.TrimSpace(contractCurrency))
+	baseCurrency = strings.ToUpper(strings.TrimSpace(baseCurrency))
+	pair := func(symbol, currency string) rpc.ContractParams {
+		return rpc.ContractParams{Symbol: symbol, SecType: "CASH", Exchange: "IDEALPRO", PrimaryExch: "IDEALPRO", Currency: currency}
+	}
+	if _, listed := orderFXReadPairs[contractCurrency+"."+baseCurrency]; listed {
+		return pair(contractCurrency, baseCurrency), false, nil
+	}
+	if _, listed := orderFXReadPairs[baseCurrency+"."+contractCurrency]; listed {
+		return pair(baseCurrency, contractCurrency), true, nil
+	}
+	return rpc.ContractParams{}, false, fmt.Errorf("the broker lists no currency pair for %s and %s", contractCurrency, baseCurrency)
 }
 
 func newCrossCurrencyOrderNotionalAuthority(quoteNotional float64, contractCurrency, baseCurrency string, rate float64, at time.Time, dataType string) (orderNotionalAuthority, error) {
