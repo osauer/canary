@@ -1,7 +1,7 @@
 diff --git a/pkg/ibkr/connection.go b/pkg/ibkr/connection.go
 --- a/pkg/ibkr/connection.go
 +++ b/pkg/ibkr/connection.go
-@@ -3112,7 +3112,6 @@
+@@ -3511,7 +3511,6 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
  	defer c.portfolioProjectionMu.Unlock()
  	account = strings.TrimSpace(account)
  	sibling := c.managedAccountMember(account)
@@ -9,17 +9,17 @@ diff --git a/pkg/ibkr/connection.go b/pkg/ibkr/connection.go
  	c.portfolioHealthMu.Lock()
  	defer c.portfolioHealthMu.Unlock()
  	if !c.portfolioHealth.ScopeConflictAt.IsZero() || !c.portfolioHealth.InvalidPayloadAt.IsZero() {
-@@ -3142,13 +3141,6 @@
- 		c.portfolioHealth.Account = account
- 	}
+@@ -3543,13 +3542,6 @@ func (c *Connection) completePortfolioDownload(account string, completedAt time.
  	if !c.portfolioStagingActive {
--		return false
--	}
--	if coverage, short := portfolioGenerationShort(c.portfolioStaging, accountValues); short {
+ 		return false
+ 	}
+-	if coverage, short := portfolioGenerationShort(c.portfolioStaging, accountValues, c.config.FXRateToBase); short {
 -		if c.portfolioHealth.DownloadShortAt.IsZero() {
 -			portfolioLogger.Warnf("Portfolio download ended with rows covering %.0f%% of gross position value; holding the book as not current until it is complete", coverage*100)
 -		}
 -		c.portfolioHealth.DownloadShortAt = completedAt.UTC()
- 		return false
- 	}
+-		return false
+-	}
  	c.publishPortfolioStagingLocked(completedAt)
+ 	return true
+ }

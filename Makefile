@@ -113,7 +113,7 @@ reduction-metrics-check: ## Verify the locked v3 reduction baseline remains repr
 regression-spine-check: ## Reintroduce selected historical bugs and prove the compact current tests kill them
 	@$(LEG) regression-spine ./scripts/test-regression-spine.sh
 
-regression-spine-contract-check: ## Verify the historical-regression manifest still names present focused tests
+regression-spine-contract-check: ## Verify the historical-regression manifest still names present focused tests and its mutations still apply
 	@bash -n scripts/test-regression-spine.sh
 	@./scripts/test-regression-spine.sh --contract-only
 

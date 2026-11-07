@@ -53,6 +53,13 @@ while IFS=$'\t' read -r id fix mutation_patch package test_name expected_failure
 		echo "regression-spine: $id mutation must touch production Go only" >&2
 		exit 1
 	fi
+	# A patch that no longer applies proves nothing and fails only in the hosted
+	# leg, past every local gate. The index, not the working tree: other sessions
+	# edit a shared checkout.
+	if ! git -C "$repo_root" apply --cached --check "$mutation_patch" 2>/dev/null; then
+		echo "regression-spine: $id mutation no longer applies to the code; regenerate $mutation_patch" >&2
+		exit 1
+	fi
 	if ! grep -Rqs --include='*_test.go' "func $test_name(" "$repo_root/${package#./}"; then
 		echo "regression-spine: current suite is missing $test_name" >&2
 		exit 1
