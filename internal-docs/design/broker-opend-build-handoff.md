@@ -14,14 +14,19 @@ Read-only, OpenD 10.12 build 7208, serverVer 1012, a Canary build without the tr
 Where real OpenD disagreed with the simulator:
 
 - In the real environment the account list omits universal accounts unless `needGeneralSecAccount` is set, so a pin to one stayed unscoped. Fixed: `accountListRequest` asks, the simulator hides real accounts otherwise, `TestRealAccountIsListedAndScoped` failed before the fix.
-- OpenD does not push quote rights on connect, so `Health.QuoteRights` stays empty and status has no quote-rights row. Open: read them with `GetUserInfo` (proto 1005, not vendored).
+- OpenD does not push quote rights on connect, so status had no quote-rights row. Fixed: each session reads them once with `GetUserInfo`, flag `QotRight` alone, so the login's name and user id are never sent. `GetUserInfo.proto` is vendored from 10.12.7208 beside the older definitions, and level 6 (`Level3`) is mapped by hand because the vendored `Qot_Common` stops before it.
 - Singapore: moomoo's authority page lists Singapore quotes as unsupported, so README and changelog no longer claim them.
 - SPY is `AMEX` in `exchType` (the fixture said NYSE, now AMEX). IBKR is expected to say `ARCA`, not read here, and the two would not join: recorded for Desk's parked multi-book work, nothing to do on this branch.
 - `listTime` reads 1970-01-01 for several instruments. `Instrument.Listed` has no reader today.
 
 Confirmed on the real OpenD: `clientVer` 334 is accepted; a US ETF and an HK ETF are `Trust`; an option is `Drvt` with lot size 100; a future is `Future` with lot size 50; an expired option answers `Unknown` with "Unknown stock.", no error, and `delisted` true; snapshots work without the new optional `QotHeader`; update times are right in UTC; the history quota window is seven days, as moomoo's page says. Refreshing the vendored definitions to 10.12.7208 is not needed: nothing used changed, and every difference is an addition.
 
-Defects seen on both real and simulator: `canary market` and `canary technical` say "OpenD connection unavailable" with a hint to start IB Gateway while OpenD is up; they should say not served, as `canary edge` does. The cause of the one market tape warning at start is still untraced.
+Defects seen on both real and simulator, fixed the same day:
+
+- `market.snapshot`, `portfolio.snapshot`, `market.tape`, `technical.snapshot`, `chain.fetch`, `chain.expiries`, `gamma.zero_spx` and `core.resolve` read the IBKR connector and answered `gateway_unavailable` with OpenD up. They are now in `ibkrOnlyMethods`. The list came from calling every non-streaming method with OpenD up, with empty and with one-symbol parameters, so a method that refuses those parameters earlier was not reached.
+- The market tape joins on IBKR contract ids, so each pass under OpenD spent history quota on names it then discarded, and warned. The collector no longer starts under OpenD; a simulator status read history 0 of 100 afterwards.
+- The earnings path no longer installs the WSH provider under OpenD, which warned per held name.
+- The CLI hint names OpenD, and the readiness blocker's code is `broker_writes_not_served` while the session is up, `gateway_unavailable` only when it is down.
 
 Everything not listed above has run only against the simulator.
 
@@ -272,10 +277,10 @@ Open:
 2. OpenD supplies no FX rate, so holdings outside the base currency read as not measured. With the regime package.
 3. Partly met a real OpenD; see "First real session". Still proof pending: the RSA refusal shape, funds currency on a multi-market account, and whether a position's value carries the multiplier.
 4. Proof pending, next live session: the IBKR path on a real Gateway, including an IBKR identity resolved through it, proven here against a fake.
-5. Other IBKR wording in the daemon was not audited line by line; some may still reach an OpenD reader. The readiness blocker under OpenD carries `gateway_unavailable` even when its text says OpenD takes no writes. SPA strings naming TWS are unreachable before phase D.
+5. IBKR wording: a sweep of every daemon answer and the CLI read commands under OpenD, on the simulator, found and fixed the reconnect action, the order-journal disclaimer, the write refusal's action and the borrow sources. What stays names IBKR on purpose: "IBKR only" reasons, the `TWS order control` setting and its help text, and the IBKR-named source label in the breadth snapshot. MCP tool descriptions are static and name IBKR for every broker.
 6. Labels waiting on the owner: "22/22 sources ok" above a line of unavailable sources, the "Not on OpenD" wording, and the handbook edit draft.
 7. The rulebook reads "10 data gaps" on the simulator's book.
-8. Log noise: the earnings path tries `ibkr_wsh` and warns per held name; one market tape archive warning at start, cause not traced.
+8. Log noise: fixed; see "First real session".
 9. `market: hk` works on `quote.snapshot` only; `market.history` and the other paths on the shared IBKR normaliser take the venue or the identity.
 10. An IBKR row with only a smart route carries no identity and keeps `con_id`; all IBKR watchlist rows are in that state today.
 11. No LaunchAgent or install step for a permanent second daemon; the setup has run only in the witness and the dual-daemon test.

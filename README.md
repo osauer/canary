@@ -139,7 +139,7 @@ the value OpenD reports. Exposure and limit checks do not count them, so those
 figures do not cover your whole account. Holdings in other currencies are not
 converted, and limit checks say they cannot judge them. Many features are not
 available, among them daily P&L, the regime, portfolio stress, Edge, statement
-reporting, the market overview and technical analysis; `canary status` lists most
+reporting, the market overview, the market tape and technical analysis; `canary status` lists most
 of them.
 
 Each daemon serves one broker. To run OpenD beside IBKR, start a second daemon

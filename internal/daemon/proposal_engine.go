@@ -3716,7 +3716,7 @@ func proposalScopeUnscopedBlocker(scope brokerStateScope) rpc.TradingBlocker {
 	return rpc.TradingBlocker{
 		Code:    "account_identity_unscoped",
 		Message: fmt.Sprintf("connected session has no concrete single-account identity (observed account %q mode %q); protection proposals are scoped per account and paper/live mode", scope.Account, scope.Mode),
-		Action:  "Reconnect TWS/Gateway with a single concrete account, then refresh proposals.",
+		Action:  brokerReconnectAction(scope, "refresh proposals"),
 	}
 }
 

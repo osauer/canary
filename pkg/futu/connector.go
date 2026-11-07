@@ -397,7 +397,18 @@ func (c *Connector) refreshSession(ctx context.Context, conn *connection) {
 	}
 	c.mu.Lock()
 	subscribe := c.conn == conn && c.scope.known && !c.accountPushed
+	readRights := c.conn == conn && c.health.QuoteRights == nil
 	c.mu.Unlock()
+	if readRights {
+		// A failure leaves the rights unread; the next refresh tries again.
+		if rights, err := fetchQuoteRights(ctx, conn); err == nil {
+			c.mu.Lock()
+			if c.conn == conn && c.health.QuoteRights == nil {
+				c.health.QuoteRights = rights
+			}
+			c.mu.Unlock()
+		}
+	}
 	if subscribe && subscribeAccountPush(ctx, conn, c.cfg.Account) == nil {
 		c.mu.Lock()
 		if c.conn == conn {

@@ -1445,7 +1445,7 @@ func goldenBriefTokyoYen() rpc.BriefResult {
 // line has no minor units.
 func goldenAsiaBook() *rpc.PositionsResult {
 	hk := rpc.PositionView{Symbol: "700", SecType: rpc.SecTypeStock, PrimaryExch: "SEHK", Currency: "HKD", Quantity: 500, Multiplier: 1,
-		AvgCost: 352.40, Mark: 388.20, MarketValue: 194100, UnrealizedPnL: 17900, DayChangeMoney: new(1100.0), DayChangePct: new(0.57), MarketValueBase: new(194100.0)}
+		AvgCost: 352.40, Mark: 388.20, MarketValue: 582337, UnrealizedPnL: 53737, DayChangeMoney: new(1100.0), DayChangePct: new(0.57), MarketValueBase: new(582337.0)}
 	sg := rpc.PositionView{Symbol: "D05", SecType: rpc.SecTypeStock, PrimaryExch: "SGX", Currency: "SGD", Quantity: 1000, Multiplier: 1,
 		AvgCost: 41.10, Mark: 43.75, MarketValue: 43750, UnrealizedPnL: 2650, DayChangeMoney: new(-250.0), DayChangePct: new(-0.57), MarketValueBase: new(252262.5)}
 	jp := rpc.PositionView{Symbol: "7203", SecType: rpc.SecTypeStock, PrimaryExch: "TSEJ", Currency: "JPY", Quantity: 300, Multiplier: 1,
@@ -1455,7 +1455,7 @@ func goldenAsiaBook() *rpc.PositionsResult {
 	return &rpc.PositionsResult{AsOf: goldenAt, DataType: "live",
 		Stocks: []rpc.PositionView{hk, sg, jp}, Options: []rpc.PositionView{jpPut},
 		ByUnderlying: []rpc.PositionGroup{
-			{Underlying: "700", Stock: &hk, GroupMarketValue: 194100, GroupUnrealizedPnL: 17900},
+			{Underlying: "700", Stock: &hk, GroupMarketValue: 582337, GroupUnrealizedPnL: 53737},
 			{Underlying: "D05", Stock: &sg, GroupMarketValue: 43750, GroupUnrealizedPnL: 2650},
 			{Underlying: "7203", Stock: &jp, Options: []rpc.PositionView{jpPut}, GroupMarketValue: 891300, GroupUnrealizedPnL: 42100},
 		}}

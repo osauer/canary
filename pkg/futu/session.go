@@ -10,6 +10,7 @@ import (
 
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/common"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/getglobalstate"
+	"github.com/osauer/canary/v2/pkg/futu/internal/pb/getuserinfo"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/initconnect"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/keepalive"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/notify"
@@ -223,20 +224,53 @@ func quoteRights(right *notify.QotRight) map[string]string {
 	if right == nil {
 		return nil
 	}
-	name := func(level int32) string {
-		return strings.TrimPrefix(qotcommon.QotRight(level).String(), "QotRight_")
-	}
 	rights := map[string]string{
-		"HK": name(right.GetHkQotRight()),
-		"US": name(right.GetUsQotRight()),
+		"HK": quoteRightName(right.GetHkQotRight()),
+		"US": quoteRightName(right.GetUsQotRight()),
 	}
 	if right.ShQotRight != nil {
-		rights["SH"] = name(right.GetShQotRight())
+		rights["SH"] = quoteRightName(right.GetShQotRight())
 	}
 	if right.SzQotRight != nil {
-		rights["SZ"] = name(right.GetSzQotRight())
+		rights["SZ"] = quoteRightName(right.GetSzQotRight())
 	}
 	return rights
+}
+
+// quoteRightLevel3 is OpenD 10.12's newer level; the vendored Qot_Common stops at
+// QotRight_No.
+const quoteRightLevel3 = 6
+
+func quoteRightName(level int32) string {
+	if level == quoteRightLevel3 {
+		return "Level3"
+	}
+	return strings.TrimPrefix(qotcommon.QotRight(level).String(), "QotRight_")
+}
+
+// quoteRightsFlag asks GetUserInfo for the quote rights alone, so OpenD does not
+// send this client the login's name and user id.
+const quoteRightsFlag = int32(getuserinfo.UserInfoField_UserInfoField_QotRight)
+
+// fetchQuoteRights reads the rights once. OpenD pushes them only when they change.
+func fetchQuoteRights(ctx context.Context, conn *connection) (map[string]string, error) {
+	var resp getuserinfo.Response
+	req := &getuserinfo.Request{C2S: &getuserinfo.C2S{Flag: new(quoteRightsFlag)}}
+	if err := conn.request(ctx, ProtoGetUserInfo, req, &resp); err != nil {
+		return nil, err
+	}
+	s2c := resp.GetS2C()
+	if s2c == nil {
+		return nil, fmt.Errorf("%w: GetUserInfo reply carries no answer", ErrFrame)
+	}
+	rights := map[string]string{"HK": quoteRightName(s2c.GetHkQotRight()), "US": quoteRightName(s2c.GetUsQotRight())}
+	if s2c.ShQotRight != nil {
+		rights["SH"] = quoteRightName(s2c.GetShQotRight())
+	}
+	if s2c.SzQotRight != nil {
+		rights["SZ"] = quoteRightName(s2c.GetSzQotRight())
+	}
+	return rights, nil
 }
 
 // classifyEnd turns the way a connection failed into the session's reason.

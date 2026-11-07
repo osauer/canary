@@ -1183,7 +1183,7 @@ func opportunityScopeUnscopedBlocker(scope brokerStateScope) rpc.TradingBlocker 
 	return rpc.TradingBlocker{
 		Code:    "opportunity_scope_unavailable",
 		Message: fmt.Sprintf("connected session has no concrete single-account identity (observed account %q mode %q); opportunities are scoped per account and paper/live mode", scope.Account, scope.Mode),
-		Action:  "Reconnect TWS/Gateway with a single concrete account, then refresh opportunities.",
+		Action:  brokerReconnectAction(scope, "refresh opportunities"),
 	}
 }
 

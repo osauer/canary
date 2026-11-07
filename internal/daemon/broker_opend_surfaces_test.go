@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -88,6 +89,75 @@ func TestOpenDDataHealthMarksIBKROnlySourcesNotApplicable(t *testing.T) {
 		if dataHealthIBKROnly(concern.SourceID) {
 			t.Errorf("an IBKR-only source raised a concern: %+v", concern)
 		}
+	}
+}
+
+// These read the IBKR connector. With an OpenD session up they used to answer
+// gateway_unavailable, and the CLI told the reader to start IB Gateway.
+func TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{})
+	srv, stop := startOpenDServer(t, sim, opendTestAccount)
+	defer stop()
+	waitOpenDReady(t, srv)
+	for _, method := range []string{
+		rpc.MethodMarketSnapshot, rpc.MethodPortfolioSnapshot, rpc.MethodMarketTape, rpc.MethodTechnical,
+		rpc.MethodChainFetch, rpc.MethodChainExpiries, rpc.MethodGammaZeroSPX, rpc.MethodCoreResolve,
+	} {
+		res := dispatchRaw(t, srv, method, `{"symbol":"AAPL"}`)
+		if res.Ok || res.Error.Code != rpc.CodeNotApplicable {
+			t.Errorf("%s with the session up: %+v", method, res)
+		}
+	}
+	if got := srv.brokerLinkBlockerCode(); got != brokerWritesNotServedCode {
+		t.Errorf("readiness code with the session up: %s", got)
+	}
+	sim.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for srv.opend.Connector().IsReady() && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := srv.brokerLinkBlockerCode(); got != "gateway_unavailable" {
+		t.Errorf("readiness code with the session down: %s", got)
+	}
+}
+
+// The tape joins on IBKR contract ids, so collecting it under OpenD would spend
+// history quota and warn on every pass. It does not start.
+func TestMarketTapeCollectionDoesNotStartUnderOpenD(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{})
+	srv, stop := startOpenDServer(t, sim, opendTestAccount)
+	defer stop()
+	waitOpenDReady(t, srv)
+	time.Sleep(time.Second)
+	load, err := srv.opend.Connector().RefreshLoad(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if load.HistoryUsed != 0 {
+		t.Errorf("history quota spent at start: %d", load.HistoryUsed)
+	}
+}
+
+// The WSH feed comes through the IBKR connector, so OpenD never tries it.
+func TestOpenDHasNoWSHEarningsProvider(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{})
+	srv, stop := startOpenDServer(t, sim, opendTestAccount)
+	defer stop()
+	if srv.earnings.secondaryFetch != nil || srv.earnings.secondaryProvider != "" {
+		t.Errorf("provider %q installed under OpenD", srv.earnings.secondaryProvider)
+	}
+}
+
+// The borrow sources are off for this broker, not unknown.
+func TestBorrowSourcesReadAsIBKROnlyUnderOpenD(t *testing.T) {
+	c := &marketEventCache{noIBKRHosts: true, now: time.Now}
+	_, fee, err := c.loadBorrowFees(context.Background())
+	if err != nil || fee.Status != rpc.SourceStatusNotApplicable {
+		t.Errorf("borrow fee: %+v %v", fee, err)
+	}
+	inventory := c.borrowInventory(context.Background(), nil, nil, nil, nil, time.Now(), nil)
+	if inventory.Status != rpc.SourceStatusNotApplicable {
+		t.Errorf("borrow inventory: %+v", inventory)
 	}
 }
 

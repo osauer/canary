@@ -380,7 +380,11 @@ func fail(env *Env, format string, args ...any) int {
 	if isGatewayUnavailable(msg) {
 		fmt.Fprintf(env.Stderr, "  hint: run `%s status` to see whether the daemon is still\n", productidentity.Executable)
 		fmt.Fprintln(env.Stderr, "        connecting (retry in a few seconds) or the gateway is")
-		fmt.Fprintf(env.Stderr, "        down (start IB Gateway; check %s).\n", dial.DisplayPath(dial.DefaultLogPath()))
+		gateway := "start IB Gateway"
+		if strings.Contains(msg, "OpenD") {
+			gateway = "start OpenD and log in"
+		}
+		fmt.Fprintf(env.Stderr, "        down (%s; check %s).\n", gateway, dial.DisplayPath(dial.DefaultLogPath()))
 	}
 	return 1
 }

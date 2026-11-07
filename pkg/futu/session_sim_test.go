@@ -320,6 +320,26 @@ func TestAccountListScopesThePinAndLosingItDropsTheSession(t *testing.T) {
 	waitReady(t, real)
 }
 
+// OpenD pushes quote rights only when they change, so a session reads them, and
+// asks for nothing else: not the login's name or user id.
+func TestQuoteRightsAreReadWithoutAPush(t *testing.T) {
+	srv := futusim.Start(t, futusim.Options{})
+	c := connect(t, srv, simAccount)
+	waitFor(t, "the quote rights", func() bool {
+		h := c.Health()
+		return h.QuoteRights["HK"] == "Level1" && h.QuoteRights["US"] == "Level3"
+	})
+	flags := srv.UserInfoFlags()
+	if len(flags) == 0 {
+		t.Fatal("no GetUserInfo request")
+	}
+	for _, flag := range flags {
+		if flag != 4 { // UserInfoField_QotRight
+			t.Errorf("GetUserInfo asked with flag %d", flag)
+		}
+	}
+}
+
 // OpenD lists a real universal account only when asked for one, so a client
 // that does not ask never scopes a real pin.
 func TestRealAccountIsListedAndScoped(t *testing.T) {

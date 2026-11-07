@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/rpc"
 	"github.com/osauer/canary/v2/pkg/futu"
 )
@@ -28,10 +29,20 @@ var ibkrOnlyMethods = map[string]bool{
 	rpc.MethodLendingScreen:        true,
 	rpc.MethodFinancingFees:        true,
 	rpc.MethodShortInterestScreen:  true,
+	// These read the IBKR connector's market data and chains. Under OpenD they
+	// said the connection was down while it was up.
+	rpc.MethodMarketSnapshot:    true,
+	rpc.MethodPortfolioSnapshot: true,
+	rpc.MethodMarketTape:        true,
+	rpc.MethodTechnical:         true,
+	rpc.MethodChainFetch:        true,
+	rpc.MethodChainExpiries:     true,
+	rpc.MethodGammaZeroSPX:      true,
+	rpc.MethodCoreResolve:       true,
 }
 
 // opendNotServed names, in the reader's words, what OpenD does not serve.
-var opendNotServed = []string{"regime", "Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "gamma", "cash sweep"}
+var opendNotServed = []string{"regime", "Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "gamma", "cash sweep", "market overview", "market tape", "technical analysis", "option chains"}
 
 // brokerCapabilities says what the daemon's broker can do.
 func (s *Server) brokerCapabilities() *rpc.BrokerCapabilities {
@@ -132,6 +143,23 @@ func (s *Server) brokerLinkNotReady() string {
 		return "the broker link to OpenD is not ready"
 	}
 	return "the broker link to IBKR Gateway/TWS is not ready"
+}
+
+// brokerLinkBlockerCode is the readiness code that goes with brokerLinkNotReady:
+// an OpenD session that is up is not a gateway outage, and waiting will not clear it.
+func (s *Server) brokerLinkBlockerCode() string {
+	if s.opend != nil && s.opend.Connector().IsReady() {
+		return brokerWritesNotServedCode
+	}
+	return "gateway_unavailable"
+}
+
+// brokerReconnectAction is the next step for a session with no concrete account.
+func brokerReconnectAction(scope brokerStateScope, then string) string {
+	if scope.Kind == broker.KindOpenD {
+		return "Check that OpenD is running and logged in, then " + then + "."
+	}
+	return "Reconnect TWS/Gateway with a single concrete account, then " + then + "."
 }
 
 // opendSubsystems lists the subsystems this broker has.

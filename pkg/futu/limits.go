@@ -13,6 +13,7 @@ const (
 	ProtoGetGlobalState         uint32 = 1002
 	ProtoNotify                 uint32 = 1003
 	ProtoKeepAlive              uint32 = 1004
+	ProtoGetUserInfo            uint32 = 1005
 	ProtoTrdGetAccList          uint32 = 2001
 	ProtoTrdSubAccPush          uint32 = 2008
 	ProtoTrdGetFunds            uint32 = 2101
@@ -81,6 +82,7 @@ var Limits = []Limit{
 	{ProtoID: ProtoInitConnect, Name: "InitConnect", Source: "https://openapi.futunn.com/futu-api-doc/en/quick/opend-base.html", Read: "2026-11-04"},
 	{ProtoID: ProtoGetGlobalState, Name: "GetGlobalState", Source: docIntro + "authority.html", Read: "2026-11-04"},
 	{ProtoID: ProtoKeepAlive, Name: "KeepAlive", Source: docIntro + "authority.html", Read: "2026-11-04"},
+	{ProtoID: ProtoGetUserInfo, Name: "GetUserInfo", Source: docIntro + "authority.html", Read: "2026-11-07"},
 	{ProtoID: ProtoTrdGetAccList, Name: "Trd_GetAccList", Source: docTrade + "get-acc-list.html", Read: "2026-11-04"},
 	{ProtoID: ProtoTrdSubAccPush, Name: "Trd_SubAccPush", Source: docTrade + "sub-acc-push.html", Read: "2026-11-04"},
 	{ProtoID: ProtoTrdGetFunds, Name: "Trd_GetFunds", Requests: 10, Window: window, PerAccount: true, CachedReadsFree: true, Source: docTrade + "get-funds.html", Read: "2026-11-04"},

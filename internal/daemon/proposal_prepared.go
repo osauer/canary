@@ -233,7 +233,7 @@ func (e *proposalEngine) preparedStatus(ctx context.Context, record preparedProp
 	}
 	p := record.Preview
 	scope := brokerStateScope{Account: p.Account, Mode: p.Mode}
-	out.Order = &rpc.OrderStatusResult{AsOf: e.clock(), Account: p.Account, Mode: p.Mode, NotBrokerStatement: orderHistoryNotBrokerStatement(), Limitations: orderHistoryLimitations()}
+	out.Order = &rpc.OrderStatusResult{AsOf: e.clock(), Account: p.Account, Mode: p.Mode, NotBrokerStatement: e.server.orderHistoryNotBrokerStatement(), Limitations: orderHistoryLimitations()}
 	for _, view := range views {
 		if view.OrderRef != p.Draft.OrderRef || !orderViewMatchesBrokerScope(view, scope) || view.Endpoint != p.Endpoint || view.ClientID != p.ClientID {
 			continue

@@ -81,6 +81,8 @@ func formatOpenDQuoteRights(rights map[string]string) string {
 			level = "LV1"
 		case "Level2":
 			level = "LV2"
+		case "Level3":
+			level = "LV3"
 		case "No", "Unknow":
 			level = "none"
 		}

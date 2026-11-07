@@ -14,7 +14,9 @@ import (
 // keep an otherwise idle daemon alive between passes. The fixed basket uses the
 // existing paced history lane; the broad constituent sweep is never duplicated.
 func (s *Server) startMarketTapeCollection(ctx context.Context) {
-	if s.coreStore == nil {
+	// The tape joins on IBKR contract ids, so under OpenD each pass would spend
+	// history quota on names it then discards.
+	if s.coreStore == nil || s.opend != nil {
 		return
 	}
 	if _, err := updateTapeArchiveStatus(ctx, s.coreStore, time.Now(), false); err != nil {

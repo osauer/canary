@@ -76,7 +76,7 @@ func (s *Server) handleOrdersOpen(ctx context.Context, req *rpc.Request) (*rpc.O
 		Account:            scope.Account,
 		Mode:               scope.Mode,
 		LastLocalEventAt:   latestScopedOrderEventAt(views, eventsByKey, scope),
-		NotBrokerStatement: orderHistoryNotBrokerStatement(),
+		NotBrokerStatement: s.orderHistoryNotBrokerStatement(),
 		Limitations:        orderHistoryLimitations(),
 	}
 	result.Untracked, result.UntrackedStatus, result.UntrackedAsOf = s.untrackedBrokerOrders(ctx, views, scope)
@@ -161,7 +161,7 @@ func (s *Server) handleOrdersHistory(_ context.Context, req *rpc.Request) (*rpc.
 		EventLimit:         eventLimit,
 		Truncated:          truncated,
 		EventsTruncated:    eventsTruncated,
-		NotBrokerStatement: orderHistoryNotBrokerStatement(),
+		NotBrokerStatement: s.orderHistoryNotBrokerStatement(),
 		Limitations:        orderHistoryLimitations(),
 	}, nil
 }
@@ -214,7 +214,7 @@ func (s *Server) handleOrderStatus(ctx context.Context, req *rpc.Request) (*rpc.
 			Account:            scope.Account,
 			Mode:               scope.Mode,
 			LastLocalEventAt:   lastLocalEventAt,
-			NotBrokerStatement: orderHistoryNotBrokerStatement(),
+			NotBrokerStatement: s.orderHistoryNotBrokerStatement(),
 			Limitations:        orderHistoryLimitations(),
 		}, nil
 	}
@@ -224,7 +224,7 @@ func (s *Server) handleOrderStatus(ctx context.Context, req *rpc.Request) (*rpc.
 		Account:            scope.Account,
 		Mode:               scope.Mode,
 		LastLocalEventAt:   latestScopedOrderEventAt(views, eventsByKey, scope),
-		NotBrokerStatement: orderHistoryNotBrokerStatement(),
+		NotBrokerStatement: s.orderHistoryNotBrokerStatement(),
 		Limitations:        orderHistoryLimitations(),
 	}, nil
 }
@@ -372,7 +372,10 @@ func latestOrderEventAt(events []rpc.OrderEvent) time.Time {
 	return events[len(events)-1].At
 }
 
-func orderHistoryNotBrokerStatement() string {
+func (s *Server) orderHistoryNotBrokerStatement() string {
+	if s != nil && s.opend != nil {
+		return "local order journal only; not a broker statement, trade confirmation, execution report, or historical broker audit"
+	}
 	return "local order journal only; not an IBKR Activity Statement, trade confirmation, execution report, or historical broker audit"
 }
 

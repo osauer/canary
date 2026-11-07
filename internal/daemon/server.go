@@ -862,10 +862,14 @@ func (s *Server) installEarningsCache() {
 		dir = ""
 	}
 	cache := newEarningsCacheCold(dir, s.logger.Warnf, s.logger.Debugf)
-	if err := cache.setSecondaryProvider(earningsWSHProvider, s.fetchWSHEarningsProvider); err != nil {
-		s.logger.Warnf("earnings cache: install IBKR WSH provider: %v", err)
+	// The WSH feed comes through the IBKR connector; under OpenD each held name
+	// would warn of a gateway outage on every read.
+	if s.opend == nil {
+		if err := cache.setSecondaryProvider(earningsWSHProvider, s.fetchWSHEarningsProvider); err != nil {
+			s.logger.Warnf("earnings cache: install IBKR WSH provider: %v", err)
+		}
+		cache.setSecondaryEntitlementProbe(s.probeWSHEntitlement)
 	}
-	cache.setSecondaryEntitlementProbe(s.probeWSHEntitlement)
 	if err := cache.setIdentityFetcher(s.fetchEarningsIdentity); err != nil {
 		s.logger.Warnf("earnings cache: install broker identity reader: %v", err)
 	}

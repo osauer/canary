@@ -17,6 +17,7 @@ import (
 	"github.com/osauer/canary/v2/pkg/futu"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/common"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/getglobalstate"
+	"github.com/osauer/canary/v2/pkg/futu/internal/pb/getuserinfo"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/initconnect"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/keepalive"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/notify"
@@ -82,6 +83,9 @@ type Server struct {
 	quoteLoggedIn  bool
 	tradeLoggedIn  bool
 	hiddenAccount  map[uint64]bool
+	hkQuoteRight   int32
+	usQuoteRight   int32
+	userInfoFlags  []int32
 	refusals       map[uint32]int
 	forbidden      int
 	closed         bool
@@ -141,6 +145,8 @@ func Listen(opts Options) (*Server, error) {
 		quoteLoggedIn: true,
 		tradeLoggedIn: true,
 		hiddenAccount: make(map[uint64]bool),
+		hkQuoteRight:  2, // QotRight_Level1
+		usQuoteRight:  6, // QotRight_Level3
 		refusals:      make(map[uint32]int),
 	}
 	s.wg.Go(s.accept)
@@ -273,6 +279,9 @@ func (s *Server) PushQuotaState() {
 
 // PushQuoteRights pushes one quote-right state: market to OpenD's QotRight.
 func (s *Server) PushQuoteRights(hk, us int32) {
+	s.mu.Lock()
+	s.hkQuoteRight, s.usQuoteRight = hk, us
+	s.mu.Unlock()
 	s.Push(futu.ProtoNotify, &notify.Response{
 		RetType: new(int32(0)),
 		S2C: &notify.S2C{
@@ -440,6 +449,8 @@ func (s *Server) answer(conn *simConn, frame futu.Frame) proto.Message {
 		return s.answerGlobalState(conn)
 	case futu.ProtoTrdGetAccList:
 		return s.answerAccList(frame)
+	case futu.ProtoGetUserInfo:
+		return s.answerUserInfo(frame)
 	}
 	return s.answerRead(conn, frame)
 }
@@ -525,9 +536,37 @@ func (s *Server) answerGlobalState(conn *simConn) proto.Message {
 	}
 }
 
+// UserInfoFlags lists the flag of each GetUserInfo request so far.
+func (s *Server) UserInfoFlags() []int32 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.userInfoFlags)
+}
+
+// answerUserInfo gives each part only when its flag asks, as OpenD's definition
+// says; no flag is the whole answer, the login's name included.
+func (s *Server) answerUserInfo(frame futu.Frame) proto.Message {
+	var req getuserinfo.Request
+	if err := proto.Unmarshal(frame.Body, &req); err != nil {
+		return &getuserinfo.Response{RetType: new(retBody), RetMsg: new("synthetic: malformed GetUserInfo")}
+	}
+	flag := req.GetC2S().GetFlag()
+	s.mu.Lock()
+	hk, us := s.hkQuoteRight, s.usQuoteRight
+	s.userInfoFlags = append(s.userInfoFlags, flag)
+	s.mu.Unlock()
+	answer := &getuserinfo.S2C{}
+	if req.GetC2S().Flag == nil || flag&int32(getuserinfo.UserInfoField_UserInfoField_Basic) != 0 {
+		answer.NickName, answer.UserID = new("synthetic"), new(int64(1))
+	}
+	if req.GetC2S().Flag == nil || flag&int32(getuserinfo.UserInfoField_UserInfoField_QotRight) != 0 {
+		answer.HkQotRight, answer.UsQotRight = new(hk), new(us)
+	}
+	return &getuserinfo.Response{RetType: new(int32(0)), S2C: answer}
+}
+
 // answerAccList leaves a real account out unless the request asks for universal
-// accounts, as OpenD 10.12 does for a moomoo universal account (seen on a real
-// account 2026-11-07 07:10 CET).
+// accounts, as OpenD 10.12 does for a universal account.
 func (s *Server) answerAccList(frame futu.Frame) proto.Message {
 	var req trdgetacclist.Request
 	if err := proto.Unmarshal(frame.Body, &req); err != nil {

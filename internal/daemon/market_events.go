@@ -592,6 +592,10 @@ func haltsFallback(cached marketEventHaltsEntry, now time.Time, freshFor time.Du
 }
 
 func (c *marketEventCache) loadBorrowFees(ctx context.Context) (marketEventBorrowFeeEntry, rpc.SourceHealth, error) {
+	if c.noIBKRHosts {
+		// Off for this broker, not stale: there is nothing to retry.
+		return marketEventBorrowFeeEntry{}, marketEventSourceHealth("borrow_fee", rpc.SourceStatusNotApplicable, time.Time{}, c.now().UTC(), marketEventsBorrowFeeMaxAge, "none", []string{"IBKR only"}), nil
+	}
 	c.mu.Lock()
 	if c.borrowFeesRefreshGate == nil {
 		c.borrowFeesRefreshGate = make(chan struct{}, 1)
@@ -631,10 +635,6 @@ func (c *marketEventCache) loadBorrowFees(ctx context.Context) (marketEventBorro
 	}
 	c.mu.Unlock()
 
-	if c.noIBKRHosts {
-		// Off for this broker, not stale: there is nothing to retry.
-		return marketEventBorrowFeeEntry{}, marketEventSourceHealth("borrow_fee", rpc.SourceStatusNotApplicable, time.Time{}, now, marketEventsBorrowFeeMaxAge, "none", []string{"IBKR only"}), nil
-	}
 	attemptedAt := now.UTC()
 	entry, err := fetchIBKRBorrowFees(ctx, cached.SourceURL)
 	if ctx.Err() != nil {
@@ -1584,6 +1584,9 @@ func marketEventLULDReason(reason string) bool {
 }
 
 func (c *marketEventCache) borrowInventory(ctx context.Context, symbols, unquoted []string, subs *subManager, connector *ibkrlib.Connector, now time.Time, res *rpc.MarketEventsResult) rpc.SourceHealth {
+	if c.noIBKRHosts {
+		return marketEventSourceHealth("borrow_inventory", rpc.SourceStatusNotApplicable, time.Time{}, now, marketEventsInventoryMaxAge, "none", []string{"IBKR only"})
+	}
 	open := c.openInventoryTransport
 	if open == nil {
 		open = func() (borrowInventoryTransport, bool) { return c.connectorInventoryTransport(subs, connector) }
