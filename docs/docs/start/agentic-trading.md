@@ -1,8 +1,17 @@
 # Agentic trading on an Interactive Brokers account
 
-Updated: 2026-11-05 08:40 CET
+Updated: 2026-11-07 06:58 CET
 
 Canary lets an AI agent help with your Interactive Brokers account while each order it sends stays your decision. The agent can read your book and the market, keep watch through the day if its host can wake it on a schedule, and suggest a trade. Sending one takes the trading build and Canary's checks, and the agent must have your instruction for that exact trade.
+
+## Connect to Interactive Brokers first
+
+The agent reaches your account through Canary, and Canary reaches it through the broker's own desktop software on your machine. Nothing runs on a server of mine.
+
+1. Run IB Gateway 10.37 or newer, or TWS, logged in to a paper or live account. The account needs IBKR Pro; IBKR Lite has no TWS API access.
+2. Enable API socket access in that app, under Global Configuration → API → Settings.
+3. Install Canary on the same machine, on macOS or Linux. [Install and first run](install.md) covers each install path. Canary finds the gateway and your account by itself, and `canary status` shows what it connected to.
+4. Give the agent's MCP host the absolute path of the `canary` binary with the single argument `mcp`. [Connect an MCP host](hosts.md) has the steps for Claude Desktop, Claude Code, Cursor, Zed and any other MCP host.
 
 ## What an agent can do with the standard build
 
