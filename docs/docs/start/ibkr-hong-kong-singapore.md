@@ -1,6 +1,6 @@
 # Canary with an Interactive Brokers Hong Kong or Singapore account
 
-Updated: 2026-11-05 08:55 CET
+Updated: 2026-11-07 09:15 CET
 
 Canary reads one Interactive Brokers account through your own IB Gateway or
 TWS session. Which IBKR entity holds the account, Interactive Brokers Hong
@@ -41,7 +41,7 @@ Account  U1234567 · base=HKD · live
 ```text
   LEG                           QTY         AVG        MARK  CHANGE / GREEKS             MKT VALUE     UNREAL P&L
   700
-  Stock                      500 sh  HKD 352.40  HKD 388.20  +HKD 1,100.00 (+0.57%)  HKD 194,100.00  HKD 17,900.00
+  Stock                      500 sh  HKD 340.40  HKD 388.20  +HKD 1,100.00 (+0.57%)  HKD 194,100.00  HKD 23,900.00
   D05
   Stock                     1000 sh   SGD 41.10   SGD 43.75  -SGD 250.00 (-0.57%)    SGD 43,750.00   SGD 2,650.00
   7203
@@ -59,12 +59,48 @@ another currency than the base are converted at the exchange rates the
 broker's ledger reports, in `market_value_base` and the account's currency
 exposure rows.
 
-The order preview of the trading build measures a cross-currency order
-against the per-order cap with an exact IDEALPRO quote on a conventional
-currency pair. That pair table covers EUR, GBP, AUD, NZD, USD, CAD, CHF and
-JPY. A HKD or SGD base account can preview orders in its own currency.
-Cross-currency orders involving HKD or SGD are refused by the preview, with
-the reason named, because those currencies are outside the pair table.
+## Looking up a Hong Kong or Singapore share
+
+Name the market when you ask about a share. Canary treats a bare symbol as a US
+stock unless your account already holds that share. If you don't hold it,
+`canary technical 700` asks for a US stock called 700, which Interactive Brokers
+does not have, and a code that is also a US ticker returns the US company.
+
+```sh
+canary technical 700,5,1299,9988 --market hk
+canary technical D05,Z74,ES3 --market sg
+canary market --symbol 700 --exchange SEHK --currency HKD --range 1M
+canary market --symbol D05 --exchange SGX --currency SGD --range 1M
+```
+
+On `canary technical`, `--market hk` is the same as `--exchange SEHK --currency
+HKD`, and `--market sg` the same as `--exchange SGX --currency SGD`. `canary
+market` takes the long form.
+
+SMART, Interactive Brokers' automatic router, refused every SEHK and SGX listing
+we tried, so `--exchange SMART` fails with the error `no security definition`.
+Canary reads these shares on SEHK or SGX directly. `--exchange SEHK --currency
+USD` fails the same way, because 700 is not listed in US dollars. Tokyo, Sydney and European listings can be read
+through SMART.
+
+Relative strength, how a share has moved against a benchmark, compares the
+share's return in its own currency with SPY's in US dollars unless you set
+`--benchmark`, so exchange-rate moves are part of the figure.
+
+## Orders
+
+Canary does not support orders on SEHK or SGX listings, whether buying or selling
+shares you hold. Do not act on a preview of one, whatever it shows. Its order
+paths send stocks through SMART, which Interactive Brokers refuses for these
+listings. Use TWS or the IBKR app for these orders. Account figures, positions,
+statements and the lookups above are not affected.
+
+If your base currency is HKD or SGD, the preview refuses an order in any other
+currency, US shares included, and names the reason. An account in another base
+currency is refused the same way for an order in HKD or SGD. Canary checks a
+cross-currency order against your per-order limit with a quote from IDEALPRO,
+Interactive Brokers' currency market, and it can do that only for EUR, GBP, AUD,
+NZD, USD, CAD, CHF and JPY.
 
 ## Exchange calendars and the brief's session
 

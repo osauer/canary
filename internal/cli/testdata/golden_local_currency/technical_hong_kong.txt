@@ -1,0 +1,42 @@
+# canary technical 700,5 --market hk · COLUMNS=80 · colour off
+Technical screen · SPY benchmark · 420-day lookback
+
+700 · uptrend
+Price          388.20 HKD · as of 2026-11-06
+Trend          50-day avg 370.50 · 200-day avg 340.25
+vs 200-day     14.0% from the long-term average
+vs benchmark   +5.0 pp / 63 days · +10.0 pp / 126 days
+Daily range    2.0% · 14-day average true range / price
+Liquidity      12.0M shares/day · 4.5B HKD/day · 20-day average
+
+5 · error
+Price          — HKD · as of unavailable
+Trend          50-day avg — · 200-day avg —
+vs 200-day     — from the long-term average
+vs benchmark   — / 63 days · — / 126 days
+Daily range    — · 14-day average true range / price
+Liquidity      — shares/day · — HKD/day · 20-day average
+  Error: No security definition has been found for the request
+  Missing: history unavailable
+pp = percentage points of return relative to the benchmark. — = unavailable.
+# canary technical 700,5 --market hk · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mTechnical screen · SPY benchmark · 420-day lookback\x1b[0m
+
+\x1b[32m700 · uptrend\x1b[0m
+\x1b[2mPrice         \x1b[0m 388.20 HKD · as of 2026-11-06
+\x1b[2mTrend         \x1b[0m 50-day avg 370.50 · 200-day avg 340.25
+\x1b[2mvs 200-day    \x1b[0m 14.0% from the long-term average
+\x1b[2mvs benchmark  \x1b[0m +5.0 pp / 63 days · +10.0 pp / 126 days
+\x1b[2mDaily range   \x1b[0m 2.0% · 14-day average true range / price
+\x1b[2mLiquidity     \x1b[0m 12.0M shares/day · 4.5B HKD/day · 20-day average
+
+\x1b[31m5 · error\x1b[0m
+\x1b[2mPrice         \x1b[0m — HKD · as of unavailable
+\x1b[2mTrend         \x1b[0m 50-day avg — · 200-day avg —
+\x1b[2mvs 200-day    \x1b[0m — from the long-term average
+\x1b[2mvs benchmark  \x1b[0m — / 63 days · — / 126 days
+\x1b[2mDaily range   \x1b[0m — · 14-day average true range / price
+\x1b[2mLiquidity     \x1b[0m — shares/day · — HKD/day · 20-day average
+  \x1b[31mError: No security definition has been found for the request\x1b[0m
+  \x1b[33mMissing: history unavailable\x1b[0m
+\x1b[2mpp = percentage points of return relative to the benchmark. — = unavailable.\x1b[0m

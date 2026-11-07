@@ -230,7 +230,7 @@ Trend, relative strength, ATR, and liquidity from daily bars.
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
-canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de|uk] [--json]
+canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de|uk|hk|sg] [--json]
 ```
 
 **Flags**
@@ -238,7 +238,7 @@ canary technical SYM[,SYM...] [--benchmark SPY] [--market us|de|uk] [--json]
 | Flag | Takes a value | Allowed values |
 |------|---------------|----------------|
 | `--benchmark` | yes | - |
-| `--market` | yes | `us`, `de`, `uk` |
+| `--market` | yes | `us`, `de`, `uk`, `hk`, `sg` |
 | `--lookback-days` | yes | - |
 | `--exchange` | yes | - |
 | `--primary` | yes | - |

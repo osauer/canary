@@ -2760,7 +2760,7 @@ func (s *Server) fetchQuoteHistoricalBars(ctx context.Context, c *ibkrlib.Connec
 	if err != nil && quoteHistoryRetriesBySymbol(q.Contract.SecType, err) {
 		bars, err = c.FetchHistoricalDailyBars(fallbackCtx, q.Symbol, lookbackDays, 0)
 	}
-	return bars, err
+	return settledDailyBars(bars, q.Contract.Exchange, q.Contract.PrimaryExch, time.Now()), err
 }
 
 // quoteHistoryRetriesBySymbol reports whether a failed routed history read is
@@ -2862,6 +2862,7 @@ func quoteHistoricalContract(q *rpc.Quote) ibkrlib.Contract {
 		return ibkrlib.Contract{}
 	}
 	c := ibkrlib.Contract{
+		ConID:        q.Contract.ConID,
 		Symbol:       q.Contract.Symbol,
 		SecType:      q.Contract.SecType,
 		Exchange:     q.Contract.Exchange,
