@@ -3098,10 +3098,65 @@ func (c *Connector) ResolveOrderContractForSession(ctx context.Context, binding 
 	}
 	resolveCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	details, err := c.orderContractDetails(resolveCtx, binding, contract)
+	if errors.Is(err, ErrContractNoDefinition) {
+		if onListing, ok := c.orderLookupOnListing(contract); ok {
+			details, err = c.orderContractDetails(resolveCtx, binding, onListing)
+		}
+	}
+	if err != nil {
+		return ResolvedOrderContract{}, err
+	}
+	resolved, err := exactOrderContract(contract, details)
+	if err != nil {
+		return ResolvedOrderContract{}, err
+	}
+	if !c.SessionCurrent(binding) {
+		return ResolvedOrderContract{}, fmt.Errorf("broker session changed during contract resolution")
+	}
+	return resolved, nil
+}
+
+// orderHomeExchanges names where to ask about a symbol in a currency whose
+// listings SMART does not reach, when an order has no contract id to ask by. It
+// says where to ask and no more: the broker's list of routes decides the route.
+var orderHomeExchanges = map[string]string{"HKD": "SEHK", "SGD": "SGX"}
+
+// orderLookupOnListing is the second lookup for a stock order the broker refused
+// on SMART: IBKR answers a Hong Kong or Singapore listing on SMART with code 200,
+// at the contract details as at the quote. Nothing is asked twice for a listing
+// SMART reaches, so those frames stay as they were, and the US dollar stocks
+// listingRouteInQuestion leaves out take the broker's refusal as final.
+func (c *Connector) orderLookupOnListing(contract Contract) (Contract, bool) {
+	exchange := strings.ToUpper(strings.TrimSpace(contract.Exchange))
+	if contract.SecType != "STK" || (exchange != "" && exchange != "SMART") {
+		return Contract{}, false
+	}
+	if contract.ConID > 0 {
+		if !c.listingRouteInQuestion(contract) {
+			return Contract{}, false
+		}
+		exact := Contract{ConID: contract.ConID, Symbol: contract.Symbol, SecType: "STK"}
+		if primary := strings.ToUpper(strings.TrimSpace(contract.PrimaryExch)); primary != "" && primary != "SMART" {
+			exact.Exchange, exact.Currency = primary, contract.Currency
+		}
+		return exact, true
+	}
+	home, ok := orderHomeExchanges[contract.Currency]
+	if !ok {
+		return Contract{}, false
+	}
+	contract.Exchange = home
+	return contract, true
+}
+
+// orderContractDetails sends one contract-details request bound to the session
+// and returns the broker's rows.
+func (c *Connector) orderContractDetails(resolveCtx context.Context, binding ConnectorSessionBinding, contract Contract) ([]ContractDetailsLite, error) {
 	conn := binding.connection
 	reqID, err := conn.reserveRequestID(nil)
 	if err != nil {
-		return ResolvedOrderContract{}, err
+		return nil, err
 	}
 	defer conn.discardRequestIDReservation(reqID)
 
@@ -3145,7 +3200,7 @@ func (c *Connector) ResolveOrderContractForSession(ctx context.Context, binding 
 	defer releaseReq()
 
 	if err := conn.sendContractDetailsRequestForEpoch(resolveCtx, contract, reqID, binding.epoch); err != nil {
-		return ResolvedOrderContract{}, err
+		return nil, err
 	}
 	details := make([]ContractDetailsLite, 0, 2)
 	for {
@@ -3153,29 +3208,22 @@ func (c *Connector) ResolveOrderContractForSession(ctx context.Context, binding 
 		case detail := <-detailsCh:
 			details = append(details, detail)
 		case err := <-req.fail:
-			return ResolvedOrderContract{}, err
+			return nil, err
 		case <-overflowCh:
-			return ResolvedOrderContract{}, fmt.Errorf("contract details overflow")
+			return nil, fmt.Errorf("contract details overflow")
 		case <-doneCh:
 			for {
 				select {
 				case detail := <-detailsCh:
 					details = append(details, detail)
 				case <-overflowCh:
-					return ResolvedOrderContract{}, fmt.Errorf("contract details overflow")
+					return nil, fmt.Errorf("contract details overflow")
 				default:
-					resolved, err := exactOrderContract(contract, details)
-					if err != nil {
-						return ResolvedOrderContract{}, err
-					}
-					if !c.SessionCurrent(binding) {
-						return ResolvedOrderContract{}, fmt.Errorf("broker session changed during contract resolution")
-					}
-					return resolved, nil
+					return details, nil
 				}
 			}
 		case <-resolveCtx.Done():
-			return ResolvedOrderContract{}, resolveCtx.Err()
+			return nil, resolveCtx.Err()
 		}
 	}
 }
@@ -3233,7 +3281,8 @@ func exactOrderContract(request Contract, details []ContractDetailsLite) (Resolv
 	resolved.ConID = selected.ConID
 	// Preserve the caller's execution route. Contract-details Exchange is an
 	// identity filter above, not authority to silently reroute a SMART/direct
-	// order. Only fill it when the request truly omitted one.
+	// order. Only fill it when the request truly omitted one. The one move is
+	// off a route that cannot work, below.
 	if resolved.Exchange == "" && selected.Exchange != "" {
 		resolved.Exchange = selected.Exchange
 	}
@@ -3250,6 +3299,12 @@ func exactOrderContract(request Contract, details []ContractDetailsLite) (Resolv
 	}
 	if selected.TradingClass != "" {
 		resolved.TradingClass = selected.TradingClass
+	}
+	// A stock order on SMART for a listing the broker's own list leaves SMART
+	// off could only be refused, so it goes to the listing's exchange. The
+	// preview shows that route and the token binds it.
+	if route := listingRouteFromDetail(*selected); resolved.SecType == "STK" && strings.EqualFold(resolved.Exchange, "SMART") && route.refusesSMART {
+		resolved.Exchange, resolved.PrimaryExch = route.primary, route.primary
 	}
 	return ResolvedOrderContract{ValidExchanges: selected.ValidExchanges, MarketRuleIDs: selected.MarketRuleIDs, Contract: resolved, UnderConID: selected.UnderConID, MinTick: selected.MinTick, TimeZoneID: selected.TimeZoneID, TradingHours: selected.TradingHours, LiquidHours: selected.LiquidHours, Industry: selected.Industry, Category: selected.Category, StockType: selected.StockType}, nil
 }

@@ -399,8 +399,8 @@ func TestListingRouteLookupIsBoundedAndChangesNothingElse(t *testing.T) {
 	})
 }
 
-// The order path resolves and routes through its own calls. A held listing's
-// route is decided for reads; an order draft's route is what the caller gave.
+// The order path resolves and routes through its own calls: a listing SMART
+// reaches keeps the route the caller gave, on the caller's one lookup.
 func TestOrderContractResolutionKeepsTheCallersRoute(t *testing.T) {
 	c, conn, g := histTFixture(t)
 	g.script(heldListingBroker(t, c, conn, "SYNJ", "TSEJ", "JPY", "SMART,TSEJ", true))
@@ -417,4 +417,162 @@ func TestOrderContractResolutionKeepsTheCallersRoute(t *testing.T) {
 		t.Fatalf("lookups = %v, want only the caller's", lookups)
 	}
 	assertFields(t, lookups[0], []fieldAssertion{{10, "SMART", "caller's exchange"}})
+}
+
+// IBKR refuses a Hong Kong or Singapore listing on SMART with code 200, so an
+// order built on SMART (a reduction from the portfolio row, canary add's
+// default) could never reach it. A holding is asked for by its contract id on
+// its own exchange, and the order takes the only route the broker lists.
+func TestOrderOnAListingSMARTDoesNotReachMovesToTheListingsExchange(t *testing.T) {
+	for _, tc := range []struct{ name, venue, currency string }{
+		{"Hong Kong", "SEHK", "HKD"},
+		{"Singapore", "SGX", "SGD"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, conn, g := histTFixture(t)
+			g.script(heldListingBroker(t, c, conn, "SYNH", tc.venue, tc.currency, tc.venue, false))
+			binding, ok := c.CaptureSession()
+			if !ok {
+				t.Fatal("no session")
+			}
+			resolved, err := c.ResolveOrderContractForSession(t.Context(), binding, Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", PrimaryExch: tc.venue, Currency: tc.currency}, 2*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := resolved.Contract; got.Exchange != tc.venue || got.PrimaryExch != tc.venue || got.Currency != tc.currency || got.ConID != 4243 {
+				t.Fatalf("resolved contract = %+v", got)
+			}
+			lookups := g.framesByID(reqContractData)
+			if len(lookups) != 2 {
+				t.Fatalf("lookups = %v, want the caller's and one on the listing", lookups)
+			}
+			assertFields(t, lookups[0], []fieldAssertion{{10, "SMART", "caller's route first"}})
+			assertFields(t, lookups[1], []fieldAssertion{{3, "4243", "contract id"}, {10, tc.venue, "the listing's exchange"}})
+		})
+	}
+}
+
+// A holding with no primary exchange on its row is asked for by contract id
+// alone, the lookup the read path already uses.
+func TestOrderOnAHoldingWithNoVenueAsksByContractIDAlone(t *testing.T) {
+	c, conn, g := histTFixture(t)
+	g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "HKD", "SEHK", false))
+	binding, _ := c.CaptureSession()
+	resolved, err := c.ResolveOrderContractForSession(t.Context(), binding, Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", Currency: "HKD"}, 2*time.Second)
+	if err != nil || resolved.Contract.Exchange != "SEHK" || resolved.Contract.PrimaryExch != "SEHK" {
+		t.Fatalf("resolved = %+v, %v", resolved, err)
+	}
+	lookups := g.framesByID(reqContractData)
+	if len(lookups) != 2 {
+		t.Fatalf("lookups = %v", lookups)
+	}
+	assertFields(t, lookups[1], []fieldAssertion{{3, "4243", "contract id"}, {10, "", "no exchange"}})
+}
+
+// canary add names a symbol and a currency and defaults to SMART. With no
+// contract id to ask by, the currency says where to ask; the broker's list still
+// decides the route.
+func TestOrderBySymbolAsksOnTheCurrencysHomeExchange(t *testing.T) {
+	for _, tc := range []struct{ venue, currency string }{{"SEHK", "HKD"}, {"SGX", "SGD"}} {
+		t.Run(tc.currency, func(t *testing.T) {
+			c, conn, g := histTFixture(t)
+			g.script(listingBroker(t, c, conn, "SYNH", tc.venue, tc.currency, tc.venue, false))
+			binding, _ := c.CaptureSession()
+			resolved, err := c.ResolveOrderContractForSession(t.Context(), binding, Contract{Symbol: "SYNH", SecType: "STK", Exchange: "SMART", Currency: tc.currency}, 2*time.Second)
+			if err != nil || resolved.Contract.Exchange != tc.venue || resolved.Contract.ConID != 4243 {
+				t.Fatalf("resolved = %+v, %v", resolved, err)
+			}
+		})
+	}
+}
+
+// Should the broker answer the SMART lookup but leave SMART off its own list,
+// the list still decides: no second request, and no order on a refused route.
+func TestOrderFollowsTheListWhenTheSMARTLookupIsAnswered(t *testing.T) {
+	c, conn, g := histTFixture(t)
+	g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "HKD", "SEHK", true))
+	binding, _ := c.CaptureSession()
+	resolved, err := c.ResolveOrderContractForSession(t.Context(), binding, Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", Currency: "HKD"}, 2*time.Second)
+	if err != nil || resolved.Contract.Exchange != "SEHK" {
+		t.Fatalf("resolved = %+v, %v", resolved, err)
+	}
+	if lookups := g.framesByID(reqContractData); len(lookups) != 1 {
+		t.Fatalf("lookups = %v, want one", lookups)
+	}
+}
+
+// A listing SMART reaches, and a refusal with nothing else to ask, send exactly
+// what they sent before: the second lookup exists only for a listing that fails.
+func TestOrderLookupsThatWorkedStayAsTheyWere(t *testing.T) {
+	t.Run("US stock keeps SMART on one lookup", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNU", "ARCA", "USD", "SMART,ARCA", true))
+		binding, _ := c.CaptureSession()
+		resolved, err := c.ResolveOrderContractForSession(t.Context(), binding, Contract{ConID: 4243, Symbol: "SYNU", SecType: "STK", Exchange: "SMART", Currency: "USD"}, 2*time.Second)
+		if err != nil || resolved.Contract.Exchange != "SMART" {
+			t.Fatalf("resolved = %+v, %v", resolved, err)
+		}
+		lookups := g.framesByID(reqContractData)
+		if len(lookups) != 1 {
+			t.Fatalf("lookups = %v", lookups)
+		}
+		assertFields(t, lookups[0], []fieldAssertion{{10, "SMART", "exchange"}})
+	})
+	for _, tc := range []struct {
+		name     string
+		contract Contract
+	}{
+		{"unknown US symbol", Contract{Symbol: "SYNU", SecType: "STK", Exchange: "SMART", Currency: "USD"}},
+		{"US holding", Contract{ConID: 4243, Symbol: "SYNU", SecType: "STK", Exchange: "SMART", PrimaryExch: "ARCA", Currency: "USD"}},
+		{"euro symbol", Contract{Symbol: "SYNE", SecType: "STK", Exchange: "SMART", Currency: "EUR"}},
+		{"a named exchange", Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SEHKNTL", Currency: "CNH"}},
+	} {
+		t.Run(tc.name+" refused once", func(t *testing.T) {
+			c, _, g := histTFixture(t)
+			g.script(func(fields []string) {
+				if fields[0] == strconv.Itoa(reqContractData) {
+					reqID, _ := strconv.Atoi(fields[2])
+					go c.failPendingContractDetails(reqID, 200, "No security definition has been found for the request")
+				}
+			})
+			binding, _ := c.CaptureSession()
+			_, err := c.ResolveOrderContractForSession(t.Context(), binding, tc.contract, 2*time.Second)
+			if !errors.Is(err, ErrContractNoDefinition) {
+				t.Fatalf("err = %v, want the broker's verdict", err)
+			}
+			if lookups := g.framesByID(reqContractData); len(lookups) != 1 {
+				t.Fatalf("lookups = %v, want one", lookups)
+			}
+		})
+	}
+}
+
+// The second lookup's refusal is the broker's verdict too, and a listing in
+// another currency than the order named is no match, on either route.
+func TestOrderSecondLookupFailsClosed(t *testing.T) {
+	t.Run("refused twice", func(t *testing.T) {
+		c, _, g := histTFixture(t)
+		g.script(func(fields []string) {
+			if fields[0] == strconv.Itoa(reqContractData) {
+				reqID, _ := strconv.Atoi(fields[2])
+				go c.failPendingContractDetails(reqID, 200, "No security definition has been found for the request")
+			}
+		})
+		binding, _ := c.CaptureSession()
+		_, err := c.ResolveOrderContractForSession(t.Context(), binding, Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", Currency: "HKD"}, 2*time.Second)
+		if !errors.Is(err, ErrContractNoDefinition) {
+			t.Fatalf("err = %v", err)
+		}
+		if lookups := g.framesByID(reqContractData); len(lookups) != 2 {
+			t.Fatalf("lookups = %v, want two", lookups)
+		}
+	})
+	t.Run("another currency", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "USD", "SEHK", false))
+		binding, _ := c.CaptureSession()
+		if resolved, err := c.ResolveOrderContractForSession(t.Context(), binding, Contract{ConID: 4243, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", Currency: "HKD"}, 2*time.Second); err == nil {
+			t.Fatalf("resolved = %+v, want no match", resolved)
+		}
+	})
 }

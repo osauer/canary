@@ -142,3 +142,19 @@ func TestAddMarketStockCurrencyDoesNotEnableForeignCalls(t *testing.T) {
 		}
 	}
 }
+
+// Add market keeps the route a resolved listing came back with, so a Hong Kong
+// share can be read again on SEHK. A US dollar stock still comes on SMART.
+func TestAddMarketAcceptsAListingsOwnExchangeOutsideUSDollars(t *testing.T) {
+	for _, tc := range []struct {
+		exchange, currency string
+		allowed            bool
+	}{{"SEHK", "HKD", true}, {"SGX", "SGD", true}, {"SMART", "HKD", true}, {"ARCA", "USD", false}, {"", "HKD", false}} {
+		p := rpc.AddMarketParams{Underlying: rpc.ContractParams{ConID: 10001, Symbol: "SYNX", SecType: "STK", Exchange: tc.exchange, Currency: tc.currency}}
+		raw, _ := json.Marshal(p)
+		_, err := (&Server{}).handleAddMarket(t.Context(), &rpc.Request{Params: raw})
+		if got := errors.Is(err, ibkr.ErrIBKRUnavailable); got != tc.allowed {
+			t.Fatalf("%s %s allowed=%v: %v", tc.exchange, tc.currency, tc.allowed, err)
+		}
+	}
+}

@@ -75,7 +75,7 @@ func ownerQueueProblem(t rpc.QueuedAuthTerms) string {
 		}
 	} else if o.OrderType != "LMT" || o.Trail != nil || t.Style != "midpoint_bounded" || t.Concession != 0 ||
 		!positiveFinite(t.WorstPrice) || !positiveFinite(t.MaxSpreadPctOfMid) || t.MaxSpreadPctOfMid > 100 || t.TIF != "DAY" ||
-		!t.NotAfter.After(t.NotBefore) || t.NotAfter.Sub(t.NotBefore) > queuedSendWindow || o.AdaptivePriority != "Normal" || o.OutsideRTH {
+		!t.NotAfter.After(t.NotBefore) || t.NotAfter.Sub(t.NotBefore) > queuedSendWindow || o.AdaptivePriority != queuedOwnerAdaptivePriority(t.Contract) || o.OutsideRTH {
 		return "invalid midpoint owner order"
 	}
 	if !o.FullPosition && (!slices.Contains([]string{"open", "increase", "reduce", "close"}, t.PositionEffect) ||
@@ -232,7 +232,7 @@ func (e *proposalEngine) prepareOwnerQueue(ctx context.Context, p rpc.TradePropo
 	}
 	terms.OwnerOrder = &rpc.QueuedOwnerOrder{OrderType: order.OrderType, Trail: cloneTrailSpec(order.Trail), TriggerMethod: order.TriggerMethod, OutsideRTH: order.OutsideRTH, FullPosition: p.FullPosition, Add: order.Action == "BUY" && contract.SecType == "STK" && position.Impact.Before >= 0}
 	if !p.FullPosition {
-		terms.OwnerOrder.AdaptivePriority = "Normal"
+		terms.OwnerOrder.AdaptivePriority = queuedOwnerAdaptivePriority(contract)
 	}
 	if problem := ownerQueueProblem(terms); problem != "" {
 		return block("queue_terms_invalid", problem)
@@ -358,4 +358,14 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 	}
 	out.Accepted, out.Place, out.OrderRef, out.PreviewTokenID = placed.Accepted, placed, placed.OrderRef, placed.PreviewTokenID
 	return out, nil
+}
+
+// queuedOwnerAdaptivePriority is the algorithm a queued midpoint order carries.
+// Adaptive runs only on SMART, so an order on a listing's own exchange goes as a
+// plain limit at the same bounded price.
+func queuedOwnerAdaptivePriority(contract rpc.ContractParams) string {
+	if strings.EqualFold(strings.TrimSpace(contract.Exchange), "SMART") {
+		return "Normal"
+	}
+	return ""
 }

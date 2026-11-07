@@ -24,8 +24,8 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	}
 	u := p.Underlying
 	currencyValid := len(u.Currency) == 3 && strings.IndexFunc(u.Currency, func(r rune) bool { return r < 'A' || r > 'Z' }) < 0
-	if u.Symbol == "" || len(u.Symbol) > 32 || u.SecType != "STK" || !currencyValid || u.Exchange != "SMART" || u.ConID < 0 || u.Expiry != "" || u.Strike != 0 || u.Right != "" {
-		return nil, errBadRequest("Add requires an exact SMART stock underlying and trading currency")
+	if u.Symbol == "" || len(u.Symbol) > 32 || u.SecType != "STK" || !currencyValid || u.Exchange == "" || (u.Exchange != "SMART" && u.Currency == "USD") || u.ConID < 0 || u.Expiry != "" || u.Strike != 0 || u.Right != "" {
+		return nil, errBadRequest("Add requires an exact stock underlying and trading currency, on SMART for a US dollar stock")
 	}
 	if p.Right != "" && p.Right != "C" && p.Right != "P" {
 		return nil, errBadRequest("Choose right C or P")
@@ -60,7 +60,7 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	started, mark := time.Now(), time.Now()
 	phase := map[string]time.Duration{}
 	lap := func(name string) { phase[name], mark = time.Since(mark), time.Now() }
-	exact, err := c.ResolveOrderContractForSession(ctx, binding, ibkr.Contract{ConID: u.ConID, Symbol: u.Symbol, SecType: "STK", Currency: u.Currency, Exchange: "SMART"}, 8*time.Second)
+	exact, err := c.ResolveOrderContractForSession(ctx, binding, ibkr.Contract{ConID: u.ConID, Symbol: u.Symbol, SecType: "STK", Currency: u.Currency, Exchange: u.Exchange}, 8*time.Second)
 	lap("underlying")
 	if err != nil {
 		return nil, err

@@ -785,6 +785,7 @@ func dayOrderSessionDeadline(cal *marketcal.Calendar, view rpc.OrderView, placed
 	market := quoteMarketForStockContract(rpc.ContractParams{
 		Exchange:    view.Exchange,
 		PrimaryExch: view.PrimaryExch,
+		Currency:    view.Currency,
 	})
 	ses, err := cal.SessionAt(market, placed)
 	if err != nil {

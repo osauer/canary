@@ -25,7 +25,7 @@ func briefSessionMarket(pos *rpc.PositionsResult) marketcal.Market {
 			if !rpc.PositionQuotesAsStock(p) && !strings.EqualFold(p.SecType, rpc.SecTypeOption) && !strings.EqualFold(p.SecType, "OPT") {
 				continue
 			}
-			weights[briefVenueMarket(p.PrimaryExch, p.Exchange, p.Currency)] += positionWeight(p)
+			weights[listingMarket(p.PrimaryExch, p.Exchange, p.Currency)] += positionWeight(p)
 		}
 	}
 	best, bestWeight := marketcal.MarketUSEquity, weights[marketcal.MarketUSEquity]
@@ -50,11 +50,11 @@ func positionWeight(p rpc.PositionView) float64 {
 	return 1
 }
 
-// briefVenueMarket is venueMarket with the contract currency as the fallback
+// listingMarket is venueMarket with the contract currency as the fallback
 // for a row IBKR reports without a listing venue, as option rows often are.
 // Tokyo is TSEJ in IBKR's naming; TSE is Toronto and stays on the US default
 // like every venue without a calendar.
-func briefVenueMarket(primaryExch, exchange, currency string) marketcal.Market {
+func listingMarket(primaryExch, exchange, currency string) marketcal.Market {
 	for _, venue := range []string{primaryExch, exchange} {
 		if market, ok := venueMarket(venue); ok {
 			return market

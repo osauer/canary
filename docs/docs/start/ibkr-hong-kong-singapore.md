@@ -89,11 +89,13 @@ share's return in its own currency with SPY's in US dollars unless you set
 
 ## Orders
 
-Canary does not support orders on SEHK or SGX listings, whether buying or selling
-shares you hold. Do not act on a preview of one, whatever it shows. Its order
-paths send stocks through SMART, which Interactive Brokers refuses for these
-listings. Use TWS or the IBKR app for these orders. Account figures, positions,
-statements and the lookups above are not affected.
+An order for an SEHK or SGX share goes to its own exchange, because Interactive
+Brokers does not route these listings through SMART. The preview names the exchange
+and is judged on that market's hours, lunch break included. Interactive Brokers'
+Adaptive algorithm runs only on SMART, so these orders go as plain limits: a
+reduction says so in its terms, and asking for Adaptive by hand is refused with the
+reason. Interactive Brokers decides the rest, such as board lots and price steps, in
+its answer to the preview. Read that answer before you confirm.
 
 If your base currency is HKD or SGD, the preview refuses an order in any other
 currency, US shares included, and names the reason. An account in another base

@@ -44,9 +44,9 @@ func TestTechnicalMarketShortcutsRouteToTheListing(t *testing.T) {
 	}
 }
 
-// The shortcuts stay out of the contract normaliser order preview shares: until
-// the order path's routing is decided, an order for hk or sg is refused as it
-// was, and this read widens nothing a broker write accepts.
+// The shortcuts stay out of the contract normaliser order preview shares: an
+// order names the listing by its exchange or by contract id, and this read
+// widens nothing a broker write accepts.
 func TestOrderContractNormaliserStillRefusesTheListingMarkets(t *testing.T) {
 	for _, market := range []string{"hk", "sg"} {
 		if _, _, _, err := normaliseStockQuoteContract(rpc.ContractParams{Symbol: "700", Market: market}); err == nil {

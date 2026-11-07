@@ -96,6 +96,9 @@ func TestReduceAdaptiveSupportedPerContract(t *testing.T) {
 		{"us option", rpc.ContractParams{SecType: "OPT", Exchange: "SMART", Currency: "USD"}, false},
 		{"german stock", rpc.ContractParams{SecType: "STK", Exchange: "SMART", PrimaryExch: "IBIS", Currency: "EUR", Market: "de"}, false},
 		{"directed route", rpc.ContractParams{SecType: "STK", Exchange: "ARCA", Currency: "USD"}, false},
+		{"a dollar line on Singapore", rpc.ContractParams{SecType: "STK", Exchange: "SMART", PrimaryExch: "SGX", Currency: "USD"}, false},
+		{"a dollar line routed to Hong Kong", rpc.ContractParams{SecType: "STK", Exchange: "SEHK", PrimaryExch: "SEHK", Currency: "USD"}, false},
+		{"us stock with its listing named", rpc.ContractParams{SecType: "STK", Exchange: "SMART", PrimaryExch: "NASDAQ", Currency: "USD"}, true},
 		{"bond", rpc.ContractParams{SecType: "BOND", Exchange: "SMART", Currency: "USD"}, false},
 	} {
 		if got := reduceAdaptiveSupported(tc.contract); got != tc.want {

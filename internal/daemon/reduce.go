@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -167,7 +168,8 @@ func reduceAdaptivePriority(requested string) (string, []rpc.TradingBlocker) {
 // limit routed SMART for the regular session, the one shape the broker layer
 // admits (pkg/ibkr validateAdaptiveOrder). An option cannot: the broker layer
 // refuses an Adaptive option order, so the reduction sends a plain limit at
-// the mid and its terms say so.
+// the mid and its terms say so. Nor can a dollar line listed abroad, which the
+// order path may move off SMART once the broker has named its routes.
 func reduceAdaptiveSupported(contract rpc.ContractParams) bool {
 	switch strings.ToUpper(strings.TrimSpace(contract.SecType)) {
 	case "STK", "ETF":
@@ -175,6 +177,9 @@ func reduceAdaptiveSupported(contract rpc.ContractParams) bool {
 		return false
 	}
 	if exchange := strings.ToUpper(strings.TrimSpace(contract.Exchange)); exchange != "" && exchange != "SMART" {
+		return false
+	}
+	if market, listed := venueMarket(contract.PrimaryExch); listed && market != marketcal.MarketUSEquity {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(contract.Currency), "USD")

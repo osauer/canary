@@ -39,9 +39,9 @@ var usDollarStockExchanges = map[string]struct{}{
 // with code 200, so the listing's own list of routes decides, in one place. An
 // unanswered lookup leaves the contract as it came.
 //
-// This is for reads only. Order contracts go through
-// ResolveOrderContractForSession and SubscribeMarketDataWithContractForSession,
-// which keep the caller's route.
+// This is for reads only. An order's route is settled once, by
+// ResolveOrderContractForSession, so the preview shows it and the token binds it;
+// SubscribeMarketDataWithContractForSession then keeps that route.
 func (c *Connector) routeListingForRead(contract Contract) Contract {
 	if !c.listingRouteInQuestion(contract) {
 		return contract

@@ -446,6 +446,9 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if p.AdaptivePriority != "" && (orderType != rpc.OrderTypeLMT || !slices.Contains([]string{"STK", "OPT"}, contract.SecType) || !slices.Contains([]string{"Normal", "Patient", "Urgent"}, p.AdaptivePriority)) {
 		return nil, errBadRequest("Adaptive requires a stock or option limit and Normal, Patient, or Urgent priority")
 	}
+	if p.AdaptivePriority != "" && !strings.EqualFold(contract.Exchange, "SMART") {
+		return nil, errBadRequest(fmt.Sprintf("IBKR's Adaptive algorithm runs only on SMART, and this order goes to %s; leave Adaptive off to send a plain limit", contract.Exchange))
+	}
 	tif := strings.ToUpper(strings.TrimSpace(p.TIF))
 	if tif == "" && scope == rpc.OrderTokenScopeModify {
 		// Modify previews freeze TIF to the open order; defaulting to DAY here

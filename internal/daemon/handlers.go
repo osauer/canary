@@ -2391,24 +2391,17 @@ func (s *Server) handleOptionQuoteSnapshot(ctx context.Context, c *ibkrlib.Conne
 	return q, nil
 }
 
+// quoteMarketForStockContract is the calendar a stock's quote and order session
+// read: the owner's market word, else the listing, else its currency. A listing
+// with no calendar keeps the US one.
 func quoteMarketForStockContract(c rpc.ContractParams) marketcal.Market {
-	market := strings.ToLower(strings.TrimSpace(c.Market))
-	exchange := strings.ToUpper(strings.TrimSpace(c.Exchange))
-	primary := strings.ToUpper(strings.TrimSpace(c.PrimaryExch))
-	switch {
-	case market == "de" || market == "germany" || market == "xetra" || market == "ibis":
+	switch strings.ToLower(strings.TrimSpace(c.Market)) {
+	case "de", "germany", "xetra", "ibis":
 		return marketcal.MarketDEXetra
-	case exchange == "IBIS" || primary == "IBIS" || exchange == "IBIS2" || primary == "IBIS2":
-		// IBIS2 is Xetra's second segment (the trend fund's EUR line, 2026-10-19):
-		// the same Xetra calendar, never the US one.
-		return marketcal.MarketDEXetra
-	case market == "uk" || market == "london" || market == "lse":
+	case "uk", "london", "lse":
 		return marketcal.MarketUKLSE
-	case exchange == "LSE" || exchange == "LSEETF" || primary == "LSE" || primary == "LSEETF":
-		return marketcal.MarketUKLSE
-	default:
-		return marketcal.MarketUSEquity
 	}
+	return listingMarket(c.PrimaryExch, c.Exchange, c.Currency)
 }
 
 func quoteSessionMarketForContract(c rpc.ContractParams) (marketcal.Market, bool) {
