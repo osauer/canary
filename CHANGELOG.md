@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.35.0 — 2026-11-07 07:00 CET
+## v3.35.0 — 2026-11-07 07:53 CET
 
 ### What's new
 
@@ -19,6 +19,7 @@ The index hedge now stays available when a book has used all of its loss room, a
 - **A hedge is sized with working sales counted as sold.** A working sale of a line you hold long counts for what remains of it, if selling that line lowers the loss in the fall. A working sale Canary cannot read holds the hedge sale back.
 - When Canary blocks broker writes because a committed change is missing from its store, the log names the document and a copy of the store is kept under `damaged/lost-write-<time>/`. Canary also blocks them when the store's commit counter reads older than a commit it saw land. What causes a missing commit is not yet known. Open that copy read-only, because a read-write open empties its write-ahead log; the [storage page](https://osauer.dev/canary/docs/internals/storage.html) says what to do.
 - The protection page says that a standing authority needs the daemon: while the machine sleeps, nothing is checked or sent.
+- The agentic trading guide starts with how to connect to Interactive Brokers.
 - The Chinese start pages use a more readable term for the cash sweep and keep the English term beside it.
 
 ### Fixed
