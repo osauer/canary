@@ -1,8 +1,8 @@
 # Troubleshooting
 
-Updated: 2026-11-03 15:02 CET
+Updated: 2026-11-07 07:48 CET
 
-Symptom, cause, fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected. For missing or degraded inputs, run `canary data health`.
+Each section below starts from a symptom, names the cause and gives the fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected. For missing or degraded inputs, run `canary data health`.
 
 ## The `Gateway setup` row says a setting differs
 
@@ -144,15 +144,17 @@ The full text is `gateway HOST:PORT not responding to TWS handshake within 12s; 
 
 A related message, `none of N discovered endpoint(s) completed TWS handshake (tried ...)`, means several apps accepted TCP and none completed the handshake. It lists every endpoint tried, which is usually a stale Gateway window alongside a freshly logged-in TWS. Quit the one you do not want.
 
-## `daemon socket did not appear within 5s`
+## `daemon socket did not appear within …` or `daemon pid N exited during startup`
 
-The CLI autospawns `canary daemon` when the socket is missing and gives it a 5 second budget to reach its accept loop. This message means it did not, so the daemon crashed or wedged during startup.
+When the socket is missing, the CLI starts `canary daemon` itself and waits for the socket to appear. The wait grows with the size of the daemon's state, because the daemon checks all of it, and may upgrade it, before it accepts connections. It is 5 seconds plus 6 seconds for every 40 MiB of `daemon.db`, capped at four hours, and the message prints the wait it used, for example `daemon socket did not appear within 2m41s` for a 1 GiB database. This message means the daemon was still running at the end of that wait without opening the socket, so it is wedged during startup.
+
+A daemon that exits during startup is reported at once, without waiting out the budget: `daemon pid N exited during startup without opening PATH`.
 
 The error carries what the CLI could find out. When a lock holder is alive it adds `daemon PID N holds PATH but never opened the socket` and `if it's stuck, run: kill N`. When the last daemon log line is readable it appends `last daemon log: ...`. Read the full log at `~/.local/state/ibkr/ibkr-daemon.log` before killing anything.
 
-If the daemon log ends with a `start:` line about `daemon authority`,
-`daemon.db` or the preview key, a startup integrity check failed and the
-daemon stays stopped on purpose; follow
+If the message says the daemon exited and the `last daemon log` line starts
+with `start:` and names `daemon authority`, `daemon.db` or the preview key, a
+startup integrity check failed and the daemon stays stopped on purpose; follow
 [Recover from a failed startup check](../internals/storage.md#recover-from-a-failed-startup-check).
 
 ## The daemon stops at start with a config error
@@ -196,7 +198,7 @@ The check is skipped for `canary status`, and it stays quiet when either side st
 
 ## Quotes say `delayed`, `frozen`, or `delayed-frozen`
 
-Usually correct behavior, not a fault. Market data is real-time wherever your IBKR market-data subscriptions cover it and delayed where they don't.
+Usually correct behaviour, not a fault. Market data is real-time wherever your IBKR market-data subscriptions cover it and delayed where they don't.
 
 | `DATA` value | What it means |
 | --- | --- |
@@ -207,9 +209,8 @@ Usually correct behavior, not a fault. Market data is real-time wherever your IB
 
 The daemon asks the gateway for market-data type 2 (frozen-aware) on every connect, deliberately: type 1 (pure live) can leave snapshot requests hanging when the market is closed, while type 2 returns the last-known price instead. If you expected `live` on a symbol and got `delayed`, the fix is a market-data subscription in IBKR's account management, not a change here.
 
-The gateway sends one snapshot in frozen mode and never streams. In v3, inspect
-the relevant position or app row and its session context; the standalone quote
-watch command has been retired.
+The gateway sends one snapshot in frozen mode and never streams. To see a
+quote's context, inspect the relevant position or app row and its session.
 
 ## A held name stopped updating after an overnight gateway reset
 
@@ -229,7 +230,7 @@ and marks it stale when it is no longer the latest completed session. The daemon
 keeps serving last-good rather than publishing a partial replacement; `canary
 status` carries the subsystem cause and retry state.
 
-Computing for a long time is expected on a fresh daemon. IBKR's historical-data pacing caps the 503-name fan-out at about 6 names a minute, so the first build takes about 74 minutes. A pass that lands below 80% constituent coverage publishes nothing and retries every 12 minutes, up to 15 times, which can stretch the wait considerably. After that the state falls back to `cold` and the normal once-daily refresh takes over, 35 minutes after the official session close.
+Computing for a long time is expected on a fresh daemon. IBKR's historical-data pacing caps the 503-name fan-out at about 6 names a minute, so the first build takes about 74 minutes. A pass that lands below 80% constituent coverage publishes nothing. The engine keeps the names it did fetch and tries again every 12 minutes until a pass reaches 80%; there is no limit on the number of tries. While the broker connection or its historical-data farm is unusable, it checks every 60 seconds instead. Once a snapshot is published, the normal once-daily refresh takes over, 35 minutes after the official session close.
 
 ## Gamma says `no data yet (cold cache)` or `computing`
 
@@ -237,8 +238,8 @@ Both are states rather than failures, and both exit 0. Only the `error` status e
 
 Cold means no usable result exists and nothing is computing. The daemon prewarms gamma after gateway startup and refreshes behind the served value after a 15-minute soft TTL during regular US option hours. Outside those hours automatic refresh is not due at all, so an off-hours cold cache stays cold on purpose rather than running a heavy option-chain fan against a closed market.
 
-`canary status --json` and the app expose the computing state, progress, and
-typed failure without the retired force/no-wait command controls.
+`canary status --json` and the app show the computing state, its progress, and
+the reason for a failure.
 
 During regular US option hours, an IBKR 354 on SPY or SPX triggers one delayed
 retry for that underlying. A successful result says `15m delayed` in text and

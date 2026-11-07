@@ -133,14 +133,13 @@ func TestReduceHedgePlanRefusals(t *testing.T) {
 func TestReduceHedgePlanStaysWithinWhatPlacementAdmits(t *testing.T) {
 	s := hedgeServer(t, mandateReductionStock("SPY", 9101, 3000, 50))
 	in, _ := s.reduceMandateInput(t.Context())
-	in.Capital.Room = (150000 + 3.5*2700) / 300000
+	in.Capital.Room = (150000 + 3.5*2700) / 300000 // the room no longer holds the sale back
 	res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true})
-	if len(res.Blockers) > 0 || len(res.Legs) != 1 || res.Legs[0].ReduceQuantity != 3 ||
-		!strings.Contains(res.Message, "5 would reach neutral") || !strings.Contains(res.Message, "above the loss room") {
-		t.Fatalf("plan = %d legs %+v, message %q; want SELL 3 held below neutral by the loss room", len(res.Legs), res.Blockers, res.Message)
+	if len(res.Blockers) > 0 || len(res.Legs) != 1 || res.Legs[0].ReduceQuantity != 5 {
+		t.Fatalf("plan = %d legs %+v, message %q; want SELL 5 to neutral", len(res.Legs), res.Blockers, res.Message)
 	}
-	if hedgeSaleRefusal(*in, mandate.Leg{ID: mandateConLegID(750001), Symbol: "MESZ6", Underlying: mandate.MicroSP500Future, Kind: mandate.KindStock, Multiplier: 5, Currency: "USD", Spot: 6000}, 3) != "" {
-		t.Fatal("the planned sale would be refused at placement")
+	if why := hedgeSaleRefusal(*in, mandate.Leg{ID: mandateConLegID(750001), Symbol: "MESZ6", Underlying: mandate.MicroSP500Future, Kind: mandate.KindStock, Multiplier: 5, Currency: "USD", Spot: 6000}, 5); why != "" {
+		t.Fatalf("the planned sale would be refused at placement: %s", why)
 	}
 
 	spy := mandateReductionStock("SPY", 9101, 3000, 50)

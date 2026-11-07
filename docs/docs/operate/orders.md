@@ -1,6 +1,6 @@
 # Gated orders and the trading build
 
-Updated: 2026-10-31 08:33 CET
+Updated: 2026-11-07 07:47 CET
 
 The standard `canary` binary is read-only and compiles in no broker-write path.
 It does preview: once `[trading].mode` is paper or live, `canary order preview`
@@ -14,6 +14,13 @@ these actions:
 - place a buy or sale of one government or investment-grade bill or bond
   named by ISIN or CUSIP ([Bond orders](#bond-orders));
 - submit or reduce a daemon-owned close/reduce protection proposal;
+- sell Micro E-mini S&P 500 futures as an index hedge, or buy a held hedge
+  back (`canary proposals reduce --portfolio --mode hedge` to sell,
+  `canary proposals reduce --con-id ID --percent N --include-hedges` to buy
+  back; see [Protection and risk reduction](protection.md));
+- arm a queued authorisation, an order you signed that the daemon sends
+  itself at the next regular session
+  ([Queued authorisations](protection.md#queued-authorisations));
 - submit a cash sweep proposal, which buys a same-currency bill with idle cash
   or sells one ([Cash sweep](cash.md#cash-sweep));
 - submit a currency leveling conversion, which repays a borrowed currency
@@ -28,17 +35,6 @@ consume a submit-eligible token for that exact draft and pass the same daemon
 admission gates as every other write. A proposal or opportunity preview is
 candidate-specific evidence and never submit authority. The MCP server has no
 preview or execution tools.
-
-## Deactivated broker orders
-
-An explicit broker `deactivate` flag appears as `deactivated` in the order
-read model. Such an order is retained at IBKR and can be activated externally.
-It remains visible, blocks competing orders, and does not count as active
-protection. Canary does not activate it or offer modification through this
-state. A later explicit active open-order callback resumes the same identity.
-Ordinary `Inactive` callbacks remain distinct, and final fills, cancellations
-and rejections remain terminal. Older callbacks without the flag cannot prove
-deactivation.
 
 ## Required authority
 
@@ -82,7 +78,7 @@ permission shows it not enabled. For futures, the class of the index hedge,
 the daemon checks itself at each start and then daily, with a preview of
 buying one Micro E-mini S&P 500 contract at half its price, or selling one at
 twice its price when a short is held so the preview still opens exposure.
-IBKR evaluates it and no order is sent (owner decision 2026-10-29 07:14 CET). Options,
+IBKR evaluates it and no order is sent. Options,
 stocks and bonds are learned from your own previews. `canary trading status`
 shows a row per class, and `canary status` a `Broker access` line, in yellow
 while a class is not enabled. An order that opens or adds to a position in
@@ -129,8 +125,9 @@ canary order preview buy|sell ISIN|CUSIP FACE --type BOND|BILL --currency CCY
 
 `FACE` is the nominal amount in the bond's currency, for example `25000`
 for 25,000 USD of a Treasury note. Canary finds the bond at IBKR, works out
-the order quantity (IBKR counts US bonds in units of 1,000 and EUR, GBP and
-CAD bonds in units of 1), and prices a limit order for the day between the
+the order quantity (IBKR counts a US bond or bill, and a euro bill,
+in units of 1,000 of face; a euro bond, and a UK or Canadian bond or bill, in
+units of 1), and prices a limit order for the day between the
 live bid and ask, inside the bond's own trading hours. A limit price, trail,
 outside-hours flag or change to a working bond order is not offered; cancel
 the order and preview again instead.
@@ -173,15 +170,17 @@ rise in yields would cost. Below the table it sums the book: bonds and that
 loss as a share of net liquidation value, the non-government share, and the
 largest issuer. A bond Canary cannot measure, such as an inflation-linked one,
 is named with the reason. `canary stress` adds a "Rates and credit" row with
-the same sums. None of this warns or blocks yet: the limits are still to be
-set.
+the same sums. These figures are for reading: no limit is set on them, so
+they neither warn nor block.
 
 ## Who placed an order
 
 Each row of `canary orders open --json`, `orders history` and `order status`
 carries the `origin` journaled with the request that placed it: `agent`,
-`human-tty`, `human-paired-device`, `daemon-preauthorised` or
-`daemon-owner-queued` (a queued authorisation the owner signed). Modify and
+`human-tty`, `human-paired-device`, `daemon-preauthorised` (a row in a
+pre-authorised bucket, after its veto window), `daemon-owner-queued` (a queued
+authorisation the owner signed) or `desk-automatic` (a proposal row the daemon sent
+for the Desk console under the owner's standing automatic authority). Modify and
 cancel requests keep their own origin on their events; the daemon's protective
 stop guard journals `daemon-protective-guard` when it shrinks or cancels one of
 Canary's own stops. A row without an origin
@@ -194,13 +193,24 @@ available for the current mode (`untracked_control`); otherwise cancel or
 change them in TWS. An empty `untracked` list means none only when
 `untracked_status` is `current`.
 
+## Deactivated broker orders
+
+An explicit broker `deactivate` flag appears as `deactivated` in the order
+read model. Such an order is retained at IBKR and can be activated externally.
+It remains visible, blocks competing orders, and does not count as active
+protection. Canary does not activate it or offer modification through this
+state. A later explicit active open-order callback resumes the same identity.
+Ordinary `Inactive` callbacks remain distinct, and final fills, cancellations
+and rejections remain terminal. A callback that carries no such flag
+never marks an order deactivated.
+
 ## Orders placed in TWS
 
 An order entered by hand in TWS belongs to TWS's client id 0, and the API
 lets only a connection with that id bind and change it. Canary's own
 connection is pinned to another id and stays as it is. When the owner turns
 `trading.tws_order_control.enabled` on, an owner-confirmed cancel or change
-of such an order runs this way (owner decision "TWS B", 2026-10-11):
+of such an order runs this way:
 
 1. The ordinary broker-write gates run: trading mode, account, the freeze (a
    cancel passes it, a change does not), the journal.
@@ -288,9 +298,6 @@ an exercise that opens, increases, or flips risk.
 
 ### Exercise reconciliation
 
-Owner decision recorded: 2026-10-23 11:43 WEST. Reconcile against IBKR evidence
-with human confirmation of the exact request; keep uncertain requests blocked.
-
 Sending an exercise instruction does not prove that IBKR has completed it.
 Canary keeps the affected option quantity and underlying capacity reserved
 while the outcome is unresolved, including after a timeout or restart. It
@@ -327,9 +334,8 @@ the request blocked. A cancellation claim alone cannot clear it. The command
 cannot override these checks, and agents and MCP cannot perform this
 confirmation.
 
-Older pending exercise records may lack the exact contract and position
-metadata needed for evidence reconciliation. They stay visible with an
-explanation and cannot yet use this recovery command. Canary blocks sales of
+A pending exercise record without the exact contract and position metadata
+cannot be reconciled this way. It stays visible with an explanation. Canary blocks sales of
 the affected option and trades in its known symbol; provably unrelated,
 identified contracts keep their existing gates. If the historical record
 cannot identify the affected symbol, or the proposed trade cannot be
@@ -340,7 +346,7 @@ identified, Canary cannot establish that it is unrelated and keeps it blocked.
 Auto endpoint discovery can select Gateway or TWS without a port pin. The
 broker must confirm the configured account; that account, not its port number,
 determines live/paper mode. Account and client ID pins, trading mode, freeze,
-risk checks and per-order authorization still apply. A switch requires a new
+risk checks and per-order authorisation still apply. A switch requires a new
 order preview and current broker evidence. Pinned ports remain fixed. After an
 upstream loss lasting 30 seconds, Auto tries another discovered listener first;
 brief losses and outages with no alternative retain the existing connection.
@@ -362,8 +368,8 @@ the only one. Quit the app you are not using.
 Each release publishes standard and `canary-trading-*` artifacts side by side.
 The installer and updater select the standard artifact unless the user
 deliberately installs the trading tarball. Product v3 release publication is
-hermetic: it performs no broker preview or write. Gateway behavior is verified
-separately by the authorized read-only smoke target.
+hermetic: it performs no broker preview or write. Gateway behaviour is verified
+separately by the authorised read-only smoke target.
 
 MCP remains read-only in every build. Adding an MCP broker action would require
 a separate authority, nonce, audit, confirmation, and adversarial review; no

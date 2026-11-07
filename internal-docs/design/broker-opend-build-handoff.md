@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-07 08:41 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-07 08:46 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -287,9 +287,11 @@ Agreement: read by the coordinating session, 2026-11-07: the published Moomoo AP
 
 Merge local main again and re-run the gate and spine if main has moved.
 
-First steps on resuming: run the checks still marked proof pending in gap 3, then decide the regime and FX package. Desk's re-pin comes after landing.
+First steps on resuming: read the state below, then run the regression spine and `scripts/opend-witness.sh` on the branch head, which the session of 2026-11-07 stopped before. Apply the last cold read's findings to the public text if any are recorded below. The regime read stays parked; the FX part of that package is built.
 
-Public text: `CHANGELOG.md` carries the stub `## v3.35.0 — Unreleased` at the owner's instruction, which release prep renames; `README.md` has an "Experimental: Futu OpenD" section and a line in its legal paragraph. A fresh reader cold-read both on 2026-11-05 and its ten findings were applied after checking them against the source. The changelog and README say what the gaps below make true, so each fix that closes a gap also edits them.
+State at the stop, 2026-11-07: the branch is merged with local main, the changelog stub is `v3.36.0` because main prepared `v3.35.0`, and this branch is not in that release. Nothing has landed or been pushed. Desk's re-pin comes after landing.
+
+Public text: `CHANGELOG.md` carries the stub `## v3.36.0 — Unreleased` at the owner's instruction, which release prep renames; `README.md` has an "Experimental: Futu OpenD" section and a line in its legal paragraph. A fresh reader cold-read both on 2026-11-05 and its ten findings were applied after checking them against the source. The changelog and README say what the gaps below make true, so each fix that closes a gap also edits them.
 
 ## Known gaps
 
@@ -310,6 +312,8 @@ Open:
 11. No LaunchAgent or install step for a permanent second daemon; the setup has run only in the witness and the dual-daemon test.
 12. The spine and the simulator witness last ran at `b3f0ea60`, the money check on its tree; they are landing steps again after the next merge. The paired app's Monitor tab was inspected on the simulator stack at `b3f0ea60`'s tree for the new row only; an earlier capture at `28119a91` shows stress as "Fault · transport unavailable", and the public text does not claim the app.
 15. A holding not analysed appears in the app's portfolio detail, not on its Positions tab, and the rulebook's checks do not name it. `canary positions`, the brief and `canary_positions` do.
+16. Trade reconciliation under OpenD has no design: it rests on IBKR's Flex statements, which are off under OpenD, and nothing replaces them. Open.
+17. The implied rate's ratio and the multiplier wait on a funded real login; the rest of gap 3 stays proof pending as written.
 13. Not done, and needed before phase D: `broker` in Desk's and the companion's signed-term allowlists.
 14. The agreement: see "Next".
 

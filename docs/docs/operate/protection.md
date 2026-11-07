@@ -1,35 +1,41 @@
 # Protection and risk reduction
 
-Updated: 2026-10-12 22:05 CEST
+Updated: 2026-11-07 08:25 CET
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
-fresh preview; optional pre-authorised buckets let the daemon schedule
-close/reduce actions under an owner-edited policy. Installing Canary does not
-enable that automation. The cash sweep and currency leveling are cash
+fresh preview. Optional pre-authorised buckets let the daemon place close and
+reduce orders itself under a policy you edit, once you have armed a standing
+authority on a paired device ([Pre-authorised buckets](#pre-authorised-buckets)).
+Installing Canary does not enable that automation. The cash sweep and currency leveling are cash
 management, not protection: they have their own section of the policy and
 their own authority ([Cash management](cash.md)).
 
 A blocked proposal row is normally the system refusing to act on evidence it
 cannot trust, not a fault to work around. Canary exposes only constrained
-close/reduce actions here; use TWS for an unmodeled emergency exit.
+close/reduce actions here; use TWS for an unmodelled emergency exit.
 
 ## What each command does
 
 | Command | Reaches the broker | Use it for |
 |---|---|---|
+| `canary proposals status` | no | monitoring and trading status: the pre-authorised buckets, pending counts, and buckets waiting for an arming |
 | `canary proposals list` | no | the current proposal set, blockers included |
 | `canary proposals refresh` | no | rebuild the set against fresh positions and quotes |
 | `canary proposals preview KEY REVISION` | no | mint a preview token and read the broker WhatIf verdict |
 | `canary proposals submit KEY REVISION` | yes | place that one protective order |
-| `canary proposals reduce SYMBOL --percent N` | only with `--submit` | a discretionary partial close; the preview returns a token with the exact terms, `--submit --preview-token` places them |
-| `canary proposals veto KEY` | no | hold the current automatic proposal revision before submission |
+| `canary proposals reduce SYMBOL --percent N` | only with `--submit` | a discretionary partial close of N percent (1 to 100; the paired app offers 25, 50, 75 and 100); the preview returns a token with the exact terms, `--submit --preview-token` places them |
 | `canary proposals request-stop SYMBOL` | no | stage a trailing-stop proposal for one uncovered stock/ETF holding now |
+| `canary proposals ignore KEY [REVISION]` | no | record that a proposal should be ignored |
+| `canary proposals veto KEY` | no | stop a pending pre-authorised submission of the current revision; human only |
+| `canary proposals queue ACTION` (`prepare`, `arm`, `cancel`, `list`, `status`) | the daemon sends an armed record inside its window | carry an order you signed to the next regular session ([Queued authorisations](#queued-authorisations)) |
+| `canary proposals prepare`, `prepared-status` | no | hand one proposal to a reviewing console under a private reference, and read its receipt |
+| `canary proposals prepare-bundle`, `submit-bundle`, `bundle-status` | `submit-bundle` only | prepare, send and read a currency leveling repayment approved once for all its conversions |
 
-`canary proposals` with no subcommand runs `list`. In a standard build the submit
-path fails closed anyway: the daemon's write handler is compiled out behind the
-`trading` build tag and returns `ErrTradingDisabled`. See
-[Constrained orders and the trading build](orders.md).
+`canary proposals` with no subcommand runs `list`. In a standard build every
+submit fails closed: the build carries no broker-write handler, and the daemon
+refuses with `order_writes_unavailable` before anything is sent. See
+[Gated orders and the trading build](orders.md).
 
 ## Proposals close or reduce only
 
@@ -38,46 +44,97 @@ protection policy, and market-event context, and every protection row it
 emits closes or reduces, without exception. The cash sweep's bill buys and
 currency leveling's conversions are not protection rows: the `[cash]` section
 admits them by their own typed bounds ([Cash management](cash.md)). The
+monthly rows of a live strategy in the strategy register (`core_rebalance`,
+`strategy_rebalance`) may buy; they are not protection either. They are never
+pre-authorised, so the daemon's own scheduler never sends them. Each goes on
+your device confirmation, or through Canary Desk's controller while a standing
+authority you armed stands; a buy needs Fully armed, and a row served for your
+review goes only on your confirmation. The
 submit path checks a protection row twice, once against the proposal's own
 position effect and once against the preview's, and blocks on either. A
 protection proposal cannot open, increase, or flip exposure.
 `authority.auto_submit` must be false; the policy file fails validation
 otherwise.
 
-Six buckets generate protection rows, enabled through the protection policy:
+These buckets generate protection rows. Each is enabled through the
+protection policy, except the forced reduction, which runs whenever the risk
+policy carries a `[mandate]` table:
 
-- **Trailing stop** places a broker-side trail against a stock or ETF. Its
+- **Trailing stop** (`trailing_stop`) places a broker-side trail against a stock or ETF. Its
   time-in-force is a policy decision, DAY by default, and a DAY
   stop expires at the session close without covering the overnight gap. Set
   `tif = "GTC"` under `[buckets.trailing_stop]` to persist it. The proposal
-  spells out which lifetime you are getting.
-- **Option loss exit** appears only for an exact standalone long contract that
+  spells out which lifetime you are getting. A stop you queue as a
+  whole-position stop ([Queued authorisations](#queued-authorisations)) then
+  follows the position as it grows or shrinks, without resetting or loosening
+  the broker trail.
+- **Option loss exit** (`option_loss_exit`) appears only for an exact standalone long contract that
   has a current exact `directional_intents` declaration or qualifies under the
-  approved `default_long_calls_directional` setting. At the
+  `default_long_calls_directional` setting. At the
   Rulebook-owned 60% loss of premium paid,
   measured on a fresh live bid against multiplier-adjusted cost, it proposes a
   full DAY patient-midpoint-limit close. It may remain unfilled while the loss
   worsens. It is event-driven: Canary does not install a resting loss stop or
   claim the loss is capped.
-- **Option profit trail** shares the trailing-stop bucket but is a separate
+- **Option profit trail** (`option_profit_trail` in the pre-authorised list)
+  shares the trailing-stop bucket but is a separate
   decision contract. It arms after a 50% premium gain and proposes a
   full-quantity DAY `TRAIL LIMIT` with a native percentage premium trail,
   normally 30%. Spread, minimum-premium-distance and tick floors can widen the
-  effective percentage within the approved 20-50% range. The initial
+  effective percentage within the 20-50% range. The initial
   rounded stop must retain at least 5% over cost after spread and tick floors.
   Possible hedges, multi-leg strategies, stale/delayed quotes and wide spreads
   remain blocked. The profit trail needs at least 14 DTE; the loss exit keeps
-  working to expiry, and an in-the-money long option is proposed for a DAY
-  limit close from the Rulebook's expiry act level (7 DTE) as
-  `option_expiry_close`, so nothing is exercised by accident (owner decision,
-  2026-09-28). A hedge-listed index put needs both
-  exact operator intent, a current directional Rulebook role, and exact-ConID
+  working to expiry. A hedge-listed index put needs all three: your
+  exact intent, a current directional Rulebook role, and exact-ConID
   Greeks evidence; symbol, option shape, and shared-cache Greeks never prove
   intent. Missing or invalid exact-ConID evidence keeps the role unclassified.
+- **Option expiry close** (`option_expiry_close`) proposes a DAY limit close of
+  an in-the-money standalone long option from the Rulebook's expiry act level
+  (7 DTE), so nothing is exercised by accident. It is never pre-authorised.
+- **Option exit review** (`option_exit_review`) is the blocked row a
+  directional option gets when its exact quote, cost, role or session
+  evidence is unavailable ([A blocked row is the system working](#a-blocked-row-is-the-system-working)).
+- **Theta hygiene** (`theta_hygiene`) proposes closing an option whose remaining value is mostly
+  time value bleeding toward expiry. When the underlying spot or the option mark
+  is missing or stale, the row still appears, blocked with
+  `extrinsic_uncomputable`, because the daemon then cannot separate intrinsic
+  from time value and cannot assert the close is non-destructive.
+- **Risk reduction** (`risk_reduction`) trims an issuer whose worst-case loss reaches the
+  Rulebook's act level (rule 1, `single_name_act_pct`, 40% by default) back to
+  its watch level (`single_name_watch_pct`, 30%; 20/30 for an illiquid
+  issuer), on the same measure: the most the issuer can lose at any price,
+  every leg netted. It reduces the leg that loses most at that price, capped
+  by `max_order_notional`, and becomes a full close only when the computed
+  quantity equals the whole position. When that leg alone cannot reach the
+  watch level the proposal says so. The levels live in `rulebook-policy.toml`: the
+  retired `single_name_target_pct_nlv` key is ignored with a note if a file
+  still carries it.
+- **Budget reduction** (`budget_reduction`) brings long option premium back inside a declared share
+  of the risk constitution's declared risk capital while the constitution's
+  drawdown brake is engaged. Its caps are your numbers: the file Canary
+  writes shows the table only as a commented placeholder, and the governor
+  stays off until you write it; [Budget reduction](#budget-reduction) says how.
+- **Forced reduction** (`mandate_reduction`) cuts the book back under the
+  mandate's loss room once a breach is confirmed
+  ([Forced reduction](#forced-reduction)).
+- **Unit exit** (`strategy_exit`) covers every multi-leg unit: each current
+  strategy, whatever its source, and every underlying whose legs have no single
+  decomposition. Canary never asks which leg is which. It values the unit as
+  one position: net premium paid per unit against the net close value at fresh
+  leg quotes (long legs at bid, short legs at ask), applies the same
+  Rulebook loss line to that net figure, and manages a profit trail itself from
+  the unit's high-water close value, since a broker trail cannot follow a combo.
+  Two long calls or two long puts of one underlying are not a unit; each is a
+  standalone position under the standing defaults. A unit row names its route:
+  `canary strategies close ID REVISION` for a recorded strategy, or a combo
+  order at the broker when Canary has no strategy record. `canary proposals
+  preview` and `submit` refuse a unit with `strategy_workflow_required`; nothing
+  about a unit row places an order.
 
-The option-exit policy uses the explicitly approved absolute `0.05`
-quote-currency `TRAIL LIMIT` offset. An inherited or omitted offset still fails
-activation. Standing defaults apply only to standard ungrouped long contracts.
+The option-exit policy uses an absolute `0.05` quote-currency `TRAIL LIMIT`
+offset. An inherited or omitted offset fails activation. Standing defaults apply
+only to standard ungrouped long contracts.
 `default_long_calls_directional` classifies long calls and non-hedge-listed
 long puts as directional unless they cover a holding: a call over a short stock
 of its own underlying, a put over a long stock of its own underlying, or an
@@ -85,31 +142,9 @@ index option over such a stock anywhere in the book, which makes the option
 protection. `default_index_puts_protection` excludes hedge-listed puts from
 directional exits. Exact declarations, including expired declarations, take
 precedence. A contract no standing default covers, such as a short option, a
-non-standard multiplier or a strategy leg, stays an owner review; Canary
+non-standard multiplier or a strategy leg, stays yours to review; Canary
 requests no quote for it and reports no quote blocker. Without a qualifying
 standing default or exact intent, an exit stays blocked.
-
-- **Theta hygiene** proposes closing an option whose remaining value is mostly
-  time value bleeding toward expiry. When the underlying spot or the option mark
-  is missing or stale, the row still appears, blocked with
-  `extrinsic_uncomputable`, because the daemon then cannot separate intrinsic
-  from time value and cannot assert the close is non-destructive.
-- **Risk reduction** trims an issuer whose worst-case loss reaches the
-  Rulebook's act level (rule 1, `single_name_act_pct`, 40% by default) back to
-  its watch level (`single_name_watch_pct`, 30%; 20/30 for an illiquid
-  issuer), on the same measure: the most the issuer can lose at any price,
-  every leg netted. It reduces the leg that loses most at that price, capped
-  by `max_order_notional`, and becomes a full close only when the computed
-  quantity equals the whole position. When that leg alone cannot reach the
-  watch level the proposal says so; ranking rolls, collars and trims across
-  legs by cost is a later step. The levels live in `rulebook-policy.toml`: the
-  retired `single_name_target_pct_nlv` key is ignored with a note if a file
-  still carries it.
-- **Budget reduction** brings long option premium back inside a declared share
-  of the risk constitution's declared risk capital while the constitution's
-  drawdown brake is engaged. Its caps are your numbers: the file Canary
-  writes shows the table only as a commented placeholder, and the governor
-  stays off until you write it; the section below says how.
 
 ### Budget reduction
 
@@ -132,8 +167,7 @@ Bump `policy_version` when you add it. Neither cap has a default in code: a
 value you did not write is a value the bucket does not have. An enabled table
 missing a cap or `max_order_notional` stays valid, and the governor switches
 itself off with the state `needs_your_number`, naming the keys it waits for;
-every other bucket keeps working. The numbers above are the 2026-09-21 mandate
-the product manager set for the desk owner to confirm by writing them; they
+every other bucket keeps working. The numbers above are an example; they
 are not a recommendation from the software.
 
 It generates rows only when all of the following hold, and the snapshot's
@@ -143,7 +177,7 @@ It generates rows only when all of the following hold, and the snapshot's
 |---|---|
 | `needs_your_number` | the table is enabled but a cap or `max_order_notional` is not written; the reason names the keys |
 | `constitution_unapproved` | no risk constitution is active, or a material key is unapproved |
-| `enforcement_shadow` | Legacy shadow-policy state; current risk-policy validation accepts only `hard` or an omitted `drawdown.block_enforcement` key, which also means `hard` |
+| `enforcement_shadow` | `drawdown.block_enforcement` is not `hard`; a risk policy that passes validation never shows it, because only `hard`, or the key left out, is accepted |
 | `not_latched` | the drawdown block tier is neither latched nor breached |
 | `currency_mismatch` | the constitution's base currency is not the account's |
 | `unmeasurable` | no long option leg has a base market value |
@@ -187,15 +221,16 @@ open rules the sale relieves, and the next two candidates with their `why`.
 Ignoring a row takes its line out of the plan: the next refresh moves to the
 next candidate.
 
-Index-put classification is shared with the Rulebook for both budget and
-mandate reduction plans. A measured directional put can enter the plan even
-when its symbol is on the hedge list; measured protection stays excluded.
+Index-put classification is shared with the Rulebook for budget reduction
+plans. A measured directional put can enter that plan even when its symbol is
+on the hedge list; measured protection stays excluded. The forced reduction
+never sells a hedge-listed long put, whatever it measures as.
 Missing classification holds the line and is reported separately from
 protection. Planning may use the same closed-session observations as the
 warning. Before preview or prepared submission admits a reduction, a fresh,
 complete broker measurement must still confirm that the put is directional;
 the existing scope-bound evidence expires with the order token. The policy
-limits, order caps, veto window and approval requirements are unchanged.
+limits, order caps, veto window and approval requirements still apply.
 
 **Measured against the Rulebook instead.** `basis = "rulebook"` replaces the
 two caps with limits you already keep in the Rulebook policy, as shares of NLV:
@@ -247,9 +282,8 @@ the snapshot with `shadow: true`, marked shadow in `canary proposals list` and
 listed by `--details` under a *Shadow (budget reduction)* heading of their
 own, so you can read what the rule would have done beside what you did.
 `preview` and `submit` refuse them with `shadow_mode`, and the
-pre-authorisation scheduler skips them: a row is eligible for automatic
-placement only when `AutomaticEligible()` holds, which a shadow row never
-does. `counts.budget_reduction` and `counts.budget_reduction_shadow` report
+pre-authorisation scheduler skips them: a shadow row is never eligible for
+automatic placement. `counts.budget_reduction` and `counts.budget_reduction_shadow` report
 the rows; shadow rows are never `actionable`.
 
 **Activating.** Set `mode = "active"` and bump `policy_version`. The rows
@@ -259,6 +293,79 @@ origin and the explicit submit). One thing does not change with the mode:
 every row carries `never_skip_veto`, so a scheduler that shortens or skips the
 veto window under a latched brake must still wait the full window for these.
 A reduction to budget is a discretionary-scale action, not a stop.
+
+### Forced reduction
+
+When the risk policy carries a `[mandate]` table, the daemon compares the
+book's loss measure with the loss room the mandate still allows
+(`canary mandate`). The loss measure is the premium at risk on every bought
+option (the higher of the price paid and today's value, protection included),
+plus the cash loss to the stop of every share line a working stop or trail
+covers, plus a held index-hedge future's loss in a 10% index move against it
+(or to its stop, when a working stop covers the whole line). A share line
+without a stop counts nothing and is named. The loss room is `max_loss_pct` of
+the budget base, less the drawdown already taken; the budget base is the
+high-water mark of the risk base, moved by deposits and withdrawals since the
+start ([Concepts](../understand/concepts.md#mandate)). The forced reduction is
+the batch of `mandate_reduction` rows that cuts the book back when that
+measure passes the room.
+
+**Trigger.** The daemon evaluates the mandate in the background every two
+minutes. Two consecutive background verdicts reading `reduce`, at least five
+and at most fifteen minutes apart, start a breach episode. Only a verdict at
+least five minutes after the last one counted joins the streak: the verdicts
+in between neither count nor reset it, and one more than fifteen minutes later
+starts the streak again. A verdict you request with `canary mandate` never
+counts, so polling cannot start a batch.
+Until the second verdict lands, the `mandate_reduction` status reads
+`watching`.
+
+**Size.** Each verdict sizes the batch afresh, on the book that verdict
+measured. Canary cuts step by step and measures the book again after each
+cut: first a losing line of a name over its gap cap, then the premium at risk
+that is left. Each time it picks the cheapest relief, the cut that removes the
+most of the loss measure per unit of market value given up, so a deep
+out-of-the-money option goes before a dated one and both go before shares.
+Each cut is the smallest whole step (contracts, or share lots) that takes the
+loss measure to 95% of the loss room with every gap cap met; the 5% margin
+keeps the next verdict from reading over by a hair. An in-the-money long
+option within three sessions of expiry is cut first only when its exercise
+alone would push the planned book over the room. Every row is held to the
+order caps in force (`[order_limits]` and `[buckets.risk_reduction]
+max_order_notional`, and `[order_limits].max_option_contracts` for an option);
+what a cap holds back goes in the next cycle.
+
+**What it never does.** It never buys back a short option, and never sells
+the shares that cover one: a covered position needs your hand, and the status
+names it. It never cuts shares below what the long puts on them would deliver
+at exercise. It never sells protection, a hedge-listed long put included,
+whatever that put measures as; the put's premium still counts in the measure,
+so the reduction alone may not bring the book back inside the room. It never
+sells a holding on your keep list (`canary locks`, below). A short index hedge never
+makes it sell: the cuts are sized on the book without its short hedges. When
+the episode ends, orders already at the broker are never cancelled.
+
+**Send order and price.** Expiry cuts go first; the rest go nearest expiry
+first, options before shares, and the cheaper relief first within one expiry.
+A row whose veto window has closed waits, for at most one more window, for a
+better-ranked row still inside its own. A pre-authorised cut after the open is
+a limit halfway from the mid toward the bid, as long as the spread is within the line's cap in the protection policy (25%
+of the mid for an option and 2% for shares when the policy sets none) and the
+price stays within 25% of the row's mark; otherwise the cut goes at the mid.
+An option cut whose spread is past its cap goes at the bid when the give, the
+mid minus the limit over the whole order, is at most
+`[mandate.reduction] cheap_leg_give_pct_of_loss` (2% as Canary writes it) of
+the loss measure the cut removes; otherwise it goes at the mid.
+
+**End and hold.** A verdict reading within the room ends the episode and
+withdraws the standing rows. An unknown verdict, or one measured on a
+different book from the one held (after a fill or a hand trade), holds the
+rows unsent and says why. The daemon places rows itself only when
+`mandate_reduction` is in `[authority].pre_authorised` and Protection or Fully
+armed stands ([Pre-authorised buckets](#pre-authorised-buckets)), and every
+row waits its full veto window; otherwise the rows wait for you.
+`canary mandate` shows the status, the loss, the room, the 95% target, the
+projected loss and every order in dispatch order.
 
 `canary proposals reduce` is separate: a discretionary partial close you size
 yourself. It previews unless you pass `--submit`. Under `--portfolio` the
@@ -279,9 +386,9 @@ book now and with every planned leg filled, in the base currency:
 - The index rise, the same shock upward (`index_rise_pct`,
   `index_rise_loss_before_base`, `index_rise_loss_after_base`). A negative
   loss is a gain, on either side.
-- The mandate's loss measure, premium at risk on every bought option plus
-  the cash loss to every armed share stop, against the loss room the mandate
-  still allows (`loss_measure_before_base`, `loss_measure_after_base`,
+- The mandate's loss measure, as [Forced reduction](#forced-reduction)
+  defines it, against the loss room the mandate still allows
+  (`loss_measure_before_base`, `loss_measure_after_base`,
   `loss_room_base`). Locked lines count in it and are never traded.
 - The trading cost: half the quoted bid-ask spread on each leg, times its
   units and multiplier (`trade_cost_base`). Commissions are not in it. A
@@ -293,11 +400,17 @@ book now and with every planned leg filled, in the base currency:
 Micro E-mini S&P 500 futures, the front quarterly contract on CME (a
 contract in its expiry week is skipped for the next), until a 10% S&P fall
 leaves the whole book about even. The size is in whole contracts, rounded
-toward less hedge, so its modeled payout in that fall does not exceed the
-book's modeled loss. Every line
+toward less hedge, so its modelled payout in that fall does not exceed the
+book's modelled loss. Every line
 counts toward the size, locked ones too, and hedge sales already working
 count as sold: the plan offers the rest to neutral and says how many are
-working. The plan carries one leg with its
+working. A working sale of a line you hold long counts as sold too, for what
+remains of it, when selling that line lowers the loss in the fall, so a cut
+still working cannot leave the hedge past neutral when it fills. A stop or trail
+does not count until the market reaches it. If that sale is cancelled, the hedge
+covers less of the fall than the book would lose, and the next plan sells the
+rest. A working sale Canary cannot read is left out of the size, the plan says
+so, and the sale is refused until it can be read. The plan carries one leg with its
 `contract` (month and multiplier) and the same scores as a cut. When the
 fall already leaves the book even or ahead, or its loss is less than one
 contract offsets, the plan sells nothing and says why. A held future counts
@@ -309,15 +422,18 @@ In the mandate's gap stress the future moves with SPY and every other broad
 index fund or index on the list: one index gap moves them all together,
 each by the full gap. The
 gap cap applies to their net loss, so a hedge lowers the index gap loss and
-can bring a breached index line back under its cap. It breaches only when
-it hedges past neutral. A sale is refused for the gap cap only when it adds
-a breach or makes one worse. `canary mandate` shows the group under
+can bring a breached index line back under its cap. With nothing else in the
+group, as with a book of single-name calls, the hedge reads as a breach of its
+own, and the book reads `reduce` until it is bought back; that breach does
+not refuse the sale. `canary mandate` shows the group under
 Stresses as `Index gap ±12% across` with its lines and their net figure.
 The stress does not model the difference between SPY and the future.
 
 Without `--plan`, `--mode hedge` previews the sale and the leg carries a
-signed preview token; `--portfolio --submit --preview-token TOKEN`, or the
-device-confirmed basket in Desk, places exactly those terms. The sale is a
+signed preview token. You place the sale yourself, in one of two ways: from a
+terminal in the trading build with `--portfolio --submit --preview-token
+TOKEN`, or through the device-confirmed basket in Canary Desk. Either places
+exactly those terms; Canary never sells a hedge on its own. The sale is a
 limit at the bid, good for the day, in US regular hours only, with no stop
 order. Placing needs `[mandate.index_hedge] max_contracts` in the risk
 constitution: without it the leg says `index_hedge_unplaceable`, and a sale
@@ -326,13 +442,46 @@ that would leave the book more contracts short than that says
 futures not enabled for the account, the sale says
 `broker_permission_not_enabled` ([Trading permissions at
 IBKR](orders.md#trading-permissions-at-ibkr)). At submit the hours,
-the cap and neutral sizing with all pending hedge sales across contracts and clients and the bid are read again. A
+the cap and neutral sizing with all pending sales across contracts and clients and the bid are read again. A
 held hedge is bought back as a percent reduce of its own line,
 `canary proposals reduce --con-id ID --percent N --include-hedges`; no
 portfolio sweep selects it.
 
-While a hedge is held, the hedge plan and preview carry two flags for the
-owner, who rolls and unwinds by hand; nothing acts on them:
+A sale is admitted when it lowers the loss in the 10% fall without passing
+neutral and does not turn the 10% rise into a loss or deepen one. The loss room
+and the gap cap do not refuse it, so the hedge stays open at the maximum loss.
+The drawdown brake and the mandate gate read the
+same rule. A sale past neutral, or one that would make the rise lose, is refused
+(`index_hedge_past_neutral`, `index_hedge_rise_loss`), and the plan offers the
+largest sale that passes and says what holds it lower.
+
+While an option has no volatility of its own and is priced on its mark, neutral
+is read at the end of its band that loses less, so a sale cannot pass neutral at
+either end, and the plan says so. A hedge already held is left as it is. What
+this leaves unhedged, the next plan sells once the option has its own volatility.
+
+During a mandate breach the reduction buys back what has passed neutral, in the
+`mandate_reduction` bucket with its veto window, as a limit at the ask in US
+regular hours (phase `hedge`). As the calls are sold, or a fall leaves them less
+to lose, the short would otherwise end a bare short of the index. A contract is
+bought back while the book without it is still even or ahead in the fall, or
+while the hedge makes the rise lose more than the book would without it. A
+locked hedge, an ignored row and a buy-back already working are left as they are
+and named under what was left out. This buy-back is the only hedge order Canary
+places on its own, and only as a `mandate_reduction` row under the arming
+([Pre-authorised buckets](#pre-authorised-buckets)); otherwise the row waits for
+you. A hedge is sold only when you place it. Within the loss room, with no stop
+on your own sleeve to act on, nothing buys it back, because the measure already counts its rise
+loss; `hedge_not_needed` says so. The close waits out its veto window from the
+verdict that first sees the excess, and moves to the next open if that runs past
+the close, so a short past neutral can stay overnight.
+
+A hedge never makes the reduction sell. The cuts are sized on the book without
+its short hedges, and a book inside its room without them sells nothing. The
+hedge's rise loss still shows in the measure and the batch's projection.
+
+While a hedge is held, the hedge plan and preview carry two flags for you.
+You roll the hedge by hand; the flags themselves trigger nothing:
 
 | Field | Set when | Message field |
 | --- | --- | --- |
@@ -340,11 +489,12 @@ owner, who rolls and unwinds by hand; nothing acts on them:
 | `hedge_not_needed` | the book without its held short hedges reads `within` on the mandate | `hedge_not_needed_message`: the loss measure without the hedge against the loss room |
 
 
-A hedge that increases the loss measure remains a risk addition, even when
-it reduces the modeled index-fall loss. Ordinary drawdown, mandate and owner
-sleeve gates still apply. The written contract cap bounds position size; it
-does not cap the loss of a short future if the index rises. The modeled
-upward shock is a comparison, not a maximum possible loss.
+The written contract cap bounds position size; it does not cap the loss of a
+short future if the index rises. The rule above reads the model's betas, so it
+assumes the names held follow the index: if the index rises and they do not, the
+short loses its face value times the rise, about the fall's loss it was sized to
+offset at 10% and more beyond, until it is bought back. The modelled upward shock
+is a comparison, not a maximum possible loss.
 
 A figure the plan cannot give is absent, and `index_loss_unknown`,
 `index_rise_loss_unknown`, `loss_measure_unknown` or `trade_cost_unknown`
@@ -406,17 +556,17 @@ carries the keep list resolved against its book under `holding_locks`.
 A lock on a name the book no longer holds keeps nothing. It is not pruned,
 since removing a lock is yours: `canary locks` and `holding_locks.list`
 report it as not held (`held: false`, no `contracts`), and it holds the name
-again once a line of it is held. A list saved by an earlier version named one
-contract per lock. It still reads: the entries of one name fold into one
-lock on that name, and one name saved under both roles reads as a hedge. The
-next save that changes the list writes it in the folded form. If the keep
+again once a line of it is held. A list that names one contract per lock
+reads too: the entries of one name fold into one lock on that name, and one
+name saved under both roles reads as a hedge. The next save that changes the
+list writes it in the folded form. If the keep
 list cannot be read, automatic reductions wait; an unreadable list never
 means no locks. A
 lock save waits for any in-flight broker transaction before acknowledging the
 new list. It does not cancel orders already sent. A reviewed basket refuses,
 and sends nothing for, a leg locked after the review. A single-holding
-`proposals reduce SYMBOL` still works on a locked line. `--include-hedges` is
-a hard error under `--portfolio` instead of a silent no-op.
+`proposals reduce SYMBOL` still works on a locked line. Under `--portfolio`,
+`--include-hedges` is refused with an error.
 
 A net portfolio preview also discloses signed net dollar delta before and the
 estimated delta after eligible orders fill, using current prices and Greeks;
@@ -448,8 +598,7 @@ sale joins the stop's one-cancels-all group or waits for the stop to shrink,
 like any other sale). `--request-ref REF` names a submission: a retry with
 the same reference replays the recorded result and never sends twice.
 
-Two reductions of one line never together sell more than is held (owner
-instruction 2026-10-22 17:45 CEST): a reduction sizes its percentage from
+Two reductions of one line never together sell more than is held: a reduction sizes its percentage from
 what Canary's own working orders on the line leave unsold (stops aside,
 which their one-cancels-all group and the stop guard keep within the line)
 and states that quantity as `committed_quantity`; the send refuses
@@ -460,9 +609,7 @@ stock the broker reports as having no market and values at zero counts as
 no exposure and is listed as left out (`defunct_holding`) instead of
 blocking the book.
 
-A reduction is a limit priced as a worst price, DAY (owner decision
-2026-10-22 15:26 CEST, which replaced the limit at the mid and its ±0.5%/2%
-band): a sale's limit sits `[order_limits].reduce_allowance_pct` below the
+A reduction is a limit priced as a worst price, DAY: a sale's limit sits `[order_limits].reduce_allowance_pct` below the
 bid (`reduce_option_allowance_pct`, and at least one tick, for an option), a
 purchase's that far above the ask, rounded toward the touch. The order can
 fill at once in a fast market, and the broker fills a marketable limit at
@@ -504,7 +651,7 @@ stock it covers), the Rulebook's role for a hedge-listed put (`protection` or
 of the whole book, `structural` because it covers a holding of its own
 underlying, `unmeasured` when that check has not completed (the detail says
 why), or `closed_market` when it waits for the options session. The check is
-Canary's own work and asks nothing of the owner; the standing rule applies
+Canary's own work and asks nothing of you; the standing rule applies
 until it completes, and the detail sentence says so in plain words. A
 hedge record carries its days to expiry, cost basis per contract unit, mark and
 market value, and no threshold, premium return or order terms. A hedge the
@@ -525,11 +672,9 @@ the issuer trim, the budget governor and theta hygiene; the orders are then
 identical. The other rows stay listed, blocked with `covered_by_proposal`,
 and name the covering row in `covered_by`.
 
-Two rules settle the cases where the largest would be wrong (owner decisions,
-2026-09-28):
+Three rules settle the cases where the largest would be wrong:
 
-- Owner, 2026-10-19 16:50 WEST: an unapproved stock sale must not suppress
-  stock protection. Both proposals remain available until an actual order
+- An unapproved stock sale does not suppress stock protection. Both proposals remain available until an actual order
   or confirmed intent invokes the existing duplicate-order checks.
 - Otherwise, an immediate sale goes before a trailing stop, whatever the sizes, unless
   the stop is pre-authorised (below). The stop is conditional and would hide
@@ -585,20 +730,6 @@ A directional option whose exact quote, cost, role, or session evidence is
 unavailable appears as a blocked **Option exit review** row. It is not
 silently dropped and it cannot be previewed as an order.
 
-- **Unit exit** (`strategy_exit`) covers every multi-leg unit: each current
-  strategy, whatever its source, and every underlying whose legs have no single
-  decomposition. Canary never asks which leg is which. It values the unit as
-  one position: net premium paid per unit against the net close value at fresh
-  leg quotes (long legs at bid, short legs at ask), applies the same
-  Rulebook loss line to that net figure, and manages a profit trail itself from
-  the unit's high-water close value, since a broker trail cannot follow a combo.
-  Two long calls or two long puts of one underlying are not a unit; each is a
-  standalone position under the standing defaults. A unit row names its route:
-  `canary strategies close ID REVISION` for a recorded strategy, or a combo
-  order at the broker when Canary has no strategy record. `canary proposals
-  preview` and `submit` refuse a unit with `strategy_workflow_required`; nothing
-  about a unit row places an order.
-
 ## When a stop no longer matches its position
 
 If a position shrinks or goes flat while a close-only protective order is still
@@ -638,17 +769,17 @@ exit is exempt from both:
   shows no other working sell for the same contract that together with this
   stop would sell more than is held.
 
-If the open-order list cannot be read, the exemption does not apply and
-today's refusal stands. A modify that only lowers the quantity of a working
+If the open-order list cannot be read, the exemption does not apply, and the
+order cap and the short check refuse the stop. A modify that only lowers the quantity of a working
 stop is exempt on the same terms without the third condition, because it can
 only shrink what is already working. Every other order keeps the short
 re-read. The notional cap and `[order_limits].max_option_contracts` also pass
 any close or reduction that lowers its underlying's absolute delta, a stock
-sale, an option close or a strategy close alike (owner decision 2026-10-07
-08:13 CEST; [Order limits](../understand/policy.md#order-limits)); an order
+sale, an option close or a strategy close alike
+([Order limits](../understand/policy.md#order-limits)); an order
 whose delta cannot be measured keeps both caps.
 
-A trailing-stop row that the gates would refuse no longer reads ready. It
+A trailing-stop row that the gates would refuse does not read ready. It
 carries `protective_exit_competing_sell` when another working sell already
 covers the shares, `protective_exit_inventory_unavailable` (waiting for the
 broker) when the open orders cannot be read, or
@@ -678,8 +809,8 @@ more than you hold, the sale joins the stop's group: the broker reduces the
 other order by whatever fills first, a partial fill included, and routes one
 of them at a time, so the stop cannot sell what the sale already sold, nor the
 other way round, without waiting for the guard (decision log
-`protective_oca.link`). A stop from before this release has no group, and a
-working order cannot be moved into one, so Canary first shrinks that stop to
+`protective_oca.link`). An older stop placed without a group cannot be moved
+into one while it works, so Canary first shrinks that stop to
 what the sale leaves, or cancels it when nothing is left, waits for the
 broker's answer, and only then sends the sale (`protective_oca.shrink`,
 `.cancel`). If that change is refused, unconfirmed within a few seconds, or
@@ -702,33 +833,36 @@ sell the line twice until the guard's next passes.
 ## Pre-authorised buckets
 
 The protection policy's `[authority].pre_authorised` list is empty by default.
-Only an explicit owner policy edit and version bump enable the named buckets:
+Only your own policy edit, with a higher `policy_version`, enables the buckets
+it names:
 `trailing_stop`, `option_loss_exit`, `option_profit_trail`,
-`budget_reduction` or `mandate_reduction` (the reduction back to the
-risk policy's `[mandate]` budget: a reduce-only batch, largest risk
-contributor first, each row held to the order caps; see `canary mandate`;
-it never sells a hedge-listed long put, whatever that put measures as; a row
-whose window has closed waits, at most one more window, for a better-ranked row
-still inside its own).
+`budget_reduction` or `mandate_reduction` (the
+[forced reduction](#forced-reduction)).
 Budget and mandate reductions always wait the full window, even with the
 drawdown brake latched. The cash sweep is pre-authorised in its own section,
 `[cash] pre_authorised`, under the same veto window
 ([Cash management](cash.md)); currency leveling never is.
 `auto_submit` remains false; it is not the switch for this scoped scheduler.
 
-The list says which buckets may go; it does not let Canary act. The daemon
-places nothing itself until Protection or Fully armed stands, a standing
-authority signed once on a paired device and held in the daemon's store. It
-survives restarts and needs nothing else running. While nothing is armed no
-record is made, the rows wait for you, `canary proposals status` names the
-buckets as waiting, and `auto_trade.pre_authorised_disarmed` lists them. Arming
+The list says which buckets may go; the arming lets Canary act on it. The
+daemon places nothing itself until Protection or Fully armed stands: a
+standing authority you sign once on a paired device, which the daemon keeps in
+its own store. It survives restarts and needs nothing else running but the
+daemon itself: while the machine sleeps, nothing is checked or sent. Both
+levels let the daemon place the pre-authorised rows. Fully armed also lets
+Canary Desk's controller send buys that add risk, such as a strategy row's
+buy; under Protection it sends only protection and reductions. While nothing
+is armed no record is made, the rows wait for you, `canary proposals status`
+names the buckets as waiting, and `auto_trade.pre_authorised_disarmed` lists
+them. Arming
 starts a full veto window for every row; disarming ends every window that is
-running, and arming again starts them afresh. Today the only signer is Desk's
-device-confirmed arming, so an install without Desk cannot arm. An order already
-at the broker stays there when you disarm.
-
-Build capability, account/mode pins, freeze, fresh evidence, preview, journal,
-and broker eligibility gates still apply to every submission.
+running, and arming again starts them afresh. During a breach of the mandate's
+loss room, Fully armed is held at Protection until you confirm full again on a
+device once the book is back within the room. The only signer is Canary Desk,
+a private project: its device-confirmed arming signs the authority. In an
+open-source install nothing is armed, so every pre-authorised row and every
+automatic sweep order waits for you. An order already at the broker stays
+there when you disarm.
 
 `veto_window` defaults to `"30m"` and cannot be less than five minutes. The
 window starts after the daemon records the Protection alert in its registry.
@@ -744,6 +878,32 @@ diagnostic push that never counts as an alert
 ([the paired app](app.md#prove-the-phone-receives-pushes)). Do not treat the
 window as a guaranteed opportunity to receive a push, and do not list a bucket
 until `canary status` shows a push witnessed on the phone.
+
+Build capability, account/mode pins, freeze, fresh evidence, preview, journal,
+and broker eligibility gates still apply to every submission.
+
+### Queued authorisations
+
+A queued authorisation carries an order you signed to the next regular
+session, so it can go out at the open without you at the screen.
+`canary proposals queue prepare KEY REVISION --json` fixes the terms from a
+proposal row: one exact contract and side, a maximum quantity, a limit halfway
+from the mid toward the bid with a worst price 25% from the mark, and a one-hour send window that opens 15 minutes after the
+options open, or 5 minutes after the stock open. It returns the terms with
+their digest and a private reference, and sends nothing. The record must be
+armed within ten minutes with your signature over that digest from a paired
+device (`queue arm --stdin`); Canary Desk supplies that signature. A queue can also
+carry an exact stock or single-leg option order you wrote, including a stock
+trailing stop that follows the whole position: once the broker accepts it, it
+grows and shrinks with the position and ends when the position is closed.
+
+Inside the window the daemon sends the order itself, under the origin
+`daemon-owner-queued`, after every gate a manual submit passes; otherwise it
+holds, cancels or expires the record. If the daemon or the broker link is
+down for the window, nothing trades. `queue list` and `queue status QUEUE_ID`
+read the records, and `queue cancel QUEUE_ID` (or `--all`) cancels them. A
+proposal row a queue covers carries `queued`; it is neither a candidate nor
+ready to act.
 
 **After the open.** An order that prices off the regular session (a patient
 limit, or a trail without an initial stop) does not go out in the session's
@@ -761,8 +921,9 @@ a row that waits 30 minutes and `stress_open_exempt: true` to one that keeps
 15, and its message says which applies, with the time.
 
 A latched drawdown brake lets eligible non-budget protection records bypass
-both the notice prerequisite and the waiting window. Budget reductions and
-cash sweep rows always retain the notice prerequisite and full veto window;
+both the notice prerequisite and the waiting window. Budget reductions, the
+forced reduction and cash sweep rows always retain the notice prerequisite and
+full veto window;
 shadow rows never schedule. A sweep row also waits for its bill's session: a
 record created outside it is due at the session's open plus five minutes.
 `canary proposals status` reports authorised buckets and pending counts. A human

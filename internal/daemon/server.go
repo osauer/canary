@@ -152,6 +152,8 @@ type Server struct {
 	// failed FX snapshot quote cannot strip base-currency decoration from
 	// a single positions/account response (see
 	fxRates *fxRateCache
+	// reconFX holds live quotes for the reconciliation sample; see recon_fx_quote.go.
+	reconFX reconFXQuoteCache
 
 	// accountSnapshots owns the short-lived, request-authored account summary
 	// ready for use; connector session and broker scope are part of every key.
@@ -634,6 +636,7 @@ type Server struct {
 	orderPreviewPositionImpact    func(context.Context, rpc.ContractParams, string, int) (rpc.OrderPositionImpact, error)
 	orderRiskAuthorityForTest     func(context.Context, rpc.TradingStatus, rpc.ContractParams, string, int) (orderPositionAuthority, error)
 	orderFXRateForTest            func(context.Context, string, string, time.Duration) (float64, time.Time, error)
+	reconFXQuoteForTest           reconFXFetch
 	orderContractResolverForTest  func(context.Context, rpc.ContractParams, time.Duration) (rpc.ContractParams, error)
 	orderBondDetailsForTest       func(context.Context, int, string) ([]ibkrlib.BondContractDetails, error)
 	// orderBondLookupForTest replaces the preview's bond lookup by identifier.
@@ -1876,6 +1879,7 @@ func (s *Server) newConnector(ep discover.Endpoint) (*ibkrlib.Connector, error) 
 	// a second reconnect loop on the same client ID.
 	conn.AutoReconnect = false
 	conn.ManagedConnectionLogging = true
+	conn.FXRateToBase = s.portfolioFootingFXRate
 
 	cc := &ibkrlib.ConnectorConfig{
 		PreferredClientID:        ep.ClientID,

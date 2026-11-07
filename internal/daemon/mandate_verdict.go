@@ -746,20 +746,13 @@ func (s *Server) addPutCover(contract rpc.ContractParams) *rpc.AddPutCover {
 	return &rpc.AddPutCover{HeldShares: shares, CoveredShares: covered, RoomContracts: int(max(0, math.Floor((shares-sold-covered-bought+1e-9)/100)))}
 }
 
-// indexHedgeReduces classifies a SELL of the index future (owner decision
-// 2026-10-28 20:07 CET; design note index-hedge.md, "gate
-// classification"). On the kept mandate book with the order added it is a
-// reduction only when the 10% index fall's loss is lower than without it
-// and not below zero (the hedge never turns the book into a bet on a
-// fall), the loss measure does not rise and stays within the loss room,
-// and it adds or deepens no gap-cap breach: the index gap nets the hedge
-// against the funds it hedges, so a breach it lessens does not count
-// against it (owner decision "1. A", 2026-10-30 09:41 CET). Otherwise, or
-// when the book cannot be measured now, the normal gate applies.
-//
-// The hedge's loss in a 10% rise spends loss room. A sale
-// increasing that measure remains an addition and must pass the normal
-// drawdown, mandate and sleeve gates even when its loss fits the room.
+// indexHedgeReduces classifies a SELL of the index future. On the kept mandate
+// book with the order added it is a reduction when indexHedgeSaleRefusal passes
+// it, the one rule the plan and placement read too (owner, 2026-11-06 14:23
+// CET, replacing the loss-room and gap-cap tests of 2026-10-28 20:07 CET and
+// 2026-10-30 09:41 CET). So a neutral hedge passes the drawdown brake and the
+// mandate gate at the maximum loss. Otherwise, or when the book cannot be
+// measured now, the normal gates apply and refuse it.
 func (s *Server) indexHedgeReduces(draft rpc.OrderDraft) bool {
 	input, _, _ := s.mandateCurrentInput()
 	if input == nil {
@@ -770,19 +763,10 @@ func (s *Server) indexHedgeReduces(draft rpc.OrderDraft) bool {
 		return false
 	}
 	before, after := mandate.Evaluate(*input), mandate.Evaluate(mandateInputWithLegs(*input, []mandate.Leg{leg}))
-	if before.Stresses == nil || after.Stresses == nil || before.Loss == nil || after.Loss == nil {
+	if before.Stresses == nil || after.Stresses == nil {
 		return false
 	}
-	fall := after.Stresses.IndexLossBase
-	return fall < before.Stresses.IndexLossBase-1e-9 && fall >= 0 &&
-		after.Loss.TotalBase <= before.Loss.TotalBase+1e-9 &&
-		after.Loss.TotalBase <= after.Loss.RoomBase+1e-9 && !gapBreachAdded(&before, after)
-}
-
-// gapBreachAdded is mandateGapBreachAdded's yes or no.
-func gapBreachAdded(before *mandate.Verdict, with mandate.Verdict) bool {
-	_, added := mandateGapBreachAdded(before, with)
-	return added
+	return indexHedgeSaleRefusal(&before, after, input.BaseCurrency) == nil
 }
 
 // mandateBillBuy reports a BUY of a government bill (security type BILL).

@@ -1,6 +1,6 @@
 # Packaging and distribution
 
-Updated: 2026-10-06 05:45 CEST
+Updated: 2026-11-07 07:48 CET
 
 Canary ships as a Claude Code plugin, a Claude Desktop `.mcpb` bundle, and a
 separately installed binary. This page covers what each package contains and
@@ -13,9 +13,9 @@ market-data subscriptions. Regime, stress, and rulebook checks stay advisory,
 and risk policy plus statement reconciliation stay operator-owned in the
 terminal.
 
-The description used in listings:
+The Claude Desktop bundle's manifest describes it as:
 
-> A local CLI and MCP server for Interactive Brokers account, portfolio, market, and risk context through IB Gateway or TWS. Available data and freshness depend on the current session and the account's market-data subscriptions.
+> Canary's local read-only Interactive Brokers MCP server for account, market, reporting, and retrospective decision review.
 
 ## Requirements and boundaries
 
@@ -67,7 +67,7 @@ Current package:
 
 Two caveats before installing:
 
-- Platform: Claude Desktop's documented primary platforms are macOS and Windows. If native Windows support remains absent, the MCPB is described as macOS-only for Claude Desktop, and Linux stays a generic MCPB/client capability only if the target directory accepts it.
+- Platform: the bundle declares macOS and Linux (`compatibility.platforms` is `darwin` and `linux`) and carries no Windows binary, so it does not serve Claude Desktop on Windows.
 - Signing: unsigned MCPBs are installable in permissive Claude Desktop configurations, but enterprise admins can require signatures. A trusted code-signing certificate or compatible signing API is needed before the bundle can be advertised as signed.
 
 ## Directory metadata
@@ -78,17 +78,13 @@ These files identify the project across MCP directories:
 - `.claude-plugin/plugin.json` for Claude Code plugin metadata.
 - `glama.json` to identify the authorized Glama maintainer.
 
-## Experimental trading preview
+## Trading build
 
-The stable marketplace story stays read-only. A trading-capable build is a
-separate preview channel, not a hidden variant of the normal binary.
+The trading-capable build is a separate artifact, not a hidden variant of the
+normal binary. Every release carries it beside the standard build:
 
-Minimum product rules before publishing a trading preview:
-
-- Name the channel and assets distinctly, for example `canary-trading`, so users do not confuse it with the stable read-only Canary build.
-- Mark the build experimental and provided as-is in README, release notes, download pages, and any CLI status surface that can report the channel.
-- Keep trading config inactive as `config.toml.trading`. Activation requires removing the `.trading` suffix, verifying pinned account and endpoint fields, and restarting the daemon.
-- Publish paper-trading capability before live trading. Live trading needs its own explicit approval, audit, and rollback story.
-- Keep MCP broker writes out of the preview until there is a separate human-confirmation and nonce model for MCP.
-- Tighten updater asset matching before attaching experimental tarballs to any release that stable `canary update` can see.
-- Run a trading-tag test and smoke matrix separate from the stable read-only release smoke.
+- Its tarballs are named `canary-trading-vX.Y.Z-<os>-<arch>.tar.gz` and carry a `TRADING-WARNING.md` that links to the security policy and the order guide at that tag.
+- `canary settings` reports its build as `experimental-trading`; the standard build reports `stable`.
+- `canary update` matches the standard tarball name exactly, so it never installs a trading build and refuses to replace one.
+- The trading configuration template ships inert as `examples/config.toml.trading`. It takes effect only once it is moved to `~/.config/ibkr/config.toml`, its pinned values are checked, and the daemon is restarted.
+- The MCP Bundles are built from the standard binaries, and the MCP server has no broker-write tools in either build.

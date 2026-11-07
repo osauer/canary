@@ -6238,6 +6238,36 @@ func (c *Connector) RefreshPositions(timeout time.Duration) ([]*RawPosition, err
 	return c.RefreshPositionsForSession(context.Background(), binding, timeout)
 }
 
+// lockPositionsRefresh takes the one snapshot's turn, waiting for the snapshot
+// in progress within the caller's budget and deadline. Only one subscription
+// runs at a time, but several readers are normal: Reduce risk prices its choices
+// at once, and refusing all but the first left its cards unpriced on any day
+// with fills on held contracts.
+func (c *Connector) lockPositionsRefresh(ctx context.Context, timeout time.Duration) error {
+	if c.positionsRefreshMu.TryLock() {
+		return nil
+	}
+	limit := time.NewTimer(timeout)
+	defer limit.Stop()
+	poll := time.NewTicker(positionsRefreshPoll)
+	defer poll.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-limit.C:
+			return fmt.Errorf("another positions snapshot is in progress")
+		case <-poll.C:
+			if c.positionsRefreshMu.TryLock() {
+				return nil
+			}
+		}
+	}
+}
+
+// positionsRefreshPoll is how often a waiting snapshot looks for its turn.
+const positionsRefreshPoll = 20 * time.Millisecond
+
 // RefreshPositionsForSession uses a correlated positions subscription on the
 // captured session. reqPositions has no request ID and cannot distinguish
 // queued updates from a retired subscription from a fresh initial snapshot.
@@ -6253,8 +6283,8 @@ func (c *Connector) RefreshPositionsForSession(ctx context.Context, binding Conn
 	if timeout <= 0 {
 		return nil, fmt.Errorf("positions snapshot timeout must be positive")
 	}
-	if !c.positionsRefreshMu.TryLock() {
-		return nil, fmt.Errorf("another positions snapshot is in progress")
+	if err := c.lockPositionsRefresh(ctx, timeout); err != nil {
+		return nil, err
 	}
 	defer c.positionsRefreshMu.Unlock()
 	if c.positionsRefreshUncancelled == binding {

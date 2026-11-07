@@ -268,7 +268,7 @@ func (s *Server) buildAccountSummaryWithAuthority(ctx context.Context, observe b
 					pnl.Fills = func(from, to time.Time) ([]rpc.FillQuoteRecord, bool) { return s.mandateFillsBetween(scope, from, to) }
 				}
 				if currentPortfolioAuthority(res.Authority) && provenance == broker.ProvenanceRequest {
-					valuation = captureReconValuation(raw, positions, res.AsOf)
+					valuation = captureReconValuation(raw, positions, res.AsOf, s.reconFX.quotes(ctx, raw, s.nowUTC(), s.fetchReconFXQuote))
 				}
 			}
 			if firstDailyObservation := s.riskCapital.observeWithValuation(res.NetLiquidation, pnl, res.AsOf, pol, capitalScope, recoveryAllowed, valuation); firstDailyObservation {

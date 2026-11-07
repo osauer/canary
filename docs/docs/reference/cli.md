@@ -1125,6 +1125,7 @@ canary app pair
 | `pair` | `local` |
 | `serve` | `local` |
 | `devices` | `read-only` |
+| `status` | `read-only` |
 | `push-test` | `local` |
 | `restart` | `confirm` |
 
@@ -1194,6 +1195,8 @@ Subcommands: `claude-desktop`, `app`, `reporting`.
 |------|---------------|----------------|
 | `--accept-unproved` | no | - |
 | `--no-restart` | no | - |
+| `--remote` | no | - |
+| `--remote-url` | yes | - |
 
 ## `canary update`
 

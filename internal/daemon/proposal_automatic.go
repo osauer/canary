@@ -1503,7 +1503,7 @@ func automaticTransientRefusal(res rpc.TradeProposalSubmitResult, err, placeErr 
 		}
 		switch code {
 		case "proposal_refresh_failed", "order_journal_unavailable", "journal_authority_unavailable",
-			reductionOrderUnavailableCode, "protective_order_evidence_unavailable":
+			reductionOrderUnavailableCode, "protective_order_evidence_unavailable", indexFutureOutsideHoursCode:
 			continue
 		}
 		return false

@@ -1,6 +1,13 @@
 # Canary full context
 
-Updated: 2026-11-05 09:18 CET
+Updated: 2026-11-07 07:53 CET
+
+Version 3.35 keeps the index hedge available when a book has used all of its
+loss room: one rule now decides a sale, on the 10% fall and the 10% rise. A
+forced reduction buys back a hedge that has passed neutral, and the hedge is
+sized with working sales counted as sold. On accounts where the broker reports
+an exchange rate of 1, reconciliation and the position download check use a
+real rate.
 
 Version 3.34 requires an arming before Canary places pre-authorised orders by
 itself: a one-time confirmation on a paired device, Protection or Fully armed.

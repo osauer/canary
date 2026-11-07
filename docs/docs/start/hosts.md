@@ -1,6 +1,6 @@
 # Connect an MCP host
 
-Updated: 2026-10-06 05:45 CEST
+Updated: 2026-11-07 07:48 CET
 
 `canary mcp` is a local MCP server that speaks JSON-RPC over stdin and stdout. Your host starts it as a child process, and it exits when that parent goes away. It opens no network listener of its own: each request dials the daemon's Unix socket, and the daemon is the only thing holding the gateway connection.
 
@@ -118,12 +118,13 @@ check of required ordinary quote feeds; it does not buy entitlements or
 change settings. Service health does not certify an instrument for execution.
 
 Use `canary_calendar` (CLI: `canary calendar --json`) to plan around official
-exchange sessions for `us`, `us-options`, `de`, `uk`, `jp`, or `hk`. `date` selects local noon on
+exchange sessions for `us`, `us-options`, `de`, `uk`, `jp`, `hk`, `sg`, `au`, or `cn`
+(Singapore, ASX and the China A-share exchanges). `date` selects local noon on
 a market date; `at` selects an exact RFC3339 instant and takes precedence.
 `days` counts forward calendar dates including that date, defaults to 14, and
 is capped at 400. Keep the returned timezone, source, coverage bounds,
 `session.state`, actual open/close times, and intraday `windows` that exclude
-lunch breaks in Tokyo and Hong Kong. `is_open` is state at the queried
+scheduled lunch breaks. `is_open` is state at the queried
 instant, not a promise about a future session. A date outside coverage is
 `unknown`, with no invented next opening; update the embedded calendar through
 a Canary binary update before planning work beyond its coverage. US options has a regular 16:15 close in
@@ -138,24 +139,31 @@ MCP remains without previews or execution tools in every build.
 
 ## What the agent can then see
 
-The full MCP profile covers the daily brief, broker-reporting status and the
-statement performance series, Canary Edge, account, positions and allocation,
-option-strategy grouping, named-symbol technical analysis,
-official exchange sessions, detailed regime and portfolio stress, rulebook verdict,
-protection proposals, option-exercise opportunities, settings, trading readiness,
-the policy plausibility check, reconciliation status, and read-only
-order-journal views. Local lifecycle verbs (`setup`, `update`,
-`restart`, `mcp`, `daemon`, `version`) and human policy/reconciliation writes
-remain CLI-only. The [MCP tools reference](../reference/mcp-tools.md) is generated
+The full MCP profile covers the daily brief, broker-reporting status, the
+statement performance series, FX contribution and execution costs, Canary Edge
+and the decision scorecard, account and intraday account value, positions and
+allocation, option-strategy grouping, prices, price history and the market
+tape, named-symbol technical analysis, stock-add plans, official exchange
+sessions, the economic calendar, detailed regime and portfolio stress, the
+mandate's loss measure against its loss room, the core sleeve and the strategy
+register, strategy one's screen, the rulebook verdict, protection proposals,
+option-exercise opportunities, stock-lending fees, rates and screens, short
+interest, data health and quote checks, settings, trading readiness, the policy
+plausibility check, reconciliation status, read-only order-journal views, and
+the redacted bug report (`canary_feedback`). Local lifecycle verbs (`setup`,
+`update`, `restart`, `stop`, `app`, `mcp`, `daemon`, `version`), the holding
+locks, the watchlist, volume setups, recorded option chains, and human
+policy/reconciliation writes remain CLI-only. The [MCP tools reference](../reference/mcp-tools.md) is generated
 from the registry and lists every parameter.
 
-The bundled MCP surface has no order-entry or preview tools. A unit test enforces that boundary against the tool registry by name. [Orders and the trading build](../operate/orders.md) owns the confirmed CLI and app paths.
+The bundled MCP surface has no order-entry or preview tools. [Orders and the trading build](../operate/orders.md) owns the confirmed CLI and app paths.
 
 ### Public macro context
 
-`canary_macro` reads the daemon's cached official economic calendar and recent
-BEA, Federal Reserve and ECB publications. The fixed public sources refresh
-every five minutes while the production daemon runs; reads send no account
+`canary_macro` reads the daemon's cached official economic calendar (BLS, BEA,
+New York Fed, Federal Reserve and ECB) and recent BEA, Federal Reserve and ECB
+publications. The fixed public sources refresh every five minutes while the
+production daemon runs, the BLS calendar hourly; reads send no account
 information. A failed feed retains its dated last-good entries and reports the
 failure, including HTTP 403. A publication item without a title, an official
 source link or a readable date is skipped instead of failing its feed, as is a
@@ -178,4 +186,4 @@ For a compact market dashboard, call `canary_regime` with `view: "monitor"`, or
 projection, retaining indicator eligibility and freshness. The default remains
 full detail; monitor cannot be combined with profile arrays.
 
-A stable launcher symlink is preserved when it points to the running executable, so managed version-directory upgrades keep working. If you configured MCP before v3.26.3 through such a launcher, run `canary setup claude-desktop` once through the stable launcher to replace the old version-specific path, then fully quit and reopen Claude Desktop.
+A stable launcher symlink is preserved when it points to the running executable, so managed version-directory upgrades keep working. If Claude Desktop's config still names a version-specific path behind such a launcher, run `canary setup claude-desktop` once through the stable launcher to replace the old version-specific path, then fully quit and reopen Claude Desktop.

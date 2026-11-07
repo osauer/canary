@@ -84,7 +84,10 @@ func formatProposalMandate(m *rpc.TradeProposalMandate) string {
 	if m == nil {
 		return ""
 	}
-	parts := []string{fmt.Sprintf("rank %d of %d", m.Rank, max(m.BatchRows, m.Rank)), mandatePhaseWords(m.Phase)}
+	parts := []string{mandatePhaseWords(m.Phase)}
+	if m.Rank > 0 { // the hedge's close keeps its own clock, outside the send order
+		parts = []string{fmt.Sprintf("rank %d of %d", m.Rank, max(m.BatchRows, m.Rank)), mandatePhaseWords(m.Phase)}
+	}
 	verdict := fmt.Sprintf("sized on the %s verdict of %s", m.VerdictStatus, m.VerdictAt.Local().Format("15:04 MST"))
 	switch {
 	case m.LossRoomBase > 0:

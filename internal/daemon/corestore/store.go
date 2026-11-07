@@ -381,6 +381,9 @@ func (s *Store) criticalMutationLocked(ctx context.Context, fn func(*sql.Tx) err
 		return nil, ErrBlocked
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
+	if err == nil && s.commitObserver != nil {
+		err = s.headNotBackTx(ctx, tx)
+	}
 	if err == nil {
 		err = fn(tx)
 	}
@@ -415,8 +418,29 @@ func (s *Store) criticalMutationLocked(ctx context.Context, fn func(*sql.Tx) err
 		if conflict, ok := errors.AsType[*RevisionConflictError](err); ok && conflict.LostWrite() {
 			latched = s.latchHealth("lost_write") || latched
 		}
+		if errors.Is(err, ErrHeadWentBack) {
+			latched = s.latchHealth("lost_write") || latched
+		}
 	}
 	return s.latchNoticeFor(latched, err), err
+}
+
+// headNotBackTx refuses a mutation when the commit counter reads older than a
+// commit this store saw land. Without it the next commit reuses the lost number
+// and the watermark agrees again, so a lost tail leaves no trace. A store whose
+// head stayed put while a revision went back is then a different loss, one row
+// or the caller's belief, and the log says which it was. The caller holds
+// writeMu.
+func (s *Store) headNotBackTx(ctx context.Context, tx *sql.Tx) error {
+	head, err := readAuthorityHead(ctx, tx)
+	if err != nil {
+		return err
+	}
+	last := s.lastObservedHead
+	if head.AuthorityEpoch == last.AuthorityEpoch && head.HeadGeneration < last.HeadGeneration {
+		return fmt.Errorf("%w: the last commit seen was generation %d, the database reads %d", ErrHeadWentBack, last.HeadGeneration, head.HeadGeneration)
+	}
+	return nil
 }
 
 func (s *Store) readCommittedHead(ctx context.Context) (AuthorityHead, error) {

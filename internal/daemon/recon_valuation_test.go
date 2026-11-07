@@ -220,24 +220,24 @@ func TestReconCapturesBrokerBasisWithoutInventingMissingRates(t *testing.T) {
 		"USD": {NetLiquidationByCurrency: 50000, NetLiquidationObserved: true, StockMarketValue: 10000, StockMarketValueText: "10000", ExchangeRate: .96, ExchangeRateObserved: true},
 	}}
 	positions := []*ibkrlib.RawPosition{{ValuationAt: sample.AsOf, Contract: ibkrlib.Contract{ConID: 101, SecType: "STK", Currency: "USD"}, Position: 100, MarketPrice: 100, MarketValue: 10000}}
-	got := captureReconValuation(raw, positions, sample.AsOf)
+	got := captureReconValuation(raw, positions, sample.AsOf, nil)
 	if got == nil || got.Reason != "" || got.Currencies["USD"].FXRate != .96 {
 		t.Fatalf("capture=%+v", got)
 	}
 	row := raw.CurrencyLedger["USD"]
 	row.ExchangeRateObserved = false
 	raw.CurrencyLedger["USD"] = row
-	if got = captureReconValuation(raw, positions, sample.AsOf); got == nil || got.Reason == "" {
+	if got = captureReconValuation(raw, positions, sample.AsOf, nil); got == nil || got.Reason == "" {
 		t.Fatal("unobserved FX rate was accepted")
 	}
 	row.ExchangeRateObserved = true
 	raw.CurrencyLedger["USD"] = row
 	positions[0].MarketValue = 9999
-	if got = captureReconValuation(raw, positions, sample.AsOf); got == nil || got.Reason != "runtime_valuation_incoherent" {
+	if got = captureReconValuation(raw, positions, sample.AsOf, nil); got == nil || got.Reason != "runtime_valuation_incoherent" {
 		t.Fatal("mixed book snapshots were accepted")
 	}
 	positions[0].MarketValue = math.NaN()
-	got = captureReconValuation(raw, positions, sample.AsOf)
+	got = captureReconValuation(raw, positions, sample.AsOf, nil)
 	if _, err := json.Marshal(got); err != nil {
 		t.Fatal("invalid broker value poisoned durable state", err)
 	}
@@ -281,7 +281,7 @@ func TestReconCaptureRespectsPublishedWholeUnitPrecision(t *testing.T) {
 		"USD": {NetLiquidationByCurrency: 50000, NetLiquidationObserved: true, StockMarketValue: 10000, StockMarketValueText: "10000", ExchangeRate: .96, ExchangeRateObserved: true},
 	}}
 	positions := []*ibkrlib.RawPosition{{ValuationAt: sample.AsOf, Contract: ibkrlib.Contract{ConID: 101, SecType: "STK", Currency: "USD"}, Position: 100, MarketPrice: 100.002, MarketValue: 10000.20}}
-	got := captureReconValuation(raw, positions, sample.AsOf)
+	got := captureReconValuation(raw, positions, sample.AsOf, nil)
 	if got == nil || got.Reason != "" {
 		t.Fatalf("a book agreeing at the published whole-unit precision was rejected: %+v", got)
 	}

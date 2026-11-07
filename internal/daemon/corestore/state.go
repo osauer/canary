@@ -104,12 +104,12 @@ WHERE scope_key=? AND kind=? AND revision=?`, next, update.JSON, digest[:], form
 		var actual int64
 		err := tx.QueryRowContext(ctx, `SELECT revision FROM state_documents WHERE scope_key=? AND kind=?`, update.ScopeKey, update.Kind).Scan(&actual)
 		if errors.Is(err, sql.ErrNoRows) {
-			return StateDocument{}, &RevisionConflictError{Expected: update.ExpectedRevision}
+			return StateDocument{}, &RevisionConflictError{Expected: update.ExpectedRevision, Document: update.ScopeKey + "/" + update.Kind}
 		}
 		if err != nil {
 			return StateDocument{}, err
 		}
-		return StateDocument{}, &RevisionConflictError{Expected: update.ExpectedRevision, Actual: actual, Exists: true}
+		return StateDocument{}, &RevisionConflictError{Expected: update.ExpectedRevision, Actual: actual, Exists: true, Document: update.ScopeKey + "/" + update.Kind}
 	}
 	return StateDocument{ScopeKey: update.ScopeKey, Kind: update.Kind, Revision: next, JSON: append([]byte(nil), update.JSON...), UpdatedAt: now}, nil
 }

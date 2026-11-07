@@ -1,6 +1,12 @@
 package daemon
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
@@ -54,6 +60,48 @@ func (a *authorityIncident) observe(health corestore.Health, cause error) {
 		"daemon authority: persistence latched fail-closed (%s): %v; broker writes are blocked; %s; dependent persistence failures continue in debug logs",
 		health.Code, cause, recovery,
 	)
+	if health.Code == "lost_write" && a.server.productionStateDatabase {
+		go a.server.keepLostWriteEvidence(now)
+	}
+}
+
+// keepLostWriteEvidence saves the store's files while the latch holds writes
+// still. The next open folds the WAL into the database, which took the page
+// images of the 2026-11-06 latch with it.
+func (s *Server) keepLostWriteEvidence(now time.Time) {
+	ctx, cancel := context.WithTimeout(context.Background(), lostWriteEvidenceBudget)
+	defer cancel()
+	kept, err := preserveAuthorityEvidence(ctx, s.coreStorePath, now)
+	if err != nil {
+		s.logger.Warnf("daemon authority: could not keep the lost write's files: %v", err)
+		return
+	}
+	s.logger.Warnf("daemon authority: the lost write's files are kept in %s; read them only with sqlite3 \"file:daemon.db?immutable=1\"", kept)
+}
+
+// lostWriteEvidenceBudget bounds the copy of the store's files.
+const lostWriteEvidenceBudget = 5 * time.Minute
+
+// preserveAuthorityEvidence copies the database, its WAL, shared memory and
+// watermark as they stand. A child process does the copy: opening and closing
+// any of these files in this process would drop every POSIX lock it holds on
+// them, SQLite's included, and invite the reset this is meant to explain.
+func preserveAuthorityEvidence(ctx context.Context, path string, now time.Time) (string, error) {
+	dir := filepath.Join(filepath.Dir(path), "damaged", "lost-write-"+now.UTC().Format("20060102T150405Z"))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	args := []string{"-p"}
+	for _, suffix := range []string{"", "-wal", "-shm", ".head"} {
+		if _, err := os.Lstat(path + suffix); err == nil {
+			args = append(args, path+suffix)
+		}
+	}
+	out, err := exec.CommandContext(ctx, "/bin/cp", append(args, dir)...).CombinedOutput()
+	if err != nil {
+		return dir, fmt.Errorf("copy into %s: %w: %s", dir, err, strings.TrimSpace(string(out)))
+	}
+	return dir, nil
 }
 
 // recovered closes the incident. A zero count means none was open, so a

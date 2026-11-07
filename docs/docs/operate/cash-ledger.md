@@ -1,11 +1,6 @@
 # Settlement evidence for the cash sweep
 
-Read-only proposal history summarizes funding observations and omits repeated
-obligation lists and calibration studies. Each historical row carries
-`detail_availability.state=retained_in_canary_audit` and original list counts;
-a missing count means that list was unavailable, not empty. Current funding
-evidence and studies stay complete. Full historical detail remains unchanged
-in Canary's SQLite audit and retained current state.
+Updated: 2026-11-07 07:47 CET
 
 Canary explicitly requests `SettledCash` and `$LEDGER:ALL` from TWS. An
 account-wide settled total cannot certify a currency balance, and TWS sends a
@@ -15,6 +10,22 @@ read an optional historical Flex cash baseline through the existing reporting qu
 It remains a **held estimate**, not permission to sweep. A current native
 settled-cash observation or the optional authenticated Web API ledger can
 separately certify live balances.
+
+## Set it up and confirm it
+
+1. Nothing to configure for the TWS settlement schedule: Canary reads it from
+   the account stream it already holds. Run `canary account --json` and check
+   each currency's `settled_cash_schedule.status`
+   ([TWS settlement schedule](#tws-settlement-schedule)).
+2. Optionally, add the Flex **Cash Report** fields for a historical baseline
+   ([Historical Flex baseline](#historical-flex-baseline)). It never certifies
+   cash on its own.
+3. Optionally, configure `[cash_ledger]` against a Web API session you
+   already run, restart Canary and check `cash_ledger` and each currency's
+   `web_cash` in `canary account --json`
+   ([Optional live Web API ledger](#optional-live-web-api-ledger)).
+4. Run `canary proposals list --json` and read the `cash_sweep` status: a
+   currency whose settled cash is still unproven reads `settlement_unknown`.
 
 ## TWS settlement schedule
 
@@ -125,12 +136,12 @@ estimated free cash. Purchases are conservatively counted from the start of the 
 New York: neither its date nor its timezone-less generation label proves an
 exact intraday cutoff.
 
-**Coverage remains incomplete.** Before an estimate can authorise a sweep,
-Canary must verify unsettled debit obligations already outstanding at the
-baseline, complete account-wide manual/offline executions, withdrawals,
-transfers, FX/corporate-action cash legs, fees and uninterrupted activity.
-Equal ending cash and settled cash, an empty local journal or improving TWS
-cash cannot clear these gaps. Current code exposes `settlement_projection` in
+**The estimate never authorises a sweep.** It cannot see unsettled debit
+obligations already outstanding at the baseline, manual or offline executions
+across the account, withdrawals, transfers, the cash legs of currency
+conversions and corporate actions, fees, or gaps in activity. Equal ending
+cash and settled cash, an empty local journal or improving TWS cash cannot
+clear these gaps. Canary shows the estimate as `settlement_projection` in
 proposal JSON and labels CLI estimates unverified; it never uses them as
 settled-cash authority. Missing Cash Report fields show the owner action above.
 
@@ -249,8 +260,7 @@ Liquidity sales estimate net proceeds after the exact reserved broker fee.
 They may restore only part of a shortfall without fee-driven resizing or a
 shortfall-only hold; the remaining gap stays visible until settlement proves
 cash has returned.
-Pending-sale estimates remain diagnostic, and forecast outflows and the broader
-portfolio stress reserve still need follow-up.
+Pending-sale estimates remain diagnostic.
 
 ## Sweep order checks
 
@@ -273,20 +283,23 @@ principal on both sides. Broker lots and the reviewed
 price still need to fit those bounds. A failed cash or whole-order check holds
 the reviewed quantity; a different quantity needs a new review.
 
-Purchase-benefit advice compares holding the bill to maturity with leaving cash
-at the broker, using entry spread, reserved purchase fees and a dated
-owner-reviewed cash-interest upper bound. Current complete inputs give a known
-estimate; missing inputs give unknown advice, and expired interest assumptions
-give stale advice. A missing rate is never assumed to be zero.
+The purchase-benefit estimate compares holding the bill to maturity with
+leaving the cash at the broker, after the entry spread, the reserved purchase
+fee and the interest the cash would have earned. That interest uses the
+broker's own credit rate, read from the Flex statement's Interest Details
+(Tiers) section; without it the estimate is unavailable, and a missing rate is
+never assumed to be zero
+([Benefit estimate](cash.md#benefit-estimate)). The retired
+`cash_interest_rate_upper` and `cash_interest_valid_through` keys still load
+but are never read, and `canary policy check` warns while a file writes them
+(`retired_cash_interest_key`).
 
-`min_net_gain` stays readable in existing policy files as an advisory benchmark.
-Below-benchmark or negative estimates remain warnings; unknown or stale benefit
-does not block or resize an order. Fees still matter to actual cash accounting.
-Liquidity sales show fee-adjusted expected proceeds and any remaining cash gap. See
+A buy whose estimate is zero or less is refused with `cash_sweep_no_net_gain`.
+`min_net_gain` is an advisory benchmark above that floor: an estimate below it
+is a warning. An unavailable estimate does not block or resize an order. Fees
+still matter to actual cash accounting. Liquidity sales show fee-adjusted
+expected proceeds and any remaining cash gap. See
 [the configuration reference](../reference/config.md) for the policy fields.
-Existing private policy values stay unchanged until explicit owner migration;
-route commissioning remains required for orders. Dated cash-interest assumptions
-are needed only for current purchase-benefit advice.
 
 
 ## Settled-cash request comparison
@@ -345,7 +358,8 @@ account protobuf protocols are refused.
 
 The [official API1050 stable source](https://interactivebrokers.github.io/downloads/twsapi_macunix.1050.02.zip)
 verifies legacy request76/version1, cancel77/version1 and callbacks73/74.
-Account/position protobuf begins at protocol207; Canary currently advertises203.
+Account and position protobuf begins at protocol 207; Canary's connection
+advertises at most 203.
 See the [official model-account request contract](https://www.interactivebrokers.com/docs/tws-api/doc/account-portfolio-data/account-update-by-model/requesting-account-update-by-model).
 
 `ledgerAndNLV=true` returns the lightweight ledger set only. Account values
@@ -358,3 +372,12 @@ separate change requiring verified account/model/original-epoch provenance,
 complete batch and duplicate handling, clock/freshness rules, cancellation and
 readiness checks. If omitted, the result establishes omission only for this
 session and request, rather than claiming that TWS never has that information.
+
+## Proposal history
+
+Read-only proposal history summarizes funding observations and omits repeated
+obligation lists and calibration studies. Each historical row carries
+`detail_availability.state=retained_in_canary_audit` and original list counts;
+a missing count means that list was unavailable, not empty. Current funding
+evidence and studies stay complete. Full historical detail remains unchanged
+in Canary's SQLite audit and retained current state.

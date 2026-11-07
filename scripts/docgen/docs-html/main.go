@@ -149,7 +149,7 @@ var pages = []pageSpec{
 		Section:     "start",
 		NavTitle:    "Agentic trading",
 		Summary:     "What an AI agent can do on an Interactive Brokers account, and what it takes to send an order.",
-		Description: "Agentic trading on an Interactive Brokers account with Canary: what an AI agent can read and watch, and why an order needs the trading build, your instruction for that trade and Canary's checks.",
+		Description: "How to connect an AI agent to an Interactive Brokers account with Canary, what the agent can read and watch, and why every order stays your decision.",
 		Status:      statusPublished,
 	},
 	{

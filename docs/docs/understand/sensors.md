@@ -1,9 +1,14 @@
 # Sensors
 
-Sensors turn broker and public-source observations into typed measurements with
-an `as_of` time, source health, freshness, and a semantic fingerprint. They do
-not decide trading policy, authorize an order, or prove that an alert reached a
-device.
+Updated: 2026-11-07 07:52 CET
+
+A sensor is one measurement the daemon keeps current from broker and public
+sources, such as the market regime or the stress on the book you hold. Each
+result says when it was observed (`as_of`), how healthy its sources are, and
+whether it is fresh enough for the decision at hand. It also carries a semantic
+fingerprint, a hash of its classified state that lets a monitor skip a repeat
+alert when nothing meaningful changed. Sensors do not decide trading policy,
+authorise an order, or prove that an alert reached a device.
 
 The daemon is the measurement authority. It owns source access, scheduling,
 last-good state, and evaluation. CLI, MCP, app, and web surfaces read the same
@@ -25,6 +30,11 @@ A dependent sensor receives the upstream result with its health and does not
 recompute it. Stress uses the exact Regime publication; Rulebook uses the
 daemon's classified Regime stage rather than rebuilding one from market rows.
 
+Two readers sit beside Regime rather than downstream of it. The mandate's
+regime gate reads SPY and HYG daily closes and the breadth engine's history
+itself, and strategy one screens the S&P 500 constituents the breadth engine
+keeps. Neither reads the Regime stage ([Concepts](concepts.md#mandate)).
+
 ## Read the state before the number
 
 [![Freshness timeline from proactive refresh through expiry, not-due carry, and a fail-closed gap](../../diagrams/sensor-freshness-timeline.svg)](../../diagrams/sensor-freshness-timeline.svg)
@@ -39,17 +49,37 @@ replaces the last-good publication. A failed refresh leaves the older result
 visible with explicit health; it never changes an old value's timestamp or
 turns absence into zero.
 
-| State | Meaning | Safe interpretation |
-|---|---|---|
-| `current` | The source refresh is complete and no newer observation is due. | Use the value subject to its quality and scope. |
-| `not_due` | The source's publication or trading window is closed, so no newer observation should exist yet. | Keep valid last-good context visible, but do not promote it to fresh confirmation. |
-| `partial` | Some expected fields, symbols, or child sources arrived and others did not. | Use only the explicitly complete part; absence elsewhere is unknown. |
-| `pending` | A refresh for the current publication period is in flight, evidenced by a typed marker, inside a bounded window anchored to the period start. | Keep the previous period's value visible as context; it never becomes fresh confirmation, and the state expires into `overdue` at the window's deadline. |
-| `stale` | A known value is older than its allowed evidence window or a due refresh failed. | Display as old context; dependent decisions normally degrade or block. |
-| `unavailable` | No usable value exists for the requested scope. | Do not infer a neutral, inactive, or passing result. |
-| `degraded` | The result exists, but source or model quality limits how it may be used. | Read the blocker and use only the permitted context. |
-| `computing` | A background calculation is running and no completed replacement can yet be served. | Wait or poll; progress is not a measurement. |
-| `overdue` | The native cadence says a newer observation should already exist. | Treat required evidence as a data-quality failure, not a warning signal. |
+Several vocabularies describe that state, each in its own field. The same
+word can appear in more than one, with the same sense:
+
+- **Source health** (`source_health[].status`): `ok`, `partial`, `stale`,
+  `unknown`, `degraded`.
+- **Refresh progress** (`source_health[].refresh_state`): `current`,
+  `not_due`, `pending`, `fetch_failed`, `fetch_failed_backoff`.
+- **Regime row freshness** (`freshness.class` on each Regime row): `fresh`,
+  `not_due`, `pending`, `stale`, `overdue`.
+- **Regime row status** (`status` on each Regime row): `ok`, `stale`,
+  `computing`, `unavailable`, `error`.
+- **Breadth state** (`state` on the breadth result): `cold`, `computing`,
+  `ready`, `degraded`.
+
+| State | Appears in | Meaning | Safe interpretation |
+|---|---|---|---|
+| `ok` | source health, Regime row status | The source delivered a complete, current observation. | Use the value subject to its quality and scope. |
+| `current` | refresh progress | The source refresh is complete and no newer observation is due. | Use the value subject to its quality and scope. |
+| `fresh` | Regime row freshness | The row is within its native publication cadence. | The only state that may confirm stress. |
+| `ready` | breadth state | A completed breadth snapshot can be served. | Read its freshness and coverage before use. |
+| `not_due` | refresh progress, Regime row freshness | The source's publication or trading window is closed, so no newer observation should exist yet. | Keep valid last-good context visible, but do not promote it to fresh confirmation. |
+| `partial` | source health | Some expected fields, symbols, or child sources arrived and others did not. | Use only the explicitly complete part; absence elsewhere is unknown. |
+| `pending` | refresh progress, Regime row freshness | A refresh for the current publication period is in flight, evidenced by a typed marker, inside a bounded window anchored to the period start. | Keep the previous period's value visible as context; it never becomes fresh confirmation, and the state expires into `overdue` at the window's deadline. |
+| `stale` | source health, Regime row freshness, Regime row status | A known value is older than its allowed evidence window or a due refresh failed. | Display as old context; dependent decisions normally degrade or block. |
+| `fetch_failed`, `fetch_failed_backoff` | refresh progress | The last fetch failed; with `_backoff`, the next try waits for its bounded retry. | Read `last_failure` and `next_attempt`; do not force a refetch. |
+| `unknown` | source health | The source's state cannot be established. | Never read as healthy or inactive. |
+| `unavailable` | Regime row status | No usable value exists for the requested scope. | Do not infer a neutral, inactive, or passing result. |
+| `error` | Regime row status | The fetch failed; `error_message` carries the reason. | Treat as unavailable. |
+| `degraded` | source health, breadth state | The result exists, but source or model quality limits how it may be used. | Read the blocker and use only the permitted context. |
+| `computing`, `cold` | Regime row status, breadth state | A background calculation is running, or has not started, and no completed replacement can yet be served. | Wait or poll; progress is not a measurement. |
+| `overdue` | Regime row freshness | The native cadence says a newer observation should already exist. | Treat required evidence as a data-quality failure, not a warning signal. |
 
 `not_due` and `overdue` are opposites: an expected schedule gap against a missed
 obligation. `pending` sits between them — the observation is genuinely due and is
@@ -114,11 +144,11 @@ reason instead of presenting those bars as proven thresholds.
 
 The Brief and app Monitor preserve this explanation, including horizon
 availability and the distinction between option pricing and unknown bullish/
-bearish positioning. Old-method current state is invalidated by the v4 method
-token. Retained historical observations survive; a cold off-hours model waits
+bearish positioning. A result computed by an earlier version of the gamma
+method never serves as current; retained historical observations survive, and a cold off-hours model waits
 for eligible market data rather than fabricating an updated read.
 
-### Timing and last-good behavior
+### Timing and last-good behaviour
 
 After the gateway is ready, the daemon prewarms canonical combined Gamma and
 checks refresh eligibility every minute. A request with no serveable result
@@ -152,8 +182,8 @@ canary brief --json
 ```
 
 Read the Gamma subsystem and brief source-health rows first, including quality,
-as-of, session, coverage, and warning codes. The standalone Gamma command was
-retired in v3; forced recompute is an internal diagnostic, not the normal
+as-of, session, coverage, and warning codes. There is no standalone Gamma
+command; a forced recompute is an internal diagnostic, not the normal
 freshness mechanism.
 
 ## Regime
@@ -246,8 +276,8 @@ stale denominator overstates backwardation — the false-positive direction.
 
 S&P 500 breadth starts after the official equity close plus a 35-minute
 settlement delay. A full broker-paced pass can take about 74 minutes, so the
-prior last-good is healthy `pending` context only while a refresh or retry
-remains inside the explicit 90-minute publication window, and stale at that
+prior last-good reads `pending` context only while a refresh or retry remains
+inside the explicit 90-minute publication window, and `overdue` at that
 deadline without a current-session result.
 
 The FX carry proxy follows its venue instead of a publication clock. IDEALPRO
@@ -277,10 +307,10 @@ canary stress --json
 canary rules --json
 ```
 
-Since v3.4, `canary regime --explain` and MCP `canary_regime` restore the
-indicator drill-down. JSON retains measurements, thresholds, eligibility and
-source health; gamma profile arrays require `--profiles` or MCP
-`include_profiles=true`. History and forced refresh remain retired.
+`canary regime --explain` and MCP `canary_regime` give the indicator
+drill-down. JSON retains measurements, thresholds, eligibility and source
+health; gamma profile arrays require `--profiles` or MCP
+`include_profiles=true`. There is no history or forced-refresh command.
 
 Check Regime authority health, `as_of`, lifecycle readiness, each cluster's
 `source_health`, row freshness and eligibility, then `governors`. A green row
@@ -346,9 +376,9 @@ canary rules --json
 ```
 
 Read Stress input health and source warnings before its summary, then compare
-source timestamps, embedded market lifecycle, and held stress. Since v3.4,
-`canary stress` and MCP `canary_stress` expose the complete assessment again;
-`canary brief` retains the summary. `canary stress --details` shows market rows
+source timestamps, embedded market lifecycle, and held stress. `canary stress`
+and MCP `canary_stress` expose the complete assessment; `canary brief` carries
+the summary. `canary stress --details` shows market rows
 and source health alongside the risk evidence.
 
 ## Rulebook
@@ -397,7 +427,9 @@ canonical evaluation or an explicit unavailable advisory; it never silently
 borrows a result from another account or connection generation.
 
 Order previews may include Rulebook causes from this cache, but those warnings
-remain advisory and do not change broker submit eligibility. A missing preview
+remain advisory and do not change broker submit eligibility. The few rulebook
+numbers that do refuse or hold orders are listed in
+[The rulebook](rulebook.md#limits-that-refuse-or-hold-orders). A missing preview
 warning is not evidence that the underlying input was healthy.
 
 ### Safe check

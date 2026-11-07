@@ -107,10 +107,21 @@ func validDeskAuthorityTerms(t rpc.DeskAuthorityTerms) bool {
 	return t.AuthorityEpoch != "" && err == nil && len(hash) == sha256.Size && t.ID != "" && len(t.ID) <= 128 && t.AccountID != "" && len(t.AccountID) <= 128 && (t.AccountMode == "live" || t.AccountMode == "paper") && t.Version == 1 && t.Kind == "desk_automatic_authority" && (t.MaximumScope == "protect" || t.MaximumScope == "full") && t.Generation >= 0 && !t.ConfirmBefore.IsZero() && t.Pricing == "fixed-midpoint" && t.Algorithm == "Adaptive" && t.TIF == "DAY" && t.Protection == "existing-policy" && t.Capacity == "existing-policy-reuse-confirmed-funds" && t.Selection == "desk-deterministic-controller"
 }
 
+// deskAuthorityFullHeldRefusal is the owner's sentence while a mandate breach
+// holds Fully armed (build B5, owner 2026-10-31).
+const deskAuthorityFullHeldRefusal = "full automatic trading can be confirmed once the book is back within the mandate's loss room; protection can be armed now"
+
 func (s *Server) handleDeskAuthorityPrepare(ctx context.Context, req *rpc.Request) (rpc.DeskAuthorityPrepared, error) {
 	var in rpc.DeskAuthorityPrepareParams
 	if err := decodeDeskAuthority(req.Params, &in); err != nil {
 		return rpc.DeskAuthorityPrepared{}, err
+	}
+	// Refused here as well as at confirm, so the owner is never asked to sign
+	// a review the daemon is already certain to refuse. Confirm stays the gate.
+	if in.Scope == "full" {
+		if _, engaged, known := s.deskAuthorityHold(ctx); engaged || !known {
+			return rpc.DeskAuthorityPrepared{}, errBadRequest(deskAuthorityFullHeldRefusal)
+		}
 	}
 	s.deskAuthorityMu.Lock()
 	defer s.deskAuthorityMu.Unlock()
@@ -161,7 +172,7 @@ func (s *Server) handleDeskAuthorityConfirm(ctx context.Context, req *rpc.Reques
 	}
 	last, engaged, known := s.deskAuthorityHold(ctx)
 	if terms.MaximumScope == "full" && (engaged || !known) {
-		return rpc.DeskAuthorityStatus{}, errBadRequest("full automatic trading can be confirmed once the book is back within the mandate's loss room; protection can be armed now")
+		return rpc.DeskAuthorityStatus{}, errBadRequest(deskAuthorityFullHeldRefusal)
 	}
 	s.deskAuthorityMu.Lock()
 	defer s.deskAuthorityMu.Unlock()

@@ -32,7 +32,7 @@ func TestIndexHedgeProjectedRiskCountsPendingSales(t *testing.T) {
 		{"remaining units fit", input(0.5, 3000), []mandate.Leg{pending(3, hedgeTestConID)}, hedgeSale(2), ""},
 		{"same month passes neutral", input(0.5, 3000), []mandate.Leg{pending(5, hedgeTestConID)}, hedgeSale(1), "index_hedge_past_neutral"},
 		{"other month passes neutral", input(0.5, 3000), []mandate.Leg{pending(5, hedgeTestConID+1)}, hedgeSale(1), "index_hedge_past_neutral"},
-		{"combined loss exceeds room", input(0.96, 30000), []mandate.Leg{pending(4, hedgeTestConID+1)}, hedgeSale(1), "index_hedge_over_loss_room"},
+		{"combined loss over the room stays open up to neutral", input(0.96, 30000), []mandate.Leg{pending(4, hedgeTestConID+1)}, hedgeSale(1), ""},
 		{"missing book", nil, nil, hedgeSale(1), "index_hedge_risk_unmeasured"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

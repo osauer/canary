@@ -22,7 +22,10 @@ import (
 // Store errors classify authority, concurrency, and durability failures that
 // callers may handle without parsing error text.
 var (
-	ErrRevisionConflict       = errors.New("corestore: revision conflict")
+	ErrRevisionConflict = errors.New("corestore: revision conflict")
+	// ErrHeadWentBack says the database's commit counter reads older than a
+	// commit this store already saw land: a tail of commits is gone.
+	ErrHeadWentBack           = errors.New("corestore: the commit counter went back")
 	ErrPreviewTokenConsumed   = errors.New("corestore: preview token already consumed")
 	ErrBrokerScopeCollision   = errors.New("corestore: broker scope collision")
 	ErrAuthorityMismatch      = errors.New("corestore: authority mismatch")
@@ -329,24 +332,33 @@ type RevisionConflictError struct {
 	Expected int64
 	Actual   int64
 	Exists   bool
+	// Document names the state document, scope/kind, when there is one.
+	Document string
 }
 
 // Error describes the expected revision and the state observed in the store.
 func (e *RevisionConflictError) Error() string {
+	head := ErrRevisionConflict.Error()
+	if e.Document != "" {
+		head += " on " + e.Document
+	}
 	if !e.Exists {
-		return fmt.Sprintf("%v: expected revision %d, document does not exist", ErrRevisionConflict, e.Expected)
+		return fmt.Sprintf("%s: expected revision %d, document does not exist", head, e.Expected)
 	}
 	if e.LostWrite() {
-		return fmt.Sprintf("%v: expected revision %d, actual revision %d; a committed write is missing", ErrRevisionConflict, e.Expected, e.Actual)
+		return fmt.Sprintf("%s: expected revision %d, actual revision %d; a committed write is missing", head, e.Expected, e.Actual)
 	}
-	return fmt.Sprintf("%v: expected revision %d, actual revision %d", ErrRevisionConflict, e.Expected, e.Actual)
+	return fmt.Sprintf("%s: expected revision %d, actual revision %d", head, e.Expected, e.Actual)
 }
 
 // LostWrite reports a stored revision older than the caller's expected one.
 // Callers take their expected revision only from a load or a committed save,
 // and revisions only grow, so in this single-writer store an older stored
 // revision means committed pages went back: the 2026-11-03 damage showed
-// exactly this, ten hours before the file failed its startup check.
+// exactly this, ten hours before the file failed its startup check. The
+// 2026-11-06 latch reads differently: that file was whole, and its head matched
+// the watermark, so one tail commit going back or the caller's belief in a
+// commit are both still open. ErrHeadWentBack now tells those apart.
 func (e *RevisionConflictError) LostWrite() bool { return e.Exists && e.Actual < e.Expected }
 
 // Is reports whether the error matches ErrRevisionConflict.

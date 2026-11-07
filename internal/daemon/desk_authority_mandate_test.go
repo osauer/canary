@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -119,5 +120,37 @@ func TestDeskAuthorityMandateBreachHoldsFullUntilReconfirmed(t *testing.T) {
 	state = rpc.MandateReductionUnknown
 	if got := status(); got.Scope != "protect" || got.HeldBy != rpc.DeskAuthorityHeldByMandate {
 		t.Fatalf("verdict unknown: %+v, want protect while it cannot be read", got)
+	}
+}
+
+// Preparing Fully armed during a breach is refused before the device is asked
+// to sign (2026-11-06: the refusal came only after the signature, so the owner
+// would confirm a review the daemon was certain to refuse). Protection stays
+// available throughout, and a verdict that cannot be read refuses as confirm does.
+func TestDeskAuthorityPrepareFullRefusedWhileMandateBreached(t *testing.T) {
+	s, _, _ := cashPolicyServer(t, cashPolicyTestFile)
+	s.cfg = &config.Resolved{Gateway: config.Gateway{Account: "DU1234567"}, Trading: config.Trading{Mode: "paper"}}
+	s.startedAt = cashPolicyTestNow
+	state, episode := rpc.MandateReductionReducing, "mandate-20261106T140000Z-aaaaaaaaaaaa"
+	s.mandateBreachForTest = func() (string, string) { return state, episode }
+	prepare := func(scope string) error {
+		t.Helper()
+		raw, _ := json.Marshal(rpc.DeskAuthorityPrepareParams{Scope: scope, ControllerHash: strings.Repeat("ab", 32)})
+		_, err := s.handleDeskAuthorityPrepare(t.Context(), &rpc.Request{Params: raw})
+		return err
+	}
+	if err := prepare("full"); err == nil || !strings.Contains(err.Error(), "loss room") {
+		t.Fatalf("full during a breach: %v, want the loss-room refusal", err)
+	}
+	if err := prepare("protect"); err != nil {
+		t.Fatalf("protection during a breach: %v", err)
+	}
+	state, episode = rpc.MandateReductionUnknown, ""
+	if err := prepare("full"); err == nil || !strings.Contains(err.Error(), "loss room") {
+		t.Fatalf("full with no readable verdict: %v, want the loss-room refusal", err)
+	}
+	state = rpc.MandateReductionWithin
+	if err := prepare("full"); err != nil {
+		t.Fatalf("full back within the room: %v", err)
 	}
 }
