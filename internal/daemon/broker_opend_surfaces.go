@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -69,6 +70,10 @@ func (s *Server) opendHealth() *rpc.OpenDHealth {
 		HistoryUsed:       load.HistoryUsed,
 		HistoryQuota:      load.HistoryQuota,
 		NotServed:         opendNotServed,
+	}
+	if h.AccountDetected {
+		digits := strconv.FormatUint(h.Account, 10)
+		out.AccountEnding = digits[max(0, len(digits)-opendAccountEndingDigits):]
 	}
 	if h.StateKnown {
 		out.ProgramStatus = h.State.ProgramStatus

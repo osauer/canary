@@ -405,7 +405,7 @@ type OpenD struct {
 	Host string `toml:"host"`
 	// Port is OpenD's api_port; absent is 11111.
 	Port *int `toml:"port"`
-	// Account is the Futu account id (accID) the daemon is scoped to. Required under kind "opend": a Futu login carries several account ids across both environments, and the client is built with its scope before it connects.
+	// Account optionally names the Futu account (accID, or its last four digits) the daemon is scoped to. Empty uses the login's one real account and refuses when it has none or several; four digits pick the real account ending in them. A simulated account is used only by its full id.
 	Account string `toml:"account"`
 	// ClientID is the clientID string sent in InitConnect; default "canary".
 	ClientID string `toml:"client_id"`
@@ -443,21 +443,16 @@ func (o OpenD) ClientIDOrDefault() string {
 // DefaultOpenDPort is the API port OpenD listens on unless configured otherwise.
 const DefaultOpenDPort = 11111
 
-// ErrOpenDAccountRequired is the refusal of a daemon with kind "opend" and no pin.
-var ErrOpenDAccountRequired = errors.New(`[broker] kind = "opend" requires [opend] account: set it to the Futu account id (accID) this daemon is scoped to`)
-
 // ValidateBroker refuses a broker configuration a daemon cannot start with.
 func (c *Config) ValidateBroker() error {
 	switch kind := strings.ToLower(strings.TrimSpace(c.Broker.Kind)); kind {
 	case "", "ibkr":
 		return nil
 	case "opend":
-		account := strings.TrimSpace(c.OpenD.Account)
-		if account == "" {
-			return ErrOpenDAccountRequired
-		}
-		if _, err := strconv.ParseUint(account, 10, 64); err != nil {
-			return fmt.Errorf("[opend] account %q is not a Futu account id: it must be the number OpenD lists as accID", account)
+		if account := strings.TrimSpace(c.OpenD.Account); account != "" {
+			if _, err := strconv.ParseUint(account, 10, 64); err != nil {
+				return fmt.Errorf("[opend] account %q is not a Futu account id: it must be the number OpenD lists as accID, or its last four digits", account)
+			}
 		}
 		if c.OpenD.Port != nil && slices.Contains(discover.StandardPorts, *c.OpenD.Port) {
 			return fmt.Errorf("[opend] port %d is an IBKR API port: set the api_port OpenD listens on, 11111 unless you changed it", *c.OpenD.Port)

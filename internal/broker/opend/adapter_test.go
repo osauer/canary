@@ -22,7 +22,7 @@ func connected(t *testing.T, sim *futusim.Server, account uint64) *Adapter {
 	conn.Start(context.Background())
 	t.Cleanup(conn.Stop)
 	waitUntil(t, "a ready session", conn.IsReady)
-	return New(conn, account, sim.Book().Clock.Now)
+	return New(conn, sim.Book().Clock.Now)
 }
 
 func waitUntil(t *testing.T, what string, cond func() bool) {
@@ -43,11 +43,11 @@ func unlisted(t *testing.T, sim *futusim.Server) *Adapter {
 	conn.Start(context.Background())
 	t.Cleanup(conn.Stop)
 	waitUntil(t, "the unscoped phase", func() bool { return conn.Health().Phase == futu.PhaseUnscoped })
-	return New(conn, 42, nil)
+	return New(conn, nil)
 }
 
 func TestScopeIsThePinWithTheEnvironmentTheListReported(t *testing.T) {
-	idle := New(futu.NewConnector(futu.Config{Addr: "127.0.0.1:1", Account: simAccount, ClientVersion: 333}), simAccount, nil)
+	idle := New(futu.NewConnector(futu.Config{Addr: "127.0.0.1:1", Account: simAccount, ClientVersion: 333}), nil)
 	if got := idle.Scope(); got.Account != "1000001" || got.Mode != modeUnknown || got.Kind != broker.KindOpenD {
 		t.Fatalf("before any session %+v", got)
 	}
@@ -177,7 +177,7 @@ func TestCodeOfFindsTheMarket(t *testing.T) {
 	if _, err := codeOf(broker.Instrument{}); !errors.Is(err, futu.ErrInvalidCode) {
 		t.Errorf("no symbol: %v", err)
 	}
-	a := New(nil, 1, nil)
+	a := New(nil, nil)
 	if a.Key(broker.Instrument{Symbol: "SPY", SecType: "OPT"}) != "" || a.Key(broker.Instrument{Symbol: "AAPL"}) != "US.AAPL" {
 		t.Error("the subscription key")
 	}

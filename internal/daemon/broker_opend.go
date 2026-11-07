@@ -28,17 +28,57 @@ func newOpenDBroker(cfg *config.Resolved, version string) *brokerOpenD.Adapter {
 	if cfg == nil || !cfg.IsOpenD() {
 		return nil
 	}
-	account, err := strconv.ParseUint(strings.TrimSpace(cfg.OpenD.Account), 10, 64)
+	account, ending, err := opendPin(cfg.OpenD.Account)
 	if err != nil {
 		return nil
 	}
 	conn := futu.NewConnector(futu.Config{
 		Addr:          fmt.Sprintf("%s:%d", cfg.OpenD.HostOrDefault(), cfg.OpenD.PortOrDefault()),
 		Account:       account,
+		AccountEnding: ending,
 		ClientID:      cfg.OpenD.ClientIDOrDefault(),
 		ClientVersion: clientVersionFor(version),
 	})
-	return brokerOpenD.New(conn, account, nil)
+	return brokerOpenD.New(conn, nil)
+}
+
+// opendPin reads [opend] account: empty detects, four digits narrow detection and
+// anything else is the full id.
+func opendPin(raw string) (uint64, string, error) {
+	raw = strings.TrimSpace(raw)
+	switch {
+	case raw == "":
+		return 0, "", nil
+	case len(raw) == opendAccountEndingDigits:
+		if _, err := strconv.ParseUint(raw, 10, 64); err != nil {
+			return 0, "", err
+		}
+		return 0, raw, nil
+	}
+	account, err := strconv.ParseUint(raw, 10, 64)
+	return account, "", err
+}
+
+// opendAccountEndingDigits is how many digits [opend] account takes as an ending.
+const opendAccountEndingDigits = 4
+
+// opendUnscopedWords says why no account is scoped and how to settle it.
+func opendUnscopedWords(health futu.Health) string {
+	if health.Account != 0 {
+		return "OpenD's account list does not report [opend] account"
+	}
+	if len(health.AccountChoices) == 0 {
+		return "OpenD lists no real account for this daemon on this login, and Canary never picks a simulated one: set [opend] account to a simulated account's full id to use one"
+	}
+	return fmt.Sprintf("OpenD lists %d real accounts: %s. Set [opend] account to the last four digits of the one to use", len(health.AccountChoices), opendChoiceWords(health.AccountChoices))
+}
+
+func opendChoiceWords(choices []futu.AccountChoice) string {
+	parts := make([]string, 0, len(choices))
+	for _, choice := range choices {
+		parts = append(parts, fmt.Sprintf("ending %s (%s, %s)", choice.Ending, choice.Type, strings.Join(choice.Markets, " ")))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // errOpenDUnavailable is the IBKR sentinel's meaning in OpenD's name. The daemon's
@@ -187,7 +227,7 @@ func opendVerdict(ctx context.Context, health futu.Health, ep discover.Endpoint,
 		case futu.EndPasswordChanged, futu.EndLoginBanned, futu.EndDeviceLock:
 			return "OpenD lost its login: log in to OpenD again"
 		case futu.EndScopeLost:
-			return "OpenD's account list no longer reports [opend] account"
+			return "OpenD's account list no longer reports the account this session was using"
 		case futu.EndHeartbeat:
 			return "OpenD stopped answering"
 		}
@@ -202,7 +242,7 @@ func opendVerdict(ctx context.Context, health futu.Health, ep discover.Endpoint,
 	case futu.PhaseNotLoggedIn:
 		return "OpenD is up but its quote or trade server is not logged in"
 	case futu.PhaseUnscoped:
-		return "OpenD's account list does not report [opend] account"
+		return opendUnscopedWords(health)
 	}
 	return ""
 }
@@ -215,7 +255,7 @@ func (s *Server) opendAccountSummary(ctx context.Context) (*rpc.AccountResult, a
 		return nil, accountSummaryAuthority{}, s.gatewayUnavailableError()
 	}
 	if !brokerScopeConcrete(scope) {
-		return nil, accountSummaryAuthority{}, errors.New("account summary requires the account list to report [opend] account")
+		return nil, accountSummaryAuthority{}, errors.New("account summary requires OpenD's account list to settle the account")
 	}
 	snapshot, err := s.readAccountSnapshot(ctx, s.opend)
 	if err != nil {

@@ -1,7 +1,6 @@
 package config
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,10 +42,8 @@ func TestBrokerConfigDecodesAndRefusesWhatCannotStart(t *testing.T) {
 		t.Fatalf("defaults %+v %v", defaults, err)
 	}
 
-	if _, err := load(t, "[broker]\nkind = \"opend\"\n").Resolve(); !errors.Is(err, ErrOpenDAccountRequired) {
-		t.Fatalf("kind opend without an account: %v", err)
-	} else if !strings.Contains(err.Error(), "[opend] account") {
-		t.Fatalf("the refusal does not name the key: %v", err)
+	if _, err := load(t, "[broker]\nkind = \"opend\"\n").Resolve(); err != nil {
+		t.Fatalf("kind opend without an account detects one: %v", err)
 	}
 	if _, err := load(t, "[broker]\nkind = \"opend\"\n[opend]\naccount = \"U1234567\"\n").Resolve(); err == nil || !strings.Contains(err.Error(), "accID") {
 		t.Fatalf("an account that is not a number: %v", err)

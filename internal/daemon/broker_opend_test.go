@@ -167,7 +167,7 @@ func startOpenDServerInMode(t *testing.T, sim *futusim.Server, account, mode str
 		srv.opend = brokerOpenD.New(futu.NewConnector(futu.Config{
 			Addr: sim.Addr(), Account: pinned, ClientID: "canary-test", ClientVersion: 333,
 			RedialDelay: 50 * time.Millisecond, Now: sim.Book().Clock.Now,
-		}), pinned, nil)
+		}), nil)
 		srv.opend.SetLineBudget(srv.opendBudget.allowed)
 	}
 	serving := make(chan struct{}, 1)

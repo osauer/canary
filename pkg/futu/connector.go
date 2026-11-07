@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,8 +43,12 @@ var ErrNoScope = errors.New("opend account scope unknown: the account list has n
 type Config struct {
 	// Addr is OpenD's host:port.
 	Addr string
-	// Account is the pinned trading account.
+	// Account is the pinned trading account. Zero detects it: the login's one real
+	// account, or, with AccountEnding, the one real account ending in those digits.
+	// A detected account then binds like a pin, and a simulated one is never picked.
 	Account uint64
+	// AccountEnding narrows detection when the login has several real accounts.
+	AccountEnding string
 	// ClientID is the label sent to OpenD; OpenD assigns the connection's
 	// real identity itself.
 	ClientID string
@@ -117,18 +122,22 @@ type Account struct {
 
 // Health is the session as the status surface reads it.
 type Health struct {
-	Phase       Phase
-	Connected   bool
-	Ready       bool
-	Account     uint64
-	Environment Environment
-	Markets     []string
-	AccountType string
-	Firm        string
-	Session     SessionInfo
-	State       GlobalState
-	StateKnown  bool
-	QuoteRights map[string]string
+	Phase     Phase
+	Connected bool
+	Ready     bool
+	Account   uint64
+	// AccountDetected says the account came from the list, not from a pin.
+	AccountDetected bool
+	// AccountChoices are the real accounts when detection could not choose one.
+	AccountChoices []AccountChoice
+	Environment    Environment
+	Markets        []string
+	AccountType    string
+	Firm           string
+	Session        SessionInfo
+	State          GlobalState
+	StateKnown     bool
+	QuoteRights    map[string]string
 	// SubscriptionQuota and HistoryQuota are OpenD's pushed quotas; the Used
 	// fields its pushed spend. Zero until OpenD says.
 	SubscriptionQuota int
@@ -143,6 +152,16 @@ type Health struct {
 	// quoted for the surface.
 	LastGatewayEvent string
 }
+
+// AccountChoice is a real account detection could not settle on, without its number.
+type AccountChoice struct {
+	Ending  string
+	Type    string
+	Markets []string
+}
+
+// accountEndingDigits is how much of an account number a reader is shown.
+const accountEndingDigits = 4
 
 // scope is what the account list reported for the pin.
 type scope struct {
@@ -160,7 +179,10 @@ type Connector struct {
 	now   func() time.Time
 	pacer *Pacer
 
-	refresh      chan struct{}
+	refresh chan struct{}
+	// pinned is the account every trade request carries: the configured one, or
+	// the one detection bound for this connector's life.
+	pinned       atomic.Uint64
 	refreshing   atomic.Bool
 	refreshAgain atomic.Bool
 
@@ -199,7 +221,7 @@ func NewConnector(cfg Config) *Connector {
 	if now == nil {
 		now = time.Now
 	}
-	return &Connector{
+	c := &Connector{
 		cfg:     cfg,
 		now:     now,
 		pacer:   NewPacer(now),
@@ -208,6 +230,8 @@ func NewConnector(cfg Config) *Connector {
 		lines:   make(map[string]time.Time),
 		quotes:  make(map[string]Quote),
 	}
+	c.pinned.Store(cfg.Account)
+	return c
 }
 
 // Start runs the session loop until [Connector.Stop] or ctx ends. A second
@@ -419,7 +443,7 @@ func (c *Connector) refreshSession(ctx context.Context, conn *connection) {
 			c.mu.Unlock()
 		}
 	}
-	if subscribe && subscribeAccountPush(ctx, conn, c.cfg.Account) == nil {
+	if subscribe && subscribeAccountPush(ctx, conn, c.pinned.Load()) == nil {
 		c.mu.Lock()
 		if c.conn == conn {
 			c.accountPushed = true
@@ -470,12 +494,19 @@ func (c *Connector) readAccounts(ctx context.Context, conn *connection) error {
 	if err := conn.request(ctx, ProtoTrdGetAccList, req, &resp); err != nil {
 		return err
 	}
+	rows := resp.GetS2C().GetAccList()
+	pin := c.pinned.Load()
 	var found *trdcommon.TrdAcc
-	for _, row := range resp.GetS2C().GetAccList() {
-		if row.GetAccID() == c.cfg.Account {
-			found = row
-			break
+	var choices []AccountChoice
+	if pin != 0 {
+		for _, row := range rows {
+			if row.GetAccID() == pin {
+				found = row
+				break
+			}
 		}
+	} else {
+		found, choices = c.detectAccount(rows)
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -484,12 +515,20 @@ func (c *Connector) readAccounts(ctx context.Context, conn *connection) error {
 	}
 	if c.scope.known {
 		if found == nil || trdcommon.TrdEnv(found.GetTrdEnv()) != c.scope.env {
-			return &SessionEndError{Reason: EndScopeLost, Detail: fmt.Sprintf("account %d", c.cfg.Account)}
+			return &SessionEndError{Reason: EndScopeLost, Detail: fmt.Sprintf("account %d", pin)}
 		}
 	}
+	c.health.AccountChoices = choices
 	if found == nil {
 		c.recomputePhaseLocked()
 		return nil
+	}
+	if pin == 0 {
+		// Bound for this connector's life: a later session reads it as a pin, so
+		// nothing moves to another account if this one leaves the list.
+		c.pinned.Store(found.GetAccID())
+		c.health.Account = found.GetAccID()
+		c.health.AccountDetected = true
 	}
 	account := accountFromRow(found)
 	c.scope = scope{known: true, env: trdcommon.TrdEnv(found.GetTrdEnv()), account: account, markets: slices.Clone(found.GetTrdMarketAuthList())}
@@ -505,6 +544,32 @@ func (c *Connector) readAccounts(ctx context.Context, conn *connection) error {
 // universal account, a real account, out of the list otherwise.
 func accountListRequest() *trdgetacclist.Request {
 	return &trdgetacclist.Request{C2S: &trdgetacclist.C2S{UserID: new(uint64(0)), NeedGeneralSecAccount: new(true)}}
+}
+
+// detectAccount settles on the one real account the list offers, or says which
+// ones it could not choose between.
+func (c *Connector) detectAccount(rows []*trdcommon.TrdAcc) (*trdcommon.TrdAcc, []AccountChoice) {
+	var real []*trdcommon.TrdAcc
+	for _, row := range rows {
+		if trdcommon.TrdEnv(row.GetTrdEnv()) == trdcommon.TrdEnv_TrdEnv_Real &&
+			strings.HasSuffix(strconv.FormatUint(row.GetAccID(), 10), c.cfg.AccountEnding) {
+			real = append(real, row)
+		}
+	}
+	if len(real) == 1 {
+		return real[0], nil
+	}
+	choices := make([]AccountChoice, 0, len(real))
+	for _, row := range real {
+		account := accountFromRow(row)
+		digits := strconv.FormatUint(row.GetAccID(), 10)
+		choices = append(choices, AccountChoice{
+			Ending:  digits[max(0, len(digits)-accountEndingDigits):],
+			Type:    account.Type,
+			Markets: account.Markets,
+		})
+	}
+	return nil, choices
 }
 
 func accountFromRow(row *trdcommon.TrdAcc) Account {
@@ -571,7 +636,7 @@ func (c *Connector) tradeHeaders() (*connection, []*trdcommon.TrdHeader, error) 
 	for _, market := range c.scope.markets {
 		headers = append(headers, &trdcommon.TrdHeader{
 			TrdEnv:    new(int32(c.scope.env)),
-			AccID:     new(c.cfg.Account),
+			AccID:     new(c.pinned.Load()),
 			TrdMarket: new(market),
 		})
 	}
@@ -608,9 +673,9 @@ func (c *Connector) Scope() (uint64, Environment) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	if !c.scope.known {
-		return c.cfg.Account, EnvironmentUnknown
+		return c.pinned.Load(), EnvironmentUnknown
 	}
-	return c.cfg.Account, c.scope.account.Environment
+	return c.pinned.Load(), c.scope.account.Environment
 }
 
 // Health describes the session for the status surface.
@@ -619,6 +684,7 @@ func (c *Connector) Health() Health {
 	defer c.mu.RUnlock()
 	health := c.health
 	health.Markets = slices.Clone(c.health.Markets)
+	health.AccountChoices = slices.Clone(c.health.AccountChoices)
 	if c.health.QuoteRights != nil {
 		health.QuoteRights = maps.Clone(c.health.QuoteRights)
 	}
@@ -672,7 +738,7 @@ func (c *Connector) handleNotify(conn *connection, s2c *notify.S2C) {
 		c.signalRefresh()
 	case notify.NotifyType_NotifyType_QotRight:
 		c.mu.Lock()
-		// The push names fewer markets than the read; it updates those it names.
+		// A push may name fewer markets than the read; it updates those it names.
 		rights := maps.Clone(c.health.QuoteRights)
 		if rights == nil {
 			rights = map[string]string{}

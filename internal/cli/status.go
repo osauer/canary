@@ -475,6 +475,9 @@ func daemonVersionDrift(daemonVersion, cliVersion string) bool {
 
 func formatSessionValue(env *Env, res rpc.HealthResult) string {
 	account := statusAccountID(res)
+	if res.OpenD != nil && res.OpenD.AccountEnding != "" {
+		account = "account ending " + res.OpenD.AccountEnding
+	}
 	if mode := formatStatusAccountMode(env, res.AccountMode); mode != "" {
 		account += " (" + mode + ")"
 	}

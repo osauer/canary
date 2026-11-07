@@ -1,11 +1,12 @@
-The .proto files in this directory are copied byte for byte from the public
-Futu client repository, under the Apache License 2.0 in the LICENSE file beside
+The .proto files in this directory are copied byte for byte from the published
+moomoo client package, under the Apache License 2.0 in the LICENSE file beside
 them:
 
-  Source:    https://github.com/FutunnOpen/py-futu-api
-  Directory: futu/common/pb
-  Commit:    9bac9d8b9b8c1efe05df16a9e98937f08b68489b (2026-03-31, 10.2.6208)
-  Copied:    2026-11-04
+  Source:    https://pypi.org/project/moomoo-api/10.12.7208/
+  File:      moomoo_api-10.12.7208.tar.gz
+  SHA-256:   fbbb737f71e0906473bf1e85c4106b091818ddf22983886148768e32b6e97adb
+  Directory: moomoo/common/pb
+  Copied:    2026-11-07
 
 Only the definitions the Canary client uses are copied. Trd_UnlockTrade.proto
 is deliberately absent. The Go packages beside this directory are generated

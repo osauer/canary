@@ -252,7 +252,7 @@ func (c *Connector) handleTradePush(conn *connection, frame Frame) {
 			conn.close(fmt.Errorf("%w: Trd_UpdateOrder body: %v", ErrFrame, err))
 			return
 		}
-		if s2c := resp.GetS2C(); s2c != nil && s2c.GetHeader().GetAccID() == c.cfg.Account && c.cfg.OnOrder != nil {
+		if s2c := resp.GetS2C(); s2c != nil && s2c.GetHeader().GetAccID() == c.pinned.Load() && c.cfg.OnOrder != nil {
 			c.cfg.OnOrder(orderFromRow(s2c.GetOrder()))
 		}
 	case ProtoTrdUpdateOrderFill:
@@ -261,7 +261,7 @@ func (c *Connector) handleTradePush(conn *connection, frame Frame) {
 			conn.close(fmt.Errorf("%w: Trd_UpdateOrderFill body: %v", ErrFrame, err))
 			return
 		}
-		if s2c := resp.GetS2C(); s2c != nil && s2c.GetHeader().GetAccID() == c.cfg.Account && c.cfg.OnFill != nil {
+		if s2c := resp.GetS2C(); s2c != nil && s2c.GetHeader().GetAccID() == c.pinned.Load() && c.cfg.OnFill != nil {
 			c.cfg.OnFill(fillFromRow(s2c.GetOrderFill()))
 		}
 	}

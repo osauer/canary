@@ -234,17 +234,19 @@ func quoteRights(right *notify.QotRight) map[string]string {
 	if right.SzQotRight != nil {
 		rights["SZ"] = quoteRightName(right.GetSzQotRight())
 	}
+	if right.SgStockQotRight != nil {
+		rights["SG"] = quoteRightName(right.GetSgStockQotRight())
+	}
+	if right.MyStockQotRight != nil {
+		rights["MY"] = quoteRightName(right.GetMyStockQotRight())
+	}
+	if right.JpStockQotRight != nil {
+		rights["JP"] = quoteRightName(right.GetJpStockQotRight())
+	}
 	return rights
 }
 
-// quoteRightLevel3 is OpenD 10.12's newer level; the vendored Qot_Common stops at
-// QotRight_No.
-const quoteRightLevel3 = 6
-
 func quoteRightName(level int32) string {
-	if level == quoteRightLevel3 {
-		return "Level3"
-	}
 	return strings.TrimPrefix(qotcommon.QotRight(level).String(), "QotRight_")
 }
 

@@ -19,6 +19,8 @@ enum QotMarket
 	QotMarket_MY_Security = 61; //马来西亚市场
 	QotMarket_CA_Security = 71; // 加拿大市场
 	QotMarket_FX_Security = 81; // 外汇市场
+	QotMarket_CC_Security = 91; // 加密货币市场
+	QotMarket_EventContract = 101; // 事件合约市场
 }
 
 enum SecurityType
@@ -34,6 +36,8 @@ enum SecurityType
     SecurityType_Drvt = 8; //期权
     SecurityType_PlateSet = 9; //板块集
 	SecurityType_Future = 10; //期货
+	SecurityType_Forex = 11; // 外汇
+	SecurityType_Crypto = 12; // 数字货币
 }
 
 enum PlateSetType
@@ -79,6 +83,7 @@ enum OptionAreaType
 
 enum QotMarketState
 {
+	option allow_alias = true;
 	QotMarketState_None = 0; // 无交易
 	QotMarketState_Auction = 1; // 竞价 
 	QotMarketState_WaitingOpen = 2; // 早盘前等待开盘
@@ -106,10 +111,13 @@ enum QotMarketState
 	QotMarketState_FutureBreak = 24; // 期货中盘休息
 	QotMarketState_FutureBreakOver = 25; // 期货休息后开盘
 	QotMarketState_FutureClose = 26; // 期货收盘
-	//科创板新增状态
-    QotMarketState_StibAfterHoursWait = 27; // 科创板的盘后撮合时段（已废弃）
-    QotMarketState_StibAfterHoursBegin = 28; // 科创板的盘后交易开始（已废弃）
-    QotMarketState_StibAfterHoursEnd = 29; // 科创板的盘后交易结束（已废弃）
+	//A股盘后固定价格交易状态（上交所A股/ETF、深交所A股及存托凭证/ETF 适用；B股、债券、指数、REITs/LOF、封闭式基金不适用）
+    QotMarketState_StibAfterHoursWait = 27;        // 旧名保留兼容；A股盘后撮合等待（15:00-15:05）
+    QotMarketState_AShareAfterHoursWait = 27;      // A股盘后撮合等待（15:00-15:05）
+    QotMarketState_StibAfterHoursBegin = 28;       // 旧名保留兼容；A股盘后固定价格交易开始（15:05-15:30）
+    QotMarketState_AShareAfterHoursBegin = 28;     // A股盘后固定价格交易开始（15:05-15:30）
+    QotMarketState_StibAfterHoursEnd = 29;         // 旧名保留兼容；A股盘后固定价格交易结束（15:30之后）
+    QotMarketState_AShareAfterHoursEnd = 29;       // A股盘后固定价格交易结束（15:30之后）
 
     QotMarketState_CLOSE_AUCTION         = 30;  // 收市竞价
     QotMarketState_AFTERNOON_END         = 31;  // 已收盘
@@ -132,6 +140,9 @@ enum TradeDateMarket
 	TradeDateMarket_ST = 5; //港股通（深、沪）
 	TradeDateMarket_JP_Future = 6; //日本期货
 	TradeDateMarket_SG_Future = 7; //新加坡期货
+	TradeDateMarket_SG = 8; //新加坡证券
+	TradeDateMarket_MY = 9; //马来西亚
+	TradeDateMarket_JP = 10; //日本（正股/ETF）
 }
 
 //交易日类型
@@ -164,6 +175,10 @@ enum KLType
 	KLType_60Min = 9; //60分K		
 	KLType_3Min = 10; //3分K
 	KLType_Quarter = 11; //季K
+	KLType_10Min = 12; //10分K
+	KLType_120Min = 13; //120分K
+	KLType_180Min = 14; //180分K
+	KLType_240Min = 15; //240分K
 }
 
 enum KLFields
@@ -202,6 +217,17 @@ enum SubType
 	SubType_KL_Qurater = 15; //季K
 	SubType_KL_Year = 16; //年K
 	SubType_KL_3Min = 17; //3分K
+	SubType_KL_10Min = 18; //10分K
+	SubType_KL_120Min = 19; //120分K
+	SubType_KL_180Min = 20; //180分K
+	SubType_KL_240Min = 21; //240分K
+	SubType_OrderBook_Odd = 22; //碎股摆盘
+}
+
+enum OrderBookType
+{
+	OrderBookType_Normal = 0; //整股盘(默认)
+	OrderBookType_Odd = 1; //碎股盘
 }
 
 enum TickerDirection
@@ -298,7 +324,7 @@ enum PushDataType
 	PushDataType_Cache = 3; //非实时非连接断开补充数据
 }
 
-//窝轮排序
+//排序
 enum SortField
 {
 	SortField_Unknow = 0;
@@ -358,6 +384,30 @@ enum SortField
 	SortField_LastSettlePrice = 48; //昨结
 	SortField_Position = 49; //持仓量
 	SortField_PositionChange = 50; //日增仓
+
+	// 以下排序字段用于 Qot_GetValuationPlateStockList
+	SortField_MarketCap            = 51; // 市值
+	SortField_Valuation            = 52; // 估值
+	SortField_ForwardValuation     = 53; // 预测估值
+	SortField_HistoricalPercentile = 54; // 历史分位
+
+	// 以下排序字段用于 Qot_GetShareholdersHolderDetail
+	SortField_HolderQuantity     = 61; // 持股股数
+	// 以下排序字段用于 Qot_GetShareholdersHoldingChanges / Qot_GetShareholdersHolderDetail
+	SortField_ShareChangeNum     = 62; // 持股变动数
+	// 以下排序字段用于 Qot_GetShareholdersHoldingChanges
+	SortField_HoldingDate        = 63; // 持股日期
+	SortField_HolderPctChange    = 64; // 变动比例
+	SortField_HolderChangeAmount = 65; // 变动金额
+	SortField_HolderPct          = 66; // 持股比例
+}
+
+// 排序方向
+enum SortType
+{
+	SortType_Unknown = 0;  // 未知
+	SortType_Desc    = 1;  // 降序
+	SortType_Asc     = 2;  // 升序
 }
 
 //窝轮发行人
@@ -446,6 +496,7 @@ enum QotRight
 	QotRight_Level2 = 3; //Level2
 	QotRight_SF = 4; //SF高级行情
 	QotRight_No = 5; //无权限
+	QotRight_Level3 = 6; //Level3
 }
 
 // 提醒类型
@@ -543,6 +594,10 @@ enum ExchType
     ExchType_CN_STIB = 16; //科创板
     ExchType_SG_SGX = 17; //新交所
     ExchType_JP_OSE = 18; //大阪交易所 
+	ExchType_CC_CRYPTO = 19; //加密货币交易所
+	ExchType_MY_MYX = 20; //马来西亚交易所
+	ExchType_JP_TSE = 21; //东京证券交易所
+	ExchType_JP_Nikkei = 22; //日经指数
 }
 
 // 周期类型
@@ -562,6 +617,260 @@ enum PriceReminderMarketStatus
 	PriceReminderMarketStatus_USPre = 2;  // 美股盘前
 	PriceReminderMarketStatus_USAfter = 3; // 美股盘后
 	PriceReminderMarketStatus_USOverNight = 4; // 美股夜盘
+}
+
+enum OptionStrategyType
+{
+	OptionStrategyType_Unknown = 0; // 未知
+	OptionStrategyType_SingleOption = 1;  // 单个期权
+	OptionStrategyType_Covered = 2;  // 股票担保
+	OptionStrategyType_Spread = 4;  // 垂直策略
+	OptionStrategyType_Straddle = 6;  // 跨式策略
+	OptionStrategyType_Strangle = 7;  // 宽跨式策略
+	OptionStrategyType_Collar = 8;  // 领式策略
+	OptionStrategyType_Butterfly = 9;  // 蝶式策略
+	OptionStrategyType_Condor = 11;  // 鹰式策略
+	OptionStrategyType_IronButterfly = 13;  // 铁蝶式策略
+	OptionStrategyType_IronCondor = 14;  // 铁鹰式策略
+	OptionStrategyType_CalendarSpread = 15;  // 日历策略
+	OptionStrategyType_DiagonalSpread = 16;  // 对角策略
+	OptionStrategyType_Customize = 100;  // 自定义策略
+}
+
+//行情协议公共参数头
+message QotHeader
+{
+	optional int32 securityFirm = 1; //券商标识，取值见 Trd_Common.SecurityFirm
+}
+
+// 财报类型
+enum F10Type
+{
+	F10Type_Unknown         = 0;
+	F10Type_Q1              = 1;   // 单季报，Q1
+	F10Type_Q2              = 2;   // 单季报，Q2
+	F10Type_Q3              = 3;   // 单季报，Q3
+	F10Type_Q4              = 4;   // 单季报，Q4
+	F10Type_Q6              = 5;   // 累计季报，Q6（Q1+Q2）
+	F10Type_Q9              = 6;   // 累计季报，Q9（Q1+Q2+Q3）
+	F10Type_Annual          = 7;   // 年报
+	F10Type_Quarterly       = 9;   // 单季报组合（Q1, Q2, Q3, Q4）
+	F10Type_QuarterlyAnnual = 10;  // 单季报 + 年报
+	F10Type_MulQuarterly    = 11;  // 累计季报（Q1, Q6, Q9, Annual）
+}
+
+// 财报发布时间类型
+enum EarningsPubTimeType
+{
+    EarningsPubTimeType_Unknown      = 0; // 未知
+    EarningsPubTimeType_PreMarket    = 1; // 盘前发布
+    EarningsPubTimeType_AfterMarket  = 2; // 盘后发布
+    EarningsPubTimeType_DuringMarket = 3; // 盘中发布
+}
+
+// 估值类型
+enum ValuationType
+{
+    ValuationType_Unknown = 0; // 未知
+    ValuationType_PE      = 1; // 市盈率
+    ValuationType_PB      = 2; // 市净率
+    ValuationType_PS      = 3; // 市销率
+}
+
+// 财务报表类型
+enum FinancialStatementsType
+{
+    FinancialStatementsType_Unknown      = 0;
+    FinancialStatementsType_Income       = 1; // 利润表
+    FinancialStatementsType_BalanceSheet = 2; // 资产负债表
+    FinancialStatementsType_CashFlow     = 3; // 现金流量表
+    FinancialStatementsType_MainIndex    = 4; // 关键指标
+}
+
+// 主营构成维度类型
+enum RevenueBreakdownType
+{
+    RevenueBreakdownType_Unknown  = 0;
+    RevenueBreakdownType_Product  = 1; // 产品
+    RevenueBreakdownType_Industry = 2; // 行业
+    RevenueBreakdownType_Region   = 4; // 地区
+    RevenueBreakdownType_Business = 8; // 业务
+}
+
+// 分析师评级
+enum ResearchRatingType
+{
+    ResearchRatingType_Unknown      = 0; // 未知
+    ResearchRatingType_Sell         = 1; // Sell（卖出）
+    ResearchRatingType_Underperform = 2; // Underperform（跑输大盘）
+    ResearchRatingType_Hold         = 3; // Hold（持有）
+    ResearchRatingType_Buy          = 4; // Buy（买入）
+    ResearchRatingType_StrongBuy    = 5; // Strong Buy（强力推荐）
+}
+
+// 研报评级汇总-评级维度
+enum ResearchRatingDimensionType
+{
+    ResearchRatingDimensionType_Unknown     = 0;
+    ResearchRatingDimensionType_Institution = 1; // 机构维度（默认）
+    ResearchRatingDimensionType_Analyst     = 2; // 分析师维度
+}
+
+// 晨星评级类型
+enum MorningstarRatingType
+{
+    MorningstarRatingType_Unknown      = 0; // 未知
+    MorningstarRatingType_Quantitative = 1; // 定量评级（系统模型给出）
+    MorningstarRatingType_Qualitative  = 2; // 定性评级（分析师人工给出）
+}
+
+// 估值历史区间类型
+enum ValuationIntervalType
+{
+    ValuationIntervalType_Unknown   = 0;  // 未知
+    ValuationIntervalType_Month3    = 1;  // 3个月
+    ValuationIntervalType_Month6    = 2;  // 6个月
+    ValuationIntervalType_Year1     = 3;  // 1年
+    ValuationIntervalType_Year3     = 4;  // 3年
+    ValuationIntervalType_Since2019 = 5;  // 从2019年起
+    ValuationIntervalType_Year5     = 6;  // 5年
+    ValuationIntervalType_Year10    = 7;  // 10年
+    ValuationIntervalType_Year2     = 8;  // 2年
+    ValuationIntervalType_Year20    = 9;  // 20年
+    ValuationIntervalType_Year30    = 10; // 30年
+}
+
+// 持股变动筛选类型
+enum HoldingChangesFilterType
+{
+    HoldingChangesFilterType_Unknown  = 0; // 全部（默认）
+    HoldingChangesFilterType_Increase = 1; // 增持
+    HoldingChangesFilterType_Decrease = 2; // 减持
+    HoldingChangesFilterType_NewIn    = 3; // 建仓
+    HoldingChangesFilterType_CloseOut = 4; // 清仓
+}
+
+// 股东持仓明细机构类型
+enum HolderDetailType
+{
+    HolderDetailType_Default                      = 0;    // 默认不过滤，按服务端默认逻辑返回
+    HolderDetailType_All                          = 1000; // 全部
+    HolderDetailType_Unclassified                 = 1;    // 其他机构
+    HolderDetailType_TraditionalInvestmentManager = 2;    // 传统投资经理
+    HolderDetailType_HedgeFundManager             = 3;    // 对冲基金
+    HolderDetailType_VCOrPE                       = 4;    // 风险资本/私募股权投资
+    HolderDetailType_CorporatePensionPlanSponsor  = 5;    // 企业年金
+    HolderDetailType_FoundationFundSponsor        = 6;    // 基金会基金
+    HolderDetailType_InsuranceCompany             = 7;    // 保险公司
+    HolderDetailType_BankOrInvestmentBank         = 8;    // 银行/投资银行
+    HolderDetailType_FamilyOfficesOrTrust         = 9;    // 家族办公室/信托
+    HolderDetailType_SovereignWealthFund          = 10;   // 主权财富基金
+    HolderDetailType_REIT                         = 11;   // REIT
+    HolderDetailType_StructuredFinancePoolManager = 12;   // 结构化融资经理
+    HolderDetailType_UnionPensionPlanSponsor      = 13;   // 联合养老金
+    HolderDetailType_GovernmentPensionPlanSponsor = 14;   // 政府养老金
+    HolderDetailType_EndowmentFundSponsor         = 15;   // 捐赠基金
+    HolderDetailType_IndividualInsiders           = 100;  // 个人
+    HolderDetailType_IssueSponsoredADR            = 200;  // ADS
+    HolderDetailType_CorporationsPublic           = 300;  // 上市公司
+    HolderDetailType_CorporationsPrivate          = 400;  // 未公开上市公司
+    HolderDetailType_StateOwnedShares             = 500;  // 国有股
+}
+
+// 公司资料字段类型
+enum CompanyProfileFieldType
+{
+    CompanyProfileFieldType_SourceText       = 0; // 文本
+    CompanyProfileFieldType_LinkType         = 1; // 链接
+    CompanyProfileFieldType_IndependentTitle = 2; // 独立标题
+}
+
+// 券商净买卖方向
+enum BuySellType
+{
+    BuySellType_Unknown = 0;
+    BuySellType_NetBuy  = 1; // 净买入
+    BuySellType_NetSell = 2; // 净卖出
+}
+
+// 期权波动率查询时间周期
+enum OptionVolatilityTimePeriodType
+{
+    OptionVolatilityTimePeriodType_Unknown  = 0; // 未知
+    OptionVolatilityTimePeriodType_Week     = 1; // 周
+    OptionVolatilityTimePeriodType_Month    = 2; // 月（默认）
+    OptionVolatilityTimePeriodType_Quarter  = 3; // 季度
+    OptionVolatilityTimePeriodType_HalfYear = 4; // 半年
+    OptionVolatilityTimePeriodType_Year     = 5; // 年
+}
+
+// 期权隐含波动率状态
+enum OptionImpvolStatusType
+{
+    ImpvolFluctuating = 0; // 期权波动率处于震荡中
+    ImpvolOvervalued  = 1; // 期权波动率处于高估
+    ImpvolUndervalued = 2; // 期权波动率处于低估
+}
+
+// 指标语言类型
+enum IndicatorLangType
+{
+	IndicatorLangType_Unknown = 0;
+	IndicatorLangType_MyLang = 1;
+	IndicatorLangType_Python = 2;
+}
+
+// 指标搜索模式
+enum IndicatorSearchMode
+{
+	IndicatorSearchMode_Partial = 0; // 部分匹配（默认）
+	IndicatorSearchMode_Exact = 1;   // 完全匹配
+}
+
+// 指标参数值类型枚举
+enum IndicatorParamValueType
+{
+	IndicatorParamValueType_UNKNOWN = 0; // 未知
+	IndicatorParamValueType_INT = 1;     // 整数
+	IndicatorParamValueType_FLOAT = 2;   // 浮点
+	IndicatorParamValueType_STRING = 3;  // 字符串
+	IndicatorParamValueType_COLOR = 4;   // 颜色
+	IndicatorParamValueType_SHAPE = 5;   // 形状
+	IndicatorParamValueType_LINE = 6;    // 线型
+	IndicatorParamValueType_BOOL = 7;    // 布尔
+}
+
+// 指标形状
+enum IndicatorShape
+{
+	IndicatorShape_UNKNOWN = 0;       // 未知
+	IndicatorShape_XCROSS = 1;        // X 形十字
+	IndicatorShape_CROSS = 2;         // 十字
+	IndicatorShape_CIRCLE = 3;        // 圆形
+	IndicatorShape_TRIANGLE_UP = 4;   // 上三角
+	IndicatorShape_TRIANGLE_DOWN = 5; // 下三角
+	IndicatorShape_FLAG = 6;          // 旗帜
+	IndicatorShape_ARROW_UP = 7;      // 上箭头
+	IndicatorShape_ARROW_DOWN = 8;    // 下箭头
+	IndicatorShape_SQUARE = 9;        // 方块
+	IndicatorShape_DIAMOND = 10;      // 菱形
+	IndicatorShape_LABEL_UP = 11;     // 上标签
+	IndicatorShape_LABEL_DOWN = 12;   // 下标签
+}
+
+// 指标线型
+enum IndicatorLineType
+{
+	IndicatorLineType_UNKNOWN = 0;          // 未知/未指定
+	IndicatorLineType_SOLID = 1;            // 实线
+	IndicatorLineType_DASHED = 2;           // 虚线
+	IndicatorLineType_DOT = 3;              // 点线
+	IndicatorLineType_CROSS = 4;            // 交叉线
+	IndicatorLineType_CIRCLE = 5;           // 圆点连线
+	IndicatorLineType_HISTOGRAM = 6;        // 柱状图
+	IndicatorLineType_HISTOGRAM_LINE = 7;   // 柱线混合
+	IndicatorLineType_STEP = 8;             // 阶梯线
+	IndicatorLineType_STEP_DIAMONDS = 9;    // 阶梯+菱形
 }
 
  //两个字段确定一支股票
@@ -586,6 +895,7 @@ message KLine
 	optional double pe = 11; //市盈率
 	optional double changeRate = 12; //涨跌幅（该字段为百分比字段，默认不展示%，如20实际对应20%）
 	optional double timestamp = 13; //时间戳
+	optional double hpVolume = 14; //高精度成交量
 }
 
 message OptionBasicQotExData
@@ -666,6 +976,7 @@ message BasicQot
 	optional FutureBasicQotExData futureExData = 22; //期货特有字段
 	optional WarrantBasicQotExData warrantExData = 23; //窝轮特有字段
 	optional PreAfterMarketData overnight = 25; //夜盘数据
+	optional double hpVolume = 26; //高精度成交量
 }
 
 message TimeShare
@@ -679,6 +990,7 @@ message TimeShare
 	optional int64 volume = 7; //成交量
 	optional double turnover = 8; //成交额
 	optional double timestamp = 9; //时间戳
+	optional double hpVolume = 10; //高精度成交量
 }
 
 message SecurityStaticBasic
@@ -754,6 +1066,7 @@ message Ticker
 	optional int32 typeSign = 9; //逐笔类型符号
 	optional int32 pushDataType = 10; //用于区分推送情况
 	optional double timestamp = 11; //时间戳
+	optional double hpVolume = 12; //成交量
 }
 
 message OrderBookDetail
@@ -768,6 +1081,7 @@ message OrderBook
 	required int64 volume = 2; //委托数量
 	required int32 orederCount = 3; //委托订单个数
 	repeated OrderBookDetail detailList = 4; //订单信息，SF行情特有
+	optional double hpVolume = 5; //高精度委托数量
 }
 
 //持股变动
@@ -793,6 +1107,8 @@ message ConnSubInfo
 	repeated SubInfo subInfoList = 1; //该连接订阅信息
 	required int32 usedQuota = 2; //该连接已经使用的订阅额度
 	required bool isOwnConnData = 3; //用于区分是否是自己连接的数据
+	optional int32 securityFirm = 4; //券商标识，取值见 Trd_Common.SecurityFirm
+	optional int32 optionUsedQuota = 5; //期权已使用订阅额度
 }
 
 message PlateInfo
@@ -829,4 +1145,107 @@ message Rehab
 	optional double spinOffBase = 24; // 分立
 	optional double spinOffErt = 25; //
 	optional double timestamp = 23; //时间戳
+}
+
+message ComboLeg
+{
+	required Qot_Common.Security security = 1; //股票/期权
+    optional int32 side = 2; //方向，取值见 Trd_Common.TrdSide
+    optional double qtyRatio = 3; //数量比例
+    optional uint64 positionID = 4; //持仓ID，仅 moomoo JP 平仓时使用
+    optional int32 predSide = 5; //事件合约预测方向，取值见 Common.PredSide
+}
+
+// 指标参数值（类型 + 对应 value 字段）
+message IndicatorParamValue
+{
+	optional IndicatorParamValueType type = 1;  // 值类型
+	optional int64 intValue = 2;                // type=INT 时使用
+	optional float floatValue = 3;              // type=FLOAT 时使用
+	optional string stringValue = 4;            // type=STRING 时使用
+	optional bool boolValue = 5;                // type=BOOL 时使用
+	optional string colorValue = 6;             // type=COLOR 时使用，格式为 #RRGGBBAA 或 #RRGGBB
+	optional IndicatorShape shapeValue = 7;     // type=SHAPE 时使用
+	optional IndicatorLineType lineValue = 8;   // type=LINE 时使用
+}
+
+// 指标输入参数项
+message IndicatorInputParam
+{
+	optional int32 index = 1;                // 从 0 开始
+	optional string name = 2;                // 参数名
+	optional IndicatorParamValue value = 3;  // 当前值
+	optional string varName = 4;             // 脚本原始变量名（如 N/P1/M），仅麦语言指标有效，Python 指标为空
+}
+
+// 指标输出参数项（即一条输出线）
+message IndicatorOutputParam
+{
+	optional int32 index = 1;                  // 从 0 开始
+	optional string name = 2;                  // 输出线名
+}
+
+// ===================== 事件合约 (Event Contract) 枚举 =====================
+
+// 事件合约生命周期状态（适用于 Series / Event / Contract）
+enum EC_Status
+{
+	// ---- 合约级状态 (Contract) ----
+	EC_Status_Initialized          = 0;     // 初始化（默认值/未知）
+	EC_Status_Inactive             = 1;     // 未激活
+	EC_Status_Active               = 2;     // 活跃（可交易）
+	EC_Status_Closed               = 3;     // 已关闭
+	EC_Status_Halted               = 4;     // 暂停交易
+	EC_Status_Settled              = 5;     // 已结算
+	EC_Status_Canceled             = 6;     // 已取消
+	EC_Status_DeterminationPending = 7;     // 等待确认结果
+	EC_Status_Determined           = 8;     // 已确认结果
+	EC_Status_Finalized            = 9;     // 已完成
+	// ---- 事件级状态 (Event) ----
+	EC_Status_EventAbnormal        = 100;   // 事件异常
+	EC_Status_EventInitialized     = 101;   // 事件初始化
+	EC_Status_EventActive          = 102;   // 事件活跃
+	EC_Status_EventClosed          = 103;   // 事件已关闭
+	EC_Status_EventSettled         = 104;   // 事件已结算
+	EC_Status_EventCanceled        = 105;   // 事件已取消
+	EC_Status_EventFinalized       = 106;   // 事件已完成
+}
+
+// 事件合约类型
+enum EC_ContractType
+{
+	EC_ContractType_None   = 0;     // 未公布/未知
+	EC_ContractType_Binary = 1;     // 二元市场（Yes/No）
+	EC_ContractType_Scalar = 2;     // 标量市场（Long/Short）
+}
+
+// 事件合约 Series 频率
+enum EC_Frequency
+{
+	EC_Frequency_Unknown = 0;       // 未知
+	EC_Frequency_Annual  = 1;       // 年度
+	EC_Frequency_Monthly = 2;       // 月度
+	EC_Frequency_Weekly  = 3;       // 周度
+	EC_Frequency_Daily   = 4;       // 日度
+	EC_Frequency_Hourly  = 5;       // 小时
+	EC_Frequency_Custom  = 6;       // 自定义
+	EC_Frequency_OneOff  = 7;       // 一次性
+}
+
+// 里程碑类型
+enum EC_MilestoneType
+{
+	EC_MilestoneType_Unknown                   = 0; // 未知/暂未支持
+	EC_MilestoneType_FootballGame              = 1; // 橄榄球比赛
+	EC_MilestoneType_BasketballGame            = 2; // 篮球比赛
+	EC_MilestoneType_SoccerTournamentMultiLeg  = 3; // 足球锦标赛（多回合）
+	EC_MilestoneType_BaseballTournament        = 4; // 棒球锦标赛
+	EC_MilestoneType_BaseballGame              = 5; // 棒球比赛
+}
+
+// 事件合约K线来源（区分合约成交价K线与子合约摆盘K线）
+enum EC_KlineSource
+{
+	EC_KlineSource_None         = 0; // 合约级 Yes/No 成交价K线
+	EC_KlineSource_OrderBookYes = 1; // YES 子合约的摆盘K线
 }

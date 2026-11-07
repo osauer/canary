@@ -163,7 +163,7 @@ func (s *Server) tradingStatusWithWriteProjection(ep discover.Endpoint, includeW
 		// The session's account list either reports the pin or it does not;
 		// OpenD assigns the connection itself, so there is no client id to pin.
 		if strings.TrimSpace(connectedAccount) == "" && s.opend.Connector().Health().Connected {
-			add("gateway_account_mismatch", fmt.Sprintf("OpenD's account list does not report [opend] account %q", pin), "Set [opend] account to an accID OpenD lists.")
+			add("gateway_account_mismatch", opendUnscopedWords(s.opend.Connector().Health()), "Set [opend] account to an account OpenD lists.")
 		}
 	} else if cfg.Gateway.Account == "" {
 		add("gateway_account_unpinned", "order submission requires a pinned account", "Set [gateway].account.")

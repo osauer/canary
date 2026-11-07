@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-07 07:46 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-07 08:16 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -14,13 +14,15 @@ Read-only, OpenD 10.12 build 7208, serverVer 1012, a Canary build without the tr
 Where real OpenD disagreed with the simulator:
 
 - OpenD's account list omits universal accounts unless `needGeneralSecAccount` is set, so a pin to one would stay unscoped. Fixed: `accountListRequest` asks, and the simulator hides them otherwise.
-- OpenD does not push quote rights on connect, so status had no quote-rights row. Fixed: each session reads them once with `GetUserInfo`, flag `QotRight` alone, so the login's name and user id are never sent. A push names fewer markets, so it updates rather than replaces them. `GetUserInfo.proto` is vendored from 10.12.7208 beside the older definitions, and level 6 (`Level3`) is mapped by hand because the vendored `Qot_Common` stops before it.
+- OpenD does not push quote rights on connect, so status had no quote-rights row. Fixed: each session reads them once with `GetUserInfo`, flag `QotRight` alone, so the login's name and user id are never sent. A push names fewer markets, so it updates rather than replaces them. The definitions are refreshed to 10.12.7208 from the Apache-licensed `moomoo-api` package on PyPI; `NOTICE` records the file and its hash.
 - OpenD refuses a whole quote request when one code's market has no right, naming that code, so one such holding blanked every mark in the batch. Fixed: quote requests go market by market, the refusal is `QuoteRightError` naming the market and OpenD's reported right, and the wire answer is `symbol_inactive`, the code IBKR's entitlement absence uses. `TestARefusedMarketLeavesTheOtherQuotesAndNamesTheRight` and `TestAMarketWithoutAQuoteRightIsNamedAndLeavesTheOthers` failed before it.
 - Singapore quotes: whether a login can hold the right is not established. The OpenAPI quote-rights table lists them as unsupported; the changelog entry for OpenD 10.7.6708 says they are available. OpenD answers `No permission` for Singapore, Malaysia and Japan but `Unsupported quote market` for Australia and Canada, and the `QotHeader` broker field does not change the answer. So the public text claims Hong Kong and US until a real Singapore quote is seen.
 - SPY is `AMEX` in `exchType` (the fixture said NYSE, now AMEX). IBKR is expected to say `ARCA`, not read here, and the two would not join: recorded for Desk's parked multi-book work, nothing to do on this branch.
 - `listTime` reads 1970-01-01 for several instruments. `Instrument.Listed` has no reader today.
 
 Confirmed on the real OpenD: `clientVer` 334 is accepted; a US ETF and an HK ETF are `Trust`; an option is `Drvt` and a future `Future`, each with its contract multiplier as lot size; a lookup of an expired option answers `Unknown` with "Unknown stock.", no error, and `delisted` true; snapshots work without the new optional `QotHeader`; update times are right in UTC; the history quota window is seven days, as the OpenAPI documentation says. Refreshing the vendored definitions to 10.12.7208 is not needed: nothing used changed, and every difference is an addition.
+
+Account detection, 2026-11-07: `[opend] account` is optional, as a pin is under IBKR. With none, the login's one real account is used and binds for the connector's life, so a later session reads it as a pin and nothing moves to another account if it leaves the list. None or several is refused, listing them by last four digits, and those four digits pin one. A simulated account takes its full id. `TestTheOnlyRealAccountIsDetected` failed before it. Status masks a detected account; other surfaces print the number as they do for a pin.
 
 Defects seen on both real and simulator, fixed the same day:
 
@@ -186,7 +188,7 @@ and design carry these; WP5 and WP8 build to them.
 ## How WP5 is wired
 
 - `scripts/futu-proto.sh` holds both actions; `make futu-proto-check` (a leg of `check`) runs its test and the check, `make futu-proto-regen` regenerates. The check names `Trd_UnlockTrade.proto` and refuses it. The manifest's comments and archive lines are hand-kept.
-- Vendored: the brief's 26 definitions plus `Trd_GetHistoryOrderList` and `Trd_GetHistoryOrderFillList`, which the design's reads table and the pacing table name. Upstream is `FutunnOpen/py-futu-api` at `9bac9d8b` (2026-03-31, 10.2.6208); `NOTICE` names it. All 28 are byte-identical to upstream, compared after copying.
+- Vendored: the brief's 26 definitions plus `Trd_GetHistoryOrderList` and `Trd_GetHistoryOrderFillList`, which the design's reads table and the pacing table name. Upstream was `FutunnOpen/py-futu-api` until the refresh of 2026-11-07; `proto/NOTICE` names the current source. 2.6208); `NOTICE` names it. All 28 are byte-identical to upstream, compared after copying.
 - Generated: `pkg/futu/internal/pb/<lowername>/`, nothing imports it yet. The header reads `protoc v6.32.1` for `libprotoc 32.1`; the design and brief had said v5.
 - `./pkg/futu/internal/pb/` leaves the modernize analyser's package list only; `go fix`, `vet`, `staticcheck` and `govulncheck` are green on it as generated.
 - The new CI job `futu-proto` joined the release CI contract, which pins every `ci.yml` job and run step, so release authority waits for it. Proof pending: its first run, at the first push; nothing here pushes.
@@ -269,7 +271,7 @@ Guardrails, each to hold at landing:
 - No moomoo or Futu logos. They are named only to say what the connector talks to, and the not-endorsed line stays.
 - Canary stays not sold on this path. The licence the terms cite is non-commercial; a change goes to the owner first.
 - A user enters the transaction password in OpenD by hand. Canary never holds or fills it, and phase D designs to that.
-- Vendored definitions stay Apache-2.0 with `LICENSE` and `NOTICE` beside them, with their source recorded.
+- Vendored definitions stay Apache-2.0 with `LICENSE` and `NOTICE` beside them, with their source recorded. They are taken from the `moomoo-api` package on PyPI, whose hash `NOTICE` holds.
 
 Agreement: read by the coordinating session, 2026-11-07: the published Moomoo API Terms of Use on moomoo's Japan site (topic7_477), moomoo's general terms, the Skill disclaimer and the vendored `LICENSE` and `NOTICE`. Not read: the API disclaimer behind the login (moomoo.com/about/api-disclaimer), and the "Moomoo API Code Non-Commercial Development License Agreement" those terms cite, which was not found.
 

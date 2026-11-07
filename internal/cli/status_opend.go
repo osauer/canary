@@ -17,6 +17,9 @@ func renderOpenDRows(env *Env, out io.Writer, res *rpc.HealthResult) {
 	if o.ServerVersion != 0 {
 		statusHealthRow(env, out, "Protocol", fmt.Sprintf("serverVer %d · Canary minimum %d", o.ServerVersion, o.MinServerVersion))
 	}
+	if o.AccountEnding != "" {
+		statusHealthRow(env, out, "Account", "detected: the login's one real account")
+	}
 	if len(o.Markets) > 0 {
 		statusHealthRow(env, out, "Markets", strings.Join(o.Markets, ", ")+" tradable on this account")
 	}

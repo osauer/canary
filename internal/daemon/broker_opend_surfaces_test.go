@@ -241,7 +241,9 @@ func TestOpenDVerdictWords(t *testing.T) {
 		{futu.Health{LastError: &futu.SessionEndError{Reason: futu.EndHeartbeat}}, "stopped answering"},
 		{futu.Health{Phase: futu.PhaseProgramStatus, State: futu.GlobalState{ProgramStatus: "Loging"}}, "program status is Loging"},
 		{futu.Health{Phase: futu.PhaseNotLoggedIn}, "not logged in"},
-		{futu.Health{Phase: futu.PhaseUnscoped}, "does not report"},
+		{futu.Health{Phase: futu.PhaseUnscoped, Account: 42}, "does not report"},
+		{futu.Health{Phase: futu.PhaseUnscoped}, "no real account"},
+		{futu.Health{Phase: futu.PhaseUnscoped, AccountChoices: []futu.AccountChoice{{Ending: "1234", Type: "Margin", Markets: []string{"HK"}}, {Ending: "5678", Type: "Cash", Markets: []string{"US"}}}}, "ending 5678 (Cash, US). Set [opend] account to the last four digits"},
 	} {
 		if got := opendVerdict(context.Background(), tc.health, opendEndpoint(&configWithOpenD), false); !strings.Contains(got, tc.want) {
 			t.Errorf("%+v: %q, want %q", tc.health, got, tc.want)
@@ -299,5 +301,21 @@ func TestBriefNamesAHoldingItDoesNotAnalyse(t *testing.T) {
 	}
 	if !coverageNames(res, "TCH261230C400000") {
 		t.Fatalf("coverage %+v", res.Narrative.Overview.Coverage)
+	}
+}
+
+func TestOpenDPinReadsEmptyEndingAndFullID(t *testing.T) {
+	for _, tc := range []struct {
+		raw     string
+		account uint64
+		ending  string
+		bad     bool
+	}{
+		{raw: ""}, {raw: "1234", ending: "1234"}, {raw: "1000001", account: 1000001}, {raw: "12a4", bad: true}, {raw: "U1234567", bad: true},
+	} {
+		account, ending, err := opendPin(tc.raw)
+		if (err != nil) != tc.bad || account != tc.account || ending != tc.ending {
+			t.Errorf("%q: %d %q %v", tc.raw, account, ending, err)
+		}
 	}
 }

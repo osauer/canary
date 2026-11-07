@@ -560,3 +560,66 @@ func TestARefusedMarketLeavesTheOtherQuotesAndNamesTheRight(t *testing.T) {
 		t.Errorf("subscribe: %v", err)
 	}
 }
+
+// With no pin, the login's one real account is the account. A simulated one beside
+// it is never picked.
+func TestTheOnlyRealAccountIsDetected(t *testing.T) {
+	srv := futusim.Start(t, futusim.Options{})
+	c := connect(t, srv, 0)
+	waitReady(t, c)
+	if account, env := c.Scope(); account != realAccount || env != futu.EnvironmentReal {
+		t.Fatalf("scope %d %q", account, env)
+	}
+}
+
+// A login with several real accounts is refused, without their numbers, until a
+// pin's last digits settle one. Detection then binds: if that account leaves the
+// list the session drops and nothing moves to the other.
+func TestSeveralRealAccountsAreRefusedAndADetectedOneBinds(t *testing.T) {
+	book := futusim.Default()
+	const second uint64 = 2003456
+	book.AddAccount(futusim.Account{ID: second, Env: futusim.EnvReal, Markets: []string{"HK"}, Type: "Margin", Firm: "FutuSecurities", Cash: map[string]float64{"HKD": 1000}})
+	srv := futusim.Start(t, futusim.Options{Book: book})
+
+	c := connect(t, srv, 0)
+	waitFor(t, "the refusal", func() bool {
+		h := c.Health()
+		return h.Phase == futu.PhaseUnscoped && len(h.AccountChoices) == 2
+	})
+	for _, choice := range c.Health().AccountChoices {
+		if len(choice.Ending) != 4 {
+			t.Errorf("choice shows %q", choice.Ending)
+		}
+	}
+	if c.IsReady() {
+		t.Fatal("ready with two real accounts")
+	}
+
+	byEnding := futu.NewConnector(futu.Config{Addr: srv.Addr(), AccountEnding: "3456", ClientVersion: 333, RedialDelay: 20 * time.Millisecond})
+	byEnding.Start(context.Background())
+	t.Cleanup(byEnding.Stop)
+	waitReady(t, byEnding)
+	if account, _ := byEnding.Scope(); account != second {
+		t.Fatalf("ending bound %d", account)
+	}
+
+	srv.SetAccountListed(second, false)
+	if err := byEnding.RefreshSession(context.Background()); err == nil {
+		t.Fatal("a list without the bound account left the session open")
+	}
+	waitFor(t, "the unscoped phase", func() bool { return byEnding.Health().Phase == futu.PhaseUnscoped })
+	if account, _ := byEnding.Scope(); account != second {
+		t.Fatalf("moved to %d", account)
+	}
+}
+
+// A login with only simulated accounts picks none.
+func TestASimulatedAccountIsNeverDetected(t *testing.T) {
+	srv := futusim.Start(t, futusim.Options{})
+	srv.SetAccountListed(realAccount, false)
+	c := connect(t, srv, 0)
+	waitFor(t, "the unscoped phase", func() bool { return c.Health().Phase == futu.PhaseUnscoped })
+	if account, _ := c.Scope(); account != 0 {
+		t.Fatalf("picked %d", account)
+	}
+}

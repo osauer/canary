@@ -337,6 +337,7 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "trading_status", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: readyTrading}},
 		{name: "status_opend", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenD()}},
 		{name: "status_opend_disclaimer", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenDDisclaimer()}, exit: 1},
+		{name: "status_opend_detected", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenDDetected()}},
 		{name: "trading_status_opend", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: goldenTradingOpenD()}},
 		{name: "trading_status_blocked", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: blockedTrading}, exit: 1},
 		{name: "settings_show", argv: []string{"settings", "show"}, conn: goldenConn{rpc.MethodSettingsGet: goldenSettings()}},
@@ -1020,6 +1021,12 @@ func goldenHealthOpenD() rpc.HealthResult {
 		SubscriptionsUsed: 37, SubscriptionQuota: 100, HistoryUsed: 12, HistoryQuota: 100,
 		NotServed: []string{"regime", "Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "gamma", "cash sweep"},
 	}
+	return res
+}
+
+func goldenHealthOpenDDetected() rpc.HealthResult {
+	res := goldenHealthOpenD()
+	res.OpenD.AccountEnding = "4321"
 	return res
 }
 

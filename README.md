@@ -129,10 +129,12 @@ to your broker.
 ```toml
 [broker]
 kind = "opend"
-
-[opend]
-account = "12345678" # the number OpenD lists as accID
 ```
+
+With one real account on your login, Canary uses it. With several, it lists them
+by their last four digits and refuses until you set `account` under `[opend]` to
+the four digits of the one to use. A simulated account is never picked: to use one,
+set `account` to its full id.
 
 With this setting, Canary shows account balances, stock and ETF positions, and
 quotes for the Hong Kong and US markets where your OpenD login has the quote

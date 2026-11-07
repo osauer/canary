@@ -255,6 +255,13 @@ func (b *Book) AddHolding(in Instrument, account uint64, quantity int64, cost fl
 	b.positions = append(b.positions, Position{AccountID: account, Code: in.Code, Quantity: quantity, Cost: cost})
 }
 
+// AddAccount adds an account for a test.
+func (b *Book) AddAccount(account Account) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.accounts = append(b.accounts, account)
+}
+
 // Load reads a book file.
 func Load(path string) (*Book, error) {
 	raw, err := os.ReadFile(path)

@@ -37,7 +37,7 @@ Config file is loaded from `$CANARY_CONFIG`, else `$XDG_CONFIG_HOME/ibkr/config.
 | `[gateway]` | `restart_time` | `string` | RestartTime declares the owner-configured daily Gateway restart in 24-hour HH:MM. |
 | `[gateway]` | `restart_timezone` | `string` | RestartTimezone is the owner-confirmed Gateway IANA timezone (for example America/New_York). |
 | `[gateway]` | `tls` | `*bool` | TLS pins TLS mode for the API socket: absent (nil) auto-tries plain first then TLS, `true` forces TLS-only with no plain fallback, `false` forces plain — setting the field disables fallback in either direction. |
-| `[opend]` | `account` | `string` | Account is the Futu account id (accID) the daemon is scoped to. |
+| `[opend]` | `account` | `string` | Account optionally names the Futu account (accID, or its last four digits) the daemon is scoped to. |
 | `[opend]` | `client_id` | `string` | ClientID is the clientID string sent in InitConnect; default "canary". |
 | `[opend]` | `host` | `string` | Host is the OpenD host; empty is loopback. |
 | `[opend]` | `port` | `*int` | Port is OpenD's api_port; absent is 11111. |

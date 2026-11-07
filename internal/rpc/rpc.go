@@ -2478,7 +2478,10 @@ type OpenDHealth struct {
 	ConnID           uint64 `json:"conn_id,omitempty"`
 	// Markets are the markets the account list authorises for the pin.
 	Markets []string `json:"markets,omitempty"`
-	// QuoteRights is OpenD's last quote-right push: market to level.
+	// AccountEnding is the last digits of an account detected from OpenD's list,
+	// empty when [opend] account pins it.
+	AccountEnding string `json:"account_ending,omitempty"`
+	// QuoteRights is the login's quote rights as OpenD reports them: market to level.
 	QuoteRights map[string]string `json:"quote_rights,omitempty"`
 	// Quotas are OpenD-wide, and zero until OpenD has said.
 	SubscriptionsUsed int `json:"subscriptions_used"`

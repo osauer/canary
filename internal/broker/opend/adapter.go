@@ -31,9 +31,8 @@ const (
 
 // Adapter serves the seam over one connector.
 type Adapter struct {
-	conn    *futu.Connector
-	account uint64
-	now     func() time.Time
+	conn *futu.Connector
+	now  func() time.Time
 	// allowLine is the daemon's line budget; nil admits every line.
 	allowLine func(code string) bool
 	// usVenues are the exchanges of the US lines read so far. A listing does not
@@ -77,12 +76,12 @@ func heldRelease(err error) error {
 	return err
 }
 
-// New builds the adapter over a connector pinned to the account.
-func New(conn *futu.Connector, account uint64, now func() time.Time) *Adapter {
+// New builds the adapter over a connector, whose scope names the account.
+func New(conn *futu.Connector, now func() time.Time) *Adapter {
 	if now == nil {
 		now = time.Now
 	}
-	return &Adapter{conn: conn, account: account, now: now}
+	return &Adapter{conn: conn, now: now}
 }
 
 var _ broker.Broker = (*Adapter)(nil)
@@ -106,7 +105,21 @@ func (a *Adapter) Scope() broker.Scope {
 	case futu.EnvironmentReal:
 		mode = modeLive
 	}
-	return broker.Scope{Kind: broker.KindOpenD, Account: strconv.FormatUint(account, 10), Mode: mode}
+	return broker.Scope{Kind: broker.KindOpenD, Account: accountWords(account), Mode: mode}
+}
+
+// pin is the connector's account: the pin, or the one detection bound.
+func (a *Adapter) pin() uint64 {
+	account, _ := a.conn.Scope()
+	return account
+}
+
+// accountWords is the seam's account: empty until a list has named one.
+func accountWords(account uint64) string {
+	if account == 0 {
+		return ""
+	}
+	return strconv.FormatUint(account, 10)
 }
 
 // Capture returns the binding of the current ready session.
@@ -169,7 +182,7 @@ func (a *Adapter) Summary(ctx context.Context, timeout time.Duration) (*broker.A
 	if err != nil {
 		return nil, "", err
 	}
-	return summaryOf(a.account, a.conn.Health().AccountType, funds, a.now().UTC()), broker.ProvenanceRequest, nil
+	return summaryOf(a.pin(), a.conn.Health().AccountType, funds, a.now().UTC()), broker.ProvenanceRequest, nil
 }
 
 // summaryOf maps OpenD's funds. Fields OpenD did not send stay nil.
@@ -220,11 +233,11 @@ func (a *Adapter) Positions() ([]broker.Position, broker.PositionsHealth, error)
 	requested := a.now().UTC()
 	rows, err := a.conn.Positions(ctx, false)
 	if err != nil {
-		return nil, broker.PositionsHealth{Account: strconv.FormatUint(a.account, 10), RequestedAt: requested}, err
+		return nil, broker.PositionsHealth{Account: accountWords(a.pin()), RequestedAt: requested}, err
 	}
 	at := a.now().UTC()
 	out := make([]broker.Position, 0, len(rows))
-	account := strconv.FormatUint(a.account, 10)
+	account := accountWords(a.pin())
 	for _, row := range rows {
 		out = append(out, positionOf(account, row, a.secTypeOf(ctx, row.Code), at))
 	}
