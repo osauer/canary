@@ -82,6 +82,6 @@ func ivFallbackLimits(m *ConstitutionMandate, get func(key, value, source, meani
 		row("month_band_pct", f.MonthBandPct, band+"8 to 35 days to expiry."),
 		row("long_band_pct", f.LongBandPct, band+"beyond 35 days to expiry."),
 		row("measured_pct", f.MeasuredPct, "The share"+tier+" while the verdict still reads measured."),
-		row("range_pct", f.RangePct, "The share"+tier+" while the verdict reads measured only when it is the same at both edges; beyond it the verdict is unknown."),
+		row("range_pct", f.RangePct, "The share"+tier+" while the verdict reads measured only when it is the same at both edges; beyond it the verdict is unknown. Once the loss is over the room, or none is left, only the verdict at both edges decides."),
 	}
 }

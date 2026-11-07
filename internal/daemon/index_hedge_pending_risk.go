@@ -169,12 +169,13 @@ type hedgeSaleBar struct{ code, leaves string }
 // in the loss measure and its index gap in the verdict, so a hedged book reads
 // reduce until the hedge is bought back, but a limit at zero room would refuse
 // every hedge, and a book of single-name calls has nothing in the index group
-// to net the hedge against. What bounds it instead is at the head of
-// index_hedge_order.go.
+// to net the hedge against. Neutral is read at HedgeFallBase, so an option on a
+// fallback volatility cannot leave a sale past it at either end of the band.
+// What bounds it instead is at the head of index_hedge_order.go.
 func indexHedgeSaleRefusal(before *mandate.Verdict, after mandate.Verdict, ccy string) *hedgeSaleBar {
 	fall, rise := after.Stresses.IndexLossBase, after.Stresses.IndexRiseLossBase
 	switch {
-	case fall < -mandateReductionEpsilon || fall >= before.Stresses.IndexLossBase-mandateReductionEpsilon:
+	case after.HedgeFallBase() < -mandateReductionEpsilon || fall >= before.Stresses.IndexLossBase-mandateReductionEpsilon:
 		return &hedgeSaleBar{"index_hedge_past_neutral", "pass neutral or not reduce the loss in the index fall"}
 	case rise > max(0, before.Stresses.IndexRiseLossBase)+mandateReductionEpsilon:
 		return &hedgeSaleBar{"index_hedge_rise_loss", fmt.Sprintf("lose %s in a %g%% index rise", mandateMoney(rise, ccy), mandate.IndexShockPct)}

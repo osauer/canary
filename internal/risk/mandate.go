@@ -213,7 +213,9 @@ func (h *ConstitutionMandateIndexHedge) validate() error {
 // expiry class (under 8 days, 8 to 35 days, beyond); the tiers are the
 // shares of the loss room the S&P-fall uncertainty may take: within
 // measured_pct the verdict reads measured, within range_pct only when it is
-// the same at both edges of the bands, beyond it unknown. The values
+// the same at both edges of the bands, beyond it unknown. Once the loss is
+// over the room, or none is left, only the verdict at both edges decides
+// (owner, 2026-11-07 07:33 and 08:03 CET). The values
 // proposed on 2026-10-28 come from one week of recorded chains (the 99th
 // percentile of one-session IV moves per class): 65, 15, 8; 5 and 20.
 type ConstitutionMandateIVFallback struct {

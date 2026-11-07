@@ -455,6 +455,11 @@ same rule. A sale past neutral, or one that would make the rise lose, is refused
 (`index_hedge_past_neutral`, `index_hedge_rise_loss`), and the plan offers the
 largest sale that passes and says what holds it lower.
 
+While an option has no volatility of its own and is priced on its mark, neutral
+is read at the end of its band that loses less, so a sale cannot pass neutral at
+either end, and the plan says so. A hedge already held is left as it is. What
+this leaves unhedged, the next plan sells once the option has its own volatility.
+
 During a mandate breach the reduction buys back what has passed neutral, in the
 `mandate_reduction` bucket with its veto window, as a limit at the ask in US
 regular hours (phase `hedge`). As the calls are sold, or a fall leaves them less

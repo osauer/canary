@@ -12,7 +12,9 @@ import (
 // that leg only under the owner's [mandate.iv_fallback] table: it runs the
 // book at both edges of an uncertainty band per leg, sized by time to
 // expiry, and judges the width of the S&P-fall range against the loss room.
-// Without the table such a leg is unknown, as before.
+// Without the table such a leg is unknown, as before. With the loss over the
+// room, or no room at all, the width cannot change the answer, so only the
+// verdict at both edges decides (owner, 2026-11-07 07:33 and 08:03 CET).
 
 // IVSourceMark marks an option leg priced at the volatility implied by its
 // own mark because the position row carried none.
@@ -101,7 +103,10 @@ func withIV(l Leg, iv float64) Leg {
 // book) and at the other (the optimistic book). It returns nil when no leg
 // is on a fallback. The tier is measured while the half-range is within
 // measured_pct of the loss room, range within range_pct when the verdict
-// is the same at both edges, unknown otherwise.
+// is the same at both edges, unknown otherwise. Once the loss is over the room,
+// or no room is left, range_pct no longer applies: an unknown verdict would hold
+// the reduction and the hedge, and an answer both edges give cannot be changed
+// by the band.
 func judgeIVFallback(in Input, legs []Leg, returns map[string][]float64, sim simulation, loss *LossMeasure, status string) *IVFallbackReport {
 	idx := fallbackLegs(legs)
 	if len(idx) == 0 || in.Policy.IVFallback == nil {
@@ -150,19 +155,43 @@ func judgeIVFallback(in Input, legs []Leg, returns map[string][]float64, sim sim
 		return StatusWithin
 	}
 	named := fmt.Sprintf("%d %s priced on the volatility implied by %s mark", len(idx), plural(len(idx), "option", "options"), plural(len(idx), "its", "their"))
+	tier, tooWide := f.tier(room > 0 && !lossOverRoom(loss), share, judged(high) == status && judged(low) == status)
+	r.Tier = tier
 	switch {
-	case share*100 <= f.MeasuredPct+1e-9:
-		r.Tier = IVTierMeasured
-	case share*100 <= f.RangePct+1e-9 && judged(high) == status && judged(low) == status:
-		r.Tier = IVTierRange
-	case share*100 <= f.RangePct+1e-9:
-		r.Tier = IVTierUnknown
-		r.Reason = named + ": the verdict differs across their uncertainty band"
-	default:
-		r.Tier = IVTierUnknown
+	case tier != IVTierUnknown:
+	case tooWide:
 		r.Reason = fmt.Sprintf("%s: the S&P-fall figure is uncertain by more than %g%% of the loss room", named, f.RangePct)
+	default:
+		r.Reason = named + ": the verdict differs across their uncertainty band"
 	}
 	return r
+}
+
+// tier judges the half-range's share of the loss room. widthDecides is false
+// once the loss is over the room or none is left: then only the verdict at both
+// edges does.
+func (f *IVFallback) tier(widthDecides bool, share float64, sameAtEdges bool) (tier string, tooWide bool) {
+	switch {
+	case share*100 <= f.MeasuredPct+1e-9:
+		return IVTierMeasured, false
+	case widthDecides && share*100 > f.RangePct+1e-9:
+		return IVTierUnknown, true
+	case sameAtEdges:
+		return IVTierRange, false
+	}
+	return IVTierUnknown, false
+}
+
+// HedgeFallBase is the S&P-fall loss a hedge may offset: with an option on a
+// fallback volatility the edge that loses less, so no end of the band leaves
+// the hedge past neutral (owner, 2026-11-07 07:33 CET). What it leaves unhedged
+// the next plan sells once the option has its own volatility. It reads
+// v.Stresses, which an unknown verdict does not carry.
+func (v Verdict) HedgeFallBase() float64 {
+	if r := v.IVFallback; r != nil {
+		return min(r.IndexLossLowBase, v.Stresses.IndexLossBase)
+	}
+	return v.Stresses.IndexLossBase
 }
 
 func plural(n int, one, many string) string {

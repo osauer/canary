@@ -100,6 +100,97 @@ func TestReduceHedgePlanStopsWhereARiseWouldLose(t *testing.T) {
 	}
 }
 
+// The other half of option A (owner, 2026-11-07 07:33 CET): with an option on
+// its mark's volatility the hedge offsets the edge that loses less, so no end of
+// the band can leave it past neutral, at the plan and at placement alike.
+func TestIndexHedgeSizesOnTheSmallerFallWhileAnOptionHasNoVolatility(t *testing.T) {
+	s := hedgeServer(t, mandateReductionStock("SPY", 9101, 3000, 50), mandateReductionCall("SPY", 9201, 200, 50, 50, 2, "20261218"))
+	in, _ := s.reduceMandateInput(t.Context())
+	in.Capital.Room = 0
+	in.Policy.IVFallback = &mandate.IVFallback{ShortBandPct: 65, MonthBandPct: 65, LongBandPct: 65, MeasuredPct: 5, RangePct: 20}
+	marked := false
+	for i := range in.Legs {
+		if in.Legs[i].Kind == mandate.KindOption {
+			in.Legs[i].IVSource, marked = mandate.IVSourceMark, true
+		}
+	}
+	if !marked {
+		t.Fatal("fixture has no option leg")
+	}
+	now := mandate.Evaluate(*in)
+	if now.Status != mandate.StatusReduce || now.Stresses == nil || now.IVFallback == nil {
+		t.Fatalf("verdict %s %v: want it to stand at zero room", now.Status, now.Reasons)
+	}
+	const perContract = 2700
+	atBase, atEdge := int(now.Stresses.IndexLossBase/perContract), int(now.HedgeFallBase()/perContract)
+	if atEdge < 1 || atBase <= atEdge {
+		t.Fatalf("fixture must separate the sizes: base %d, edge %d", atBase, atEdge)
+	}
+	res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true})
+	if len(res.Blockers) > 0 || len(res.Legs) != 1 || res.Legs[0].ReduceQuantity != atEdge {
+		t.Fatalf("plan = %d legs %+v, message %q; want SELL %d, the smaller fall", len(res.Legs), res.Blockers, res.Message, atEdge)
+	}
+	if !strings.Contains(res.Message, "priced on its mark") {
+		t.Fatalf("plan does not say why it stops short of the base figure: %q", res.Message)
+	}
+	if blocker := indexHedgeProjectedRiskRefusal(in, hedgeSale(atEdge), nil); blocker != nil {
+		t.Errorf("placement refused the sale the plan offered: %+v", blocker)
+	}
+	if blocker := indexHedgeProjectedRiskRefusal(in, hedgeSale(atBase), nil); blocker == nil || blocker.Code != "index_hedge_past_neutral" {
+		t.Errorf("placement at the base figure = %+v, want past neutral", blocker)
+	}
+}
+
+// A hedge held past the low edge but not past the base figure: the plan must not
+// call that nothing to hedge, because Desk would then say the book needs none.
+func TestReduceHedgePlanWaitsWhenOnlyTheBandSaysNeutral(t *testing.T) {
+	mark := func(s *Server) *mandate.Input {
+		in, _ := s.reduceMandateInput(t.Context())
+		in.Capital.Room = 0
+		in.Policy.IVFallback = &mandate.IVFallback{ShortBandPct: 65, MonthBandPct: 65, LongBandPct: 65, MeasuredPct: 5, RangePct: 20}
+		for i := range in.Legs {
+			if in.Legs[i].Kind == mandate.KindOption {
+				in.Legs[i].IVSource = mandate.IVSourceMark
+			}
+		}
+		return in
+	}
+	stock, call := mandateReductionStock("SPY", 9101, 3000, 50), mandateReductionCall("SPY", 9201, 200, 50, 50, 2, "20261218")
+	before := mandate.Evaluate(*mark(hedgeServer(t, stock, call)))
+	if before.Stresses == nil {
+		t.Fatalf("unmeasured: %v", before.Reasons)
+	}
+	held := int(before.HedgeFallBase()/2700) + 1
+	s := hedgeServer(t, stock, call, mandateReductionFuture(750001, -float64(held), 6000))
+	now := mandate.Evaluate(*mark(s))
+	if now.Stresses == nil || now.Stresses.IndexLossBase <= 0 || now.HedgeFallBase() > 0 {
+		t.Fatalf("fixture must lose at the base figure and not at the low edge: %v %+v", now.Reasons, now.IVFallback)
+	}
+	res := hedgePlan(t, s, rpc.TradeProposalReducePortfolioParams{PlanOnly: true})
+	if len(res.Blockers) == 0 || res.Blockers[0].Code != "hedge_unsized" || !strings.Contains(res.Blockers[0].Message, "low end") {
+		t.Fatalf("blockers %+v, want the wait named, not nothing to hedge", res.Blockers)
+	}
+}
+
+// The harm the zero-room fix removes: one option on its mark's volatility held
+// the whole reduction at the maximum loss (owner, 2026-11-07 07:33 CET).
+func TestMandateReductionRunsAtZeroRoomWithAnOptionOnItsMark(t *testing.T) {
+	t.Parallel()
+	pos := mandateReductionBook(mandateReductionCall("SPY", 9201, 20, 50, 50, 2, "20261218"))
+	in := mandateReductionFixture(t, pos, 3, 1e6, 2)
+	in.Input.Capital.Room = 0
+	in.Input.Policy.IVFallback = &mandate.IVFallback{ShortBandPct: 65, MonthBandPct: 15, LongBandPct: 8, MeasuredPct: 5, RangePct: 20}
+	for i := range in.Input.Legs {
+		if in.Input.Legs[i].Kind == mandate.KindOption {
+			in.Input.Legs[i].IVSource = mandate.IVSourceMark
+		}
+	}
+	rows, st := mandateReductionRun(t, mandateReductionVerdict(*in.Input, 2), pos)
+	if st.State == rpc.MandateReductionUnknown || len(rows) == 0 {
+		t.Fatalf("state %s, %d rows (%s): the reduction must run on a verdict both edges give", st.State, len(rows), st.Reason)
+	}
+}
+
 func hedgeCloseRow(t *testing.T, rows []rpc.TradeProposal) (rpc.TradeProposal, bool) {
 	t.Helper()
 	for _, row := range rows {

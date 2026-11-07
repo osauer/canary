@@ -127,7 +127,15 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	unchanged := func() {
 		res.IndexLoss, res.PlanLossMeasure, res.TradeCostBase = indexLossBetween(book, book), planLossMeasureBetween(book, book), new(0.0)
 	}
-	fall := now.Stresses.IndexLossBase
+	fall := now.HedgeFallBase()
+	if now.IVFallback != nil {
+		workingNote += fmt.Sprintf("; sized on the smaller S&P-fall figure while %s priced on its mark", hedgeOptionsWords(len(now.IVFallback.Legs)))
+	}
+	if fall <= 0 && now.Stresses.IndexLossBase > 0 {
+		unchanged()
+		return block("hedge_unsized", fmt.Sprintf("a %g%% S&P fall loses %s at the volatility %s marks imply and nothing at the low end of the band; the hedge waits until %s its own volatility",
+			mandate.IndexShockPct, mandateMoney(now.Stresses.IndexLossBase, res.BaseCurrency), hedgeOptionsPossessive(len(now.IVFallback.Legs)), hedgeOptionsHave(len(now.IVFallback.Legs))), "Retry once the option has its own volatility.")
+	}
 	if fall <= 0 {
 		unchanged()
 		return block("nothing_to_hedge", fmt.Sprintf("a %g%% S&P fall already leaves the book even or ahead%s; selling futures would add a short", mandate.IndexShockPct, withSold), "Keep the book as it is.")
@@ -162,7 +170,7 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 		unchanged()
 		return block("hedge_unsized", "the mandate cannot measure one hedge contract", "Retry once the mandate has measured the book.")
 	}
-	perContract := fall - one.Stresses.IndexLossBase
+	perContract := now.Stresses.IndexLossBase - one.Stresses.IndexLossBase
 	if perContract <= 0 || math.IsNaN(perContract) || math.IsInf(perContract, 0) {
 		unchanged()
 		return block("hedge_unsized", "the future has no measurable offset to the index fall", "Retry once the mandate has measured the book.")
@@ -170,8 +178,12 @@ func (s *Server) reduceHedgePlan(ctx context.Context, p rpc.TradeProposalReduceP
 	n := int(math.Floor(fall / perContract))
 	if n < 1 {
 		unchanged()
-		return block("below_one_contract", fmt.Sprintf("the book loses %s in a %g%% fall%s; one %s contract offsets %s, so even one would hedge past neutral",
-			mandateMoney(fall, res.BaseCurrency), mandate.IndexShockPct, withSold, contract.LocalSymbol, mandateMoney(perContract, res.BaseCurrency)), "Keep the book as it is.")
+		edge := ""
+		if now.IVFallback != nil {
+			edge = " at the low end of the volatility band"
+		}
+		return block("below_one_contract", fmt.Sprintf("the book loses %s in a %g%% fall%s%s; one %s contract offsets %s, so even one would hedge past neutral",
+			mandateMoney(fall, res.BaseCurrency), mandate.IndexShockPct, edge, withSold, contract.LocalSymbol, mandateMoney(perContract, res.BaseCurrency)), "Keep the book as it is.")
 	}
 	// Placement refuses a sale that would make a rise lose
 	// (indexHedgeProjectedRiskRefusal), so the plan offers the largest sale up
@@ -275,6 +287,30 @@ func hedgeSaleRefusal(input mandate.Input, hedge mandate.Leg, n int) string {
 		return bar.leaves
 	}
 	return ""
+}
+
+// hedgeOptionsWords names how many options lack their own volatility.
+func hedgeOptionsWords(n int) string {
+	if n == 1 {
+		return "1 option is"
+	}
+	return fmt.Sprintf("%d options are", n)
+}
+
+// hedgeOptionsPossessive is whose marks imply the volatility.
+func hedgeOptionsPossessive(n int) string {
+	if n == 1 {
+		return "1 option's"
+	}
+	return fmt.Sprintf("%d options'", n)
+}
+
+// hedgeOptionsHave says which options the hedge waits for.
+func hedgeOptionsHave(n int) string {
+	if n == 1 {
+		return "that option has"
+	}
+	return "those options have"
 }
 
 // hedgeRollDays is how long before a held contract's expiry the plan says
