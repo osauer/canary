@@ -57,7 +57,7 @@ func opendUnscopedWords(health futu.Health) string {
 		return "OpenD's account list does not report [opend] account"
 	}
 	if len(health.AccountChoices) == 0 {
-		return "OpenD lists no real account on this login, and Canary never picks a simulated one: set [opend] account to a simulated account's id to use one"
+		return "OpenD lists no real account on this login. Canary only uses a simulated account if you ask: set [opend] account to its id, as OpenD shows it"
 	}
 	return fmt.Sprintf("OpenD lists %d real accounts on this login: run `canary status` to see them, then set [opend] account to the one to use", len(health.AccountChoices))
 }

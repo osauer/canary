@@ -2,26 +2,6 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.36.0 — Unreleased
-
-### What's new
-
-**Experimental: Canary can read a Futu account through OpenD, Futu's local gateway.** A daemon set to OpenD shows account balances, stock and ETF positions, and quotes for the Hong Kong and US markets where your OpenD login has the quote rights, in the terminal and the MCP tools. Reading holdings has been tested only against a stand-in for OpenD written for Canary's tests, so check what it shows against your broker. Canary cannot place, change or cancel orders through OpenD: it refuses the request and sends nothing to your broker.
-
-If you use IB Gateway or TWS, you need to act only if your daemon sets `XDG_CONFIG_HOME` (see Changed).
-
-### Added
-
-- **Experimental OpenD support.** Set `kind = "opend"` under `[broker]`; OpenD's host and port default to this machine and 11111. Canary uses the login's one real account; with several, `canary status` lists them and you set `account` under `[opend]` to the one to use. Each daemon serves one broker; to keep IBKR running, give the OpenD daemon its own XDG directories and `CANARY_SOCKET`.
-- Through OpenD, Canary reads positions and runs exposure and limit checks for stocks and ETFs only. Options, futures and anything else you hold there appear in a separate list as held but not analysed, at the value OpenD reports, unconverted and not checked by Canary. Exposure and limit checks do not count them, so those figures do not cover your whole account. Holdings outside the account's base currency are converted at a rate worked out from OpenD's own account totals, not a quoted rate; where that is not possible they are not measured, and limit checks report that they cannot judge them. A market your OpenD login has no quote right for keeps the price OpenD gives its position, and the brief and quote reads name the missing right. Daily P&L, the regime, portfolio stress, Edge, reconciliation, statement reporting, borrow availability, earnings, breadth, gamma, the cash sweep, the market overview, the market tape, technical analysis and option chains are not available, and every order is refused. `canary status` lists most of these, and shows OpenD's login state, markets, quotas and quote rights.
-- `pkg/futu` is a Go client for the OpenD protocol, and `cmd/opend-sim` is the simulator it is tested against.
-- The daemon's `quote.snapshot`, `market.history` and `add.plan` methods take an optional `instrument`, which names a stock by broker and that broker's id, such as `opend` and `HK.00700`.
-
-### Changed
-
-- Policy files follow `XDG_CONFIG_HOME` as `config.toml` already does, so two daemons can keep separate policies. If your daemon's environment sets `XDG_CONFIG_HOME` to anything other than `~/.config`, move `~/.config/ibkr/policies/` to `$XDG_CONFIG_HOME/ibkr/policies/` before you update. Otherwise the daemon writes new default policy files there and your limits stop applying.
-- The `Capabilities` row of `canary trading status` names the kind of preview: `preview=true (what-if)`.
-
 ## v3.35.0 — 2026-11-07 07:53 CET
 
 ### What's new

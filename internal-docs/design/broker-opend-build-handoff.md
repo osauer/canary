@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-07 08:51 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-07 09:04 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -289,11 +289,11 @@ Merge local main again and re-run the gate and spine if main has moved.
 
 First steps on resuming: read the state below, then run the regression spine and `scripts/opend-witness.sh` on the branch head, which the session of 2026-11-07 stopped before. Apply the last cold read's findings to the public text if any are recorded below. The regime read stays parked; the FX part of that package is built.
 
-Public text still to change before landing, from the last cold read of 2026-11-07: extend the "tested only against a stand-in" caveat in README and changelog to converting holdings; split the README and changelog sentence so Hong Kong and US limit only quotes, and say "in the account"; name moomoo in the changelog's lead and its detection line, including that a simulated account is never picked; make the config row say what to leave out and when it is required, in the Go comment it is generated from; reword the changelog and terminal lines on a holding's price ("from OpenD's position, not a quote"); drop "(OpenD reports No)" from the refusal; "it picks none" in the README; say where a simulated id is found; and name whose log the shared hint points at. Each needs one more cold read after it changes.
+Landing, owner 2026-11-07 08:57 CET: experimental moomoo ships in v3.35.0, whose heading the release session owns, so this branch carries no changelog stub and hands that session its entry. Two non-author cold reads ran on the public text; the page `docs/docs/start/moomoo-opend.md` is new.
 
-State at the stop, 2026-11-07: the branch is merged with local main, the changelog stub is `v3.36.0` because main prepared `v3.35.0`, and this branch is not in that release. Nothing has landed or been pushed. Desk's re-pin comes after landing.
+State, 2026-11-07: the branch is merged with local main and waits for the IBKR routing fix to land before its final merge and `make test`. Desk's re-pin comes after landing.
 
-Public text: `CHANGELOG.md` carries the stub `## v3.36.0 — Unreleased` at the owner's instruction, which release prep renames; `README.md` has an "Experimental: Futu OpenD" section and a line in its legal paragraph. A fresh reader cold-read both on 2026-11-05 and its ten findings were applied after checking them against the source. The changelog and README say what the gaps below make true, so each fix that closes a gap also edits them.
+Public text: the changelog entry goes in through the release session; `README.md` has an "Experimental: moomoo and Futu through OpenD" section and a line in its legal paragraph, and `docs/docs/start/moomoo-opend.md` is the user page.
 
 ## Known gaps
 

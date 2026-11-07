@@ -117,36 +117,41 @@ TWS session, then run `canary app pair` and scan the QR code. The
 [app guide](docs/docs/operate/app.md) covers pairing, remote access, and push
 notifications.
 
-## Experimental: Futu OpenD
+## Experimental: moomoo and Futu through OpenD
 
 Canary can also read a Futu or moomoo account through OpenD, Futu's local
 gateway, while OpenD is running and logged in. This support is experimental.
-Reading holdings has been tested only against a stand-in for OpenD written for
-Canary's tests, so check what it shows against your broker. Canary cannot place,
-change or cancel orders through OpenD: it refuses the request and sends nothing
-to your broker.
+Reading balances and holdings, order and fill history, and converting to the base
+currency have been tested only against a stand-in for OpenD written for Canary's
+tests, so check what Canary shows against your broker. Canary cannot place, change or cancel orders through OpenD:
+it refuses the request and sends nothing to your broker.
+
+Add this to `~/.config/ibkr/config.toml`:
 
 ```toml
 [broker]
 kind = "opend"
 ```
 
-With one real account on your login, Canary uses it. With several, it refuses and
-`canary status` lists them; set `account` under `[opend]` to the one to use. A
-simulated account is never picked: to use one, set `account` to its id.
+With one real account on your login, Canary uses it. With several, it picks none:
+`canary status` lists them, and you set `account` under `[opend]` to its id.
+A simulated account is never picked: to use one, set `account` to its id.
 
-With this setting, Canary shows account balances, stock and ETF positions, and
-quotes for the Hong Kong and US markets where your OpenD login has the quote
-rights. Options, futures and anything else you hold there appear in a separate
-list at the value OpenD reports, unconverted and not checked by Canary. Exposure
-and limit checks do not count them, so those figures do not cover your whole
-account. Holdings outside the account's base currency are converted at a rate
-worked out from OpenD's own account totals, not a quoted rate; where that is not
-possible they are not measured, and limit checks report that they cannot judge
-them. Many features are not
-available, among them daily P&L, the regime, portfolio stress, Edge, statement
-reporting, the market overview, the market tape and technical analysis; `canary status` lists most
-of them.
+With this setting, Canary shows account balances and stock and ETF positions, and
+quotes for the Hong Kong and US markets where your OpenD login has the quote rights;
+no other market's quotes have been read. A holding in a market without a quote right
+shows the price OpenD reports with the holding, not a market quote. Options, futures and anything else in the account appear in a separate
+list at the value OpenD reports, unconverted and not checked by Canary. Canary's exposure
+figures and checks against your limits do not count them, so those figures do not
+cover your whole account.
+Holdings outside the account's base currency are converted at a rate worked out
+from OpenD's own account totals, not a quoted rate; where that is not possible they
+are not measured, and the checks against your limits report that they cannot judge
+them. Many features
+are not available, among them daily P&L, the regime, portfolio stress, Edge, statement
+reporting, the market overview, the market tape and technical analysis; `canary
+status` lists most of them. [Canary with moomoo and Futu](docs/docs/start/moomoo-opend.md)
+has the details.
 
 Each daemon serves one broker. To run OpenD beside IBKR, start a second daemon
 with its own `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`,

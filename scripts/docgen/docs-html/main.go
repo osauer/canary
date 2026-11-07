@@ -169,6 +169,14 @@ var pages = []pageSpec{
 		Status:      statusPublished,
 	},
 	{
+		Source:      "docs/docs/start/moomoo-opend.md",
+		Section:     "start",
+		NavTitle:    "Moomoo and Futu (experimental)",
+		Summary:     "Read a moomoo or Futu account through OpenD: set-up, what you get, what you don't, and how far it has been tested.",
+		Description: "Experimental read-only support for moomoo and Futu accounts through OpenD: how to set it up, what Canary shows and leaves out, and how far each part has been tested.",
+		Status:      statusPublished,
+	},
+	{
 		Source:      "docs/docs/start/updating.md",
 		Section:     "start",
 		NavTitle:    "Updating",

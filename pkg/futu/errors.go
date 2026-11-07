@@ -61,12 +61,9 @@ type QuoteRightError struct {
 	Message string
 }
 
-// Error names the market, the level OpenD reports and OpenD's own words.
+// Error names the market and OpenD's own words.
 func (e *QuoteRightError) Error() string {
-	if e.Right == "" {
-		return fmt.Sprintf("this OpenD login has no %s quote right: OpenD says %q", e.Market, e.Message)
-	}
-	return fmt.Sprintf("this OpenD login has no %s quote right (OpenD reports %s): OpenD says %q", e.Market, e.Right, e.Message)
+	return fmt.Sprintf("this OpenD login has no %s quote right: OpenD says %q", e.Market, e.Message)
 }
 
 // ErrFrame is the class of every malformed inbound frame: a header without

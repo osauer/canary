@@ -384,7 +384,7 @@ func fail(env *Env, format string, args ...any) int {
 		if strings.Contains(msg, "OpenD") {
 			gateway = "start OpenD and log in"
 		}
-		fmt.Fprintf(env.Stderr, "        down (%s; check %s).\n", gateway, dial.DisplayPath(dial.DefaultLogPath()))
+		fmt.Fprintf(env.Stderr, "        down (%s; details are in %s).\n", gateway, dial.DisplayPath(dial.DefaultLogPath()))
 	}
 	return 1
 }

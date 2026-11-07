@@ -181,7 +181,7 @@ func (s *Server) opendQuoteSentence() string {
 		}
 	}
 	if len(refused) > 0 {
-		missing := fmt.Sprintf("this OpenD login has no %s quote right, so those holdings show the price in OpenD's position", strings.Join(refused, ", "))
+		missing := fmt.Sprintf("this OpenD login has no %[1]s quote right, so %[1]s holdings show the price OpenD reports with the holding, not a market quote", strings.Join(refused, ", "))
 		if sentence != "" {
 			return sentence + "; " + missing
 		}

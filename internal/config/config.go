@@ -405,7 +405,7 @@ type OpenD struct {
 	Host string `toml:"host"`
 	// Port is OpenD's api_port; absent is 11111.
 	Port *int `toml:"port"`
-	// Account optionally names the Futu account (accID) the daemon is scoped to. Empty uses the login's one real account and refuses when it has none or several, listing them in `canary status`. A simulated account is never picked.
+	// Account is the id of the Futu or moomoo account this daemon reads, as OpenD shows it; leave it out to use the login's only real account, and set it when there are several or none.
 	Account string `toml:"account"`
 	// ClientID is the clientID string sent in InitConnect; default "canary".
 	ClientID string `toml:"client_id"`
