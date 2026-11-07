@@ -1,13 +1,13 @@
 # Canary with moomoo and Futu: experimental support
 
-Updated: 2026-11-07 09:14 CET
+Updated: 2026-11-07 09:46 CET
 
 Canary is a local tool that reads a brokerage account and reports on its positions
 and risk. It normally works with Interactive Brokers. It can also read a moomoo or
 Futu account through OpenD, the gateway program moomoo and Futu publish.
 
 On OpenD it only reads. It cannot place, change or cancel an order, and it refuses
-if asked. Canary has never read holdings from a real account, so check what it shows against
+if asked. Reading holdings has not been tested on a live account, so check what it shows against
 your broker.
 
 ## Set it up
@@ -28,7 +28,8 @@ your broker.
 
 Canary's background process, its daemon, serves one broker. To use OpenD beside
 Interactive Brokers, start a second daemon with its own `XDG_CONFIG_HOME`, `XDG_STATE_HOME`,
-`XDG_CACHE_HOME`, `XDG_RUNTIME_DIR` and `CANARY_SOCKET`.
+`XDG_CACHE_HOME`, `XDG_RUNTIME_DIR` and `CANARY_SOCKET`. That daemon starts with default
+policy files, not yours.
 
 ## What you get
 

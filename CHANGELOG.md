@@ -2,15 +2,26 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.35.0 — 2026-11-07 07:53 CET
+## v3.35.0 — 2026-11-07 09:46 CET
 
 ### What's new
 
-The index hedge now stays available when a book has used all of its loss room, and a forced reduction buys back what the hedge no longer needs. If you have never sold an index hedge through Canary, no order of yours changes. Asking for several reduction plans at once no longer fails. On accounts where the broker reports an exchange rate of 1, reconciliation and the check on position downloads now use a real rate.
+The index hedge now stays available when a book has used all of its loss room, and a forced reduction buys back what the hedge no longer needs. If you hold no index hedge, no order of yours changes. Asking for several reduction plans at once no longer fails. On accounts where the broker reports an exchange rate of 1, reconciliation and the check on position downloads now use a real rate.
+
+**Hong Kong and Singapore shares on IBKR.** Canary now reads SEHK and SGX listings on their own exchange in HKD and SGD: `canary technical 700 --market hk`, `canary technical D05 --market sg`, quotes and history. These reads failed before with "No security definition". Reads of a share you hold follow the same rule, which has not been tested on a live account holding one. Orders on SEHK and SGX listings, previews included, aren't supported yet: Canary doesn't reliably refuse them, so don't rely on a preview and use TWS or the IBKR app.
+
+**Experimental: Canary can read a Futu or moomoo account through OpenD, Futu's local gateway.** A daemon set to OpenD shows account balances and stock and ETF positions, and quotes for the Hong Kong and US markets where your OpenD login has the quote rights, in the terminal and the MCP tools. No other market's quotes have been read. Reading balances and holdings, order and fill history, and converting to the base currency have been tested only against a stand-in for OpenD written for Canary's tests, so check what Canary shows against your broker. [Canary with moomoo and Futu](docs/docs/start/moomoo-opend.md) has the details. Canary cannot place, change or cancel orders through OpenD: it refuses the request and sends nothing to your broker.
+
+If your daemon's environment sets `XDG_CONFIG_HOME` to anything other than `~/.config`, act before you update or your limits stop applying (see Changed). Check the environment the daemon runs in, which can differ from your shell's.
 
 ### Added
 
 - `pkg/ibkr`: `ConnectionConfig.FXRateToBase` lets the caller supply a currency's rate when the broker reports a unit rate, for the position download check.
+- **Experimental OpenD support.** Set `kind = "opend"` under `[broker]`; OpenD's host and port default to this machine and 11111. Canary uses the login's one real account; with several, it picks none, `canary status` lists them and you set `account` under `[opend]` to its id. A simulated account is never picked: to use one, set `account` to its id. Each daemon serves one broker; to keep IBKR running, give the OpenD daemon its own XDG directories and `CANARY_SOCKET`.
+- Through OpenD, Canary reads positions and runs exposure and limit checks for stocks and ETFs only. Options, futures and anything else in the account appear in a separate list as held but not analysed, at the value OpenD reports, unconverted and not checked by Canary. Canary's exposure figures and checks against your limits do not count them, so those figures do not cover your whole account. Holdings outside the account's base currency are converted at a rate worked out from OpenD's own account totals, not a quoted rate; where that is not possible they are not measured, and the checks against your limits report that they cannot judge them. A holding in a market your OpenD login has no quote right for shows the price OpenD reports with the holding, not a market quote, and the brief and quote lookups name the missing right. Daily P&L, the regime, portfolio stress, Edge, reconciliation, statement reporting, borrow availability, earnings, breadth, gamma, the cash sweep, the market overview, the market tape, technical analysis and option chains are not available, and every order is refused. `canary status` lists most of these, and shows OpenD's login state, markets, quotas and quote rights.
+- `pkg/futu` is a Go client for the OpenD protocol, and `cmd/opend-sim` is the simulator it is tested against.
+- The daemon's `quote.snapshot`, `market.history` and `add.plan` methods take an optional `instrument`, which names a stock by broker and that broker's id, such as `opend` and `HK.00700`.
+- `canary technical --market` takes `hk` and `sg`.
 
 ### Changed
 
@@ -21,6 +32,9 @@ The index hedge now stays available when a book has used all of its loss room, a
 - The protection page says that a standing authority needs the daemon: while the machine sleeps, nothing is checked or sent.
 - The agentic trading guide starts with how to connect to Interactive Brokers.
 - The Chinese start pages use a more readable term for the cash sweep and keep the English term beside it.
+- An option without its own implied volatility no longer holds a forced reduction or an index hedge once the loss is over the room. A verdict that is the same at both ends of its volatility band stands; one that differs stays unknown. Inside the room `[mandate.iv_fallback]` decides as before. While such an option is priced on its mark, a hedge sale is sized on the end that loses less.
+- Policy files follow `XDG_CONFIG_HOME` as `config.toml` already does, so two daemons can keep separate policies. If your daemon's environment sets `XDG_CONFIG_HOME` to anything other than `~/.config`, copy `~/.config/ibkr/policies/` to `$XDG_CONFIG_HOME/ibkr/policies/` before you update. If you don't, the daemon writes new default policy files there and uses them in place of your limits.
+- The `Capabilities` row of `canary trading status` names the kind of preview: `preview=true (what-if)`.
 
 ### Fixed
 
@@ -28,6 +42,8 @@ The index hedge now stays available when a book has used all of its loss room, a
 - Choosing Fully armed during a mandate breach is now refused before your device is asked to sign, with the same message the confirmation gives.
 - Reconciliation no longer rejects the daily sample as incomplete on an account where the broker reports an exchange rate of 1. The sample takes a live two-sided quote from the same broker session and keeps its source and time, and the log says once when that quote stops or starts working.
 - On those accounts a position download missing part of the book could pass the completeness check and be published as current. The check now uses the daemon's stored rate.
+- Reads of SEHK and SGX listings no longer fail on IBKR: a resolved listing moves to SMART only when the broker's list of routes for it includes SMART.
+- A Tokyo bar IBKR dates to the next session is no longer reported as the close by `canary technical`.
 
 ## v3.34.1 — 2026-11-05 11:28 CET
 
