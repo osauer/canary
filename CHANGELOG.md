@@ -2,6 +2,32 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.35.0 — 2026-11-07 07:00 CET
+
+### What's new
+
+The index hedge now stays available when a book has used all of its loss room, and a forced reduction buys back what the hedge no longer needs. If you have never sold an index hedge through Canary, no order of yours changes. Asking for several reduction plans at once no longer fails. On accounts where the broker reports an exchange rate of 1, reconciliation and the check on position downloads now use a real rate.
+
+### Added
+
+- `pkg/ibkr`: `ConnectionConfig.FXRateToBase` lets the caller supply a currency's rate when the broker reports a unit rate, for the position download check.
+
+### Changed
+
+- **One rule decides an index hedge sale.** A sale is admitted when it lowers the loss in a 10% fall without passing neutral and does not turn a 10% rise into a loss or deepen one; the loss room and the index gap cap no longer refuse it. A hedge sale still needs your confirmation on a paired device and stays within your contract cap. It is a limit at the bid, good for the day, in US regular hours only.
+- **A forced reduction buys back a hedge that has passed neutral**, meaning one larger than the book it covers. The buy-back has the reduction's veto window and is a limit at the ask in US regular hours, so a short does not outlive the calls it covered. This is the only automatic hedge order, and a hedge never makes the reduction sell more.
+- **A hedge is sized with working sales counted as sold.** A working sale of a line you hold long counts for what remains of it, if selling that line lowers the loss in the fall. A working sale Canary cannot read holds the hedge sale back.
+- When Canary blocks broker writes because a committed change is missing from its store, the log names the document and a copy of the store is kept under `damaged/lost-write-<time>/`. Canary also blocks them when the store's commit counter reads older than a commit it saw land. What causes a missing commit is not yet known. Open that copy read-only, because a read-write open empties its write-ahead log; the [storage page](https://osauer.dev/canary/docs/internals/storage.html) says what to do.
+- The protection page says that a standing authority needs the daemon: while the machine sleeps, nothing is checked or sent.
+- The Chinese start pages use a more readable term for the cash sweep and keep the English term beside it.
+
+### Fixed
+
+- Several reduction plans requested together no longer fail with "another positions snapshot is in progress". They now wait their turn, and give up only when the request's own deadline passes.
+- Choosing Fully armed during a mandate breach is now refused before your device is asked to sign, with the same message the confirmation gives.
+- Reconciliation no longer rejects the daily sample as incomplete on an account where the broker reports an exchange rate of 1. The sample takes a live two-sided quote from the same broker session and keeps its source and time, and the log says once when that quote stops or starts working.
+- On those accounts a position download missing part of the book could pass the completeness check and be published as current. The check now uses the daemon's stored rate.
+
 ## v3.34.1 — 2026-11-05 11:28 CET
 
 ### What's new
