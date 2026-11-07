@@ -52,6 +52,23 @@ func (e *Error) Session() bool {
 	return false
 }
 
+// QuoteRightError is a quote OpenD refused because this login has no right for
+// the market. Right is the level OpenD reports for it, empty when unread.
+type QuoteRightError struct {
+	Market  string
+	Right   string
+	Codes   []string
+	Message string
+}
+
+// Error names the market, the level OpenD reports and OpenD's own words.
+func (e *QuoteRightError) Error() string {
+	if e.Right == "" {
+		return fmt.Sprintf("this OpenD login has no %s quote right: OpenD says %q", e.Market, e.Message)
+	}
+	return fmt.Sprintf("this OpenD login has no %s quote right (OpenD reports %s): OpenD says %q", e.Market, e.Right, e.Message)
+}
+
 // ErrFrame is the class of every malformed inbound frame: a header without
 // the FT flag, a body format other than protobuf, a body shorter than its
 // declared length, or a body whose SHA-1 does not match the header. The

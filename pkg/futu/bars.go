@@ -118,7 +118,7 @@ func (c *Connector) SubscribeBars(ctx context.Context, code string, period BarPe
 	}}
 	var resp qotsub.Response
 	if err := conn.request(ctx, ProtoQotSub, req, &resp); err != nil {
-		return c.subscribeRefused(ctx, conn, err)
+		return c.subscribeRefused(ctx, conn, []string{code}, err)
 	}
 	return nil
 }

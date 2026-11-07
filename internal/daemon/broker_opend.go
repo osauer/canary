@@ -326,6 +326,9 @@ func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, 
 			if fromBatch[in.ID] {
 				priceSource = "snapshot"
 			}
+		} else {
+			// No quote, for want of a right or otherwise: the price is OpenD's own.
+			priceSource = "position"
 		}
 		if wantSym != "" && wantSym != strings.ToUpper(in.Symbol) {
 			continue

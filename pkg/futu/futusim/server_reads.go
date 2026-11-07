@@ -273,6 +273,11 @@ func (s *Server) answerRead(conn *simConn, frame futu.Frame) proto.Message {
 }
 
 func (s *Server) answerSub(conn *simConn, c2s *qotsub.C2S) proto.Message {
+	if c2s.GetIsSubOrUnSub() {
+		if refusal := s.quoteRefusal("subscribe to", c2s.GetSecurityList()); refusal != nil {
+			return refusal
+		}
+	}
 	for _, sec := range c2s.GetSecurityList() {
 		code := securityCode(sec)
 		for _, subType := range c2s.GetSubTypeList() {
@@ -358,6 +363,9 @@ func (s *Server) answerBasicQuotes(conn *simConn, secs []*qotcommon.Security) pr
 }
 
 func (s *Server) answerSnapshot(secs []*qotcommon.Security) proto.Message {
+	if refusal := s.quoteRefusal("get", secs); refusal != nil {
+		return refusal
+	}
 	limit, _ := futu.LimitFor(futu.ProtoQotGetSecuritySnapshot)
 	if len(secs) > limit.PerRequest {
 		return s.refused(futu.ProtoQotGetSecuritySnapshot, fmt.Errorf("%d instruments in one request, limit %d", len(secs), limit.PerRequest))

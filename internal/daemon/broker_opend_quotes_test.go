@@ -61,7 +61,11 @@ func TestLinesGoToTheBookThenTheRegimeAndTheRestAreSnapshots(t *testing.T) {
 	if _, ok := lines["US.HYG"]; ok {
 		t.Fatalf("a line past the quota: %v", lines)
 	}
-	if srv.opendBudget.reason == "" {
+	// The daemon's own session loop records into the budget too.
+	srv.opendBudget.mu.Lock()
+	reason := srv.opendBudget.reason
+	srv.opendBudget.mu.Unlock()
+	if reason == "" {
 		t.Fatal("the budget does not say why a wanted name has no line")
 	}
 
@@ -244,5 +248,49 @@ func TestManagerDefersAReleaseInsideTheHold(t *testing.T) {
 	case <-quotes.releases:
 	case <-time.After(2 * time.Second):
 		t.Fatal("the deferred release never ran")
+	}
+}
+
+// A market this login has no right for keeps its own holdings priced by OpenD's
+// position and does not cost the other markets their quotes; a read of it says
+// which right is missing, not that the connection is down.
+func TestAMarketWithoutAQuoteRightIsNamedAndLeavesTheOthers(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{})
+	sim.SetQuoteRight("SG", 5) // QotRight_No
+	srv, stop := startOpenDServer(t, sim, opendTestAccount)
+	defer stop()
+	waitOpenDReady(t, srv)
+	deadline := time.Now().Add(5 * time.Second)
+	for srv.opend.Connector().Health().QuoteRights["SG"] != "No" && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	positions, err := srv.handlePositionsList(ctx, &rpc.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, row := range positions.Stocks {
+		seen[row.Currency] = true
+		if row.Mark <= 0 {
+			t.Errorf("row without a price: %+v", row)
+		}
+		if row.Currency == "SGD" && row.PriceSource != "position" {
+			t.Errorf("SG row source %q", row.PriceSource)
+		}
+		if row.Currency != "SGD" && row.PriceSource == "position" {
+			t.Errorf("%s lost its quote", row.Symbol)
+		}
+	}
+	if !seen["SGD"] || !seen["HKD"] {
+		t.Fatalf("the book lost its mix: %v", seen)
+	}
+	if got := srv.opendQuoteSentence(); !strings.Contains(got, "no SG quote right") {
+		t.Errorf("brief sentence %q", got)
+	}
+	res := dispatchRaw(t, srv, rpc.MethodQuoteSnapshot, `{"contract":{"instrument":{"broker":"opend","id":"SG.D05"}},"timeout_ms":2000}`)
+	if res.Ok || res.Error.Code != rpc.CodeSymbolInactive || !strings.Contains(res.Error.Message, "no SG quote right") {
+		t.Errorf("quote: %+v", res)
 	}
 }

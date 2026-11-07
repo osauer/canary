@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/osauer/canary/v2/internal/broker"
@@ -26,6 +27,8 @@ type opendLineBudget struct {
 	reason string
 	// quotes and snapshots count the last positions read's marks.
 	quotes, snapshots int
+	// refusedMarkets are the markets that read was refused for want of a right.
+	refusedMarkets []string
 }
 
 // allowed reports whether an ad hoc stream may take a line for the code.
@@ -43,6 +46,35 @@ func (b *opendLineBudget) record(wanted []string, reason string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.wanted, b.reason = set, reason
+}
+
+// recordRefusedRights keeps the markets a mark read was refused for, by right.
+func (b *opendLineBudget) recordRefusedRights(err error) {
+	var markets []string
+	for _, one := range refusedQuoteRights(err) {
+		markets = append(markets, one.Market)
+	}
+	slices.Sort(markets)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.refusedMarkets = slices.Compact(markets)
+}
+
+// refusedQuoteRights is every missing right an error carries; a read of several
+// markets joins one refusal per market.
+func refusedQuoteRights(err error) []*futu.QuoteRightError {
+	if one, ok := err.(*futu.QuoteRightError); ok {
+		return []*futu.QuoteRightError{one}
+	}
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		return nil
+	}
+	var out []*futu.QuoteRightError
+	for _, each := range joined.Unwrap() {
+		out = append(out, refusedQuoteRights(each)...)
+	}
+	return out
 }
 
 func (b *opendLineBudget) recordMarks(quotes, snapshots int) {
@@ -118,12 +150,14 @@ func (s *Server) opendMarks(ctx context.Context, codes []string) (map[string]*br
 	}
 	fromBatch := map[string]bool{}
 	if len(missing) == 0 {
+		s.opendBudget.recordRefusedRights(nil)
 		return marks, fromBatch
 	}
 	batch, err := s.opend.ReadSnapshots(ctx, missing)
 	if err != nil {
 		s.logger.Debugf("opend: snapshot batch: %v", err)
 	}
+	s.opendBudget.recordRefusedRights(err)
 	for code, quote := range batch {
 		marks[code] = quote
 		fromBatch[code] = true
@@ -137,13 +171,21 @@ func (s *Server) opendQuoteSentence() string {
 	load := s.opend.Connector().Load()
 	s.opendBudget.mu.Lock()
 	quotes, snapshots := s.opendBudget.quotes, s.opendBudget.snapshots
+	refused := s.opendBudget.refusedMarkets
 	s.opendBudget.mu.Unlock()
-	if snapshots == 0 || quotes == 0 {
-		return ""
+	sentence := ""
+	if snapshots > 0 && quotes > 0 {
+		sentence = fmt.Sprintf("%d of %d quotes are snapshots", snapshots, quotes)
+		if load.SubscriptionQuota > 0 {
+			sentence += fmt.Sprintf("; %d of %d subscriptions in use", load.SubscriptionsUsed, load.SubscriptionQuota)
+		}
 	}
-	sentence := fmt.Sprintf("%d of %d quotes are snapshots", snapshots, quotes)
-	if load.SubscriptionQuota > 0 {
-		sentence += fmt.Sprintf("; %d of %d subscriptions in use", load.SubscriptionsUsed, load.SubscriptionQuota)
+	if len(refused) > 0 {
+		missing := fmt.Sprintf("this OpenD login has no %s quote right, so those holdings show the price in OpenD's position", strings.Join(refused, ", "))
+		if sentence != "" {
+			return sentence + "; " + missing
+		}
+		return missing
 	}
 	return sentence
 }

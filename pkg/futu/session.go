@@ -270,6 +270,15 @@ func fetchQuoteRights(ctx context.Context, conn *connection) (map[string]string,
 	if s2c.SzQotRight != nil {
 		rights["SZ"] = quoteRightName(s2c.GetSzQotRight())
 	}
+	if s2c.SgStockQotRight != nil {
+		rights["SG"] = quoteRightName(s2c.GetSgStockQotRight())
+	}
+	if s2c.MyStockQotRight != nil {
+		rights["MY"] = quoteRightName(s2c.GetMyStockQotRight())
+	}
+	if s2c.JpStockQotRight != nil {
+		rights["JP"] = quoteRightName(s2c.GetJpStockQotRight())
+	}
 	return rights, nil
 }
 

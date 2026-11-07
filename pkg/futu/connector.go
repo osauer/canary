@@ -160,8 +160,9 @@ type Connector struct {
 	now   func() time.Time
 	pacer *Pacer
 
-	refresh    chan struct{}
-	refreshing atomic.Bool
+	refresh      chan struct{}
+	refreshing   atomic.Bool
+	refreshAgain atomic.Bool
 
 	mu      sync.RWMutex
 	cancel  context.CancelFunc
@@ -358,14 +359,23 @@ func (c *Connector) maintain(ctx context.Context, conn *connection, interval tim
 }
 
 // startRefresh runs one refresh beside the heartbeat, so a silent OpenD cannot
-// hold the loop past its two intervals; one already running covers this one.
+// hold the loop past its two intervals. A request during a refresh runs once more
+// after it: what OpenD pushed may postdate what the running one already read.
 func (c *Connector) startRefresh(ctx context.Context, conn *connection) {
+	c.refreshAgain.Store(true)
 	if !c.refreshing.CompareAndSwap(false, true) {
 		return
 	}
 	go func() {
-		defer c.refreshing.Store(false)
-		c.refreshSession(ctx, conn)
+		for {
+			for c.refreshAgain.Swap(false) {
+				c.refreshSession(ctx, conn)
+			}
+			c.refreshing.Store(false)
+			if !c.refreshAgain.Load() || !c.refreshing.CompareAndSwap(false, true) {
+				return
+			}
+		}
 	}()
 }
 
@@ -662,7 +672,13 @@ func (c *Connector) handleNotify(conn *connection, s2c *notify.S2C) {
 		c.signalRefresh()
 	case notify.NotifyType_NotifyType_QotRight:
 		c.mu.Lock()
-		c.health.QuoteRights = quoteRights(s2c.GetQotRight())
+		// The push names fewer markets than the read; it updates those it names.
+		rights := maps.Clone(c.health.QuoteRights)
+		if rights == nil {
+			rights = map[string]string{}
+		}
+		maps.Copy(rights, quoteRights(s2c.GetQotRight()))
+		c.health.QuoteRights = rights
 		c.mu.Unlock()
 	case notify.NotifyType_NotifyType_APIQuota:
 		c.mu.Lock()

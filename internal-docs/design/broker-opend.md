@@ -1245,7 +1245,7 @@ OpenD contact:
 | The regime on OpenD | Proposed 2026-11-04 22:20 CET: a package of its own after WP10. The regime, and the portfolio stress composed from it, stay off under `opend` until then, named on the surface. It decides what a regime publication means when an input is off for this broker. |
 | FX rates on OpenD | Proposed 2026-11-04 22:20 CET: with the regime package. Without a rate the rulebook reports holdings outside the base currency as not measured. Which source supplies the rate is the decision. |
 | The OpenD build to run | Open, the owner's; nothing here depends on it until phase D's paper proof. |
-| Whether the OpenAPI agreement permits Canary | Open, the owner's, after reading it inside OpenD; the build against the simulator does not touch OpenD. |
+| Whether the OpenAPI agreement permits Canary | Read by the coordinating session 2026-11-07, with what could not be read: see the build handoff's "Next". |
 | `google.golang.org/protobuf` as a direct dependency | Accepted by the owner, 2026-11-04 20:00 CET ("Yes, add protobuf"), the eighth direct product dependency. Added at v1.36.12 in the WP5 commit, the one that carries this row. |
 | The additive instrument identity in `internal/rpc` | Accepted by the owner, 2026-11-05 07:47 CET ("Yes, add InstrumentID"), as the brief proposes it. Built in the WP10 commit, the one that carries this row; a value field rather than a pointer, the wire unchanged, for the reason in the identity section. |
 | Phases A to C shipped without Edge and reconciliation, the gap named on the surface | Proposed: accept. Gates C3's wording; the code is the same either way. |

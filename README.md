@@ -121,8 +121,10 @@ notifications.
 
 Canary can also read a Futu or moomoo account through OpenD, Futu's local
 gateway, while OpenD is running and logged in. This support is experimental.
-Reading holdings has been tested only against a simulator, so check what it shows
-against your broker. Every order is refused.
+Reading holdings has been tested only against a stand-in for OpenD written for
+Canary's tests, so check what it shows against your broker. Canary cannot place,
+change or cancel orders through OpenD: it refuses the request and sends nothing
+to your broker.
 
 ```toml
 [broker]
@@ -132,12 +134,13 @@ kind = "opend"
 account = "12345678" # the number OpenD lists as accID
 ```
 
-With this setting, Canary shows the account, stock and ETF positions, and quotes
-on the Hong Kong and US markets where your OpenD login has the quote rights.
-Options, futures and anything else you hold there appear in a separate list at
-the value OpenD reports. Exposure and limit checks do not count them, so those
-figures do not cover your whole account. Holdings in other currencies are not
-converted, and limit checks say they cannot judge them. Many features are not
+With this setting, Canary shows account balances, stock and ETF positions, and
+quotes for the Hong Kong and US markets where your OpenD login has the quote
+rights. Options, futures and anything else you hold there appear in a separate
+list at the value OpenD reports, unconverted and not checked by Canary. Exposure
+and limit checks do not count them, so those figures do not cover your whole
+account. Holdings outside the account's base currency are not measured, and limit
+checks report that they cannot judge them. Many features are not
 available, among them daily P&L, the regime, portfolio stress, Edge, statement
 reporting, the market overview, the market tape and technical analysis; `canary status` lists most
 of them.

@@ -138,7 +138,7 @@ func dataHealthIBKROnly(id string) bool {
 func (s *Server) brokerLinkNotReady() string {
 	if s.opend != nil {
 		if s.opend.Connector().IsReady() {
-			return "this daemon serves OpenD, which takes no broker writes in this build"
+			return "Canary does not send orders through OpenD"
 		}
 		return "the broker link to OpenD is not ready"
 	}

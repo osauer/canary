@@ -1,30 +1,31 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-07 07:17 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-07 07:46 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
 [broker-opend.md](broker-opend.md). This note is kept current after every
 work package so a fresh session resumes without the conversation.
 
-## First real session (2026-11-07 07:10 CET)
+## Checks against real OpenD (2026-11-07 07:10 CET)
 
 Read-only, OpenD 10.12 build 7208, serverVer 1012, a Canary build without the trading tag, isolated roots. A quarantined OpenD download runs on macOS from an App Translocation copy, so the installed path is not the running path.
 
 Where real OpenD disagreed with the simulator:
 
-- In the real environment the account list omits universal accounts unless `needGeneralSecAccount` is set, so a pin to one stayed unscoped. Fixed: `accountListRequest` asks, the simulator hides real accounts otherwise, `TestRealAccountIsListedAndScoped` failed before the fix.
-- OpenD does not push quote rights on connect, so status had no quote-rights row. Fixed: each session reads them once with `GetUserInfo`, flag `QotRight` alone, so the login's name and user id are never sent. `GetUserInfo.proto` is vendored from 10.12.7208 beside the older definitions, and level 6 (`Level3`) is mapped by hand because the vendored `Qot_Common` stops before it.
-- Singapore: moomoo's authority page lists Singapore quotes as unsupported, so README and changelog no longer claim them.
+- OpenD's account list omits universal accounts unless `needGeneralSecAccount` is set, so a pin to one would stay unscoped. Fixed: `accountListRequest` asks, and the simulator hides them otherwise.
+- OpenD does not push quote rights on connect, so status had no quote-rights row. Fixed: each session reads them once with `GetUserInfo`, flag `QotRight` alone, so the login's name and user id are never sent. A push names fewer markets, so it updates rather than replaces them. `GetUserInfo.proto` is vendored from 10.12.7208 beside the older definitions, and level 6 (`Level3`) is mapped by hand because the vendored `Qot_Common` stops before it.
+- OpenD refuses a whole quote request when one code's market has no right, naming that code, so one such holding blanked every mark in the batch. Fixed: quote requests go market by market, the refusal is `QuoteRightError` naming the market and OpenD's reported right, and the wire answer is `symbol_inactive`, the code IBKR's entitlement absence uses. `TestARefusedMarketLeavesTheOtherQuotesAndNamesTheRight` and `TestAMarketWithoutAQuoteRightIsNamedAndLeavesTheOthers` failed before it.
+- Singapore quotes: whether a login can hold the right is not established. The OpenAPI quote-rights table lists them as unsupported; the changelog entry for OpenD 10.7.6708 says they are available. OpenD answers `No permission` for Singapore, Malaysia and Japan but `Unsupported quote market` for Australia and Canada, and the `QotHeader` broker field does not change the answer. So the public text claims Hong Kong and US until a real Singapore quote is seen.
 - SPY is `AMEX` in `exchType` (the fixture said NYSE, now AMEX). IBKR is expected to say `ARCA`, not read here, and the two would not join: recorded for Desk's parked multi-book work, nothing to do on this branch.
 - `listTime` reads 1970-01-01 for several instruments. `Instrument.Listed` has no reader today.
 
-Confirmed on the real OpenD: `clientVer` 334 is accepted; a US ETF and an HK ETF are `Trust`; an option is `Drvt` with lot size 100; a future is `Future` with lot size 50; an expired option answers `Unknown` with "Unknown stock.", no error, and `delisted` true; snapshots work without the new optional `QotHeader`; update times are right in UTC; the history quota window is seven days, as moomoo's page says. Refreshing the vendored definitions to 10.12.7208 is not needed: nothing used changed, and every difference is an addition.
+Confirmed on the real OpenD: `clientVer` 334 is accepted; a US ETF and an HK ETF are `Trust`; an option is `Drvt` and a future `Future`, each with its contract multiplier as lot size; a lookup of an expired option answers `Unknown` with "Unknown stock.", no error, and `delisted` true; snapshots work without the new optional `QotHeader`; update times are right in UTC; the history quota window is seven days, as the OpenAPI documentation says. Refreshing the vendored definitions to 10.12.7208 is not needed: nothing used changed, and every difference is an addition.
 
 Defects seen on both real and simulator, fixed the same day:
 
 - `market.snapshot`, `portfolio.snapshot`, `market.tape`, `technical.snapshot`, `chain.fetch`, `chain.expiries`, `gamma.zero_spx` and `core.resolve` read the IBKR connector and answered `gateway_unavailable` with OpenD up. They are now in `ibkrOnlyMethods`. The list came from calling every non-streaming method with OpenD up, with empty and with one-symbol parameters, so a method that refuses those parameters earlier was not reached.
-- The market tape joins on IBKR contract ids, so each pass under OpenD spent history quota on names it then discarded, and warned. The collector no longer starts under OpenD; a simulator status read history 0 of 100 afterwards.
+- The market tape joins on IBKR contract ids, so each pass under OpenD spent history quota on names it then discarded, and warned. The collector no longer starts under OpenD; a simulator status showed no history quota spent afterwards.
 - The earnings path no longer installs the WSH provider under OpenD, which warned per held name.
 - The CLI hint names OpenD, and the readiness blocker's code is `broker_writes_not_served` while the session is up, `gateway_unavailable` only when it is down.
 
@@ -259,11 +260,22 @@ Nothing between packages.
 
 ## Next
 
-The hold of 2026-11-05 08:43 CET is lifted for read-only bring-up. No landing, no merge to main and no push without the owner's word, and the agreement read comes first.
+The hold of 2026-11-05 08:43 CET is lifted for read-only bring-up. No landing, no merge to main and no push without the owner's word.
+
+Guardrails, each to hold at landing:
+
+- OpenD is never bundled or redistributed: each user installs it and logs in themself.
+- No real market data in the repository, the site, fixtures or goldens, and none in public-facing output.
+- No moomoo or Futu logos. They are named only to say what the connector talks to, and the not-endorsed line stays.
+- Canary stays not sold on this path. The licence the terms cite is non-commercial; a change goes to the owner first.
+- A user enters the transaction password in OpenD by hand. Canary never holds or fills it, and phase D designs to that.
+- Vendored definitions stay Apache-2.0 with `LICENSE` and `NOTICE` beside them, with their source recorded.
+
+Agreement: read by the coordinating session, 2026-11-07: the published Moomoo API Terms of Use on moomoo's Japan site (topic7_477), moomoo's general terms, the Skill disclaimer and the vendored `LICENSE` and `NOTICE`. Not read: the API disclaimer behind the login (moomoo.com/about/api-disclaimer), and the "Moomoo API Code Non-Commercial Development License Agreement" those terms cite, which was not found.
 
 Merge local main again and re-run the gate and spine if main has moved.
 
-First steps on resuming, with real OpenD: run the first-session checks under "Known gaps", then decide the regime and FX package. Desk's re-pin comes after landing.
+First steps on resuming: run the checks still marked proof pending in gap 3, then decide the regime and FX package. Desk's re-pin comes after landing.
 
 Public text: `CHANGELOG.md` carries the stub `## v3.35.0 — Unreleased` at the owner's instruction, which release prep renames; `README.md` has an "Experimental: Futu OpenD" section and a line in its legal paragraph. A fresh reader cold-read both on 2026-11-05 and its ten findings were applied after checking them against the source. The changelog and README say what the gaps below make true, so each fix that closes a gap also edits them.
 
@@ -275,19 +287,19 @@ Open:
 
 1. Regime and portfolio stress are off under OpenD, against the design's first text: the regime read stops at its IBKR connector check. A package of its own, proposed in the owner table.
 2. OpenD supplies no FX rate, so holdings outside the base currency read as not measured. With the regime package.
-3. Partly met a real OpenD; see "First real session". Still proof pending: the RSA refusal shape, funds currency on a multi-market account, and whether a position's value carries the multiplier.
+3. Partly met a real OpenD; see "Checks against real OpenD". Still proof pending: the RSA refusal shape, funds currency on a multi-market account, and whether a position's value carries the multiplier.
 4. Proof pending, next live session: the IBKR path on a real Gateway, including an IBKR identity resolved through it, proven here against a fake.
 5. IBKR wording: a sweep of every daemon answer and the CLI read commands under OpenD, on the simulator, found and fixed the reconnect action, the order-journal disclaimer, the write refusal's action and the borrow sources. What stays names IBKR on purpose: "IBKR only" reasons, the `TWS order control` setting and its help text, and the IBKR-named source label in the breadth snapshot. MCP tool descriptions are static and name IBKR for every broker.
 6. Labels waiting on the owner: "22/22 sources ok" above a line of unavailable sources, the "Not on OpenD" wording, and the handbook edit draft.
 7. The rulebook reads "10 data gaps" on the simulator's book.
-8. Log noise: fixed; see "First real session".
+8. Log noise: the market tape warning is gone on real OpenD; the per-name WSH warning needs holdings, so that is proven on the simulator only.
 9. `market: hk` works on `quote.snapshot` only; `market.history` and the other paths on the shared IBKR normaliser take the venue or the identity.
 10. An IBKR row with only a smart route carries no identity and keeps `con_id`; all IBKR watchlist rows are in that state today.
 11. No LaunchAgent or install step for a permanent second daemon; the setup has run only in the witness and the dual-daemon test.
 12. The spine and the simulator witness last ran at `b3f0ea60`, the money check on its tree; they are landing steps again after the next merge. The paired app's Monitor tab was inspected on the simulator stack at `b3f0ea60`'s tree for the new row only; an earlier capture at `28119a91` shows stress as "Fault · transport unavailable", and the public text does not claim the app.
 15. A holding not analysed appears in the app's portfolio detail, not on its Positions tab, and the rulebook's checks do not name it. `canary positions`, the brief and `canary_positions` do.
-13. Not done before phase D: `broker` in Desk's and the companion's signed-term allowlists.
-14. Whether the OpenAPI agreement permits Canary is open and the owner's, read inside OpenD. It comes before any landing, since landing publishes the README section at the next release.
+13. Not done, and needed before phase D: `broker` in Desk's and the companion's signed-term allowlists.
+14. The agreement: see "Next".
 
 ## Not done
 

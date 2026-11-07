@@ -3439,6 +3439,7 @@ func classifyError(err error) (string, string) {
 	var settingsConflict *rpc.Error
 	var contractTimeout *chainContractTimeoutError
 	var mdAbsent *ibkrlib.MarketDataAbsenceError
+	var noQuoteRight *futu.QuoteRightError
 	var regimeUnavailable *regimeSnapshotCacheUnavailableError
 	switch {
 	case rpc.IsDefect(err):
@@ -3457,6 +3458,9 @@ func classifyError(err error) (string, string) {
 		// Entitlement-absence suppression (recent IBKR 354). Reuses the
 		// symbol_inactive wire code — same caller semantics ("this symbol
 		return rpc.CodeSymbolInactive, err.Error()
+	case errors.As(err, &noQuoteRight):
+		// The same meaning as IBKR's entitlement absence; the words name the right.
+		return rpc.CodeSymbolInactive, noQuoteRight.Error()
 	case errors.Is(err, ibkrlib.ErrSymbolInactive):
 		return rpc.CodeSymbolInactive, err.Error()
 	case errors.Is(err, ibkrlib.ErrContractNoDefinition):

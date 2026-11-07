@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"google.golang.org/protobuf/proto"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/initconnect"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/keepalive"
 	"github.com/osauer/canary/v2/pkg/futu/internal/pb/notify"
+	qotcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_common"
 	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
 	trdgetacclist "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_getacclist"
 )
@@ -83,9 +85,9 @@ type Server struct {
 	quoteLoggedIn  bool
 	tradeLoggedIn  bool
 	hiddenAccount  map[uint64]bool
-	hkQuoteRight   int32
-	usQuoteRight   int32
+	quoteRights    map[string]int32
 	userInfoFlags  []int32
+	userInfoDelay  time.Duration
 	refusals       map[uint32]int
 	forbidden      int
 	closed         bool
@@ -145,8 +147,7 @@ func Listen(opts Options) (*Server, error) {
 		quoteLoggedIn: true,
 		tradeLoggedIn: true,
 		hiddenAccount: make(map[uint64]bool),
-		hkQuoteRight:  2, // QotRight_Level1
-		usQuoteRight:  6, // QotRight_Level3
+		quoteRights:   map[string]int32{"HK": quoteRightLevel1, "US": quoteRightLevel3, "SG": quoteRightLevel1, "MY": quoteRightNo, "JP": quoteRightNo},
 		refusals:      make(map[uint32]int),
 	}
 	s.wg.Go(s.accept)
@@ -280,7 +281,7 @@ func (s *Server) PushQuotaState() {
 // PushQuoteRights pushes one quote-right state: market to OpenD's QotRight.
 func (s *Server) PushQuoteRights(hk, us int32) {
 	s.mu.Lock()
-	s.hkQuoteRight, s.usQuoteRight = hk, us
+	s.quoteRights["HK"], s.quoteRights["US"] = hk, us
 	s.mu.Unlock()
 	s.Push(futu.ProtoNotify, &notify.Response{
 		RetType: new(int32(0)),
@@ -536,6 +537,43 @@ func (s *Server) answerGlobalState(conn *simConn) proto.Message {
 	}
 }
 
+// The quote rights the simulator's logins hold by default: QotRight values.
+const (
+	quoteRightLevel1 = int32(2)
+	quoteRightNo     = int32(5)
+	quoteRightLevel3 = int32(6)
+)
+
+// SetQuoteRight sets a market's right. A market at QotRight_No refuses quotes as
+// OpenD 10.12 does: the whole request, in the words it uses.
+func (s *Server) SetQuoteRight(market string, level int32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.quoteRights[market] = level
+}
+
+// quoteRefusal is OpenD's refusal of a request with a code its login has no right
+// for, nil when the login has them all.
+func (s *Server) quoteRefusal(action string, secs []*qotcommon.Security) proto.Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, sec := range secs {
+		code := securityCode(sec)
+		market, _, _ := strings.Cut(code, ".")
+		if right, known := s.quoteRights[market]; known && right == quoteRightNo {
+			return refuse(fmt.Sprintf("No permission to %s quotes for %s. Please check %s Security MarketStocks quote permissions.", action, code, market))
+		}
+	}
+	return nil
+}
+
+// SetUserInfoDelay makes GetUserInfo slow, so a test can push during a refresh.
+func (s *Server) SetUserInfoDelay(delay time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.userInfoDelay = delay
+}
+
 // UserInfoFlags lists the flag of each GetUserInfo request so far.
 func (s *Server) UserInfoFlags() []int32 {
 	s.mu.Lock()
@@ -552,15 +590,20 @@ func (s *Server) answerUserInfo(frame futu.Frame) proto.Message {
 	}
 	flag := req.GetC2S().GetFlag()
 	s.mu.Lock()
-	hk, us := s.hkQuoteRight, s.usQuoteRight
+	rights := maps.Clone(s.quoteRights)
 	s.userInfoFlags = append(s.userInfoFlags, flag)
+	delay := s.userInfoDelay
 	s.mu.Unlock()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
 	answer := &getuserinfo.S2C{}
 	if req.GetC2S().Flag == nil || flag&int32(getuserinfo.UserInfoField_UserInfoField_Basic) != 0 {
 		answer.NickName, answer.UserID = new("synthetic"), new(int64(1))
 	}
 	if req.GetC2S().Flag == nil || flag&int32(getuserinfo.UserInfoField_UserInfoField_QotRight) != 0 {
-		answer.HkQotRight, answer.UsQotRight = new(hk), new(us)
+		answer.HkQotRight, answer.UsQotRight = new(rights["HK"]), new(rights["US"])
+		answer.SgStockQotRight, answer.MyStockQotRight, answer.JpStockQotRight = new(rights["SG"]), new(rights["MY"]), new(rights["JP"])
 	}
 	return &getuserinfo.Response{RetType: new(int32(0)), S2C: answer}
 }

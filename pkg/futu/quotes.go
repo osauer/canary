@@ -164,7 +164,7 @@ func (c *Connector) Subscribe(ctx context.Context, codes ...string) (SessionBind
 	}
 	var resp qotsub.Response
 	if err := conn.request(ctx, ProtoQotSub, subscribeRequest(secs), &resp); err != nil {
-		return binding, c.subscribeRefused(ctx, conn, err)
+		return binding, c.subscribeRefused(ctx, conn, codes, err)
 	}
 	now := c.now()
 	c.quotesMu.Lock()
@@ -179,10 +179,13 @@ func (c *Connector) Subscribe(ctx context.Context, codes ...string) (SessionBind
 
 // subscribeRefused records a refusal and asks OpenD whether its quota is what
 // refused it; the fact comes from the quota read, not the refusal's text.
-func (c *Connector) subscribeRefused(ctx context.Context, conn *connection, err error) error {
+func (c *Connector) subscribeRefused(ctx context.Context, conn *connection, codes []string, err error) error {
 	reply, refused := errors.AsType[*Error](err)
 	if !refused {
 		return err
+	}
+	if refusal := c.quoteRightRefusal(codes, err); refusal != nil {
+		return refusal
 	}
 	c.quotesMu.Lock()
 	c.lastRefusalAt = c.now()
@@ -347,7 +350,69 @@ func (c *Connector) Snapshots(ctx context.Context, codes ...string) ([]Quote, er
 	if err != nil {
 		return nil, err
 	}
-	return readSnapshots(ctx, conn, codes)
+	quotes := make([]Quote, 0, len(codes))
+	var refusals []error
+	for _, group := range codesByMarket(codes) {
+		rows, err := readSnapshots(ctx, conn, group)
+		quotes = append(quotes, rows...)
+		if err == nil {
+			continue
+		}
+		refusal := c.quoteRightRefusal(group, err)
+		if refusal == nil {
+			return quotes, err
+		}
+		refusals = append(refusals, refusal)
+	}
+	return quotes, errors.Join(refusals...)
+}
+
+// codesByMarket groups codes by market, in the order each market first appears.
+// OpenD refuses a whole quote request when one code's market has no right, so one
+// market's refusal must not reach the others.
+func codesByMarket(codes []string) [][]string {
+	var groups [][]string
+	at := map[string]int{}
+	for _, code := range codes {
+		market := codeMarket(code)
+		i, seen := at[market]
+		if !seen {
+			i = len(groups)
+			at[market] = i
+			groups = append(groups, nil)
+		}
+		groups[i] = append(groups[i], code)
+	}
+	return groups
+}
+
+func codeMarket(code string) string {
+	market, _, _ := strings.Cut(code, ".")
+	return market
+}
+
+// quoteRightRefusal reads a refused quote request as a missing right, nil when it
+// is anything else. OpenD gives no error code, so this takes the rights it reported
+// where it has them and its message otherwise, in either of OpenD's languages.
+func (c *Connector) quoteRightRefusal(codes []string, err error) *QuoteRightError {
+	reply, refused := errors.AsType[*Error](err)
+	if !refused || reply.RetType != RetTypeFailed || len(codes) == 0 {
+		return nil
+	}
+	// OpenD names the code it refused; a request can hold several markets.
+	market := codeMarket(codes[0])
+	for _, code := range codes {
+		if strings.Contains(reply.Message, code) {
+			market = codeMarket(code)
+			break
+		}
+	}
+	right := c.Health().QuoteRights[market]
+	lower := strings.ToLower(reply.Message)
+	if right != "No" && !strings.Contains(lower, "permission") && !strings.Contains(reply.Message, "权限") {
+		return nil
+	}
+	return &QuoteRightError{Market: market, Right: right, Codes: codes, Message: reply.Message}
 }
 
 func readSnapshots(ctx context.Context, conn *connection, codes []string) ([]Quote, error) {

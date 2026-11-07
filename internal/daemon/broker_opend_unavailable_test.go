@@ -21,7 +21,7 @@ func TestALostOpenDSessionNamesOpenD(t *testing.T) {
 	srv, stop := startOpenDServer(t, sim, opendTestAccount)
 	defer stop()
 	waitOpenDReady(t, srv)
-	if got := srv.brokerLinkNotReady(); !strings.Contains(got, "no broker writes") {
+	if got := srv.brokerLinkNotReady(); !strings.Contains(got, "does not send orders") {
 		t.Errorf("readiness blocker with the session up: %s", got)
 	}
 	sim.Close()

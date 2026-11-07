@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -340,9 +341,20 @@ func TestQuoteRightsAreReadWithoutAPush(t *testing.T) {
 	}
 }
 
+// A push that lands while a refresh is running is not lost to the next keep-alive:
+// the refresh had already read the state the push replaced.
+func TestAPushDuringARefreshIsRead(t *testing.T) {
+	srv := futusim.Start(t, futusim.Options{ProgramStatus: common.ProgramStatusType_ProgramStatusType_UnAgreeDisclaimer})
+	srv.SetUserInfoDelay(500 * time.Millisecond)
+	c := connect(t, srv, simAccount)
+	waitFor(t, "the disclaimer state", func() bool { return c.Health().State.ProgramStatus == "UnAgreeDisclaimer" })
+	srv.SetProgramStatus(common.ProgramStatusType_ProgramStatusType_Ready)
+	waitReady(t, c)
+}
+
 // OpenD lists a real universal account only when asked for one, so a client
 // that does not ask never scopes a real pin.
-func TestRealAccountIsListedAndScoped(t *testing.T) {
+func TestUniversalAccountIsListedAndScoped(t *testing.T) {
 	srv := futusim.Start(t, futusim.Options{})
 	c := connect(t, srv, realAccount)
 	waitReady(t, c)
@@ -517,5 +529,34 @@ func TestFixturesTheSimulatorReemitsTheFramesByteExact(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// OpenD refuses a whole quote request when one code's market has no right, so one
+// such holding must not cost every other market its marks. The refusal names the
+// right that is missing.
+func TestARefusedMarketLeavesTheOtherQuotesAndNamesTheRight(t *testing.T) {
+	srv := futusim.Start(t, futusim.Options{})
+	srv.SetQuoteRight("SG", 5) // QotRight_No
+	c := connect(t, srv, simAccount)
+	waitReady(t, c)
+	waitFor(t, "the quote rights", func() bool { return c.Health().QuoteRights["SG"] == "No" })
+	quotes, err := c.Snapshots(context.Background(), "US.AAPL", "SG.D05", "HK.00700")
+	got := map[string]bool{}
+	for _, q := range quotes {
+		got[q.Code] = true
+	}
+	if !got["US.AAPL"] || !got["HK.00700"] || got["SG.D05"] {
+		t.Errorf("rows %v, err %v", got, err)
+	}
+	refusal, ok := errors.AsType[*futu.QuoteRightError](err)
+	if !ok {
+		t.Fatalf("error %v", err)
+	}
+	if refusal.Market != "SG" || refusal.Right != "No" || !strings.Contains(refusal.Error(), "no SG quote right") {
+		t.Errorf("refusal %+v: %v", refusal, refusal)
+	}
+	if _, err := c.Subscribe(context.Background(), "SG.D05"); !errors.As(err, &refusal) {
+		t.Errorf("subscribe: %v", err)
 	}
 }
