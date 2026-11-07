@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""What only a real moomoo Singapore or Hong Kong login can prove, read-only.
+"""Read-only checks to run on a real moomoo Singapore or Hong Kong login.
 
 Run it with `canary` on PATH and a daemon set to [broker] kind = "opend". It prints
-shapes, labels and currency rates, never an account number, a symbol, a quantity or
-an account figure, so its output can be shared. It sends no order.
+shapes, labels, holding counts and currency rates, never an account number, a symbol,
+a quantity or a money figure. Read the output before sharing it. It sends no order.
 """
 import json
 import re
@@ -20,7 +20,8 @@ def read(*args):
 
 
 def scrub(text):
-    return re.sub(r"\d{4,}", "[number]", str(text))[:160]
+    text = re.sub(r"\b[A-Z]{2}\.[A-Za-z0-9.]+", "[code]", str(text))
+    return re.sub(r"\d{4,}", "[number]", text)[:160]
 
 
 status = read("status")
@@ -48,7 +49,7 @@ fields = account.get("authority", {}).get("fields", {})
 print("   fields served:", sorted(k for k, v in fields.items() if v))
 print("   fields not served:", sorted(k for k, v in fields.items() if not v))
 
-print("   rates (base units per unit; public figures, compare them with a public rate):")
+print("   rates (base units per unit, safe to share; compare each with a public rate):")
 for row in account.get("currency_exposure") or []:
     print("    ", row.get("currency"), row.get("exchange_rate"),
           "worked out from the account's totals" if row.get("exchange_rate_implied") else "quoted")

@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-07 08:46 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-07 08:51 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -20,17 +20,17 @@ Where real OpenD disagreed with the simulator:
 - SPY is `AMEX` in `exchType` (the fixture said NYSE, now AMEX). IBKR is expected to say `ARCA`, not read here, and the two would not join: recorded for Desk's parked multi-book work, nothing to do on this branch.
 - `listTime` reads 1970-01-01 for several instruments. `Instrument.Listed` has no reader today.
 
-Confirmed on the real OpenD: `clientVer` 334 is accepted; a US ETF and an HK ETF are `Trust`; an option is `Drvt` and a future `Future`, each with its contract multiplier as lot size; a lookup of an expired option answers `Unknown` with "Unknown stock.", no error, and `delisted` true; snapshots work without the new optional `QotHeader`; update times are right in UTC; the history quota window is seven days, as the OpenAPI documentation says. Refreshing the vendored definitions to 10.12.7208 is not needed: nothing used changed, and every difference is an addition.
+Confirmed on the real OpenD: `clientVer` 334 is accepted; a US ETF and an HK ETF are `Trust`; an option is `Drvt` and a future `Future`, each with its contract multiplier as lot size; a lookup of an expired option answers `Unknown` with "Unknown stock.", no error, and `delisted` true; snapshots work without the new optional `QotHeader`; update times are right in UTC; the history quota window is seven days, as the OpenAPI documentation says.
 
-Account detection, 2026-11-07: `[opend] account` is optional, as a pin is under IBKR. With none, the login's one real account is used and binds for the connector's life, so a later session reads it as a pin and nothing moves to another account if it leaves the list. None or several is refused, and `canary status` lists them in full for the owner to pin one exactly; the log's words name no account. A simulated account takes its id. `TestTheOnlyRealAccountIsDetected` failed before it. Status masks a detected account; other surfaces print the number as they do for a pin.
+Account detection, 2026-11-07: `[opend] account` is optional, as a pin is under IBKR. With none, the login's one real account is used and binds for the connector's life, so a later session reads it as a pin and nothing moves to another account if it leaves the list. None or several is refused, and `canary status` lists them in full for the user to pin one exactly; the log's words name no account. A simulated account takes its id. `TestTheOnlyRealAccountIsDetected` failed before it. Status masks a detected account; other surfaces print the number as they do for a pin.
 
-A foreign holding's rate, 2026-11-07. OpenD refuses forex quotes, and answers funds in any currency asked. `ImpliedRates` reads the account's total in base, in each held currency, and in base again, and gives the ratio: the broker's own conversion. Both totals must be positive and finite, the base must not have moved across the pass, and rounding may not move the rate past `impliedRateMaxError`; otherwise no rate, which readers take as not measured, as before. The ledger row carries `ExchangeRateImplied`, and JSON `exchange_rate_implied`. Proof pending: first funded real login, for the ratio itself. A real account whose firm is unknown refuses its funds rather than guessing a base from its markets.
+A foreign holding's rate, 2026-11-07. OpenD refuses forex quotes, and answers funds in any currency asked. `ImpliedRates` reads the account's total in base, in each held currency, and in base again, and gives the ratio, taken to be the broker's own conversion until it is compared with a public rate. Both totals must be positive and finite, the base must not have moved across the pass, and rounding may not move the rate past `impliedRateMaxError`; otherwise no rate, which readers take as not measured, as before. The ledger row carries `ExchangeRateImplied`, and JSON `exchange_rate_implied`. Proof pending: the ratio has not been compared with a public rate on a real account. A real account whose firm is unknown refuses its funds rather than guessing a base from its markets.
 
 Who reads the rate under OpenD: position base values, the rulebook, the mandate and reduction measures, `add.plan`, `portfolio.plan` and the protection proposals. The cash sweep and currency levelling do not run under OpenD (`underOpenD`). Nothing reaches a broker: `TestOpenDDaemonAuthorisesNoBrokerWrite` and `TestFutuConnectorHasNoWriteMethod`.
 
 Phase D must: stop treating an implied rate as authority for sizing an order, at each reader named above, before any OpenD write exists.
 
-Checks only a real moomoo Singapore or Hong Kong login can settle: `scripts/opend-real-login-check.py`, which prints no account figures. It answers the firm's account and markets, the quote rights, the base currency and served funds fields, holdings by currency and exchange, and the rates to compare with a public one. Also open: what `Trd_GetPositionList`'s new `currency` field does, whether a position's value carries the multiplier, and `the right follows the login`, which is inferred and untested.
+Checks to run on a real moomoo Singapore or Hong Kong login: `scripts/opend-real-login-check.py`, which prints no account figures. It answers the firm's account and markets, the quote rights, the base currency and served funds fields, holdings by currency and exchange, and the rates to compare with a public one. Also open: what `Trd_GetPositionList`'s new `currency` field does, whether a position's value carries the multiplier, and `the right follows the login`, which is inferred and untested.
 
 Simulated users: `internal/daemon/broker_opend_asia_test.go` runs the read path for moomoo Singapore and Hong Kong accounts and names its assumptions. Simulator only.
 
@@ -283,11 +283,13 @@ Guardrails, each to hold at landing:
 - A user enters the transaction password in OpenD by hand. Canary never holds or fills it, and phase D designs to that.
 - Vendored definitions stay Apache-2.0 with `LICENSE` and `NOTICE` beside them, with their source recorded. They are taken from the `moomoo-api` package on PyPI, whose hash `NOTICE` holds.
 
-Agreement: read by the coordinating session, 2026-11-07: the published Moomoo API Terms of Use on moomoo's Japan site (topic7_477), moomoo's general terms, the Skill disclaimer and the vendored `LICENSE` and `NOTICE`. Not read: the API disclaimer behind the login (moomoo.com/about/api-disclaimer), and the "Moomoo API Code Non-Commercial Development License Agreement" those terms cite, which was not found.
+Agreement: read by the coordinating session, 2026-11-07: the published Moomoo API Terms of Use on a regional moomoo site (topic7_477), moomoo's general terms, the Skill disclaimer and the vendored `LICENSE` and `NOTICE`. Not read: the API disclaimer behind the login (moomoo.com/about/api-disclaimer), and the "Moomoo API Code Non-Commercial Development License Agreement" those terms cite, which was not found.
 
 Merge local main again and re-run the gate and spine if main has moved.
 
 First steps on resuming: read the state below, then run the regression spine and `scripts/opend-witness.sh` on the branch head, which the session of 2026-11-07 stopped before. Apply the last cold read's findings to the public text if any are recorded below. The regime read stays parked; the FX part of that package is built.
+
+Public text still to change before landing, from the last cold read of 2026-11-07: extend the "tested only against a stand-in" caveat in README and changelog to converting holdings; split the README and changelog sentence so Hong Kong and US limit only quotes, and say "in the account"; name moomoo in the changelog's lead and its detection line, including that a simulated account is never picked; make the config row say what to leave out and when it is required, in the Go comment it is generated from; reword the changelog and terminal lines on a holding's price ("from OpenD's position, not a quote"); drop "(OpenD reports No)" from the refusal; "it picks none" in the README; say where a simulated id is found; and name whose log the shared hint points at. Each needs one more cold read after it changes.
 
 State at the stop, 2026-11-07: the branch is merged with local main, the changelog stub is `v3.36.0` because main prepared `v3.35.0`, and this branch is not in that release. Nothing has landed or been pushed. Desk's re-pin comes after landing.
 
@@ -300,20 +302,20 @@ Fixed, recorded here because each was reported open: an OpenD daemon saying "IBK
 Open:
 
 1. Regime and portfolio stress are off under OpenD, against the design's first text: the regime read stops at its IBKR connector check. A package of its own, proposed in the owner table.
-2. OpenD supplies no FX rate, so holdings outside the base currency read as not measured. With the regime package.
-3. Partly met a real OpenD; see "Checks against real OpenD". Still proof pending: the RSA refusal shape, funds currency on a multi-market account, and whether a position's value carries the multiplier.
+2. OpenD offers no forex quote. Holdings outside the base currency use the implied rate described under "Checks against real OpenD", and read as not measured without one. The regime read stays a package of its own.
+3. Partly met a real OpenD; see "Checks against real OpenD". Still proof pending: the RSA refusal shape, funds currency across markets, and whether a position's value carries the multiplier.
 4. Proof pending, next live session: the IBKR path on a real Gateway, including an IBKR identity resolved through it, proven here against a fake.
 5. IBKR wording: a sweep of every daemon answer and the CLI read commands under OpenD, on the simulator, found and fixed the reconnect action, the order-journal disclaimer, the write refusal's action and the borrow sources. What stays names IBKR on purpose: "IBKR only" reasons, the `TWS order control` setting and its help text, and the IBKR-named source label in the breadth snapshot. MCP tool descriptions are static and name IBKR for every broker.
 6. Labels waiting on the owner: "22/22 sources ok" above a line of unavailable sources, the "Not on OpenD" wording, and the handbook edit draft.
 7. The rulebook reads "10 data gaps" on the simulator's book.
-8. Log noise: the market tape warning is gone on real OpenD; the per-name WSH warning needs holdings, so that is proven on the simulator only.
+8. Log noise: the market tape warning is gone on real OpenD; the per-name WSH warning is proven on the simulator only.
 9. `market: hk` works on `quote.snapshot` only; `market.history` and the other paths on the shared IBKR normaliser take the venue or the identity.
 10. An IBKR row with only a smart route carries no identity and keeps `con_id`; all IBKR watchlist rows are in that state today.
 11. No LaunchAgent or install step for a permanent second daemon; the setup has run only in the witness and the dual-daemon test.
 12. The spine and the simulator witness last ran at `b3f0ea60`, the money check on its tree; they are landing steps again after the next merge. The paired app's Monitor tab was inspected on the simulator stack at `b3f0ea60`'s tree for the new row only; an earlier capture at `28119a91` shows stress as "Fault · transport unavailable", and the public text does not claim the app.
 15. A holding not analysed appears in the app's portfolio detail, not on its Positions tab, and the rulebook's checks do not name it. `canary positions`, the brief and `canary_positions` do.
 16. Trade reconciliation under OpenD has no design: it rests on IBKR's Flex statements, which are off under OpenD, and nothing replaces them. Open.
-17. The implied rate's ratio and the multiplier wait on a funded real login; the rest of gap 3 stays proof pending as written.
+17. The implied rate's ratio and the multiplier stay proof pending, as does the rest of gap 3.
 13. Not done, and needed before phase D: `broker` in Desk's and the companion's signed-term allowlists.
 14. The agreement: see "Next".
 
