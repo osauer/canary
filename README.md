@@ -29,7 +29,7 @@ sent, and passes the risk policy's order limits, the mandate gate and the
 freeze. An agent trades only through the gated CLI. The MCP server has no order
 or preview tool in any build. Canary never decides a trade on its own.
 
-**[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
+**[Documentation](https://osauer.dev/canary/docs/)** · [Install](docs/docs/start/install.md) · [First session](docs/docs/start/first-session.md) · [Agentic trading](https://osauer.dev/canary/docs/start/agentic-trading.html) · [Canary Edge](docs/docs/understand/edge.md) · [MCP tools](docs/docs/reference/mcp-tools.md) · [Safety](SECURITY.md) · [Privacy](PRIVACY.md)
 
 ## Start
 
