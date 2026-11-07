@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-07 09:04 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-07 09:14 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -289,7 +289,7 @@ Merge local main again and re-run the gate and spine if main has moved.
 
 First steps on resuming: read the state below, then run the regression spine and `scripts/opend-witness.sh` on the branch head, which the session of 2026-11-07 stopped before. Apply the last cold read's findings to the public text if any are recorded below. The regime read stays parked; the FX part of that package is built.
 
-Landing, owner 2026-11-07 08:57 CET: experimental moomoo ships in v3.35.0, whose heading the release session owns, so this branch carries no changelog stub and hands that session its entry. Two non-author cold reads ran on the public text; the page `docs/docs/start/moomoo-opend.md` is new.
+Landing, owner 2026-11-07 08:57 CET: experimental moomoo ships in v3.35.0, whose heading the release session owns, so this branch carries no changelog stub and hands that session its entry. Two non-author cold reads ran on the public text; the page `docs/docs/start/moomoo-opend.md` is new. Its `canary restart` step was checked from files, not run on this path: the daemon loads its config only at start (`cmd/canary/daemon.go`), and the troubleshooting page already tells users the same.
 
 State, 2026-11-07: the branch is merged with local main and waits for the IBKR routing fix to land before its final merge and `make test`. Desk's re-pin comes after landing.
 
