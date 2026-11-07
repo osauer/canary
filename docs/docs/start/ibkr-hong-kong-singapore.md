@@ -1,6 +1,6 @@
 # Canary with an Interactive Brokers Hong Kong or Singapore account
 
-Updated: 2026-11-07 09:15 CET
+Updated: 2026-11-07 18:24 CET
 
 Canary reads one Interactive Brokers account through your own IB Gateway or
 TWS session. Which IBKR entity holds the account, Interactive Brokers Hong
