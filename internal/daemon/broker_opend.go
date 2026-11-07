@@ -28,57 +28,38 @@ func newOpenDBroker(cfg *config.Resolved, version string) *brokerOpenD.Adapter {
 	if cfg == nil || !cfg.IsOpenD() {
 		return nil
 	}
-	account, ending, err := opendPin(cfg.OpenD.Account)
+	account, err := opendPin(cfg.OpenD.Account)
 	if err != nil {
 		return nil
 	}
 	conn := futu.NewConnector(futu.Config{
 		Addr:          fmt.Sprintf("%s:%d", cfg.OpenD.HostOrDefault(), cfg.OpenD.PortOrDefault()),
 		Account:       account,
-		AccountEnding: ending,
 		ClientID:      cfg.OpenD.ClientIDOrDefault(),
 		ClientVersion: clientVersionFor(version),
 	})
 	return brokerOpenD.New(conn, nil)
 }
 
-// opendPin reads [opend] account: empty detects, four digits narrow detection and
-// anything else is the full id.
-func opendPin(raw string) (uint64, string, error) {
+// opendPin reads [opend] account: empty detects, anything else is the full id.
+func opendPin(raw string) (uint64, error) {
 	raw = strings.TrimSpace(raw)
-	switch {
-	case raw == "":
-		return 0, "", nil
-	case len(raw) == opendAccountEndingDigits:
-		if _, err := strconv.ParseUint(raw, 10, 64); err != nil {
-			return 0, "", err
-		}
-		return 0, raw, nil
+	if raw == "" {
+		return 0, nil
 	}
-	account, err := strconv.ParseUint(raw, 10, 64)
-	return account, "", err
+	return strconv.ParseUint(raw, 10, 64)
 }
 
-// opendAccountEndingDigits is how many digits [opend] account takes as an ending.
-const opendAccountEndingDigits = 4
-
-// opendUnscopedWords says why no account is scoped and how to settle it.
+// opendUnscopedWords says why no account is scoped and how to settle it. It goes
+// to the log, so it names no account: status lists the choices.
 func opendUnscopedWords(health futu.Health) string {
 	if health.Account != 0 {
 		return "OpenD's account list does not report [opend] account"
 	}
 	if len(health.AccountChoices) == 0 {
-		return "OpenD lists no real account for this daemon on this login, and Canary never picks a simulated one: set [opend] account to a simulated account's full id to use one"
+		return "OpenD lists no real account on this login, and Canary never picks a simulated one: set [opend] account to a simulated account's id to use one"
 	}
-	return fmt.Sprintf("OpenD lists %d real accounts: %s. Set [opend] account to the last four digits of the one to use", len(health.AccountChoices), opendChoiceWords(health.AccountChoices))
-}
-
-func opendChoiceWords(choices []futu.AccountChoice) string {
-	parts := make([]string, 0, len(choices))
-	for _, choice := range choices {
-		parts = append(parts, fmt.Sprintf("ending %s (%s, %s)", choice.Ending, choice.Type, strings.Join(choice.Markets, " ")))
-	}
-	return strings.Join(parts, "; ")
+	return fmt.Sprintf("OpenD lists %d real accounts on this login: run `canary status` to see them, then set [opend] account to the one to use", len(health.AccountChoices))
 }
 
 // errOpenDUnavailable is the IBKR sentinel's meaning in OpenD's name. The daemon's

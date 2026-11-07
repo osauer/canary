@@ -2462,6 +2462,13 @@ const (
 	AccountModeLive    = "live"
 )
 
+// OpenDAccountChoice is a real account detection could not settle on.
+type OpenDAccountChoice struct {
+	Account string   `json:"account"`
+	Type    string   `json:"type,omitempty"`
+	Markets []string `json:"markets,omitempty"`
+}
+
 // OpenDHealth is what OpenD says about itself, for the status rows.
 type OpenDHealth struct {
 	// ProgramStatus is OpenD's program status in OpenD's words; ProgramDetail its
@@ -2481,6 +2488,9 @@ type OpenDHealth struct {
 	// AccountEnding is the last digits of an account detected from OpenD's list,
 	// empty when [opend] account pins it.
 	AccountEnding string `json:"account_ending,omitempty"`
+	// AccountChoices are the login's real accounts when detection could not choose
+	// one, in full: the owner pins one of them.
+	AccountChoices []OpenDAccountChoice `json:"account_choices,omitempty"`
 	// QuoteRights is the login's quote rights as OpenD reports them: market to level.
 	QuoteRights map[string]string `json:"quote_rights,omitempty"`
 	// Quotas are OpenD-wide, and zero until OpenD has said.

@@ -75,6 +75,11 @@ func (s *Server) opendHealth() *rpc.OpenDHealth {
 		digits := strconv.FormatUint(h.Account, 10)
 		out.AccountEnding = digits[max(0, len(digits)-opendAccountEndingDigits):]
 	}
+	for _, choice := range h.AccountChoices {
+		out.AccountChoices = append(out.AccountChoices, rpc.OpenDAccountChoice{
+			Account: strconv.FormatUint(choice.ID, 10), Type: choice.Type, Markets: choice.Markets,
+		})
+	}
 	if h.StateKnown {
 		out.ProgramStatus = h.State.ProgramStatus
 		out.ProgramDetail = h.State.ProgramDetail
@@ -149,6 +154,9 @@ func (s *Server) brokerLinkNotReady() string {
 	}
 	return "the broker link to IBKR Gateway/TWS is not ready"
 }
+
+// opendAccountEndingDigits is how much of a detected account status shows.
+const opendAccountEndingDigits = 4
 
 // brokerLinkBlockerCode is the readiness code that goes with brokerLinkNotReady:
 // an OpenD session that is up is not a gateway outage, and waiting will not clear it.

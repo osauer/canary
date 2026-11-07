@@ -64,9 +64,23 @@ func currencyName(currency int32) string {
 	return strings.TrimPrefix(trdcommon.Currency(currency).String(), "Currency_")
 }
 
-func fundsRequest(header *trdcommon.TrdHeader, refresh bool) *trdgetfunds.Request {
+// firmCurrency is each firm's home currency: a universal account's list of markets
+// says nothing about its base, and the first one named may not be home.
+var firmCurrency = map[string]trdcommon.Currency{
+	"FutuSecurities": trdcommon.Currency_Currency_HKD,
+	"FutuInc":        trdcommon.Currency_Currency_USD,
+	"FutuSG":         trdcommon.Currency_Currency_SGD,
+	"FutuAU":         trdcommon.Currency_Currency_AUD,
+	"FutuCA":         trdcommon.Currency_Currency_CAD,
+	"FutuMY":         trdcommon.Currency_Currency_MYR,
+	"FutuJP":         trdcommon.Currency_Currency_JPY,
+}
+
+func fundsRequest(header *trdcommon.TrdHeader, firm string, refresh bool) *trdgetfunds.Request {
 	c2s := &trdgetfunds.C2S{Header: header, RefreshCache: new(refresh)}
-	if currency, ok := marketCurrency[header.GetTrdMarket()]; ok {
+	if currency, ok := firmCurrency[firm]; ok {
+		c2s.Currency = new(int32(currency))
+	} else if currency, ok := marketCurrency[header.GetTrdMarket()]; ok {
 		c2s.Currency = new(int32(currency))
 	}
 	return &trdgetfunds.Request{C2S: c2s}
@@ -84,12 +98,12 @@ func (c *Connector) Funds(ctx context.Context, refresh bool) (Funds, error) {
 	if len(headers) == 0 {
 		return Funds{}, fmt.Errorf("%w: the account list names no market", ErrMarketNotAuthorised)
 	}
-	return readFunds(ctx, conn, headers[0], refresh)
+	return readFunds(ctx, conn, headers[0], c.Health().Firm, refresh)
 }
 
-func readFunds(ctx context.Context, conn *connection, header *trdcommon.TrdHeader, refresh bool) (Funds, error) {
+func readFunds(ctx context.Context, conn *connection, header *trdcommon.TrdHeader, firm string, refresh bool) (Funds, error) {
 	var resp trdgetfunds.Response
-	req := fundsRequest(header, refresh)
+	req := fundsRequest(header, firm, refresh)
 	var err error
 	if refresh {
 		err = conn.request(ctx, ProtoTrdGetFunds, req, &resp)

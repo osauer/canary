@@ -126,7 +126,7 @@ func TestReplayStaticInfo(t *testing.T) {
 
 func TestReplayFunds(t *testing.T) {
 	conn, done, ctx := replayed(t, "trd_funds_ok")
-	funds, err := readFunds(ctx, conn, fixtureSimHeader(), false)
+	funds, err := readFunds(ctx, conn, fixtureSimHeader(), "", false)
 	if err != nil || funds.Currency != "HKD" || funds.TotalAssets <= 0 || len(funds.CashRows) != 3 {
 		t.Fatalf("funds %+v %v", funds, err)
 	}

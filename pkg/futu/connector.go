@@ -7,7 +7,6 @@ import (
 	"maps"
 	"net"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -44,11 +43,8 @@ type Config struct {
 	// Addr is OpenD's host:port.
 	Addr string
 	// Account is the pinned trading account. Zero detects it: the login's one real
-	// account, or, with AccountEnding, the one real account ending in those digits.
-	// A detected account then binds like a pin, and a simulated one is never picked.
+	// account, which then binds like a pin. A simulated one is never picked.
 	Account uint64
-	// AccountEnding narrows detection when the login has several real accounts.
-	AccountEnding string
 	// ClientID is the label sent to OpenD; OpenD assigns the connection's
 	// real identity itself.
 	ClientID string
@@ -153,15 +149,13 @@ type Health struct {
 	LastGatewayEvent string
 }
 
-// AccountChoice is a real account detection could not settle on, without its number.
+// AccountChoice is a real account detection could not settle on. It carries the
+// number the owner must pin, so it goes to the status surface and never to a log.
 type AccountChoice struct {
-	Ending  string
+	ID      uint64
 	Type    string
 	Markets []string
 }
-
-// accountEndingDigits is how much of an account number a reader is shown.
-const accountEndingDigits = 4
 
 // scope is what the account list reported for the pin.
 type scope struct {
@@ -551,8 +545,7 @@ func accountListRequest() *trdgetacclist.Request {
 func (c *Connector) detectAccount(rows []*trdcommon.TrdAcc) (*trdcommon.TrdAcc, []AccountChoice) {
 	var real []*trdcommon.TrdAcc
 	for _, row := range rows {
-		if trdcommon.TrdEnv(row.GetTrdEnv()) == trdcommon.TrdEnv_TrdEnv_Real &&
-			strings.HasSuffix(strconv.FormatUint(row.GetAccID(), 10), c.cfg.AccountEnding) {
+		if trdcommon.TrdEnv(row.GetTrdEnv()) == trdcommon.TrdEnv_TrdEnv_Real {
 			real = append(real, row)
 		}
 	}
@@ -562,12 +555,7 @@ func (c *Connector) detectAccount(rows []*trdcommon.TrdAcc) (*trdcommon.TrdAcc, 
 	choices := make([]AccountChoice, 0, len(real))
 	for _, row := range real {
 		account := accountFromRow(row)
-		digits := strconv.FormatUint(row.GetAccID(), 10)
-		choices = append(choices, AccountChoice{
-			Ending:  digits[max(0, len(digits)-accountEndingDigits):],
-			Type:    account.Type,
-			Markets: account.Markets,
-		})
+		choices = append(choices, AccountChoice{ID: row.GetAccID(), Type: account.Type, Markets: account.Markets})
 	}
 	return nil, choices
 }

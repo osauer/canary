@@ -338,6 +338,7 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "status_opend", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenD()}},
 		{name: "status_opend_disclaimer", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenDDisclaimer()}, exit: 1},
 		{name: "status_opend_detected", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenDDetected()}},
+		{name: "status_opend_several_accounts", argv: []string{"status"}, conn: goldenConn{rpc.MethodStatusHealth: goldenHealthOpenDSeveral()}, exit: 1},
 		{name: "trading_status_opend", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: goldenTradingOpenD()}},
 		{name: "trading_status_blocked", argv: []string{"trading", "status"}, conn: goldenConn{rpc.MethodTradingStatus: blockedTrading}, exit: 1},
 		{name: "settings_show", argv: []string{"settings", "show"}, conn: goldenConn{rpc.MethodSettingsGet: goldenSettings()}},
@@ -1027,6 +1028,17 @@ func goldenHealthOpenD() rpc.HealthResult {
 func goldenHealthOpenDDetected() rpc.HealthResult {
 	res := goldenHealthOpenD()
 	res.OpenD.AccountEnding = "4321"
+	return res
+}
+
+func goldenHealthOpenDSeveral() rpc.HealthResult {
+	res := goldenHealthOpenDDisclaimer()
+	res.LastError = "OpenD lists 2 real accounts on this login: run `canary status` to see them, then set [opend] account to the one to use"
+	res.OpenD.ProgramStatus = "Ready"
+	res.OpenD.AccountChoices = []rpc.OpenDAccountChoice{
+		{Account: "1000001", Type: "Margin", Markets: []string{"HK", "US"}},
+		{Account: "1000002", Type: "Cash", Markets: []string{"SG"}},
+	}
 	return res
 }
 

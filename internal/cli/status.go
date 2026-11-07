@@ -838,6 +838,10 @@ func isHandshakeInFlight(res rpc.HealthResult) bool {
 		// OpenD answered and is waiting for its operator; polling cannot help.
 		return false
 	}
+	if res.OpenD != nil && len(res.OpenD.AccountChoices) > 0 {
+		// The login has several real accounts; only a pin settles that.
+		return false
+	}
 	switch res.GatewayPhase {
 	case rpc.GatewayPhaseConnecting, rpc.GatewayPhaseAPINotReady:
 		return !res.Connected

@@ -131,10 +131,9 @@ to your broker.
 kind = "opend"
 ```
 
-With one real account on your login, Canary uses it. With several, it lists them
-by their last four digits and refuses until you set `account` under `[opend]` to
-the four digits of the one to use. A simulated account is never picked: to use one,
-set `account` to its full id.
+With one real account on your login, Canary uses it. With several, it refuses and
+`canary status` lists them; set `account` under `[opend]` to the one to use. A
+simulated account is never picked: to use one, set `account` to its id.
 
 With this setting, Canary shows account balances, stock and ETF positions, and
 quotes for the Hong Kong and US markets where your OpenD login has the quote

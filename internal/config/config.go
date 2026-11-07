@@ -405,7 +405,7 @@ type OpenD struct {
 	Host string `toml:"host"`
 	// Port is OpenD's api_port; absent is 11111.
 	Port *int `toml:"port"`
-	// Account optionally names the Futu account (accID, or its last four digits) the daemon is scoped to. Empty uses the login's one real account and refuses when it has none or several; four digits pick the real account ending in them. A simulated account is used only by its full id.
+	// Account optionally names the Futu account (accID) the daemon is scoped to. Empty uses the login's one real account and refuses when it has none or several, listing them in `canary status`. A simulated account is never picked.
 	Account string `toml:"account"`
 	// ClientID is the clientID string sent in InitConnect; default "canary".
 	ClientID string `toml:"client_id"`
@@ -451,7 +451,7 @@ func (c *Config) ValidateBroker() error {
 	case "opend":
 		if account := strings.TrimSpace(c.OpenD.Account); account != "" {
 			if _, err := strconv.ParseUint(account, 10, 64); err != nil {
-				return fmt.Errorf("[opend] account %q is not a Futu account id: it must be the number OpenD lists as accID, or its last four digits", account)
+				return fmt.Errorf("[opend] account %q is not a Futu account id: it must be the number OpenD lists as accID", account)
 			}
 		}
 		if c.OpenD.Port != nil && slices.Contains(discover.StandardPorts, *c.OpenD.Port) {

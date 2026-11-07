@@ -20,6 +20,9 @@ func renderOpenDRows(env *Env, out io.Writer, res *rpc.HealthResult) {
 	if o.AccountEnding != "" {
 		statusHealthRow(env, out, "Account", "detected: the login's one real account")
 	}
+	for _, choice := range o.AccountChoices {
+		statusHealthRow(env, out, "Real account", fmt.Sprintf("%s (%s, %s): set [opend] account to use it", choice.Account, choice.Type, strings.Join(choice.Markets, " ")))
+	}
 	if len(o.Markets) > 0 {
 		statusHealthRow(env, out, "Markets", strings.Join(o.Markets, ", ")+" tradable on this account")
 	}

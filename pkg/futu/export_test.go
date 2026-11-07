@@ -72,7 +72,7 @@ func FixtureRequest(name string, serial uint32, now time.Time) []byte {
 	case "qot_static":
 		protoID, message = ProtoQotGetStaticInfo, staticInfoRequest(fixtureSecurities("HK.00700"))
 	case "trd_funds":
-		protoID, message = ProtoTrdGetFunds, fundsRequest(fixtureSimHeader(), false)
+		protoID, message = ProtoTrdGetFunds, fundsRequest(fixtureSimHeader(), "", false)
 	case "trd_positions":
 		protoID, message = ProtoTrdGetPositionList, positionsRequest(fixtureSimHeader(), false)
 	case "trd_orders":

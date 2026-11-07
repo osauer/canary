@@ -651,8 +651,20 @@ func accountRow(account Account) *trdcommon.TrdAcc {
 		AccID:             new(account.ID),
 		TrdMarketAuthList: markets,
 		AccType:           new(int32(accType)),
-		SecurityFirm:      new(int32(trdcommon.SecurityFirm_SecurityFirm_FutuSecurities)),
+		SecurityFirm:      new(int32(securityFirm(account.Firm))),
 	}
+}
+
+// securityFirm reads a fixture's firm; absent is Futu Securities, as the default
+// book's accounts are.
+func securityFirm(firm string) trdcommon.SecurityFirm {
+	switch strings.ToLower(firm) {
+	case "futuinc":
+		return trdcommon.SecurityFirm_SecurityFirm_FutuInc
+	case "futusg":
+		return trdcommon.SecurityFirm_SecurityFirm_FutuSG
+	}
+	return trdcommon.SecurityFirm_SecurityFirm_FutuSecurities
 }
 
 func tradeMarket(market string) trdcommon.TrdMarket {
