@@ -1,0 +1,28 @@
+# canary positions · COLUMNS=80 · colour off
+
+Positions by underlying
+
+  LEG                           QTY         AVG        MARK  CHANGE / GREEKS             MKT VALUE     UNREAL P&L
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  D05
+  Stock                     1000 sh   SGD 41.10   SGD 43.75  -SGD 250.00 (-0.57%)    SGD 43,750.00   SGD 2,650.00
+  700
+  Stock                      500 sh  HKD 340.40  HKD 388.20  +HKD 1,100.00 (+0.57%)  HKD 194,100.00  HKD 23,900.00
+  SYNU
+  Stock                      100 sh     $ 90.00    $ 100.00  +$ 50.00 (+0.50%)         $ 10,000.00     $ 1,000.00
+
+  3 underlyings  ·  as of 14:00:00 TZ
+# canary positions · COLUMNS=80 · colour on, ESC written as \x1b
+
+Positions by underlying
+
+\x1b[2m  LEG                           QTY         AVG        MARK  CHANGE / GREEKS             MKT VALUE     UNREAL P&L\x1b[0m
+\x1b[2m─────────────────────────────────────────────────────────────────────────────────────────────────────────────────\x1b[0m
+  \x1b[1mD05\x1b[0m
+  Stock                     1000 sh   SGD 41.10   SGD 43.75  \x1b[31m-SGD 250.00 (-0.57%)\x1b[0m    SGD 43,750.00  \x1b[32m SGD 2,650.00\x1b[0m
+  \x1b[1m700\x1b[0m
+  Stock                      500 sh  HKD 340.40  HKD 388.20  \x1b[32m+HKD 1,100.00 (+0.57%)\x1b[0m  HKD 194,100.00  \x1b[32mHKD 23,900.00\x1b[0m
+  \x1b[1mSYNU\x1b[0m
+  Stock                      100 sh     $ 90.00    $ 100.00  \x1b[32m+$ 50.00 (+0.50%)\x1b[0m         $ 10,000.00  \x1b[32m   $ 1,000.00\x1b[0m
+
+  3 underlyings  ·  as of 14:00:00 TZ

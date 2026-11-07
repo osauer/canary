@@ -481,7 +481,7 @@
           },
           "exchange": {
             "type": "string",
-            "description": "optional IBKR exchange override for symbols, e.g. SMART or IBIS"
+            "description": "optional IBKR exchange override for symbols, e.g. SMART, IBIS or SEHK"
           },
           "lookback_days": {
             "type": "integer",
@@ -494,9 +494,11 @@
             "enum": [
               "us",
               "de",
-              "uk"
+              "uk",
+              "hk",
+              "sg"
             ],
-            "description": "optional route for symbols, not the benchmark; omit/use us for SMART/USD, use de for Xetra/IBIS EUR equities, or uk for London equities (SMART, LSE, GBP by default)"
+            "description": "optional route for symbols, not the benchmark; omit/use us for SMART/USD, de for Xetra/IBIS EUR equities, uk for London equities (SMART, LSE, GBP by default), hk for Hong Kong (SEHK, HKD; IBKR drops leading zeros, so 00700 is 700), or sg for Singapore (SGX, SGD)"
           },
           "primary_exchange": {
             "type": "string",

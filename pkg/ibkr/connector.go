@@ -3487,7 +3487,14 @@ func (c *Connector) applyContractDetail(detail ContractDetailsLite, contract *Co
 	return contract.ConID != 0
 }
 
-func normalizeEquityRouting(contract *Contract, fallbackPrimary string) {
+// normalizeEquityRouting settles a resolved stock's route. A listing reached on
+// its own exchange moves to SMART, which keeps SMART's data and routing, unless
+// the broker's list of routes for it leaves SMART out. IBKR answers a Hong Kong
+// or Singapore listing on SMART with code 200, for quotes and history alike,
+// while Tokyo and Europe accept it (live, 2026-11-07), so the list decides and
+// not a table of exchanges. An empty list means the broker has not been asked:
+// a portfolio hint, for one. The route stays as it always was.
+func normalizeEquityRouting(contract *Contract, fallbackPrimary, validExchanges string) {
 	if contract == nil || contract.SecType != "STK" {
 		return
 	}
@@ -3501,11 +3508,41 @@ func normalizeEquityRouting(contract *Contract, fallbackPrimary string) {
 	if contract.PrimaryExch != "" && strings.EqualFold(contract.PrimaryExch, "SMART") {
 		contract.PrimaryExch = ""
 	}
-	if contract.PrimaryExch != "" {
-		if strings.EqualFold(contract.Exchange, contract.PrimaryExch) || contract.Exchange == "" {
-			contract.Exchange = "SMART"
+	if contract.PrimaryExch == "" {
+		return
+	}
+	onListing := strings.EqualFold(contract.Exchange, contract.PrimaryExch) || contract.Exchange == ""
+	if listingRefusesSMART(validExchanges) {
+		if onListing || strings.EqualFold(contract.Exchange, "SMART") {
+			contract.Exchange = contract.PrimaryExch
+		}
+		return
+	}
+	if onListing {
+		contract.Exchange = "SMART"
+	}
+}
+
+// listingRefusesSMART reports whether the broker's list of routes for a listing
+// is known and leaves SMART out.
+func listingRefusesSMART(validExchanges string) bool {
+	if strings.TrimSpace(validExchanges) == "" {
+		return false
+	}
+	for venue := range strings.SplitSeq(validExchanges, ",") {
+		if strings.EqualFold(strings.TrimSpace(venue), "SMART") {
+			return false
 		}
 	}
+	return true
+}
+
+// cachedDetailCanRoute reports whether a cached identity may settle a read's
+// route. A cached row with no list of routes (a portfolio hint) cannot move a
+// read off the exchange the caller named: only the broker's answer can, because
+// that move draws a code 200 on a listing SMART does not reach.
+func cachedDetailCanRoute(detail ContractDetailsLite, requested Contract) bool {
+	return detail.ValidExchanges != "" || requested.Exchange == "" || strings.EqualFold(requested.Exchange, "SMART")
 }
 
 func (c *Connector) prepareContract(symbol string, fetchTimeout time.Duration, asyncWarm bool) (Contract, bool) {
@@ -3540,10 +3577,12 @@ func (c *Connector) prepareContract(symbol string, fetchTimeout time.Duration, a
 	}
 
 	var hasDetail bool
+	validExchanges := ""
 
 	c.contractMu.RLock()
 	if detail, ok := c.contractCache[upper]; ok {
 		hasDetail = c.applyContractDetail(detail, &contract)
+		validExchanges = detail.ValidExchanges
 	}
 	c.contractMu.RUnlock()
 
@@ -3558,6 +3597,7 @@ func (c *Connector) prepareContract(symbol string, fetchTimeout time.Duration, a
 			c.contractCache[upper] = detail
 			c.contractMu.Unlock()
 			hasDetail = c.applyContractDetail(detail, &contract)
+			validExchanges = detail.ValidExchanges
 		}
 	}
 
@@ -3567,7 +3607,7 @@ func (c *Connector) prepareContract(symbol string, fetchTimeout time.Duration, a
 
 	elapsed := time.Since(start)
 	c.recordContractTiming(symbol, elapsed, hasDetail && contract.ConID != 0)
-	normalizeEquityRouting(&contract, primary)
+	normalizeEquityRouting(&contract, primary, validExchanges)
 
 	return contract, hasDetail
 }
@@ -3589,7 +3629,7 @@ func (c *Connector) waitForContractDetails(symbol string, base Contract, details
 		}
 		contractCopy := contract
 		if c.applyContractDetail(detail, &contractCopy) && contractCopy.ConID != 0 {
-			normalizeEquityRouting(&contractCopy, contract.PrimaryExch)
+			normalizeEquityRouting(&contractCopy, contract.PrimaryExch, detail.ValidExchanges)
 			return contractCopy, true
 		}
 	}
@@ -4791,14 +4831,14 @@ func (c *Connector) hydrateExplicitMarketDataContract(contract Contract) Contrac
 		return contract
 	}
 	detail := c.cachedContractDetail(contract.Symbol)
-	if detail == nil || detail.ConID == 0 {
+	if detail == nil || detail.ConID == 0 || !cachedDetailCanRoute(*detail, contract) {
 		return contract
 	}
 	candidate := contract
 	if !c.applyContractDetail(*detail, &candidate) {
 		return contract
 	}
-	normalizeEquityRouting(&candidate, contract.PrimaryExch)
+	normalizeEquityRouting(&candidate, contract.PrimaryExch, detail.ValidExchanges)
 	if explicitContractRouteMatches(contract, candidate) {
 		return candidate
 	}
@@ -8267,10 +8307,10 @@ func (c *Connector) fetchHistoricalDailyBarsWithContract(ctx context.Context, co
 		return nil, err
 	}
 	fallbackPrimary := contract.PrimaryExch
-	if detail := c.cachedContractDetail(symbol); detail != nil && detail.ConID != 0 {
+	if detail := c.cachedContractDetail(symbol); detail != nil && detail.ConID != 0 && cachedDetailCanRoute(*detail, contract) {
 		candidate := contract
 		if c.applyContractDetail(*detail, &candidate) {
-			normalizeEquityRouting(&candidate, fallbackPrimary)
+			normalizeEquityRouting(&candidate, fallbackPrimary, detail.ValidExchanges)
 			if explicitContractRouteMatches(contract, candidate) {
 				contract = candidate
 			}
@@ -8297,7 +8337,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithContract(ctx context.Context, co
 				if !c.applyContractDetail(detail, &candidate) {
 					continue
 				}
-				normalizeEquityRouting(&candidate, fallbackPrimary)
+				normalizeEquityRouting(&candidate, fallbackPrimary, detail.ValidExchanges)
 				if explicitContractRouteMatches(contract, candidate) {
 					contract = candidate
 					break
@@ -8351,7 +8391,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 		if detail, err := c.ensureContractDetails(symbol, resolveTimeout); err == nil && detail != nil {
 			candidate := baseContract
 			if c.applyContractDetail(*detail, &candidate) {
-				normalizeEquityRouting(&candidate, primary)
+				normalizeEquityRouting(&candidate, primary, detail.ValidExchanges)
 				if requireConID || explicitContractRouteMatches(requestedContract, candidate) {
 					baseContract = candidate
 				}
@@ -8361,7 +8401,7 @@ func (c *Connector) fetchHistoricalDailyBarsWithBase(ctx context.Context, symbol
 			late := c.awaitContractDetailCtx(ctx, symbol, graceWindow)
 			candidate := baseContract
 			if late != nil && c.applyContractDetail(*late, &candidate) {
-				normalizeEquityRouting(&candidate, primary)
+				normalizeEquityRouting(&candidate, primary, late.ValidExchanges)
 				if requireConID || explicitContractRouteMatches(requestedContract, candidate) {
 					baseContract = candidate
 				}
@@ -8423,7 +8463,7 @@ func (c *Connector) refreshRetiredContract(symbol string, rejectedConID int, req
 	if !c.applyContractDetail(*detail, &candidate) {
 		return Contract{}, false
 	}
-	normalizeEquityRouting(&candidate, primary)
+	normalizeEquityRouting(&candidate, primary, detail.ValidExchanges)
 	if !requireConID && !explicitContractRouteMatches(requested, candidate) {
 		return Contract{}, false
 	}

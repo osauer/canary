@@ -10,6 +10,7 @@ import (
 
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
+	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -111,6 +112,7 @@ func (s *Server) handleTechnical(ctx context.Context, req *rpc.Request) (*rpc.Te
 		fetchCtx, cancel := context.WithTimeout(ctx, technicalPerSymbolTimeout)
 		defer cancel()
 		bars, err := fetchTechnicalBars(fetchCtx, c, route, routed, j.sym, days)
+		bars = settledDailyBars(bars, route.Exchange, route.PrimaryExch, res.AsOf)
 		if err != nil {
 			res.Rows[j.idx] = rpc.TechnicalRow{
 				Symbol:         j.sym,
@@ -185,28 +187,86 @@ func technicalRoute(p rpc.TechnicalParams) (rpc.ContractParams, bool, error) {
 	if !routed {
 		return rpc.ContractParams{}, false, nil
 	}
-	probe := route
-	probe.Symbol = "AAPL"
-	if _, echo, _, err := normaliseStockQuoteContract(probe); err != nil {
-		return rpc.ContractParams{}, false, err
-	} else {
-		echo.Symbol = ""
-		route = echo
+	if exchange, currency, ok := technicalListingMarket(route.Market); ok {
+		if route.Exchange == "" && route.PrimaryExch == "" {
+			route.Exchange = exchange
+		}
+		if route.Currency == "" {
+			route.Currency = currency
+		}
 	}
-	return route, true, nil
+	_, echo, _, err := normaliseStockQuoteContract(technicalContract(route, "AAPL"))
+	if err != nil {
+		return rpc.ContractParams{}, false, errBadRequest(fmt.Sprintf("unsupported technical market %q (supported: us, de, uk, hk, sg)", p.Market))
+	}
+	echo.Symbol = ""
+	if _, _, ok := technicalListingMarket(route.Market); ok {
+		echo.Market = strings.ToLower(route.Market)
+	}
+	return echo, true, nil
+}
+
+// technicalListingMarket reads the market shortcuts that name a listing's own
+// exchange. They are not SMART over a primary as de and uk are: IBKR refuses a
+// Hong Kong or Singapore listing on SMART. They stay out of
+// normaliseStockQuoteContract, which order preview shares, so this read widens
+// nothing a broker write accepts.
+func technicalListingMarket(market string) (exchange, currency string, ok bool) {
+	switch strings.ToLower(strings.TrimSpace(market)) {
+	case "hk":
+		return "SEHK", "HKD", true
+	case "sg":
+		return "SGX", "SGD", true
+	}
+	return "", "", false
+}
+
+// technicalContract is one symbol's contract on the route. A listing market has
+// already become its exchange and currency in the route.
+func technicalContract(route rpc.ContractParams, symbol string) rpc.ContractParams {
+	route.Symbol = symbol
+	if _, _, ok := technicalListingMarket(route.Market); ok {
+		route.Market = ""
+	}
+	return route
 }
 
 func fetchTechnicalBars(ctx context.Context, c *ibkrlib.Connector, route rpc.ContractParams, routed bool, symbol string, days int) ([]ibkrlib.HistoricalBar, error) {
 	if !routed {
 		return c.FetchHistoricalDailyBars(ctx, symbol, days, 0)
 	}
-	params := route
-	params.Symbol = symbol
-	contract, _, _, err := normaliseStockQuoteContract(params)
+	contract, _, _, err := normaliseStockQuoteContract(technicalContract(route, symbol))
 	if err != nil {
 		return nil, err
 	}
 	return c.FetchHistoricalDailyBarsWithContract(ctx, contract, days, 0)
+}
+
+// settledDailyBars drops daily bars dated after today on the listing's own
+// calendar. IBKR can date a bar for a session not yet opened: a Tokyo listing
+// read through SMART on Saturday 2026-11-07 ended with a thin bar dated Monday
+// 2026-11-09, presumably Friday night's trading booked to the next business
+// day. As a daily close it would be a price from a day that has not happened,
+// and it would move every average and range built on it. A venue with no
+// calendar here is judged by the earliest clock on earth, which no exchange is
+// ahead of.
+func settledDailyBars(bars []ibkrlib.HistoricalBar, exchange, primary string, now time.Time) []ibkrlib.HistoricalBar {
+	today := now.In(time.FixedZone("UTC+14", 14*60*60)).Format(time.DateOnly)
+	for _, venue := range []string{primary, exchange} {
+		market, ok := venueMarket(venue)
+		if !ok {
+			continue
+		}
+		if session, err := marketcal.New().SessionAt(market, now); err == nil {
+			today = session.Date
+		}
+		break
+	}
+	end := len(bars)
+	for end > 0 && barDate(bars[end-1]) > today {
+		end--
+	}
+	return bars[:end]
 }
 
 func normalizeTechnicalSymbols(raw []string) []string {

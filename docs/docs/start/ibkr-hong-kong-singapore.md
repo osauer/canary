@@ -1,6 +1,6 @@
 # Canary with an Interactive Brokers Hong Kong or Singapore account
 
-Updated: 2026-11-05 08:55 CET
+Updated: 2026-11-07 08:35 CET
 
 Canary reads one Interactive Brokers account through your own IB Gateway or
 TWS session. Which IBKR entity holds the account, Interactive Brokers Hong
@@ -41,7 +41,7 @@ Account  U1234567 · base=HKD · live
 ```text
   LEG                           QTY         AVG        MARK  CHANGE / GREEKS             MKT VALUE     UNREAL P&L
   700
-  Stock                      500 sh  HKD 352.40  HKD 388.20  +HKD 1,100.00 (+0.57%)  HKD 194,100.00  HKD 17,900.00
+  Stock                      500 sh  HKD 340.40  HKD 388.20  +HKD 1,100.00 (+0.57%)  HKD 194,100.00  HKD 23,900.00
   D05
   Stock                     1000 sh   SGD 41.10   SGD 43.75  -SGD 250.00 (-0.57%)    SGD 43,750.00   SGD 2,650.00
   7203
@@ -59,12 +59,40 @@ another currency than the base are converted at the exchange rates the
 broker's ledger reports, in `market_value_base` and the account's currency
 exposure rows.
 
+## Reading a Hong Kong or Singapore share
+
+Name the market when you ask about a share. A bare `canary technical 700` asks
+for a US stock called 700, and Interactive Brokers has none.
+
+```sh
+canary technical 700,5,1299,9988 --market hk
+canary technical D05,Z74,ES3 --market sg
+canary market --symbol 700 --exchange SEHK --currency HKD --range 1M
+canary market --symbol D05 --exchange SGX --currency SGD --range 1M
+```
+
+`--market hk` is the same as `--exchange SEHK --currency HKD`, and `--market sg`
+the same as `--exchange SGX --currency SGD`. Interactive Brokers does not route
+these listings through SMART, so `--exchange SMART` answers `no security
+definition` and Canary reads them on their own exchange. Tokyo, Sydney and
+European listings do go through SMART. A wrong currency gets the same answer,
+because 700 in US dollars is not a listing.
+
+Relative strength in `canary technical` is measured against SPY in US dollars
+by default, whatever the share's currency.
+
+## Orders
+
+Placing orders on SEHK and SGX listings is not supported yet: Canary's order
+paths send stocks through SMART, which Interactive Brokers refuses for these
+listings. Account figures, positions, statements and the reads above do not
+depend on it.
+
 The order preview of the trading build measures a cross-currency order
 against the per-order cap with an exact IDEALPRO quote on a conventional
 currency pair. That pair table covers EUR, GBP, AUD, NZD, USD, CAD, CHF and
-JPY. A HKD or SGD base account can preview orders in its own currency.
-Cross-currency orders involving HKD or SGD are refused by the preview, with
-the reason named, because those currencies are outside the pair table.
+JPY. Cross-currency orders involving HKD or SGD are refused by the preview,
+with the reason named, because those currencies are outside the pair table.
 
 ## Exchange calendars and the brief's session
 
