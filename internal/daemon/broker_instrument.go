@@ -55,11 +55,11 @@ func (s *Server) resolveRequestInstrument(ctx context.Context, req *rpc.Request)
 	}
 	reads := s.brokerReads()
 	if reads == nil {
-		return s.gatewayUnavailableError()
+		return s.sessionUnavailableError()
 	}
 	binding, ok := reads.Capture()
 	if !ok {
-		return s.gatewayUnavailableError()
+		return s.sessionUnavailableError()
 	}
 	resolved, err := resolveContractInstrument(ctx, reads, binding, reads.Kind(), contract)
 	if err != nil {

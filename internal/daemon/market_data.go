@@ -171,13 +171,13 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 	return fetchMarketHistory(ctx, p, tailDays, now, func(ctx context.Context, in broker.Instrument, days int, interval string, timeout time.Duration) (broker.BarSeries, error) {
 		a := s.brokerReads()
 		if a == nil {
-			return broker.BarSeries{}, s.gatewayUnavailableError()
+			return broker.BarSeries{}, s.sessionUnavailableError()
 		}
 		// The session the read ran in is captured once and used for both
 		// the continuity check and the data-health observation.
 		binding, ok := a.Capture()
 		if !ok {
-			return broker.BarSeries{}, s.gatewayUnavailableError()
+			return broker.BarSeries{}, s.sessionUnavailableError()
 		}
 		series, err := a.ChartBars(ctx, in, days, interval, timeout)
 		if !a.Current(binding) {

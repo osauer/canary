@@ -2290,7 +2290,19 @@ func rejectingPorts(ep discover.Endpoint) []int {
 	return ports
 }
 
+// gatewayUnavailableError is a read that needs the IBKR connector and has none.
+// A daemon serving OpenD never has one, whether or not OpenD is up, so there the
+// read is one this broker does not serve.
 func (s *Server) gatewayUnavailableError() error {
+	if s.opend != nil {
+		return errIBKROnly
+	}
+	return s.sessionUnavailableError()
+}
+
+// sessionUnavailableError is a read through the broker seam that found no ready
+// session: an outage of whichever broker the daemon serves.
+func (s *Server) sessionUnavailableError() error {
 	s.mu.Lock()
 	lastErr := strings.TrimSpace(s.lastConnectError)
 	s.mu.Unlock()
@@ -3106,7 +3118,7 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		return false
 	}
 	if s.opend != nil && ibkrOnlyMethods[req.Method] {
-		writeError(enc, req.ID, rpc.CodeNotApplicable, "IBKR only: this daemon serves OpenD")
+		writeError(enc, req.ID, rpc.CodeNotApplicable, ibkrOnlyMessage)
 		return false
 	}
 	var cancel context.CancelFunc
@@ -3470,6 +3482,9 @@ func classifyError(err error) (string, string) {
 	case errors.Is(err, ibkrlib.ErrContractNoDefinition):
 		// The broker answered that no such contract exists. Same caller
 		return rpc.CodeSymbolInactive, err.Error()
+	case errors.Is(err, errIBKROnly):
+		// Before the sentinel it also answers to: this broker does not serve the read.
+		return rpc.CodeNotApplicable, err.Error()
 	case errors.Is(err, ibkrlib.ErrIBKRUnavailable):
 		return rpc.CodeGatewayUnavailable, err.Error()
 	case errors.Is(err, futu.ErrNotConnected), errors.Is(err, futu.ErrSessionEnded), errors.Is(err, futu.ErrNoScope):

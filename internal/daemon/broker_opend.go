@@ -73,6 +73,21 @@ func (openDUnavailableError) Error() string { return "OpenD connection unavailab
 
 func (openDUnavailableError) Is(target error) bool { return target == ibkrlib.ErrIBKRUnavailable }
 
+// ibkrOnlyMessage is the answer to a read this daemon's broker does not serve.
+const ibkrOnlyMessage = "IBKR only: this daemon serves OpenD"
+
+// errIBKROnly is a read that needs the IBKR connector, asked of a daemon serving
+// OpenD. It answers to the IBKR sentinel, so a caller that skips an unavailable
+// source still skips it, and the wire reads it as not applicable: OpenD can be
+// up, and the reader must not be sent to look at it.
+var errIBKROnly error = ibkrOnlyError{}
+
+type ibkrOnlyError struct{}
+
+func (ibkrOnlyError) Error() string { return ibkrOnlyMessage }
+
+func (ibkrOnlyError) Is(target error) bool { return target == ibkrlib.ErrIBKRUnavailable }
+
 // clientVersionFor is the daemon's own version as InitConnect wants it:
 // major*100+minor. A build without a release version reports zero's successor,
 // which OpenD treats like any low version.
@@ -233,7 +248,7 @@ func (s *Server) opendAccountSummary(ctx context.Context) (*rpc.AccountResult, a
 	scope := s.currentBrokerStateScope()
 	binding, ok := s.opend.Capture()
 	if !ok {
-		return nil, accountSummaryAuthority{}, s.gatewayUnavailableError()
+		return nil, accountSummaryAuthority{}, s.sessionUnavailableError()
 	}
 	if !brokerScopeConcrete(scope) {
 		return nil, accountSummaryAuthority{}, errors.New("account summary requires OpenD's account list to settle the account")
@@ -290,7 +305,7 @@ func (s *Server) opendAccountSummary(ctx context.Context) (*rpc.AccountResult, a
 func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, portfolioHealth *ibkrlib.PortfolioStreamHealth, expectedScope brokerStateScope) (*rpc.PositionsResult, error) {
 	binding, ok := s.opend.Capture()
 	if !ok {
-		return nil, s.gatewayUnavailableError()
+		return nil, s.sessionUnavailableError()
 	}
 	positions, receipt, err := s.opend.Positions()
 	if err != nil {
@@ -420,7 +435,7 @@ func (s *Server) opendQuote(ctx context.Context, p rpc.QuoteSnapshotParams) (*rp
 func (s *Server) readOpenDQuote(ctx context.Context, p rpc.QuoteSnapshotParams) (*rpc.Quote, broker.SessionBinding, error) {
 	binding, ok := s.opend.Capture()
 	if !ok {
-		return nil, broker.SessionBinding{}, s.gatewayUnavailableError()
+		return nil, broker.SessionBinding{}, s.sessionUnavailableError()
 	}
 	code, err := s.opend.CodeFor(instrumentOfContract(p.Contract))
 	if err != nil {
@@ -438,7 +453,7 @@ func (s *Server) readOpenDQuote(ctx context.Context, p rpc.QuoteSnapshotParams) 
 		return nil, binding, fmt.Errorf("OpenD has no quote for %s", code)
 	}
 	if !s.opend.Current(binding) {
-		return nil, broker.SessionBinding{}, s.gatewayUnavailableError()
+		return nil, broker.SessionBinding{}, s.sessionUnavailableError()
 	}
 	return rpcQuoteOf(p.Contract, line), binding, nil
 }
