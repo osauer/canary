@@ -439,7 +439,7 @@ func (s *Server) answer(conn *simConn, frame futu.Frame) proto.Message {
 	case futu.ProtoGetGlobalState:
 		return s.answerGlobalState(conn)
 	case futu.ProtoTrdGetAccList:
-		return s.answerAccList()
+		return s.answerAccList(frame)
 	}
 	return s.answerRead(conn, frame)
 }
@@ -525,7 +525,15 @@ func (s *Server) answerGlobalState(conn *simConn) proto.Message {
 	}
 }
 
-func (s *Server) answerAccList() proto.Message {
+// answerAccList leaves a real account out unless the request asks for universal
+// accounts, as OpenD 10.12 does for a moomoo universal account (seen on a real
+// account 2026-11-07 07:10 CET).
+func (s *Server) answerAccList(frame futu.Frame) proto.Message {
+	var req trdgetacclist.Request
+	if err := proto.Unmarshal(frame.Body, &req); err != nil {
+		return &trdgetacclist.Response{RetType: new(retBody), RetMsg: new("synthetic: malformed Trd_GetAccList")}
+	}
+	universal := req.GetC2S().GetNeedGeneralSecAccount()
 	s.mu.Lock()
 	tradeLoggedIn := s.tradeLoggedIn
 	hidden := maps.Clone(s.hiddenAccount)
@@ -535,7 +543,7 @@ func (s *Server) answerAccList() proto.Message {
 	}
 	var rows []*trdcommon.TrdAcc
 	for _, account := range s.book.Accounts() {
-		if hidden[account.ID] {
+		if hidden[account.ID] || (account.Env == EnvReal && !universal) {
 			continue
 		}
 		rows = append(rows, accountRow(account))

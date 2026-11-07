@@ -289,7 +289,7 @@ func TestListedNamesTheExchangeAndReadsItOnce(t *testing.T) {
 		{Symbol: "x", SecType: "OPT"},
 	}
 	got := a.Listed(ctx, in)
-	for i, want := range []struct{ id, venue string }{{"US.AAPL", "NASDAQ"}, {"US.SPY", "NYSE"}, {"HK.00700", "SEHK"}, {"SG.D05", "SGX"}, {"", ""}} {
+	for i, want := range []struct{ id, venue string }{{"US.AAPL", "NASDAQ"}, {"US.SPY", "AMEX"}, {"HK.00700", "SEHK"}, {"SG.D05", "SGX"}, {"", ""}} {
 		if got[i].ID != want.id || got[i].Venue != want.venue {
 			t.Errorf("%d: %+v, want %+v", i, got[i], want)
 		}

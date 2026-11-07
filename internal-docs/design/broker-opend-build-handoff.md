@@ -1,11 +1,29 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-05 15:21 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-07 07:17 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
 [broker-opend.md](broker-opend.md). This note is kept current after every
 work package so a fresh session resumes without the conversation.
+
+## First real session (2026-11-07 07:10 CET)
+
+Read-only, OpenD 10.12 build 7208, serverVer 1012, a Canary build without the trading tag, isolated roots. A quarantined OpenD download runs on macOS from an App Translocation copy, so the installed path is not the running path.
+
+Where real OpenD disagreed with the simulator:
+
+- In the real environment the account list omits universal accounts unless `needGeneralSecAccount` is set, so a pin to one stayed unscoped. Fixed: `accountListRequest` asks, the simulator hides real accounts otherwise, `TestRealAccountIsListedAndScoped` failed before the fix.
+- OpenD does not push quote rights on connect, so `Health.QuoteRights` stays empty and status has no quote-rights row. Open: read them with `GetUserInfo` (proto 1005, not vendored).
+- Singapore: moomoo's authority page lists Singapore quotes as unsupported, so README and changelog no longer claim them.
+- SPY is `AMEX` in `exchType` (the fixture said NYSE, now AMEX). IBKR is expected to say `ARCA`, not read here, and the two would not join: recorded for Desk's parked multi-book work, nothing to do on this branch.
+- `listTime` reads 1970-01-01 for several instruments. `Instrument.Listed` has no reader today.
+
+Confirmed on the real OpenD: `clientVer` 334 is accepted; a US ETF and an HK ETF are `Trust`; an option is `Drvt` with lot size 100; a future is `Future` with lot size 50; an expired option answers `Unknown` with "Unknown stock.", no error, and `delisted` true; snapshots work without the new optional `QotHeader`; update times are right in UTC; the history quota window is seven days, as moomoo's page says. Refreshing the vendored definitions to 10.12.7208 is not needed: nothing used changed, and every difference is an addition.
+
+Defects seen on both real and simulator: `canary market` and `canary technical` say "OpenD connection unavailable" with a hint to start IB Gateway while OpenD is up; they should say not served, as `canary edge` does. The cause of the one market tape warning at start is still untraced.
+
+Everything not listed above has run only against the simulator.
 
 ## Rules in force
 
@@ -236,11 +254,9 @@ Nothing between packages.
 
 ## Next
 
-**On hold by the owner's decision, 2026-11-05 08:43 CET: "We hold back the OpenD work until I have access to the account and we could iron out the biggest issues."**
+The hold of 2026-11-05 08:43 CET is lifted for read-only bring-up. No landing, no merge to main and no push without the owner's word, and the agreement read comes first.
 
-Owner, 2026-11-05 14:40 CET: "ok start with the merge. I'm close before having access to the account. In the changelog, mark this as experimental support for OpenD. consider updating the README". So local main was merged at `cac66db9`, the changelog stub and README section were written, and the rest of the hold stands: resume building when the owner has the account and OpenD access; no landing, no merge to main and no push until the owner says so. The rule to remove a landed worktree does not apply yet.
-
-Head: the code is `b3f0ea60`, and the commit carrying this note adds only Markdown on top. Merge local main again and re-run the gate and spine if main has moved.
+Merge local main again and re-run the gate and spine if main has moved.
 
 First steps on resuming, with real OpenD: run the first-session checks under "Known gaps", then decide the regime and FX package. Desk's re-pin comes after landing.
 
@@ -254,7 +270,7 @@ Open:
 
 1. Regime and portfolio stress are off under OpenD, against the design's first text: the regime read stops at its IBKR connector check. A package of its own, proposed in the owner table.
 2. OpenD supplies no FX rate, so holdings outside the base currency read as not measured. With the regime package.
-3. Nothing has met a real OpenD. Proof pending, first real session: the `clientVer` low value, the RSA refusal shape, funds currency on a multi-market account, fixture conformance, what `exchType` says for a US ETF (the simulator's NYSE for SPY is a fixture; IBKR may say ARCA, which would not join), what static information answers for an option or future code, including an expired one, whether a position's value carries the multiplier, and how OpenD types a US ETF.
+3. Partly met a real OpenD; see "First real session". Still proof pending: the RSA refusal shape, funds currency on a multi-market account, and whether a position's value carries the multiplier.
 4. Proof pending, next live session: the IBKR path on a real Gateway, including an IBKR identity resolved through it, proven here against a fake.
 5. Other IBKR wording in the daemon was not audited line by line; some may still reach an OpenD reader. The readiness blocker under OpenD carries `gateway_unavailable` even when its text says OpenD takes no writes. SPA strings naming TWS are unreachable before phase D.
 6. Labels waiting on the owner: "22/22 sources ok" above a line of unavailable sources, the "Not on OpenD" wording, and the handbook edit draft.
@@ -265,8 +281,8 @@ Open:
 11. No LaunchAgent or install step for a permanent second daemon; the setup has run only in the witness and the dual-daemon test.
 12. The spine and the simulator witness last ran at `b3f0ea60`, the money check on its tree; they are landing steps again after the next merge. The paired app's Monitor tab was inspected on the simulator stack at `b3f0ea60`'s tree for the new row only; an earlier capture at `28119a91` shows stress as "Fault · transport unavailable", and the public text does not claim the app.
 15. A holding not analysed appears in the app's portfolio detail, not on its Positions tab, and the rulebook's checks do not name it. `canary positions`, the brief and `canary_positions` do.
-13. Not done before phase D: `broker` in Desk's and the companion's signed-term allowlists, and the owner's account and OpenD build.
-14. Whether the OpenAPI agreement permits Canary is open and the owner's, read inside OpenD at first access. It comes before any landing, since landing publishes the README section at the next release.
+13. Not done before phase D: `broker` in Desk's and the companion's signed-term allowlists.
+14. Whether the OpenAPI agreement permits Canary is open and the owner's, read inside OpenD. It comes before any landing, since landing publishes the README section at the next release.
 
 ## Not done
 

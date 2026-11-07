@@ -320,6 +320,25 @@ func TestAccountListScopesThePinAndLosingItDropsTheSession(t *testing.T) {
 	waitReady(t, real)
 }
 
+// OpenD lists a real universal account only when asked for one, so a client
+// that does not ask never scopes a real pin.
+func TestRealAccountIsListedAndScoped(t *testing.T) {
+	srv := futusim.Start(t, futusim.Options{})
+	c := connect(t, srv, realAccount)
+	waitReady(t, c)
+	accounts, err := c.Accounts(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := false
+	for _, account := range accounts {
+		listed = listed || (account.ID == realAccount && account.Environment == futu.EnvironmentReal)
+	}
+	if !listed {
+		t.Fatalf("real account missing from %+v", accounts)
+	}
+}
+
 // A trade server not logged in refuses the list; the session stays open and
 // scopes once the login is back.
 func TestScopeWaitsForTheTradeLogin(t *testing.T) {

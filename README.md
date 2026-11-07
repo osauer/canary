@@ -119,9 +119,10 @@ notifications.
 
 ## Experimental: Futu OpenD
 
-Canary can also read a Futu account through OpenD, Futu's local gateway. This
-support is experimental. It has run only against a simulator, never a real
-OpenD, and it places no orders.
+Canary can also read a Futu or moomoo account through OpenD, Futu's local
+gateway, while OpenD is running and logged in. This support is experimental.
+Reading holdings has been tested only against a simulator, so check what it shows
+against your broker. Every order is refused.
 
 ```toml
 [broker]
@@ -131,15 +132,19 @@ kind = "opend"
 account = "12345678" # the number OpenD lists as accID
 ```
 
-A daemon set this way shows the account, stock positions and quotes on the Hong
-Kong, US and Singapore markets. Options, futures and anything else you hold
-there are listed apart at OpenD's value, and exposure and limits leave them out.
-Holdings outside the account's base currency are not converted, so limit checks
-read them as not measured. Daily P&L, the regime, portfolio stress, Edge and
-statement reporting are not available.
+With this setting, Canary shows the account, stock and ETF positions, and quotes
+on the Hong Kong and US markets where your OpenD login has the quote rights.
+Options, futures and anything else you hold there appear in a separate list at
+the value OpenD reports. Exposure and limit checks do not count them, so those
+figures do not cover your whole account. Holdings in other currencies are not
+converted, and limit checks say they cannot judge them. Many features are not
+available, among them daily P&L, the regime, portfolio stress, Edge, statement
+reporting, the market overview and technical analysis; `canary status` lists most
+of them.
 
-Each daemon serves one broker. To keep IBKR running, give the OpenD daemon its
-own XDG directories and `CANARY_SOCKET`. The
+Each daemon serves one broker. To run OpenD beside IBKR, start a second daemon
+with its own `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `XDG_CACHE_HOME`,
+`XDG_RUNTIME_DIR` and `CANARY_SOCKET`. The
 [configuration reference](docs/docs/reference/config.md) lists every key.
 
 ## Go wire-protocol library

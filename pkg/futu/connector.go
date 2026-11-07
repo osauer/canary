@@ -445,7 +445,7 @@ func (c *Connector) RefreshSession(ctx context.Context) error {
 // and refuses to be re-scoped afterwards.
 func (c *Connector) readAccounts(ctx context.Context, conn *connection) error {
 	var resp trdgetacclist.Response
-	req := &trdgetacclist.Request{C2S: &trdgetacclist.C2S{UserID: new(uint64(0))}}
+	req := accountListRequest()
 	if err := conn.request(ctx, ProtoTrdGetAccList, req, &resp); err != nil {
 		return err
 	}
@@ -480,6 +480,12 @@ func (c *Connector) readAccounts(ctx context.Context, conn *connection) error {
 	return nil
 }
 
+// accountListRequest asks for universal accounts too: OpenD leaves a moomoo
+// universal account, a real account, out of the list otherwise.
+func accountListRequest() *trdgetacclist.Request {
+	return &trdgetacclist.Request{C2S: &trdgetacclist.C2S{UserID: new(uint64(0)), NeedGeneralSecAccount: new(true)}}
+}
+
 func accountFromRow(row *trdcommon.TrdAcc) Account {
 	env := EnvironmentSimulate
 	if trdcommon.TrdEnv(row.GetTrdEnv()) == trdcommon.TrdEnv_TrdEnv_Real {
@@ -506,7 +512,7 @@ func (c *Connector) Accounts(ctx context.Context) ([]Account, error) {
 		return nil, err
 	}
 	var resp trdgetacclist.Response
-	req := &trdgetacclist.Request{C2S: &trdgetacclist.C2S{UserID: new(uint64(0))}}
+	req := accountListRequest()
 	if err := conn.request(ctx, ProtoTrdGetAccList, req, &resp); err != nil {
 		return nil, err
 	}

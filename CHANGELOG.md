@@ -6,12 +6,14 @@ All notable changes to this project are documented here. The project adheres to 
 
 ### What's new
 
-**Experimental: Canary can read a Futu account through OpenD, Futu's local gateway.** A daemon set to OpenD shows the account, stock positions and quotes on the Hong Kong, US and Singapore markets, in the terminal and the MCP tools. So far it has run only against a simulator, never a real OpenD, so it may misread a real one, and it places no orders. If you use IB Gateway or TWS, you need to act only if your daemon sets `XDG_CONFIG_HOME` (see Changed).
+**Experimental: Canary can read a Futu account through OpenD, Futu's local gateway.** A daemon set to OpenD shows the account, stock and ETF positions, and quotes on the Hong Kong and US markets where your OpenD login has the quote rights, in the terminal and the MCP tools. Reading holdings has been tested only against a simulator, so check what it shows against your broker. Every order is refused.
+
+If you use IB Gateway or TWS, you need to act only if your daemon sets `XDG_CONFIG_HOME` (see Changed).
 
 ### Added
 
 - **Experimental OpenD support.** Set `kind = "opend"` under `[broker]` and your account under `[opend]`; OpenD's host and port default to this machine and 11111. Each daemon serves one broker; to keep IBKR running, give the OpenD daemon its own XDG directories and `CANARY_SOCKET`.
-- OpenD covers stocks only. Options, futures and anything else you hold there are listed apart as held but not analysed, at OpenD's value, and exposure and limits leave them out. Holdings outside the account's base currency are not converted, so limit checks read them as not measured. Daily P&L, the regime, portfolio stress, Edge, reconciliation, statement reporting, borrow availability, earnings, breadth, gamma and the cash sweep are not available, and every order is refused. `canary status` lists most of these, and shows OpenD's login state, markets and quotas, and quote rights once OpenD reports them.
+- Through OpenD, Canary analyses stocks and ETFs only. Options, futures and anything else you hold there appear in a separate list as held but not analysed, at the value OpenD reports. Exposure and limit checks do not count them, so those figures do not cover your whole account. Holdings in other currencies are not converted, and limit checks say they cannot judge them. Daily P&L, the regime, portfolio stress, Edge, reconciliation, statement reporting, borrow availability, earnings, breadth, gamma, the cash sweep, the market overview, technical analysis and option chains are not available, and every order is refused. `canary status` lists most of these, and shows OpenD's login state, markets and quotas, and quote rights once OpenD reports them.
 - `pkg/futu` is a Go client for the OpenD protocol, and `cmd/opend-sim` is the simulator it is tested against.
 - The daemon's `quote.snapshot`, `market.history` and `add.plan` methods take an optional `instrument`, which names a stock by broker and that broker's id, such as `opend` and `HK.00700`.
 
