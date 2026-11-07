@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 
 	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
@@ -76,6 +78,21 @@ var firmCurrency = map[string]trdcommon.Currency{
 	"FutuJP":         trdcommon.Currency_Currency_JPY,
 }
 
+// ErrUnknownFirm is a real account whose firm has no known home currency. Its base
+// is not guessed from the markets it lists.
+var ErrUnknownFirm = errors.New("OpenD reports a firm with no known base currency for this account")
+
+const (
+	// fundsRoundingUnit is the most OpenD's totals can be off: half a cent. It sends
+	// them to three places by its definitions, two is the coarsest seen in its docs.
+	fundsRoundingUnit = 0.005
+	// impliedRateMaxError is how far rounding may move an implied rate, as a share of
+	// the rate, before it is refused. At 0.01% a holding's converted value is off by
+	// less than a quote moves in a quiet minute; below about 100 in either total the
+	// ratio is noise. A precision guard, not owner policy.
+	impliedRateMaxError = 1e-4
+)
+
 func fundsRequest(header *trdcommon.TrdHeader, firm string, refresh bool) *trdgetfunds.Request {
 	c2s := &trdgetfunds.C2S{Header: header, RefreshCache: new(refresh)}
 	if currency, ok := firmCurrency[firm]; ok {
@@ -98,12 +115,97 @@ func (c *Connector) Funds(ctx context.Context, refresh bool) (Funds, error) {
 	if len(headers) == 0 {
 		return Funds{}, fmt.Errorf("%w: the account list names no market", ErrMarketNotAuthorised)
 	}
-	return readFunds(ctx, conn, headers[0], c.Health().Firm, refresh)
+	health := c.Health()
+	if _, known := firmCurrency[health.Firm]; !known && health.Environment == EnvironmentReal {
+		return Funds{}, fmt.Errorf("%w: %s", ErrUnknownFirm, health.Firm)
+	}
+	return readFunds(ctx, conn, headers[0], health.Firm, refresh)
+}
+
+// ImpliedRates works out, for each currency, how many base units one unit is worth:
+// the account's total in base over its total in that currency, both OpenD's own
+// conversion. OpenD offers no forex quote. The base is read again last and a pass
+// whose base total or cash moved gives no rates, so both sides of a ratio come from
+// one funds state. A currency whose totals are absent or too small to divide
+// precisely has no rate, which its reader takes as not measured.
+func (c *Connector) ImpliedRates(ctx context.Context, base string, currencies []string) (map[string]float64, error) {
+	conn, headers, err := c.tradeHeaders()
+	if err != nil {
+		return nil, err
+	}
+	if len(headers) == 0 {
+		return nil, fmt.Errorf("%w: the account list names no market", ErrMarketNotAuthorised)
+	}
+	read := func(currency string) (Funds, error) {
+		return readFundsIn(ctx, conn, headers[0], currency)
+	}
+	before, err := read(base)
+	if err != nil {
+		return nil, err
+	}
+	totals := make(map[string]float64, len(currencies))
+	for _, currency := range currencies {
+		if currency == base {
+			continue
+		}
+		funds, err := read(currency)
+		if err != nil {
+			return nil, err
+		}
+		if funds.Currency == currency {
+			totals[currency] = funds.TotalAssets
+		}
+	}
+	after, err := read(base)
+	if err != nil {
+		return nil, err
+	}
+	rates := map[string]float64{base: 1}
+	if before.TotalAssets != after.TotalAssets || !slices.EqualFunc(before.CashRows, after.CashRows, sameCash) {
+		return rates, nil
+	}
+	for currency, total := range totals {
+		if rate, ok := impliedRate(before.TotalAssets, total); ok {
+			rates[currency] = rate
+		}
+	}
+	return rates, nil
+}
+
+// impliedRate is base over other, refused when either is not a positive finite
+// total or when rounding could move the result past impliedRateMaxError.
+func impliedRate(base, other float64) (float64, bool) {
+	if !(base > 0) || !(other > 0) || math.IsInf(base, 0) || math.IsInf(other, 0) {
+		return 0, false
+	}
+	if fundsRoundingUnit/base+fundsRoundingUnit/other > impliedRateMaxError {
+		return 0, false
+	}
+	return base / other, true
+}
+
+func sameCash(a, b CashRow) bool {
+	same := func(x, y *float64) bool { return (x == nil) == (y == nil) && (x == nil || *x == *y) }
+	return a.Currency == b.Currency && same(a.Cash, b.Cash)
+}
+
+// readFundsIn reads the funds in one currency, from OpenD's cache.
+func readFundsIn(ctx context.Context, conn *connection, header *trdcommon.TrdHeader, currency string) (Funds, error) {
+	value, known := trdcommon.Currency_value["Currency_"+currency]
+	if !known {
+		return Funds{}, fmt.Errorf("%w: currency %q", ErrFrame, currency)
+	}
+	req := fundsRequest(header, "", false)
+	req.C2S.Currency = new(value)
+	return decodeFundsReply(ctx, conn, req, false)
 }
 
 func readFunds(ctx context.Context, conn *connection, header *trdcommon.TrdHeader, firm string, refresh bool) (Funds, error) {
+	return decodeFundsReply(ctx, conn, fundsRequest(header, firm, refresh), refresh)
+}
+
+func decodeFundsReply(ctx context.Context, conn *connection, req *trdgetfunds.Request, refresh bool) (Funds, error) {
 	var resp trdgetfunds.Response
-	req := fundsRequest(header, firm, refresh)
 	var err error
 	if refresh {
 		err = conn.request(ctx, ProtoTrdGetFunds, req, &resp)

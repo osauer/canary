@@ -182,7 +182,40 @@ func (a *Adapter) Summary(ctx context.Context, timeout time.Duration) (*broker.A
 	if err != nil {
 		return nil, "", err
 	}
-	return summaryOf(a.pin(), a.conn.Health().AccountType, funds, a.now().UTC()), broker.ProvenanceRequest, nil
+	out := summaryOf(a.pin(), a.conn.Health().AccountType, funds, a.now().UTC())
+	a.addImpliedRates(ctx, out, funds)
+	return out, broker.ProvenanceRequest, nil
+}
+
+// addImpliedRates fills the ledger's rates for the currencies this account holds or
+// has cash in. A failed read leaves them out, which readers take as not measured.
+func (a *Adapter) addImpliedRates(ctx context.Context, out *broker.AccountSummary, funds futu.Funds) {
+	held := []string{funds.Currency}
+	for _, row := range funds.CashRows {
+		if row.Cash != nil && *row.Cash != 0 && !slices.Contains(held, row.Currency) {
+			held = append(held, row.Currency)
+		}
+	}
+	if positions, err := a.conn.Positions(ctx, false); err == nil {
+		for _, row := range positions {
+			if row.Currency != "" && !slices.Contains(held, row.Currency) {
+				held = append(held, row.Currency)
+			}
+		}
+	}
+	rates, err := a.conn.ImpliedRates(ctx, funds.Currency, held)
+	if err != nil {
+		return
+	}
+	if out.CurrencyLedger == nil {
+		out.CurrencyLedger = make(map[string]broker.CurrencyLedger, len(rates))
+	}
+	for currency, rate := range rates {
+		row := out.CurrencyLedger[currency]
+		row.ExchangeRate, row.ExchangeRateObserved = rate, true
+		row.ExchangeRateImplied = currency != funds.Currency
+		out.CurrencyLedger[currency] = row
+	}
 }
 
 // summaryOf maps OpenD's funds. Fields OpenD did not send stay nil.

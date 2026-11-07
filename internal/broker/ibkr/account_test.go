@@ -89,11 +89,12 @@ func TestLedgerAndPositionsHealthMapFieldForField(t *testing.T) {
 	for _, pair := range []struct {
 		name         string
 		raw, neutral reflect.Type
+		seamOnly     int // trailing seam fields no IBKR row has
 	}{
-		{"currency ledger", reflect.TypeFor[ibkrlib.CurrencyLedger](), reflect.TypeFor[broker.CurrencyLedger]()},
-		{"positions health", reflect.TypeFor[ibkrlib.PortfolioStreamHealth](), reflect.TypeFor[broker.PositionsHealth]()},
+		{"currency ledger", reflect.TypeFor[ibkrlib.CurrencyLedger](), reflect.TypeFor[broker.CurrencyLedger](), 1},
+		{"positions health", reflect.TypeFor[ibkrlib.PortfolioStreamHealth](), reflect.TypeFor[broker.PositionsHealth](), 0},
 	} {
-		if pair.raw.NumField() != pair.neutral.NumField() {
+		if pair.raw.NumField()+pair.seamOnly != pair.neutral.NumField() {
 			t.Fatalf("%s: %d raw fields, %d seam fields", pair.name, pair.raw.NumField(), pair.neutral.NumField())
 		}
 		for i := range pair.raw.NumField() {

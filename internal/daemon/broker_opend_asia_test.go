@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -108,9 +109,21 @@ func TestAsiaUsersReadTheirBookInLocalCurrency(t *testing.T) {
 			if foreign.Currency != "USD" {
 				t.Errorf("foreign row %+v", foreign)
 			}
-			// The gap the FX package would close: a foreign holding has no base value.
-			if foreign.MarketValueBase != nil {
-				t.Errorf("foreign row converted without a rate: %v", *foreign.MarketValueBase)
+			// A foreign holding is measured at the rate implied by OpenD's own totals.
+			if foreign.MarketValueBase == nil || foreign.FXRate == nil {
+				t.Errorf("foreign row not measured: %+v", foreign)
+			} else if want := foreign.MarketValue * *foreign.FXRate; math.Abs(*foreign.MarketValueBase-want) > 1e-6 {
+				t.Errorf("foreign base value %v, want %v", *foreign.MarketValueBase, want)
+			}
+			ledger := map[string]rpc.CurrencyExposure{}
+			for _, row := range account.CurrencyExposure {
+				ledger[row.Currency] = row
+			}
+			if !ledger["USD"].ExchangeRateImplied || ledger["USD"].ExchangeRate <= 0 {
+				t.Errorf("USD ledger row %+v", ledger["USD"])
+			}
+			if base := account.BaseCurrencyLedger; base == nil || base.ExchangeRateImplied || base.ExchangeRate != 1 {
+				t.Errorf("base ledger row %+v", base)
 			}
 			if res := dispatchRaw(t, srv, rpc.MethodRulesSnapshot, `{}`); !res.Ok {
 				t.Errorf("rules: %+v", res.Error)
@@ -184,5 +197,28 @@ func TestAsiaUserOptionIsListedApart(t *testing.T) {
 	positions := asiaRead[rpc.PositionsResult](t, srv, rpc.MethodPositionsList)
 	if len(positions.NotServed) != 1 || positions.NotServed[0].Currency != "HKD" || positions.Authority.PortfolioComplete {
 		t.Errorf("not served %+v complete %v", positions.NotServed, positions.Authority.PortfolioComplete)
+	}
+}
+
+// The rate is implied, so nothing that sizes a sweep or a levelling order runs on it
+// under OpenD, even with both enabled. Plans and proposals may read it to measure;
+// no path can send: TestOpenDDaemonAuthorisesNoBrokerWrite and
+// TestFutuConnectorHasNoWriteMethod. Phase D has to hold this line for orders.
+func TestSweepAndLevellingDoNotRunUnderOpenD(t *testing.T) {
+	const account = `{"acc_id":3000001,"env":"real","markets":["SG","US"],"type":"margin","firm":"futusg","cash":{"SGD":20000,"USD":9000}}`
+	sim := moomooAsiaSim(t, account, `{"acc_id":3000001,"code":"US.AAPL","quantity":10,"cost":180}`)
+	srv, stop := startOpenDServer(t, sim, "")
+	defer stop()
+	waitOpenDReady(t, srv)
+	policy := defaultProtectionPolicy()
+	policy.Cash.Sweep = &protectionCashSweepPolicy{Enabled: true}
+	policy.Cash.Leveling = &protectionCurrencyLevelingPolicy{Enabled: true}
+	engine := &proposalEngine{server: srv}
+	ctx := t.Context()
+	if rows, status := engine.cashSweepProposals(ctx, policy, rpc.ProtectionPolicyStatus{}, nil, nil, rpc.TradeProposalSourceFingerprints{}, srv.currentBrokerStateScope(), time.Now()); rows != nil || status != nil {
+		t.Errorf("sweep ran: %v %v", rows, status)
+	}
+	if rows, status := engine.currencyLevelingProposals(ctx, policy, rpc.ProtectionPolicyStatus{}, nil, rpc.TradeProposalSourceFingerprints{}, srv.currentBrokerStateScope(), time.Now()); rows != nil || status != nil {
+		t.Errorf("levelling ran: %v %v", rows, status)
 	}
 }

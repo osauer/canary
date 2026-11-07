@@ -809,7 +809,7 @@ func cashSweepSettlementWindowStart(now time.Time) time.Time {
 // cashSweepProposals is the bucket's generation: the typed status and its
 // rows. Nil, nil while the bucket is not enabled.
 func (e *proposalEngine) cashSweepProposals(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, *rpc.TradeProposalCashSweepStatus) {
-	if !policy.Cash.Sweep.enabled() {
+	if !policy.Cash.Sweep.enabled() || e.underOpenD() {
 		return nil, nil
 	}
 	plan := cashSweepPlanFor(policy, e.cashSweepInput(ctx, policy, acct, pos, scope, now), now)

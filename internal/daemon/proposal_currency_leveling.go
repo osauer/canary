@@ -627,7 +627,7 @@ func currencyLevelingMoney(v float64, ccy string, signed bool) string {
 // the table is absent or disabled.
 func (e *proposalEngine) currencyLevelingProposals(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, sources rpc.TradeProposalSourceFingerprints, scope brokerStateScope, now time.Time) ([]rpc.TradeProposal, *rpc.TradeProposalCurrencyLevelingStatus) {
 	bucket := policy.Cash.Leveling
-	if !bucket.enabled() {
+	if !bucket.enabled() || e.underOpenD() {
 		return nil, nil
 	}
 	plan := e.currencyLevelingResolvedPlan(ctx, bucket, e.currencyLevelingInput(ctx, acct, scope, now))

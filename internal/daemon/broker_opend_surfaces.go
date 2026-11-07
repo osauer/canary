@@ -175,6 +175,12 @@ func brokerReconnectAction(scope brokerStateScope, then string) string {
 	return "Reconnect TWS/Gateway with a single concrete account, then " + then + "."
 }
 
+// underOpenD says the cash sweep and currency levelling are off: they size orders
+// from a ledger rate, and OpenD's rate is implied, not quoted.
+func (e *proposalEngine) underOpenD() bool {
+	return e != nil && e.server != nil && e.server.opend != nil
+}
+
 // opendSubsystems lists the subsystems this broker has.
 func (s *Server) opendSubsystems(connected bool) []rpc.SubsystemHealth {
 	status := "ready"

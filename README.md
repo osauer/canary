@@ -140,8 +140,10 @@ quotes for the Hong Kong and US markets where your OpenD login has the quote
 rights. Options, futures and anything else you hold there appear in a separate
 list at the value OpenD reports, unconverted and not checked by Canary. Exposure
 and limit checks do not count them, so those figures do not cover your whole
-account. Holdings outside the account's base currency are not measured, and limit
-checks report that they cannot judge them. Many features are not
+account. Holdings outside the account's base currency are converted at a rate
+worked out from OpenD's own account totals, not a quoted rate; where that is not
+possible they are not measured, and limit checks report that they cannot judge
+them. Many features are not
 available, among them daily P&L, the regime, portfolio stress, Edge, statement
 reporting, the market overview, the market tape and technical analysis; `canary status` lists most
 of them.

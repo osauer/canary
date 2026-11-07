@@ -586,6 +586,12 @@ func (s *Server) answerFunds(c2s *trdgetfunds.C2S) proto.Message {
 	if err != nil {
 		return s.refused(futu.ProtoTrdGetFunds, err)
 	}
+	s.mu.Lock()
+	hook := s.onFundsRead
+	s.mu.Unlock()
+	if hook != nil {
+		hook(currency)
+	}
 	row := &trdcommon.Funds{
 		Power:             new(funds.TotalAssets * 2),
 		TotalAssets:       new(funds.TotalAssets),

@@ -436,6 +436,7 @@ func buildCurrencyExposure(ledger map[string]broker.CurrencyLedger, baseCcy stri
 			UnrealizedPnLCcy:     row.UnrealizedPnL,
 			RealizedPnLCcy:       row.RealizedPnL,
 			ExchangeRate:         row.ExchangeRate,
+			ExchangeRateImplied:  row.ExchangeRateImplied,
 			NetLiquidationBase:   nlBase,
 		})
 	}

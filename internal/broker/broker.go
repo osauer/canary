@@ -196,6 +196,9 @@ type CurrencyLedger struct {
 	ExchangeRate             float64
 	SettledCash              float64
 	SettledCashObserved      bool
+	// ExchangeRateImplied says the rate is worked out from the account's own totals,
+	// not quoted. It measures a holding; it is not authority for sizing an order.
+	ExchangeRateImplied bool
 }
 
 // SettlementRow is one currency's settlement observation: the broker's

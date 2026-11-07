@@ -14,15 +14,29 @@ func Provenance(p ibkrlib.AccountSummaryProvenance) broker.Provenance {
 	return broker.Provenance(p)
 }
 
-// Ledger maps the per-currency rollup. The two row types are field for
-// field the same, so each row converts directly; a nil map stays nil.
+// Ledger maps the per-currency rollup, field for field apart from
+// ExchangeRateImplied, which no IBKR rate is; a nil map stays nil.
 func Ledger(in map[string]ibkrlib.CurrencyLedger) map[string]broker.CurrencyLedger {
 	if in == nil {
 		return nil
 	}
 	out := make(map[string]broker.CurrencyLedger, len(in))
 	for ccy, row := range in {
-		out[ccy] = broker.CurrencyLedger(row)
+		out[ccy] = broker.CurrencyLedger{
+			NetLiquidationObserved:   row.NetLiquidationObserved,
+			ExchangeRateObserved:     row.ExchangeRateObserved,
+			NetLiquidationByCurrency: row.NetLiquidationByCurrency,
+			CashBalance:              row.CashBalance,
+			StockMarketValueText:     row.StockMarketValueText,
+			OptionMarketValueText:    row.OptionMarketValueText,
+			StockMarketValue:         row.StockMarketValue,
+			OptionMarketValue:        row.OptionMarketValue,
+			UnrealizedPnL:            row.UnrealizedPnL,
+			RealizedPnL:              row.RealizedPnL,
+			ExchangeRate:             row.ExchangeRate,
+			SettledCash:              row.SettledCash,
+			SettledCashObserved:      row.SettledCashObserved,
+		}
 	}
 	return out
 }

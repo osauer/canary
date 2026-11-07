@@ -1,6 +1,6 @@
 # OpenD build: handoff note
 
-Updated: 2026-11-07 08:16 CET. Branch `cc-wt-/opend-build-27fd07`, cut
+Updated: 2026-11-07 08:41 CET. Branch `cc-wt-/opend-build-27fd07`, cut
 from the design branch at `b201852e` and merged with local `main`
 (`e514c61b`). Follows
 [broker-opend-build-brief.md](broker-opend-build-brief.md) against
@@ -23,6 +23,16 @@ Where real OpenD disagreed with the simulator:
 Confirmed on the real OpenD: `clientVer` 334 is accepted; a US ETF and an HK ETF are `Trust`; an option is `Drvt` and a future `Future`, each with its contract multiplier as lot size; a lookup of an expired option answers `Unknown` with "Unknown stock.", no error, and `delisted` true; snapshots work without the new optional `QotHeader`; update times are right in UTC; the history quota window is seven days, as the OpenAPI documentation says. Refreshing the vendored definitions to 10.12.7208 is not needed: nothing used changed, and every difference is an addition.
 
 Account detection, 2026-11-07: `[opend] account` is optional, as a pin is under IBKR. With none, the login's one real account is used and binds for the connector's life, so a later session reads it as a pin and nothing moves to another account if it leaves the list. None or several is refused, and `canary status` lists them in full for the owner to pin one exactly; the log's words name no account. A simulated account takes its id. `TestTheOnlyRealAccountIsDetected` failed before it. Status masks a detected account; other surfaces print the number as they do for a pin.
+
+A foreign holding's rate, 2026-11-07. OpenD refuses forex quotes, and answers funds in any currency asked. `ImpliedRates` reads the account's total in base, in each held currency, and in base again, and gives the ratio: the broker's own conversion. Both totals must be positive and finite, the base must not have moved across the pass, and rounding may not move the rate past `impliedRateMaxError`; otherwise no rate, which readers take as not measured, as before. The ledger row carries `ExchangeRateImplied`, and JSON `exchange_rate_implied`. Proof pending: first funded real login, for the ratio itself. A real account whose firm is unknown refuses its funds rather than guessing a base from its markets.
+
+Who reads the rate under OpenD: position base values, the rulebook, the mandate and reduction measures, `add.plan`, `portfolio.plan` and the protection proposals. The cash sweep and currency levelling do not run under OpenD (`underOpenD`). Nothing reaches a broker: `TestOpenDDaemonAuthorisesNoBrokerWrite` and `TestFutuConnectorHasNoWriteMethod`.
+
+Phase D must: stop treating an implied rate as authority for sizing an order, at each reader named above, before any OpenD write exists.
+
+Checks only a real moomoo Singapore or Hong Kong login can settle: `scripts/opend-real-login-check.py`, which prints no account figures. It answers the firm's account and markets, the quote rights, the base currency and served funds fields, holdings by currency and exchange, and the rates to compare with a public one. Also open: what `Trd_GetPositionList`'s new `currency` field does, whether a position's value carries the multiplier, and `the right follows the login`, which is inferred and untested.
+
+Simulated users: `internal/daemon/broker_opend_asia_test.go` runs the read path for moomoo Singapore and Hong Kong accounts and names its assumptions. Simulator only.
 
 Defects seen on both real and simulator, fixed the same day:
 

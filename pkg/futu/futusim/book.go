@@ -255,6 +255,15 @@ func (b *Book) AddHolding(in Instrument, account uint64, quantity int64, cost fl
 	b.positions = append(b.positions, Position{AccountID: account, Code: in.Code, Quantity: quantity, Cost: cost})
 }
 
+// SetCash sets one currency's cash, for a test that moves the book mid-read.
+func (b *Book) SetCash(id uint64, currency string, amount float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if account, err := b.account(id); err == nil {
+		account.Cash[currency] = amount
+	}
+}
+
 // AddAccount adds an account for a test.
 func (b *Book) AddAccount(account Account) {
 	b.mu.Lock()

@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -641,5 +643,88 @@ func TestFundsReadInTheFirmsHomeCurrency(t *testing.T) {
 	}
 	if funds.Currency != "SGD" {
 		t.Fatalf("funds in %s", funds.Currency)
+	}
+}
+
+func impliedBook(t *testing.T, firm string, cash float64) *futusim.Book {
+	t.Helper()
+	book, err := futusim.Parse(fmt.Appendf(nil, `{"clock":"2026-11-04T01:30:00Z","subscription_quota":100,"fx":{"HKD":1,"USD":7.8,"SGD":5.8},
+		"accounts":[{"acc_id":3000001,"env":"real","markets":["SG","US"],"type":"margin","firm":%q,"cash":{"SGD":%f}}]}`, firm, cash))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return book
+}
+
+// OpenD offers no forex quote, so a rate is the account's total in base over its
+// total in the other currency. The base is exactly 1.
+func TestImpliedRatesComeFromTheAccountsOwnTotals(t *testing.T) {
+	c := connect(t, futusim.Start(t, futusim.Options{Book: impliedBook(t, "futusg", 20000)}), 0)
+	waitReady(t, c)
+	rates, err := c.ImpliedRates(context.Background(), "SGD", []string{"SGD", "USD", "HKD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rates["SGD"] != 1 {
+		t.Errorf("base rate %v", rates["SGD"])
+	}
+	if want := 7.8 / 5.8; math.Abs(rates["USD"]-want)/want > 1e-3 {
+		t.Errorf("USD rate %v, want %v", rates["USD"], want)
+	}
+	if want := 1 / 5.8; math.Abs(rates["HKD"]-want)/want > 1e-3 {
+		t.Errorf("HKD rate %v, want %v", rates["HKD"], want)
+	}
+}
+
+// An empty account has nothing to divide, and a small one too little: rounding
+// alone would move the ratio past the bound. Neither gets a rate.
+func TestImpliedRatesRefuseTotalsTooSmallToDivide(t *testing.T) {
+	for _, cash := range []float64{0, 20} {
+		c := connect(t, futusim.Start(t, futusim.Options{Book: impliedBook(t, "futusg", cash)}), 0)
+		waitReady(t, c)
+		rates, err := c.ImpliedRates(context.Background(), "SGD", []string{"USD"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := rates["USD"]; ok {
+			t.Errorf("cash %v: a rate of %v", cash, rates["USD"])
+		}
+	}
+}
+
+// Both sides of a ratio come from one funds state: a book that moves during the pass
+// gives no rate at all.
+func TestImpliedRatesRefuseAPassThatSawTheBookMove(t *testing.T) {
+	book := impliedBook(t, "futusg", 20000)
+	srv := futusim.Start(t, futusim.Options{Book: book})
+	c := connect(t, srv, 0)
+	waitReady(t, c)
+	srv.OnFundsRead(func(currency string) {
+		if currency == "USD" {
+			book.SetCash(3000001, "SGD", 25000)
+		}
+	})
+	rates, err := c.ImpliedRates(context.Background(), "SGD", []string{"USD"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := rates["USD"]; ok {
+		t.Errorf("a rate of %v across a move", rates["USD"])
+	}
+}
+
+// Every firm the definitions name has a home currency; moomoo US stays USD. A real
+// account whose firm is unknown is refused, not given a base from its market list.
+func TestFundsBaseFollowsTheFirm(t *testing.T) {
+	c := connect(t, futusim.Start(t, futusim.Options{Book: impliedBook(t, "futuinc", 20000)}), 0)
+	waitReady(t, c)
+	funds, err := c.Funds(context.Background(), false)
+	if err != nil || funds.Currency != "USD" {
+		t.Errorf("moomoo US funds in %q: %v", funds.Currency, err)
+	}
+	unknown := connect(t, futusim.Start(t, futusim.Options{Book: impliedBook(t, "unknown", 20000)}), 0)
+	waitReady(t, unknown)
+	if _, err := unknown.Funds(context.Background(), false); !errors.Is(err, futu.ErrUnknownFirm) {
+		t.Errorf("unknown firm: %v", err)
 	}
 }

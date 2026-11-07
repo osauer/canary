@@ -2133,7 +2133,10 @@ type CurrencyExposure struct {
 	UnrealizedPnLCcy     float64 `json:"unrealized_pnl_ccy"`
 	RealizedPnLCcy       float64 `json:"realized_pnl_ccy"`
 	ExchangeRate         float64 `json:"exchange_rate"`
-	NetLiquidationBase   float64 `json:"net_liquidation_base"`
+	// ExchangeRateImplied says the rate is worked out from the account's own totals,
+	// not quoted.
+	ExchangeRateImplied bool    `json:"exchange_rate_implied,omitempty"`
+	NetLiquidationBase  float64 `json:"net_liquidation_base"`
 	// CashObserved says the ledger row carried a CashBalance value, so CashCcy
 	// is an observation and not an absent field read as zero. The cash sweep
 	// reads a currency's cash only when this is set.

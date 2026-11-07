@@ -385,6 +385,7 @@ func (s *Server) opendPositions(ctx context.Context, p rpc.PositionsListParams, 
 		netLiquidationBase = raw.NetLiquidation
 		ledger = raw.CurrencyLedger
 	}
+	fillFXRates(res.Stocks, ledger, baseCcy)
 	fillBaseValues(res.Stocks, baseCcy)
 	fillBaseValues(res.NotServed, baseCcy)
 	res.ByUnderlying = groupByUnderlying(res.Stocks, res.Options, baseCcy, netLiquidationBase)

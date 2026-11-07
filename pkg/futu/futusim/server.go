@@ -88,6 +88,7 @@ type Server struct {
 	quoteRights    map[string]int32
 	userInfoFlags  []int32
 	userInfoDelay  time.Duration
+	onFundsRead    func(currency string)
 	refusals       map[uint32]int
 	forbidden      int
 	closed         bool
@@ -567,6 +568,14 @@ func (s *Server) quoteRefusal(action string, secs []*qotcommon.Security) proto.M
 	return nil
 }
 
+// OnFundsRead runs after each funds read is valued, so a test can move the book
+// between two reads of one pass.
+func (s *Server) OnFundsRead(hook func(currency string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.onFundsRead = hook
+}
+
 // SetUserInfoDelay makes GetUserInfo slow, so a test can push during a refresh.
 func (s *Server) SetUserInfoDelay(delay time.Duration) {
 	s.mu.Lock()
@@ -663,6 +672,8 @@ func securityFirm(firm string) trdcommon.SecurityFirm {
 		return trdcommon.SecurityFirm_SecurityFirm_FutuInc
 	case "futusg":
 		return trdcommon.SecurityFirm_SecurityFirm_FutuSG
+	case "unknown":
+		return trdcommon.SecurityFirm_SecurityFirm_Unknown
 	}
 	return trdcommon.SecurityFirm_SecurityFirm_FutuSecurities
 }
