@@ -9,6 +9,8 @@ import (
 )
 
 func TestLoad_MissingFileGivesFullAuto(t *testing.T) {
+	// The policy default follows XDG_CONFIG_HOME, which CI runners set.
+	t.Setenv("XDG_CONFIG_HOME", "")
 	cfg, err := Load(filepath.Join(t.TempDir(), "no-such.toml"))
 	if err != nil {
 		t.Fatalf("Load missing: %v", err)

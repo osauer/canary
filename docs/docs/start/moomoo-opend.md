@@ -1,6 +1,6 @@
 # Canary with moomoo and Futu: experimental support
 
-Updated: 2026-11-07 09:46 CET
+Updated: 2026-11-07 17:02 CET
 
 Canary is a local tool that reads a brokerage account and reports on its positions
 and risk. It normally works with Interactive Brokers. It can also read a moomoo or

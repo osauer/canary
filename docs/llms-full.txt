@@ -1,6 +1,6 @@
 # Canary full context
 
-Updated: 2026-11-07 09:46 CET
+Updated: 2026-11-07 17:02 CET
 
 Version 3.35 keeps the index hedge available when a book has used all of its
 loss room: one rule now decides a sale, on the 10% fall and the 10% rise. A
