@@ -1,12 +1,26 @@
 # Trading policy
 
+Updated: 2026-11-07 08:23 CET
+
 You decide how much capital may be at risk, which evidence must be current,
 and when uncertainty requires attention. Canary's personal risk policy
 records those decisions and supplies enforced limits. The drawdown brake can
 refuse risk additions, and `[order_limits]`, mandate and allocation checks
-constrain the orders they govern ([Order limits](#order-limits)). Nothing in the policy authorizes an
-order. Every submission remains a transaction-specific human decision and must
-pass separate, code-owned safety controls.
+constrain the orders they govern ([Order limits](#order-limits)). Every
+submission remains your decision and must pass separate, code-owned safety
+controls. Usually that decision is for one transaction: you confirm one order.
+
+The exception is a pre-authorised bucket. When the protection policy lists a
+bucket under `[authority].pre_authorised`, or the cash sweep under
+`[cash].pre_authorised`, Canary places that bucket's orders itself after a
+notice and a veto window, the time you have to stop each one. It does so only
+while an arming stands: a standing authority, Protection or Fully armed, that
+you sign once on a paired device and the daemon keeps in its own store. With
+nothing armed, those orders wait for you to confirm them. Only Canary Desk, a
+private project, can sign an arming, so in an open-source install every such
+order waits for you.
+[Protection](../operate/protection.md) and [Cash management](../operate/cash.md)
+cover the buckets.
 
 A local record explains what `canary` observed and decided. Broker confirmations
 and statements establish what actually executed. Missing or unusable evidence
@@ -50,9 +64,9 @@ brake from being shown released, so risk-adding orders are refused with
 available under this brake; their other order checks still apply.
 
 The trader decides whether to wait, investigate, reduce risk, or take another
-explicitly authorized action. Separate broker-write controls remain binding:
+explicitly authorised action. Separate broker-write controls remain binding:
 route and account pins, freeze state, preview-token checks, broker
-WhatIf/eligibility, journal health, daemon authorization, and origin gating. If
+WhatIf/eligibility, journal health, daemon authorisation, and origin gating. If
 an order is submitted, the broker confirmation and later statement establish
 what executed. The local policy record explains the context; it is not
 execution evidence.
@@ -126,11 +140,11 @@ for a material edit and retain the exact applied TOML outside `canary`. The
 daemon's status tells you what it currently loaded; the human-owned TOML
 remains the policy source.
 
-A content fingerprint is a deterministic ID of the normalized policy fields.
+A content fingerprint is a deterministic ID of the normalised policy fields.
 It supports semantic equality checks; comments and formatting do not affect
 it. It does not reconstruct historical policy by itself: current durable
 events retain policy identity, version, and fingerprint, not the complete
-normalized policy body. Historical replay therefore also requires the exact
+normalised policy body. Historical replay therefore also requires the exact
 archived policy content.
 
 ## Policy files Canary writes for you
@@ -150,12 +164,15 @@ files:
   NAME` prints the same file.
 - **Your numbers stay yours.** A new file carries no value for anything only
   you can decide: the constitution's capital numbers, the premium budget governor's
-  caps as a share of risk capital, the buckets that may submit automatically
-  (`pre_authorised`) and automatic release of a latched drawdown brake. Each
+  caps as a share of risk capital, the list of buckets that may go without
+  your confirmation (`pre_authorised`; the list names them, and only an arming
+  lets Canary act on it) and automatic release of a latched drawdown brake. Each
   appears as a commented placeholder, and its feature stays off and says it
   needs your number, one feature at a time; nothing else waits on it. The cash
-  sweep stays off until you write its table; the daemon then fills any sizing
-  number you left out at Canary's default
+  sweep stays off until you write its table. The next daemon start then writes
+  any sizing number you left out at Canary's default into the file, after a
+  backup; the sweep reads its numbers from the file only, so until that start
+  it holds and the number shows as `not written`
   ([Reserve and order sizing](../operate/cash.md#reserve-and-order-sizing)).
   A file that still writes the older `[buckets.cash_sweep]` reads the same, and
   the daemon moves it to `[cash.sweep]` without changing a setting
@@ -166,8 +183,11 @@ files:
   with a comment naming the release, comments out retired keys and logs what it
   changed. It refuses any change to a setting you wrote, apart from raising
   `policy_version` when it writes missing `[order_limits]` keys, cash sweep
-  sizing numbers, the `[cash.leveling]` table or `[cash] confirmation_window`, so
-  the daemon adopts them. Once a start has succeeded, the daemon removes its own
+  sizing numbers, the `[cash.leveling]` table, `[cash] confirmation_window` or,
+  beside a written `[mandate]`, the `[mandate.iv_fallback]`,
+  `[mandate.index_hedge]`, `[mandate.regime_gate]` and `[mandate.reduction]`
+  tables, so the daemon adopts them. Each mandate table is written once; one
+  you delete afterwards is not written again. Once a start has succeeded, the daemon removes its own
   backups older than thirty days beyond the newest five of each file. Only
   names Canary itself writes count (a version, `reset` or `desk`, then the
   time); copies you made yourself are never touched, whatever they are
@@ -274,9 +294,9 @@ in force. Mutating governance commands under
 ### Order limits
 
 The per-order limits are risk limits and live in the personal risk policy as
-`[order_limits]` (owner decision 2026-10-05 19:56 CEST). Until then they were
-`config.toml` `[trading]` keys with a runtime override in `canary settings`;
-both are retired. The trading gate reads its limits from the file only.
+`[order_limits]`. The older `config.toml` `[trading]` keys and the runtime
+override in `canary settings` are retired. The trading gate reads its limits
+from the file only.
 A missing common limit refuses every order preview with `order_risk_limit`
 naming the key, until the next daemon start writes it. Three keys apply only
 to particular paths: `max_bond_maturity_years` to bond and bill buys,
@@ -287,9 +307,9 @@ holds those paths without making the common limits incomplete.
 | Key | Meaning | `policy ensure` writes |
 |---|---|---|
 | `max_order_floor_base` | Smallest notional cap in force, account base currency | `[trading].max_notional`, else 10,000 |
-| `max_order_pct_nlv` | Share of net liquidation value that sets the cap between floor and ceiling | 10.0 (5.0 before 2026-10-07) |
+| `max_order_pct_nlv` | Share of net liquidation value that sets the cap between floor and ceiling | 10.0 |
 | `max_order_ceiling_base` | Largest notional cap in force, account base currency | 100,000, raised to the floor if the migrated floor is higher |
-| `max_option_contracts` | Contracts in one single-leg option order or each strategy-close leg | `[trading].max_option_contracts`, else 10 (5 before 2026-10-07) |
+| `max_option_contracts` | Contracts in one single-leg option order or each strategy-close leg | `[trading].max_option_contracts`, else 10 |
 | `allow_stock_short` | A stock or ETF order may open or flip a short | `[trading].allow_stock_short`, else false |
 | `allow_option_sell_to_open` | An option order may sell to open | `[trading].allow_option_sell_to_open`, else false |
 | `max_bond_maturity_years` | Longest time to maturity, in whole years from today, a bond or bill buy may have (1 to 100) | 30 |
@@ -321,67 +341,74 @@ refuses every order. A refusal names the cap in force and how it was bound, for
 example `order notional 30,000 EUR exceeds the order cap in force 24,000 EUR
 (10% of NLV 240,000 EUR; [order_limits])`.
 
-Three exemptions stand against the cap in force. A protective stock stop that
-sells at most the long position with no competing working sell passes the
-notional cap and the short re-read ([Protection](../operate/protection.md)). A
-same-currency sweep bill within the sweep's own cap passes the notional cap
-when the protection policy writes `bills_exempt_from_trading_max_notional =
-true`. And an order that reduces delta passes both the notional cap and the
-option cap (owner decision 2026-10-07 08:13 CEST: "tighter order cap must not
-block exits if they reduce delta"): it only closes or shrinks a position you
-hold, never opening, adding or flipping to the other side, and it lowers the
-absolute net delta of its underlying and of your whole book (owner decision
-2026-10-07 09:51 CEST: both must fall), measured with the same position
-deltas Canary's risk verdicts use (shares at their mark, option contracts at
-their delta, multiplier and model spot, all in the account base currency). A
-hand exit, an option buy-to-close or sell-to-close, a strategy close, a
-reduction proposal or a budget-governor cut above the cap therefore passes
-when it lowers both. Closing a long put or buying back a short call that
-hedges a long stock raises the stock's absolute delta, so it keeps the cap;
-closing index puts that hedge a net-long book, or buying back a short stock
-in one, raises the book's, so it keeps the cap too; so does any order while
-a line anywhere in your book has a stale quote or no delta, spot or FX rate,
-because an unknown delta never exempts (bills, bonds and a defunct zero-value
-row count as zero and do not block it; a future, index, CFD, fund or warrant
-line, whose delta Canary does not measure, keeps the cap and is named). An
-exit that would leave a short
-option uncovered keeps the cap as well (owner decision 2026-10-07 09:51 CEST,
-on the principle Canary applies to its option combos: never leave a short
-leg uncovered): after the order, short calls need long shares or long calls
-and short puts need short shares or long puts, and a long option counts as
-cover only if it expires on or after the short one (owner decision 2026-10-07
-12:28 CEST; a near-dated long in a calendar does not), so selling the stock
-under a covered call, the long leg of a spread on its own, or the near leg of
-a calendar on its own, is refused with
-`this sale would leave 2 short calls on SYNB uncovered, so the order cap
-applies`, while a sale that leaves enough shares passes. The order and every
-other working order in its direction on the same contract (hand orders in
-TWS included, an order Canary itself sent moments ago, and a working combo
-close on an option's underlying, which counts against every leg) must
-together stay within what you hold, read from the broker's complete
-open-order list, so two exits of one line cannot both pass and together flip
-it. Canary's own stop on the line does not count when the sale joins that
-stop's one-cancels-all group, because the broker then reduces the stop by
-the sale's fill (owner decision 2026-10-22 15:26 CEST); a stop the sale
-cannot join, a second stop and a hand order still count. When that list cannot be read, the cap applies and the refusal says so,
-for example `another working order already sells 700 of the 1,000 SYNB
+Three exemptions stand against the cap in force:
+
+- **A protective stock stop** that sells at most the long position, with no
+  competing working sell, passes the notional cap and the short re-read
+  ([Protection](../operate/protection.md)).
+- **A same-currency sweep bill** within the sweep's own cap passes the
+  notional cap when the protection policy writes
+  `bills_exempt_from_trading_max_notional = true`.
+- **An order that reduces delta** passes both the notional cap and the option
+  cap, so a tighter cap never blocks an exit that takes risk off.
+
+An order reduces delta when it only closes or shrinks a position you hold,
+never opening, adding or flipping to the other side, and it lowers the
+absolute net delta of both its underlying and your whole book. Canary measures
+that with the same position deltas its risk verdicts use: shares at their
+mark, option contracts at their delta, multiplier and model spot, all in the
+account base currency. A hand exit, an option buy-to-close or sell-to-close, a
+strategy close, a reduction proposal or a budget-governor cut above the cap
+therefore passes when it lowers both. A pre-authorised protection bucket's
+option exit passes the same way without a per-order approval, after its notice
+and veto window. Bills, bonds and conversions carry no equity delta and never
+qualify. The bond maturity limit and the currency checks have no exemption.
+
+Some exits keep the cap:
+
+- Closing a long put or buying back a short call that hedges a long stock
+  raises the stock's absolute delta. Closing index puts that hedge a net-long
+  book, or buying back a short stock in one, raises the book's.
+- Any order keeps it while a line anywhere in your book has a stale quote or
+  no delta, spot or FX rate, because an unknown delta never exempts. Bills,
+  bonds and a defunct zero-value row count as zero and do not block it; a
+  future, index, CFD, fund or warrant line, whose delta Canary does not
+  measure, keeps the cap and is named.
+- An exit that would leave a short option uncovered keeps the cap. After the
+  order, short calls need long shares or long calls, and short puts need short
+  shares or long puts; a long option counts as cover only if it expires on or
+  after the short one, so the near-dated long of a calendar does not. Selling
+  the stock under a covered call, the long leg of a spread on its own, or the
+  near leg of a calendar on its own is refused with
+  `this sale would leave 2 short calls on SYNB uncovered, so the order cap
+  applies`, while a sale that leaves enough shares passes.
+
+The order and every other working order in its direction on the same contract
+must together stay within what you hold. That count includes hand orders in
+TWS, an order Canary itself sent moments ago, and a working combo close on an
+option's underlying, which counts against every leg. Canary reads them from
+the broker's complete open-order list, so two exits of one line cannot both
+pass and together flip it. When the sale joins the one-cancels-all group of
+Canary's own stop on the line, that stop does not count, because the broker
+then reduces the stop by the sale's fill; a stop the sale cannot join, a
+second stop and a hand order still count. An exit that would take the count
+past what you hold keeps the cap, and a refusal at the cap names the other
+order, for example `another working order already sells 700 of the 1,000 SYNB
 shares you hold; with this one, more would be sold than you hold. Cancel it
-first`. The refusal then says why,
-for example `order notional 7,500 EUR exceeds the order cap in force 1,000
-EUR (1% of NLV 100,000 EUR; [order_limits]); the exit does not lower the
-absolute delta of SYNA (6,000 EUR before, 7,500 EUR after), so the cap
-applies`. Bills, bonds and conversions carry no equity delta and never
-qualify. A pre-authorised protection bucket's option exit passes the same way
-without a per-order approval, after its notice and veto window (owner
-decision 2026-10-07 12:28 CEST). The bond maturity limit and the currency
-checks have no exemption.
+first`. When the open-order list cannot be read, the cap applies and the
+refusal says so.
+
+A refusal at the cap says why, for example `order notional 7,500 EUR exceeds
+the order cap in force 1,000 EUR (1% of NLV 100,000 EUR; [order_limits]); the
+exit does not lower the absolute delta of SYNA (6,000 EUR before, 7,500 EUR
+after), so the cap applies`.
 
 The short and sell-to-open permissions judge only an order that opens or
 flips a short. A sale of at most the position the broker confirms you hold
 in that exact contract (a stock, ETF, option, bill or bond, any order type)
 is the close or reduction it is, whatever else is working on the contract:
 Canary's own protective stop and orders placed by hand in TWS do not block
-it (owner decision 2026-10-12 19:55 CEST). Selling more than you hold, or
+it. Selling more than you hold, or
 selling with no position, still needs `allow_stock_short` or
 `allow_option_sell_to_open`; a stale or incomplete position read refuses the
 order until the next refresh. The order cap and the option contract cap still
@@ -392,7 +419,7 @@ when that fails, so the two never sell the line twice
 a stop or a hand order Canary did not place can still fill beside the sale and
 is yours to cancel.
 
-The bond maturity limit (owner decision 2026-10-06 20:17 CEST) counts whole
+The bond maturity limit counts whole
 years from today's UTC date: with 30 written, a buy on 2026-10-06 may mature on
 or before 2056-10-06, and a bond maturing a day later is refused, for example
 `the bond matures 2056-10-07, beyond the 30-year limit in force (2056-10-06;
@@ -444,7 +471,7 @@ false.
 
 ### Runtime settings
 
-Settings control live product behavior; they do not create a new policy rule:
+Settings control live product behaviour; they do not create a new policy rule:
 
 ```sh
 canary settings show
@@ -482,7 +509,7 @@ unknown or data-quality state, never an implicit zero or pass.
 ## Check a policy for plausibility
 
 Canary validates each key against its own range when it loads a file. `canary
-policy check` (added 2026-10-05 18:54 CEST) reads the values against each
+policy check` reads the values against each
 other, across `config.toml` and the four policy files, and against the live
 book, and says what is implausible and what to write instead. It is
 read-only: it changes no limit, gate or order.
@@ -506,8 +533,7 @@ its reasoning. The command exits 1 only when a finding is an error.
 | warn | Implausible against the book or the economics. |
 | info | A value nobody has reviewed: an unreviewed file, a compiled default in force, a date about to end. |
 
-The rules form one catalogue (`internal/daemon/policy_check_rules.go`); a new
-rule is one entry.
+The check's rules:
 
 | Rule | Severity | Needs the book | What it reports |
 |---|---|---|---|

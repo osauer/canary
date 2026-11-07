@@ -1,6 +1,6 @@
 # Set up broker reporting
 
-Updated: 2026-11-03 21:05 CET
+Updated: 2026-11-07 07:38 CET
 
 Canary needs one **Activity Flex Query** from Interactive Brokers. This is the
 broker-reporting foundation for reconciliation, statement-derived equity,
@@ -101,8 +101,7 @@ In the Activity Flex query editor, select **Securities Borrowed/Lent** and
 **Securities Borrowed/Lent Activity** is optional audit context. Save the field
 dialog, then use **Continue** to review and finish saving the whole query.
 
-These Portal labels were verified directly on 2 October 2026. IBKR's reporting
-guide uses Stock Yield Enhancement Program headings for the corresponding
+IBKR's reporting guide uses Stock Yield Enhancement Program headings for the corresponding
 [loan balances](https://www.ibkrguides.com/reportingreference/reportguide/securities%20borrowedlentfq.htm)
 and [earned fee details](https://www.ibkrguides.com/reportingreference/reportguide/securities%20borrowedlent%20fee%20detailsfq.htm).
 The fee editor exposes **Net Lend Fee** and **Net Lend Fee Rate %**.
@@ -113,10 +112,10 @@ block reconciliation or Edge. Missing sections mean unavailable income; a
 present, complete empty fee section can establish zero. A conversion to account
 base currency also needs a matching statement base-currency identity.
 
-Participation remains a setting at IBKR. Canary adds no enrollment modes. See
+Participation remains a setting at IBKR. Canary adds no enrolment modes. See
 [lending observations in Edge](../understand/edge.md#stock-lending-income).
-Availability and exact fields still need confirmation for your account/entity;
-synthetic tests do not establish broker commissioning.
+Whether these sections are offered, and with which fields, depends on your
+account and the IBKR entity that holds it.
 
 ### Optional cash interest rates
 
@@ -145,11 +144,10 @@ and Interest Accruals (see [FX contribution](#fx-contribution)). Adding the
 section does not change the checked query profile, so it does not restart the
 full-year validation.
 
-Canary reads the XML shape `TierInterestDetails > TierInterestDetail`. The
-section label and these element and attribute names follow IBKR's Flex
-reference; neither has yet been checked against the Client Portal picker or
-seen in a real statement. If the real names differ, Canary finds no section
-and the rates stay unavailable with the reason above; they never read as zero.
+Canary reads the XML shape `TierInterestDetails > TierInterestDetail`, with
+the section label and the element and attribute names from IBKR's Flex
+reference. If your statement uses other names, Canary finds no section and
+the rates stay unavailable with the reason above; they never read as zero.
 
 ## 3. Configure delivery
 
@@ -380,9 +378,8 @@ working query active until the candidate validates.
 
 ## FX contribution
 
-In Desk, open **Portfolio → Performance → FX**. Canary also serves the same
-result through `canary reporting fx` and the read-only `canary_reporting_fx`
-MCP tool. Day, WTD, MTD and YTD show the currency contribution to P&L in the
+Run `canary reporting fx`, or ask an agent to call the read-only
+`canary_reporting_fx` MCP tool. Day, WTD, MTD and YTD show the currency contribution to P&L in the
 account's base currency, with daily bars and a completed reporting cutoff.
 This is statement-based valuation attribution, not live intraday P&L or
 realised currency tax-lot P&L.
@@ -400,7 +397,7 @@ the closing exchange rate is unchanged.
 ### Extend the same query
 
 Keep the eight sections above, with every field selected. For FX, also add
-**Cash Report**, **Interest Accruals**, and **Conversion Rates**, with all
+**Cash Report**, **Interest Accruals**, and **Currency Conversion Rate**, with all
 fields, daily totals, dates and currency. For the broker's cash interest
 rates, add **Interest Details (Tiers)** as well; see
 [Optional cash interest rates](#optional-cash-interest-rates). Confirm Open Positions is at Summary
@@ -439,7 +436,7 @@ For the exact method and reconciliation checks, see the
 - [Activity Flex Query field reference](https://www.ibkrguides.com/reportingreference/reportguide/activity%20flex%20query%20reference.htm)
 - [Find the Query ID](https://www.interactivebrokers.com/docs/web-api/flex-web-service/client-portal-configuration/create-a-flex-query)
 - [Enable the Flex Web Service and create a token](https://www.interactivebrokers.com/docs/web-api/flex-web-service/client-portal-configuration/enable-and-create-access-token)
-- [Flex Web Service date overrides and error behavior](https://www.ibkrguides.com/adminportal/performanceandstatements/flex3.htm)
+- [Flex Web Service date overrides and error behaviour](https://www.ibkrguides.com/adminportal/performanceandstatements/flex3.htm)
 
 For the local settings themselves, see the [configuration
 reference](../reference/config.md). If a configured report still does not

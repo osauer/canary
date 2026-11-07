@@ -1,8 +1,8 @@
 # Updating
 
-Updated: 2026-11-03 21:05 CET
+Updated: 2026-11-07 07:52 CET
 
-Four things can affect data freshness: the **binary** (`canary` itself), the **Claude Desktop MCPB** when installed through Desktop Extensions, the **S&P 500 constituent list** the breadth indicator uses, and the embedded **official market calendars**. They update independently because they have different sources and cadences.
+Four things can go out of date: the **binary** (`canary` itself), the **Claude Desktop MCPB** when installed through Desktop Extensions, the **S&P 500 constituent list** the breadth indicator uses, and the embedded **official market calendars**. They update independently because they have different sources and cadences.
 
 ## Install and activate a new binary
 
@@ -19,10 +19,15 @@ After activation, `canary version` reports the CLI build and `canary status`
 reports the daemon build. A version mismatch warning means the file was replaced
 but the long-running process has not moved to it yet.
 
+### Updating from v3.26.2 or earlier
+
+If your app uses a path containing spaces, or you run separate HOME/XDG profiles, use `canary update --no-restart` first. Then invoke the newly installed `canary restart` from the app's original profile. The older updater performs activation with its own old restart code even after replacing the file, so its `--restart` cannot apply these fixes. Trading-build users should install the new trading artifact through their existing installation procedure before restarting.
+
+App lifecycle commands verify the app's effective HOME, socket, config and state paths before stopping it. A different or unreadable profile is refused without stopping a process; use the app's original environment. Relative profile paths and relative app `--state-dir`/`--log` values need absolute paths. Custom launchd jobs with their own environment or working directory require explicit supervisor management; automatic lifecycle commands leave them untouched. An older saved supervisor recovery record has no profile identity: recover it with `canary setup app` from its original profile instead of automatically resuming it under the current environment.
+
 ## Updating the binary: `canary update`
 
-Once you have a Canary-named release (v2.5.0 or later), the next binary
-upgrade is one command:
+Updating the binary is one command:
 
 ```sh
 canary update            # fetch latest, prompt to restart the local app/daemon stack
@@ -66,13 +71,13 @@ explicit recovery path when replacing such a build is intentional.
 
 ### Release integrity
 
-Transition releases ship two signatures over the same `SHA256SUMS` bytes. `SHA256SUMS.asc` keeps `install.sh` and older Canary binaries working. Current binaries require `SHA256SUMS.ed25519`, verified by a narrow standard-library implementation and a dedicated public key embedded in Canary. A missing or invalid compact signature fails closed; the binary carries no PGP fallback.
+Each release ships two signatures over the same `SHA256SUMS` bytes. `SHA256SUMS.asc` keeps `install.sh` and older Canary binaries working. Current binaries require `SHA256SUMS.ed25519`, verified by a narrow standard-library implementation and a dedicated public key embedded in Canary. A missing or invalid compact signature fails closed; the binary carries no PGP fallback.
 
 Releases that publish an MCP Bundle include both `canary-vX.Y.Z.mcpb` and the stable latest-download asset `canary.mcpb` in `SHA256SUMS`. The MCP Registry publish artifact also records the versioned MCPB file's SHA-256 in `server.json` as `fileSha256`.
 
-The MCPB container itself is not yet code-signed. Treat MCPB release integrity as signed-checksum and registry-hash based unless `mcpb verify canary-vX.Y.Z.mcpb` succeeds for a future release.
+The MCPB container itself is not code-signed. Treat MCPB release integrity as signed-checksum and registry-hash based unless `mcpb verify canary-vX.Y.Z.mcpb` succeeds.
 
-`canary update` **refuses** any release missing the compact signature, and any release whose signature does not verify against its embedded key. There is no `--insecure` flag. If you ever need to debug a verification failure, the underlying error is printed verbatim and the manual verification steps are in [SECURITY.md → Release integrity](../../../SECURITY.md#release-integrity-v100).
+`canary update` **refuses** any release missing the compact signature, and any release whose signature does not verify against its embedded key. There is no `--insecure` flag. If you ever need to debug a verification failure, the underlying error is printed verbatim and the manual verification steps are in [SECURITY.md → Release integrity](https://github.com/osauer/canary/blob/main/SECURITY.md#release-integrity-v100).
 
 ### Headless / scripted use
 
@@ -85,7 +90,7 @@ canary update --no-restart     # leave both processes as-is; print a restart-pen
 
 Closing an interactive restart prompt without a response cancels the restart.
 
-Running `canary update` from a non-TTY *without* either flag exits non-zero with `ambiguous in non-interactive mode` and does not install. This is deliberate: silent default-to-N would be a footgun for systemd timers expecting auto-restart.
+Running `canary update` from a non-TTY *without* either flag exits non-zero with `ambiguous in non-interactive mode` and does not install. This is deliberate: a silent default of "no" would leave a systemd timer that expects a restart running the old binary without saying so.
 
 `canary update --restart` does not wake an app or daemon that was absent. If a
 restart stage fails, the ordered, non-atomic stage rules described under
@@ -130,29 +135,12 @@ remove the existing config or state directories. `canary restart` then starts
 the new daemon, which performs any required state migration before it connects
 to the broker.
 
-Version 3 accepts current SQLite and alert authority or a genuinely fresh state
-root. If the installation still has file-backed authority or an older alert
-ledger/registry, install and start the latest stable 2.x release once before
-starting v3. Stable 2.x owns those historical decoders and converts the retained
-safety state; v3 refuses to guess or silently clear it. An unsupported app alert
-ledger is preserved byte-for-byte and notifications remain unavailable until
-the bridge is completed. Existing databases then advance through an unpublished,
-validated candidate with an exact-head backup. This same major-version bridge
-is the upgrade model for future releases: the last stable major remains
-available while the next major stabilizes.
-
-The v2.6.0 upgrade also removes the defective contract-cache snapshots that
-made some `daemon.db` files unusually large. Before changing anything, startup
-requires free space equal to twice the database footprint plus the larger of
-1 GiB or 5%. If that space is unavailable, it leaves the published database
-unchanged and reports how much is required. The cleanup and compaction happen
-before broker connection, can take substantial time for a tens-of-gigabytes
-database, and may therefore make the first `canary restart` much longer than
-normal.
-
-`canary update` did not exist before v1.0.0. Those installations also use the
-same release-verifying shell installer after first reaching the supported
-state-migration floor.
+An installation that still keeps file-backed state, or an older alert ledger
+or registry, from before the SQLite database first installs and starts the
+latest stable 2.x release once, which converts it; version 3 refuses that
+state rather than guessing at it. The
+[changelog](https://github.com/osauer/canary/blob/main/CHANGELOG.md) describes
+each earlier upgrade step.
 
 ## Restarting local processes: `canary restart`
 
@@ -270,7 +258,7 @@ CANARY_SPX_MEMBERS_AUTO_REFRESH=0 canary daemon   # force off
 CANARY_SPX_MEMBERS_AUTO_REFRESH=1 canary daemon   # force on (even if TOML says off)
 ```
 
-When pinned, `canary status` shows the reason, `refresh disabled (env)` vs `refresh disabled (config)`, so a confused user knows which knob to flip.
+When pinned, `canary status` shows the reason, `refresh disabled (env)` vs `refresh disabled (config)`, so you can tell which setting to change.
 
 ### Status row
 
@@ -278,7 +266,7 @@ When pinned, `canary status` shows the reason, `refresh disabled (env)` vs `refr
 
 ```
 SPX members  cache:2026-05-22, 503 names                            # healthy
-SPX members  embedded:2026-05-22, 503 names, refresh parse_failed   # silent rot (Wikipedia changed HTML)
+SPX members  embedded:2026-05-22, 503 names, refresh parse_failed   # Wikipedia changed its page layout
 SPX members  embedded:2026-05-22, 503 names, refresh network_failed  # offline / DNS down
 ```
 

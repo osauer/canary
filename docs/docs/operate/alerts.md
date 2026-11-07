@@ -1,6 +1,6 @@
 # Alerts and notifications
 
-Updated: 2026-10-06 05:45 CEST
+Updated: 2026-11-07 07:36 CET
 
 An alert is a daemon-owned fact with a lifecycle. The daemon decides whether a condition exists, how serious it is, and whether it opened, escalated, or recovered. The paired app records that decision, decides whether your chosen notification level permits a push, and owns every delivery attempt and receipt. The app never recomputes severity, dwell, escalation, or recovery.
 
@@ -24,7 +24,7 @@ neither a current alert nor a cleared condition.
 The CLI has no alerts command. `canary brief` and `canary rules` carry the
 decision-relevant facts as rows.
 
-Phone notifications are configured under Settings → Phone notifications. The level is global for the app host and every paired device; browser permission and the push subscription belong to each browser or installed app separately.
+Phone notifications are configured under Settings → Notifications → **Phone alerts**. The level is global for the app host and every paired device; browser permission and the push subscription belong to each browser or installed app separately.
 
 | Setting | Stored value | New occurrences that may push |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ and marked, so the operator can see which row or panel the alert opened. The
 authenticated Alerts view adds current figures from the same typed snapshot;
 lock-screen notification copy remains fixed and contains no account, position,
 symbol, or order data. A notification tap navigates only to Monitor or Alerts;
-the retained legacy `brief` route is normalized to Monitor. Any other value,
+a notification carrying the older `brief` route opens Monitor. Any other value,
 including a hostile payload string, also falls back to Monitor. A URL inside a
 payload is never followed.
 

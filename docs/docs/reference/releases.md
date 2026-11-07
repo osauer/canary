@@ -1,10 +1,82 @@
 # Releases and support
 
-Updated: 2026-10-20
+Updated: 2026-11-07 08:23 CET
 
 Every release publishes two binaries per platform, under two different names. One is read-only. The other can send orders to your broker. That difference is compiled in rather than configured, so the filename you download decides it.
 
 [Updating](../start/updating.md) covers how to install a new version. This page covers what you are installing, how to check it is genuine, and how long it keeps getting fixes.
+
+The notes below cover each version whose installation changes a file on disk, what the first start does, or what runs on its own. The [changelog](https://github.com/osauer/canary/blob/main/CHANGELOG.md) has every other change.
+
+## Moving to 3.34
+
+If your protection policy lists nothing under `[authority].pre_authorised` or
+`[cash].pre_authorised`, nothing changes. If it lists a bucket, Canary places
+none of that bucket's orders on its own after the upgrade until a standing
+authority is armed: a one-time confirmation, Protection or Fully armed, signed
+on a paired device. Until then each order waits for your confirmation, and
+`canary proposals status` lists the orders that are waiting. Only Canary Desk,
+a private project, can sign that confirmation, so an install without Desk
+confirms each order by hand. An order already at the broker stays there. After
+a crash, the first start rebuilds a database it cannot verify rather than
+reusing it, and trading authority stays intact.
+
+## Moving to 3.33
+
+The first start writes two tables into a risk policy (`risk-policy.toml`) that
+already has a written `[mandate]`: `[mandate.regime_gate]` (`breadth_min_pct =
+50.0`, `half_scale_pct = 50.0`, `stale_after_sessions = 1`, `confirm_closes =
+2`) and `[mandate.reduction]` (`cheap_leg_give_pct_of_loss = 2.0`). It writes
+each table once, keeps one you wrote, and raises `policy_version`. Rule 20 runs
+in alert mode until your rulebook policy names `modes.earnings_premium_freeze`.
+Strategy one's screen (`canary strategy-one`) sizes its trade plans by the
+regime gate. No strategy that places orders reads the gate, so it changes no
+order.
+
+## Moving to 3.32
+
+The database now stores each distinct statement row once. The first start
+after the upgrade removes the duplicate copies and compacts `daemon.db`, so it
+can take noticeably longer on a large database. Corrections and the original
+reports are kept.
+
+## Moving to 3.31
+
+When `opportunity-policy.toml` has no `[add]` table, the first start writes the
+call and put horizons and delta bands Add uses, at Canary's values. Edit them
+there; an edit applies at the next reload. The daemon also keeps the database
+log, `daemon.db-wal`, to 64 MiB after each reset.
+
+## Moving to 3.30
+
+The daemon deletes the policy backups it made more than 30 days ago, keeping
+the newest five for each file. Backups you made yourself are never touched.
+`canary app` deletes temporary files left by a save that a crash or power loss
+cut off. A `[mandate.index_hedge]` table you deleted is no longer written back.
+
+## Moving to 3.29
+
+From 3.29.1, the first start writes `[mandate.iv_fallback]` (`short_band_pct =
+65.0`, `month_band_pct = 15.0`, `long_band_pct = 8.0`, `measured_pct = 5.0`,
+`range_pct = 20.0`) and `[mandate.index_hedge] max_contracts = 25` into a risk
+policy that already has a written `[mandate]`, after a backup and with a higher
+`policy_version`. A table you wrote is kept. The daemon also checks at each
+start, and then daily, whether the account may trade futures, with a preview of
+one Micro E-mini S&P 500 contract that sends no order.
+
+## Moving to 3.28
+
+The policy migration writes `option_name_act_pct = 15` into the rulebook
+policy. While the risk policy carries a `[mandate]` table, a risk-adding option
+buy that would take one name's premium at risk past 15% of net liquidation
+value is refused. Installing does not arm automatic trading.
+
+## Moving to 3.27
+
+Canary writes the worst-price allowances for percentage reductions into the
+risk policy's `[order_limits]` when the keys are missing, `reduce_allowance_pct` (1%
+for stocks and ETFs) and `reduce_option_allowance_pct` (5% for options), and
+raises `policy_version`. Limits you wrote are kept.
 
 ## Moving to 3.26
 
@@ -21,20 +93,22 @@ entry written `stage = "live"` now serves its month's row, as the core's
 does; a file that writes an entry live on a rule without rows, or two
 strategies on one fund line, is refused and the last policy stays. While an
 entry is live, a hand buy of its fund line is refused (sales stay open);
-write the entry `suspended` to trade the line by hand. A standing automatic
-mandate armed before you edit the register sends no strategy buys until you
-confirm it again on your device; its sales and protection still go. The
+write the entry `suspended` to trade the line by hand. A standing authority
+armed before you edit the register sends no strategy buys until you confirm it
+again on your device; its sales and protection still go. The
 scorecard's v1 fields announced to go in 3.25 (`mean_z`, `clusters`,
 `p_ic_above_*`, `clusters_to_establish`) are still served in 3.25.
 
 ## Moving to 3.24
 
 Nothing changes on upgrade until you write it. `[mandate.sleeves]
-owner_stop_pct` is optional; absent, the owner sleeve has no stop of its own.
-`desk.execution.submit` is served only to a controller presenting the owner's
-device-confirmed automatic mandate; a live strategy's row otherwise still
-waits for the owner's tap. The owner queue now refuses the core's row, which
-is sent in session at the live mid.
+owner_stop_pct` is optional; absent, the owner sleeve, the part of the book
+you trade yourself, has no stop of its own. Desk's request to send a strategy's
+order (`desk.execution.submit`) is served only to a controller presenting a
+standing authority you confirmed on your device; without one, a live
+strategy's row waits for your confirmation. A queued authorisation, an order you confirm
+ahead to be sent at the next open, now refuses the core's row, which is sent in session at
+the live mid.
 
 Clients that read the scorecard: the schema is `canary-scorecard-v2`. The
 measure is the directional score (`directional_score`, `p_score_above_0`,
@@ -90,9 +164,8 @@ a quote per fill in daemon.db; `canary reporting costs` reads them.
 
 ## Moving to 3.21
 
-This release hardens compatibility with TWS / IB Gateway 10.50. Live validation
-used TWS; a running IB Gateway 10.50 session has not yet been validated end to end.
-Existing TWS connections keep their tested protocol. The optional
+This release hardens compatibility with TWS / IB Gateway 10.50. Existing TWS
+connections keep their tested protocol. The optional
 `canary status --gateway-diagnostics` probe reads supported API settings on a
 separate connection; unsupported settings remain unknown. No broker settings or
 existing policies change on upgrade.
@@ -267,7 +340,7 @@ order-entry tools in either build.
 **Trading build.** This binary can place, modify, cancel, or exercise only the
 constrained actions retained by v3, once mode, route, account, freeze, journal,
 and fresh review contracts all pass. Trading builds are experimental and
-provided as-is. [Orders and the trading build](../operate/orders.md) has the
+provided as-is. [Gated orders and the trading build](../operate/orders.md) has the
 configuration and gates in full.
 
 To see which one you are running, `canary settings` prints a `Build` row reading either `stable` or `experimental-trading`, followed by a build note.
@@ -335,10 +408,10 @@ The `.mcpb` container itself is not code-signed. Treat bundle integrity as check
 
 ## Version numbers
 
-Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and every entry in [CHANGELOG.md](../../../CHANGELOG.md) uses Keep a Changelog categories.
+Releases follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Each entry in [CHANGELOG.md](../../../CHANGELOG.md) opens with a short "What's new" summary, followed by Keep a Changelog categories such as Added, Changed and Fixed.
 
-- **Patch** (`v2.3.0` to `v2.3.1`): fixes and internal changes.
-- **Minor** (`v2.2.1` to `v2.3.0`): new commands, tools, or fields, backward compatible.
+- **Patch** (`v3.34.0` to `v3.34.1`): fixes and internal changes.
+- **Minor** (`v3.33.1` to `v3.34.0`): new commands, tools, or fields, backward compatible.
 - **Major**: a breaking change to a published contract.
 
 Canary now has two related version contracts:
@@ -355,7 +428,7 @@ Canary now has two related version contracts:
 
 ## Which versions are supported
 
-Product v3 and later release from `main`. While v3 stabilizes, maintained v2
+Product v3 and later release from `main`. While v3 stabilises, maintained v2
 releases cut only from `release/2.x` and receive safety, security, data-loss,
 and broker-compatibility fixes. Those fixes are forward-ported to `main`;
 feature work does not land only on N-1.

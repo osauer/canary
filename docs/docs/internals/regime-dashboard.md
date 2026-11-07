@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-09-06
+Updated: 2026-11-07 07:52 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -12,12 +12,13 @@ confirming each other, or is the market still broadly calm?
 
 The daemon's Stress engine may consume this output, but Stress owns account and
 portfolio action. A portfolio concentration problem can be real even while the
-broad market regime is calm. Since v3.4, `canary regime [--explain] [--json]`
-and `canary stress [--details] [--json]` restore the detailed reads, alongside
-MCP `canary_regime` and `canary_stress`. Brief keeps the summary; the app keeps
+broad market regime is calm. `canary regime [--explain] [--view full|monitor]
+[--json]` and `canary stress [--details] [--json]` give the detailed reads,
+alongside MCP `canary_regime` and `canary_stress`; `--view monitor` returns the
+compact monitor projection. Brief keeps the summary; the app keeps
 its existing detailed projections. Regime JSON omits large gamma profile arrays
-unless `--profiles` (MCP `include_profiles=true`) is requested. Regime/Stress
-history and forced-refresh controls remain retired.
+unless `--profiles` (MCP `include_profiles=true`) is requested. There is no
+regime or stress history command and no forced refresh.
 
 ## Output shape
 
@@ -96,7 +97,7 @@ vol-of-vol pop dominate the broad-market read.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
-| VIX/VIX3M | < 0.92 | 0.92-1.00 | > 1.00 |
+| VIX/VIX3M | < 0.92 | 0.92 to under 1.00 | >= 1.00 |
 | VVIX | < 90, or at level but not rising | >= 90 and +3% over 5 sessions | >= 110 |
 
 VVIX's yellow is a transition, not a zone (vvix_daily_v2). The index has a
@@ -114,9 +115,9 @@ that behaves more like risk assets than Treasuries; SPY is the stock-market
 side of the comparison.
 
 HYG/SPY is the faster market proxy. The Credit spreads row is the slower
-official cash-credit read, comparing high-yield and investment-grade corporate bond
-spreads, where OAS means the extra yield investors demand over Treasuries after
-adjusting for bond options. Credit stress matters because equity rallies are
+official cash-credit read. Its band reads the high-yield option-adjusted spread
+(OAS) only: the extra yield investors demand over Treasuries after adjusting
+for bond options. Credit stress matters because equity rallies are
 less sturdy when lenders are already demanding more compensation for risk.
 
 HYG/SPY can still show a red row by itself. For the cluster count, that
@@ -135,7 +136,7 @@ visible either way; it just does not get to call broad stress alone.
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
 | HYG/SPY | HYG healthy | HYG below 50-DMA | HYG weak while SPY is near highs |
-| HY OAS | < 4.0 and not widening | 4.0-5.5 or widening > 0.50 pp | > 5.5 or widening > 1.00 pp |
+| HY OAS | < 4.0 and widening < 0.50 pp | 4.0 to under 5.5, or widening 0.50 to under 1.00 pp | >= 5.5, or widening >= 1.00 pp |
 
 The HYG 50-DMA and SPY historical annual-high fallback must reach the last
 completed equity session. A live quote cannot freshen an outdated historical
@@ -306,16 +307,17 @@ authority. Both scheduled classes are bounded by the cluster's served
 `max_age_seconds`, so a dead subscription still serving its last value reaches
 `overdue` rather than reading healthy off-hours.
 
-The two bounded states each have one owner. Dealer gamma is `pending` for 30
+Two inputs may read `pending`. Dealer gamma is `pending` for 30
 minutes from the options open while the session's first compute is in flight
 (measured compute ≈ 9 minutes; the window covers a slow open including a
 retry), and `overdue` the moment the typed in-flight marker or the window goes
 away — so a hung compute still surfaces. S&P 500 breadth is `pending` inside
-its 90-minute post-close publication window. A VIX3M poll missed while the
-index is publishing carries the previous print as `stale`, only while live VIX
-has moved under 1% since that print and for at most 15 minutes: VIX3M is the
-slower leg, so a 1% VIX move bounds the printed-ratio distortion near 0.01,
-keeping a true 1.02 away from the 1.05 that would read as backwardation.
+its 90-minute post-close publication window. One input may carry a print
+forward as `stale`: a VIX3M poll missed while the index is publishing keeps the
+previous print, only while live VIX has moved under 1% since that print and for
+at most 15 minutes. VIX3M is the slower leg, so a 1% VIX move bounds the
+printed-ratio distortion near 0.01, keeping a true 1.02 away from the 1.05 that
+makes a red eligible on its first day.
 
 A defect no longer discards the whole read. One cluster that is defective or
 impaired degrades readiness, caps confidence, and is named in
@@ -474,34 +476,41 @@ are unchanged. Only the day-change fields pin.
 
 The headline label is a single wording table shared by `composite.verdict` and
 `posture.label` (`rpc.RegimeHeadline`); CLI, MCP, and SPA render the served
-string:
+string. The first matching row wins. Below three ranked clusters the read
+claims no verdict.
 
-| Cluster state | Regime label |
+| Cluster state, in order | Regime label |
 | --- | --- |
-| 0 red and 0-2 yellow | Normal regime |
-| 0 red and 3+ yellow | Elevated stress watch |
-| provisional (unconfirmed) red only | Watch: one unconfirmed stress signal |
-| any eligible red below confirmation | Stress signal present |
-| stage `confirmed_stress`/`panic` (2 eligible reds, or 1 + tape) | Confirmed stress regime |
+| stage `data_quality` | Market state undefined — data incomplete |
+| no ranked cluster | No usable signal yet |
+| fewer than 3 ranked clusters | Insufficient signal — too few inputs ready |
+| every cluster ranked and eligible red | Full risk-off conditions |
 | 3+ eligible red | Broad stress regime |
-| all ranked clusters eligible red | Full risk-off conditions |
+| stage `confirmed_stress` or `panic` | Confirmed stress regime |
+| at least one red cluster, eligible or not | Stress signal present |
+| one provisional (unconfirmed) red | Watch: one unconfirmed stress signal |
+| more than one provisional red | Watch: unconfirmed stress signals |
+| 3+ yellow | Elevated stress watch |
+| anything else | Normal regime |
 
 Raw indicator counts may also appear. Cluster counts are the primary signal
 because related rows, such as VIX and VVIX, are not fully independent votes;
 `cluster_eligible_red_count` and `cluster_provisional_red_count` split the reds
 by confirmation eligibility.
 
-Lifecycle is a second layer over the row and cluster evidence:
+Lifecycle is a second layer over the row and cluster evidence. The stages are
+tested in the order below and the first match wins. "Tape" means the day's SPY
+and VIX moves, read only on a session that is not a closed date.
 
-| Lifecycle stage | Broad-market meaning |
+| Lifecycle stage | Trigger |
 | --- | --- |
-| `quiet` | Enough data is ranked and no material stress or recovery/opportunity evidence is present. |
-| `early_warning` | Weak, isolated, provisional, or forward-looking evidence is visible, but eligible independent confirmation is not yet present. |
-| `confirmed_stress` | At least two ELIGIBLE stress clusters, or one eligible cluster plus confirming SPY/VIX tape, are active. |
-| `panic` | Three or more eligible stress clusters, or tape severe enough (SPY <= -4%/-7%) that the regime should be treated as acute. |
-| `stabilization` | Stress evidence is easing, but this is not yet a deployable opportunity by itself. |
-| `opportunity` | Constructive tape and low stress evidence are present; this is broad-market context only, not a trade instruction. |
-| `data_quality` | Missing, stale, computing, or degraded inputs prevent a confident lifecycle read. |
+| `data_quality` | Fewer than three clusters are ranked, or the input-currency rules in [How inputs report currency](#how-inputs-report-currency) send the read here. |
+| `panic` | Three or more eligible red clusters; or SPY down 4% or more with at least one eligible red; or SPY down 7% or more. |
+| `confirmed_stress` | Two or more eligible red clusters; or one eligible red with SPY down 2.5% or more, or with VIX up 20% or more; or SPY down 4% or more with at least two clusters yellow or worse. |
+| `early_warning` | Any red cluster, eligible or provisional; three or more clusters yellow or worse; an unconfirmed signal; or SPY down 1.5% or more, or VIX up 10% or more. |
+| `opportunity` | No red, at most one yellow, at least three ranked clusters, SPY up 1.5% or more and VIX down 10% or more. This is broad-market context only, not a trade instruction. |
+| `stabilization` | No red, one or two yellow, and SPY up 1% or more or VIX down 10% or more. Stress is easing, but this is not yet an opportunity. |
+| `quiet` | None of the above. |
 
 `readiness` should be `blocked` or degraded when critical source health is
 stale, partial, computing, or degraded; the severity governor additionally caps

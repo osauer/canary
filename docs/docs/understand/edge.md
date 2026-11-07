@@ -1,5 +1,7 @@
 # Canary Edge
 
+Updated: 2026-11-07 07:52 CET
+
 Canary Edge is a retrospective broker-truth review. It answers three different questions without blending them:
 
 - What happened to the account after confirmed external cash and position flows?
@@ -9,6 +11,12 @@ Canary Edge is a retrospective broker-truth review. It answers three different q
 It describes the price consequences of covered decisions. It does not grade the trader, recommend a trade, or claim that an outcome was caused by a decision. The result is deterministic: the daemon calculates and ranks it; an AI client may explain the typed result but cannot replace its arithmetic.
 
 The normal experience is automatic. Open the Edge tab, run `canary edge`, or call `canary_edge` with no arguments. Canary reviews the retained 365-day broker history, chooses the longest adequately covered horizon, and returns no more than three concrete findings. There is no analysis form to configure and no trade-intent journal to maintain. The shorter window and explicit horizon flags remain optional CLI/MCP inspection lenses, not prerequisites for getting the result.
+
+Edge looks back at what the broker statements show. For a running ledger that
+scores each position change at 5, 10 and 21 sessions, net of the market and
+the underlying's sector fund, per sleeve, use
+[`canary scorecard`](../reference/cli.md#canary-scorecard) or
+`canary_scorecard`.
 
 The window counts statement days. An execution belongs to the day its broker statement reports it, and the review runs from the window's first day through the evidence date, both inclusive; an execution reported after the evidence date is not in it.
 
@@ -137,8 +145,6 @@ authenticated `GET /api/financing/fees` use the same retained daemon evidence.
 Reads do not trigger Flex downloads. Cursors and optional fingerprints reject
 changed account, query, period, filter or statement evidence. Add the optional
 sections through the [existing reporting setup](../start/reporting.md#optional-stock-lending).
-The XML path and display are fixture-tested; a populated IBKR report is still
-required to commission the account-specific schema and P/L/payment linkage.
 
 ## Options: broker actual, in separate scopes
 
@@ -306,7 +312,7 @@ Use `canary edge` for the automatic concise review, `canary edge --json` for its
 
 For a narrower investigation, the terminal and MCP surfaces accept optional 90-day, 1-session, or 5-session overrides. They select another view of the same daemon-published evidence and do not start a refresh. `canary_reporting` gives an AI the same redacted setup and evidence blockers as `canary reporting status`; it cannot receive credentials, validate a candidate, refresh evidence, or change setup. The app loads Edge only when its tab opens. All of these reads expose no trading control.
 
-The exact shared field profile is generated from the parser manifest in the [Canary reporting Flex query reference](../reference/edge-flex.md). Follow [Set up broker reporting](../start/reporting.md) for the Client Portal ceremony.
+The exact shared field profile is generated from the parser manifest in the [Canary reporting Flex query reference](../reference/edge-flex.md). Follow [Set up broker reporting](../start/reporting.md) for the steps in IBKR's Client Portal.
 
 ### Lending research and borrowing rates
 
@@ -360,9 +366,9 @@ No enrollment, watchlist mutation, policy change or order is authorized.
 USD names in the borrowing feed, or exact identities already resolved for a
 displayed research row. Named reads do not initiate missing-feed resolution;
 without either identity, the row remains unavailable.
-The daemon admits at most 150 background unattempted names per research family, then
-progressively admits more on later reads. A single joined worker rotates families
-and refreshes one name at a time on the background lane (35-second bound).
+In the background the daemon first takes at most 150 names per research list
+that it has not yet tried, and admits more on later reads. One worker rotates
+through the lists and refreshes one name at a time, each within 35 seconds.
 Up to 30,000 exact-contract projections are retained while requested, expiring after
 24 hours without interest. Named reads request quotes for 15 minutes; intraday
 receipts expire after five minutes. Completed-session history is reused until the
@@ -386,8 +392,6 @@ candidates; `complete` requires every candidate to have the market fields needed
 by active filters or a market-field sort. With neither, coverage measures price
 and turnover. It does not measure FINRA or borrowing-fee completeness. Missing
 YTD does not block price-only filters.
-Desk's own-list view retains its separate named-rate/local filtering path so
-nonbulk evidence is not silently dropped.
 
 ### Canonical discovery filters and sorting
 

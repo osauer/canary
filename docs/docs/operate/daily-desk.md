@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-11-03 08:22 CET
+Updated: 2026-11-07 07:37 CET
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -43,16 +43,14 @@ checks. Disabled or inapplicable rules are not missing evidence. Full per-row
 reasons remain in `--details`; `canary status` diagnoses runtime and source health.
 [Sensors](../understand/sensors.md) explains freshness and source cadence.
 
-An older daemon without the overview retains the previous full render.
-`canary brief --json` and MCP retain the typed rows and narrative, with the
-additive `narrative.overview` presentation. Presentation does not change the
-row-derived brief fingerprint.
+`canary brief --json` and the `canary_brief` MCP tool carry the typed rows and
+the narrative, with the compact overview under `narrative.overview`.
 
 ## Pure-read process evidence
 
 Rendering the brief never changes process state. The CLI, paired app, and read-only MCP surface all call the same snapshot method, and repeated reads produce no acknowledgement, stamp, reconciliation sign-off, or artefact completion.
 
-Routine clean evidence is machine work. A monthly pulse becomes complete automatically once its due instant and current matching policy evidence are both present. Missing, stale, or conflicting evidence remains blocked and is returned as an exception through the Action Queue. A changed sibling policy counts as conflicting evidence only when the constitution sets `inventory.require_signoff = true`; by default it is informational disclosure and does not hold the pulse. Exceptional reconciliation repair remains a separate, explicit human policy action; merely looking at a report never invokes it.
+Routine clean evidence is machine work. The monthly desk review (the `monthly pulse` row in `canary brief --details`) completes on its own once its due time has passed and current matching policy evidence is present. Missing, stale or conflicting evidence keeps it open: the row reports the exception and the governance producer raises an alert ([Alerts and notifications](alerts.md)). Your risk policy file (`canary policy default constitution` prints its template) records the versions of the rulebook, protection and stress policies it was approved against. A changed one of those counts as conflicting evidence only when the risk policy sets `inventory.require_signoff = true`; by default the change is disclosed and does not hold the review open. Exceptional reconciliation repair remains a separate, explicit human policy action; merely looking at a report never invokes it.
 
 ## Market context
 
@@ -67,8 +65,7 @@ Use `canary macro --json` for cached economic dates and official publications.
 For an overnight review, supply `--window-start YYYY-MM-DD --window-end YYYY-MM-DD`
 (both inclusive, at most 31 days). Filtering happens before response limits;
 `events_truncated` means economic event rows were omitted; `publications_truncated`
-only describes the headline list. Legacy `truncated` is true if either list lost
-rows. Older responses without list-specific flags must be treated conservatively.
+only describes the headline list. `truncated` is true if either list lost rows.
 Dates use each event's source timezone, with exact instants retained when supplied.
 
 The [BLS calendar](https://www.bls.gov/help/hlpiCAL.htm) is public: its calendar
@@ -124,14 +121,14 @@ canary rules
 
 Breaches print first with their offenders; passing rules collapse unless you add `--all`. The daemon ranks the rows, so the hardest breach is already at the top.
 
-A rule that cannot get clean inputs reports `unknown`. It never reports `pass`. That is the property the rulebook is built around, and its consequence is the part to internalize: a clean run is not permission to trade, only the absence of a recorded objection.
+A rule that cannot get clean inputs reports `unknown`. It never reports `pass`. That is the property the rulebook is built around, and its consequence is the part to remember: a clean run is not permission to trade, only the absence of a recorded objection.
 
 ## During the session
 
 The terminal surfaces worth leaving open are `account --watch`, `positions
 --watch`, and `canary market --watch --json`, which streams broker updates and
 names the account and source clock for each. Use the paired app for the
-continuously assembled Monitor and Action Queue rather than rebuilding the
+continuously assembled Monitor and Alerts views rather than rebuilding the
 daemon's market authority from several shell commands.
 
 `rules` and `brief` are checkpoints, not tickers. For conditions that should

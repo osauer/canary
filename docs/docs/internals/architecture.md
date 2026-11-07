@@ -1,5 +1,7 @@
 # Architecture
 
+Updated: 2026-11-07 07:48 CET
+
 `canary` runs on your machine and connects to one Interactive Brokers TWS or IB
 Gateway session. It adapts that session for humans, AI hosts, and the Canary
 app, and it adds a risk harness. One ownership rule shapes the design:
@@ -31,7 +33,7 @@ authority.
 |---|---|---|
 | CLI | One command | Validates input, calls the daemon for broker and runtime work, and renders human or JSON output. A few local-only workflows run without the daemon. |
 | `canary daemon` | Demand-driven background process or foreground service | Owns the broker connections and all runtime state: `daemon.db`, refreshable in-memory views, schedulers, source ingestion, risk-policy execution, proposals, opportunities, and reconciliation. |
-| `canary mcp` | Long-lived child of each MCP host | Speaks MCP JSON-RPC 2.0 over stdio and translates a small read-only tool set into short daemon calls. It exposes no resources, preview, or broker-write tools. |
+| `canary mcp` | Long-lived child of each MCP host | Speaks MCP JSON-RPC 2.0 over stdio and translates its read-only tool set into short daemon calls. It exposes no resources, preview, or broker-write tools. |
 | `canary app` | Independently run or supervised HTTP process | Serves the embedded Canary PWA and owns pairing, auth, and app state. Maintains the live snapshot and quote streams, emits SSE, and can connect to the remote relay and Web Push. |
 | Canary Paired PWA | Browser or iOS Home Screen app | Renders authenticated snapshots, receives SSE and push notifications, and keeps device-side credentials and recovery state. It is a plain PWA, not an Android Trusted Web Activity. |
 | TWS / IB Gateway | Interactive Brokers process outside this repo | Terminates the local TWS API socket and maintains the broker-managed session. |
@@ -40,17 +42,20 @@ The default topology is one daemon shared by the CLI, every local MCP adapter
 process, and the app, over the canonical Unix socket. A flock-backed lock
 enforces one daemon per socket directory. Inside the daemon, a primary broker
 connection serves interactive, account, and gamma work, while a second client
-connection carries the S&P 500 breadth history fan-out.
+connection carries the S&P 500 breadth history fan-out. A third, short-lived
+connection reads the gateway's API settings once per session and closes.
 
 Clients auto-spawn the daemon when the socket is absent unless an explicit
 `canary stop` recorded stop intent. Only `canary restart` clears that intent;
 background clients cannot undo an operator stop. The daemon exits after
-15 idle minutes unless foreground mode disables the timeout. `daemon.db` and
+15 idle minutes (`[daemon].idle_timeout`) unless foreground mode disables the
+timeout. `daemon.db` and
 the separately listed configuration, evidence, and app files survive;
 refreshable in-memory views do not.
 
-Restart reserves startup before quiescing the app and holds that reservation
-through daemon replacement and app resume. Ordinary autostarts wait on the
+Restart takes the startup reservation, a lock that stops any other client from
+starting a daemon meanwhile, before quiescing the app, and holds it through
+daemon replacement and app resume. Ordinary autostarts wait on the
 same reservation and recheck stop intent afterwards. The daemon also acquires
 it before its instance lock, covering older clients that invoke daemon mode
 directly. The selected child inherits the reservation's file descriptor;
@@ -105,17 +110,52 @@ its own spawned PID to own the instance lock before accepting readiness.
   broker credentials.
 - `web/app` is the embedded no-build Canary SPA and its service worker. Global
   account, market, and sync state stays outside individual tab content.
-- The module root package `canary` is the Go daemon client. Its dedicated
-  cash-sweep preference methods sit outside the read-only tool catalogue and
-  change ordering only, without reserve policy or broker authority. It runs the MCP
+- `internal/mandate` evaluates the mandate's risk budget: the loss measure
+  (premium at risk on every bought option plus the cash loss to every working
+  share stop) against the loss room the mandate still allows, and the book's
+  ex-ante volatility, which sizes the sleeve allocations. `internal/core` holds
+  the strategy evaluator's arithmetic (one fund held while a trend filter says
+  so, sized to its sleeve's risk allocation), and `internal/register` lists the
+  compiled strategy rules a register entry may name. `internal/strategy`
+  groups option positions into strategies, `internal/setups` evaluates the
+  fixed volume-setup template, and `internal/scorecard` scores past decisions.
+  All of them do no I/O; only the daemon runs them and serves their results.
+- The module root package `canary` is the Go daemon client. It runs the MCP
   tool catalogue over the daemon socket, one connection per call and under the
-  same per-tool budgets as the MCP server, and holds no policy. `canarytest`
-  serves the same wire types on a temporary socket for tests of embedding
-  programs.
+  same per-tool budgets as the MCP server. Outside that read-only catalogue it
+  carries the methods a desk console such as Canary Desk uses to act through
+  the daemon: `SubmitDeskExecution` sends orders under the standing authority
+  the owner confirmed on a device; `PrepareDeskAuthority`,
+  `ConfirmDeskAuthority` and `ControlDeskAuthority` set and change that
+  authority (the arming); `PrepareDeskOverride` and `ConfirmDeskOverride` grant
+  an override; `ApplyCashPolicy` writes checked cash-policy terms after a
+  device confirmation; `VetoProposal` stops a pending pre-authorised
+  submission; and the cash-sweep preference methods change ordering only. The
+  client evaluates no policy itself: the daemon checks each request against
+  its own gates. `canarytest` serves the same wire types on a temporary socket
+  for tests of embedding programs.
 
 The desk-facing [Trading Policy](../understand/policy.md) reference explains who decides
 each control, what is advisory today, how runtime-local version checks behave,
 and which broker-write gates no policy may weaken.
+
+## Broker-write path
+
+Only a trading build compiles the daemon's send code; a standard build returns
+`ErrTradingDisabled` before writing an order frame, and the MCP server has no
+preview or write tools in either build. In a trading build an order travels in
+two steps. A preview runs the broker's WhatIf check, which creates no order,
+and mints a signed preview token bound to the account, mode, endpoint and
+client ID. A submit redeems that token after the daemon re-checks trading
+status, the account and mode pins, the trading freeze, the order limits and
+the origin of the request. One database transaction then binds the exact
+broker route, records the consumed token, advances the order-ID floor and
+appends the pre-transmit event, and a last guard runs immediately before the
+first byte reaches the socket. Automatic sends (pre-authorised protection and
+a live strategy's rows) take the same path and also need the standing
+authority confirmed on a paired device. [Orders and the trading
+build](../operate/orders.md) has the operator's view and
+[Storage](storage.md#protect-a-broker-transmission) the transaction.
 
 ## Broker seam
 
@@ -124,20 +164,14 @@ interface. The daemon's server holds a concrete `*ibkrlib.Connector` (the
 `connector` field in `internal/daemon/server.go`), and the order path
 (contract resolution for a session, WhatIf previews, order-ID reservation,
 guarded submit and cancel, open-order snapshots, executions) calls methods on
-that concrete type. Measured 2026-11-03 21:14 CET at `37e6242d`:
-
-- `internal/daemon` is the only package that imports `pkg/ibkr`: 134 of its
-  330 non-test Go files do (298 once test files are counted). The CLI, MCP server,
-  app and `internal/rpc` do not import it, though `internal/rpc` contracts
-  carry IBKR identifiers such as ConIDs.
-- 43 non-test daemon files name the concrete `Connector` type, and daemon
-  code uses 179 distinct `pkg/ibkr` identifiers.
-- A match by name finds 131 of the connector's 159 exported methods called
-  from daemon code; matching by name overcounts, so read it as an upper bound.
+that concrete type. `internal/daemon` is the only package that imports
+`pkg/ibkr`. The CLI, MCP server, app and `internal/rpc` do not import it,
+though `internal/rpc` contracts carry IBKR identifiers such as ConIDs. Daemon
+code calls most of the connector's exported methods.
 
 The narrow seams that do exist are small per-feature interfaces, declared in
 the daemon beside the code that uses them so tests can replace the connector.
-Of the 31 interface types in the `internal/daemon` package, 19 are slices of
+Most of the interface types in the `internal/daemon` package are slices of
 the connector:
 
 | Interface | File | What it covers |
@@ -313,9 +347,14 @@ snapshots.
 
 Startup validation finishes before state adapters attach, the RPC socket is
 served, or either broker connection starts. A database that fails it, or that
-carries no `daemon.db.head` watermark, fails closed and waits for explicit
-verified recovery. Corruption is never repaired automatically: recovery and
-broker/order reconciliation are a separate operational procedure.
+carries no `daemon.db.head` watermark (a file outside the database that
+records the newest accepted write), fails closed and waits for explicit
+verified recovery. One case repairs itself: when the damage is confined to
+documents the daemon fetches again on its own (public calendars, chart, regime
+and gamma caches, trading halts), the daemon keeps the damaged files, rebuilds
+the database without them and starts. Any other damage keeps the daemon
+stopped; recovery and broker/order reconciliation are then a separate
+operational procedure.
 [Storage](storage.md) has the durability settings, the validation checklist,
 the upgrade sequence, and the current recovery limits.
 
@@ -349,7 +388,7 @@ one inbox, unread cursor, per-target attempt and receipt ledger, delivery health
 projection, and serialized dispatcher for every alert source.
 
 The first current observation of each source in each authority scope sets that
-source's cutover baseline. A missing sibling source does not hold it back.
+source's cutover baseline, the point from which it may push alerts. A missing sibling source does not hold it back.
 Conditions already active at that boundary remain visible but cannot
 create a backlog push. Later delivery requires a current candidate, current and
 covered evidence from that exact source, an allowed app notification mode, an

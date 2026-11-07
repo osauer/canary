@@ -1,8 +1,12 @@
 # The rulebook
 
+Updated: 2026-11-07 08:23 CET
+
 `canary rules` evaluates twenty discipline checks against the book you are
-holding, using limits you can set, and reports which are breached. Nothing it produces reaches the
-broker.
+holding, using limits you can set, and reports which are breached. Its verdicts
+are advisory: they raise alerts and preview warnings and never send an order.
+A few of its numbers also act as limits that refuse or hold an order; they are
+listed under [Limits that refuse or hold orders](#limits-that-refuse-or-hold-orders).
 
 The [Trading Rulebook](../../../internal-docs/design/trading-rulebook.md)
 design document is the semantic authority for every threshold and edge case,
@@ -38,6 +42,12 @@ component as a measurement: authority, freshness, and evidence reuse.
 creating alerts, and `off` rules are not evaluated. Rules 16 to 18 only watch:
 they never act, never count toward act totals, and never drive a trim.
 
+Several rules treat portfolio protection apart from other options. Portfolio
+protection is a long put on an index listed under `hedge_symbols` in the
+rulebook policy (SPY, SPX, SPXW, QQQ and IWM by default). Rules 1, 2, 5, 12
+and 13 read such a put as protection for the book rather than as a position of
+its own, and rule 12 measures how much of it you hold.
+
 ## Held orders
 
 While rule 3 or rule 15 is at watch or act, whatever its mode, the result
@@ -51,8 +61,9 @@ brings it back and passes, while a put bought or a stock or call sold short is
 held. A close or reduce is never held. An order preview warns a held order with
 `rule_cash_sell_only` or `rule_net_exposure`, and a stock addition plan is held
 only by an add that leaves net exposure further from zero than the book stands.
-Like every Rulebook verdict it is advisory: nothing about submit eligibility
-changes. Rule 15 tracks by default; to have
+Apart from that stock-addition check and the premium limits described under
+[Limits that refuse or hold orders](#limits-that-refuse-or-hold-orders), the
+hold is advisory: the preview warns and submit eligibility does not change. Rule 15 tracks by default; to have
 it raise alerts as well, run `canary rules policy set modes.net_exposure=alert`.
 
 Rule 19 does not put the Rulebook in sell-only, but while margin headroom is
@@ -70,7 +81,7 @@ own issuer). Its worst-case loss comes from valuing every leg on intrinsic
 payoffs at zero, every strike, today's price and a 100% rise
 (`takeover_gap_pct`), from current marks: long stock can lose its value, a long
 option its premium, a short put its strike notional less what it is worth
-now, and a covered call credits only its premium. An early assignment realizes
+now, and a covered call credits only its premium. An early assignment realises
 exactly a short leg's intrinsic value, so the netting holds if any short leg is
 assigned. Index options and options on other underlyings give an issuer no
 credit. The risk-reduction trim starts at the act level and goes back to the
@@ -163,18 +174,46 @@ headroom counts down and triggers only strictly below its levels
 (`margin_headroom_watch_pct`, `margin_headroom_act_pct`). A baseline value is not itself proof that the
 threshold has your approval; set the ones you have decided.
 
-## Advisory by construction
+## Advisory verdicts
 
-The rulebook has no path to the broker. Its verdicts never touch submit
-eligibility or broker-write authorization, and turning it off with
-`features.rulebook.enabled=false` cannot affect broker-write gating either. An
-order preview may carry matching advisory `rule_*` warnings, but they are
-annotations and change nothing about whether it is submittable.
+A row at watch or act is a flag. It can raise an alert, and an order preview
+may carry a matching `rule_*` warning, but the verdict itself never changes
+whether an order can be submitted. Turning the evaluation off with
+`features.rulebook.enabled=false` removes the verdicts and their warnings.
 
 That is deliberate. A hard block on a discipline heuristic fails in the
 direction nobody wants: it stops a correct trade at the worst moment, and it
 teaches you to route around it. The rules are stated so you can disagree with
 one in a specific case and still see the flag.
+
+## Limits that refuse or hold orders
+
+Two order paths read the rulebook policy's numbers as limits, apart from its
+verdicts:
+
+- **Option buys.** While the risk policy carries a `[mandate]` table, an
+  option buy is refused with `mandate_premium` when it would take the premium
+  at risk on its underlying past `option_name_act_pct` of NLV (15% by
+  default), every long option on the name summed and protection included. It
+  is also refused when it would take the book's premium at risk past rule 3's
+  act level (35% of NLV in every regime unless your file sets per-regime
+  levels). A put bought to protect shares you hold is a hedge, not an
+  addition, and passes. Your one-shot override of `mandate.vol_target_pct`
+  lifts both limits for your own orders until it expires, because it is the
+  mandate's one override and you must always be able to act on your own book.
+  The maximum loss, your own sleeve's stop, the order caps and the device
+  confirmation still bind ([Bounded exceptions](risk-policy.md#bounded-exceptions)).
+- **Stock additions.** `canary add` reads rules 1, 12, 15, 16, 17, 18 and 19
+  on the book as it would stand after the purchase. Once the risk policy
+  writes `[position_add] admission_contract = "stock-entry-v1"`, every
+  ordinary stock buy that increases a long position does the same. A row
+  among them that cannot be measured holds the purchase. `canary add plan
+  --max` stops at the largest quantity that keeps those rows below watch; an
+  exact quantity that reaches watch or act carries the row as a warning you
+  confirm at the preview. Rule 15 counts only when the purchase leaves net
+  exposure further from zero, rule 3 never holds a stock buy, and rules 8 and
+  14 only warn. A stock addition is also held while the rulebook policy file
+  is unreviewed or not in force ([Opening or adding stock](risk-policy.md#opening-or-adding-stock)).
 
 ## A rule that cannot see does not pass
 
@@ -222,9 +261,9 @@ saw it. That is all.
 
 A clean rulebook run is not permission to trade and carries no submit
 authority. It says nothing about whether the thesis holds, or whether these
-are the right rules for your account. Every submission stays a
-transaction-specific human decision behind the separate controls described in
-[Trading policy](policy.md).
+are the right rules for your account. Every submission stays your decision,
+for one transaction or for a pre-authorised bucket you armed, behind the
+separate controls described in [Trading policy](policy.md).
 
 ## What history is kept
 

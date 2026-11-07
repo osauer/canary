@@ -1,5 +1,7 @@
 # Storage
 
+Updated: 2026-11-07 07:48 CET
+
 When `canary` restarts, it must pick up the same account context with the same
 safety history: which state was current, which evidence supported a decision,
 which preview tokens were consumed, and how far broker order IDs advanced.
@@ -103,13 +105,13 @@ appear in relational projection tables. Those projections are not the read path
 yet: the main Regime, rules, Stress, and capital-history readers still load
 matching `event_log` JSON and filter it in Go.
 
-[![Physical entity relationships in daemon.db schema version 9](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
+[![Physical entity relationships in daemon.db schema version 10](../../diagrams/sqlite-data-model.svg)](../../diagrams/sqlite-data-model.svg)
 
 [PNG fallback](../../diagrams/sqlite-data-model.png) ·
 [SVG source generator](../../../scripts/render-architecture.mjs) ·
 [Canonical DDL](https://github.com/osauer/canary/blob/main/internal/daemon/corestore/schema.go)
 
-The diagram shows schema version 9. Solid lines are declared SQLite foreign
+The diagram shows schema version 10. Solid lines are declared SQLite foreign
 keys. Dashed lines describe relationships enforced by Go code. A shared name
 such as `scope_key` creates a namespace only when no foreign key joins it.
 
@@ -281,7 +283,7 @@ refresh stored a copy of every row for the new file, which made the version
 tables the largest unbounded grower in `daemon.db`. Like migrations 4 to 6 it
 runs out of place: the upgrade backs up the source, compacts the candidate, and
 retires the large source backup only after a compact target backup and a
-receipt exist (owner instruction 2026-10-30 10:24 CET: "ok go for B1").
+receipt exist.
 Migration 10 adds the `earnings_events` table in place; it rewrites nothing.
 
 ### Backup and restore
@@ -304,8 +306,7 @@ the folder; the next open folds the WAL into the database, so that copy is the
 only record of the page images.
 
 Read that copy only with `sqlite3 "file:daemon.db?immutable=1"`. Opening it any
-other way can fold and empty its WAL too, as a read-write check of a copy did
-on 2026-11-06. Never open the live `daemon.db` with `sqlite3`. Confirm the
+other way can fold and empty its WAL too. Never open the live `daemon.db` with `sqlite3`. Confirm the
 folder exists, then run `canary restart`. The startup check still has the last
 word, as below.
 
@@ -333,8 +334,8 @@ Anything else, including a damaged order, receipt or decision record, keeps
 the daemon stopped and follows the steps below. The damaged copies are not
 cleaned up automatically.
 
-What you see: CLI commands report `daemon socket did not appear within 5s`,
-and the daemon log (`~/.local/state/ibkr/ibkr-daemon.log`, or under
+What you see: CLI commands report `daemon pid N exited during startup without
+opening PATH`, followed by the `start:` line from the daemon log, and the daemon log (`~/.local/state/ibkr/ibkr-daemon.log`, or under
 `$XDG_STATE_HOME/ibkr/`) ends with a `start:` line naming the failed check and
 this section.
 
@@ -402,7 +403,7 @@ or a change stream from each authoritative daemon.
 
 - [Architecture](architecture.md): process, broker, RPC, and state ownership.
 - [Sensors](../understand/sensors.md): measurement authority, source cadence, last-good
-  behavior, and safe operator checks.
+  behaviour, and safe operator checks.
 - [Platform Settings](../../../internal-docs/design/platform-settings.md): the typed daemon document for
   live preferences.
 - [Trading Policy](../understand/policy.md): human-authored limits, and the applied

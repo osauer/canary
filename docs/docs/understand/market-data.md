@@ -1,5 +1,7 @@
 # Market data and entitlements
 
+Updated: 2026-11-07 07:55 CET
+
 Broker market data — quotes, option chains, Greeks, historical bars — arrives
 through your own TWS or IB Gateway session. Nothing is resold or proxied. If a
 symbol is real-time in TWS it is real-time here, and if TWS shows it delayed,
@@ -25,8 +27,23 @@ A paid live subscription is not a product prerequisite. Its delayed label and
 source time remain visible; time-sensitive calculations and execution quotes
 still need their required fresh evidence.
 
-A short list of regime inputs is the exception: they come from the institution
-that publishes them, not from your broker session.
+Some inputs do not come from your broker session at all. The daemon reads them
+from the institution that publishes them:
+
+- The official daily series behind four regime rows (below).
+- Nasdaq's Reg SHO threshold file and trade-halt feed, and its earnings dates.
+- IBKR's public short-stock availability file, read from IBKR's FTP host
+  rather than through the gateway, for borrowing fees.
+- FINRA's twice-monthly short-interest publication.
+- The S&P 500 constituent list and sectors from Wikipedia, for breadth and
+  sector allocation.
+- The release calendars and publications of BLS, BEA, the Federal Reserve, the
+  New York Fed and the ECB, for `canary macro`.
+- TreasuryDirect's bill and security listings and OpenFIGI's identifier
+  mapping, for the cash sweep's bills and held bonds.
+
+None of these needs an IBKR market-data entitlement, and each reports its own
+health ([Sensors](sensors.md)).
 
 ## Series the daemon reads from the publisher
 
@@ -95,14 +112,14 @@ why the same symbol can report differently in two sessions.
 | `delayed` | Direction and rough level. Not a limit price: the number is 15 to 20 minutes old, which is several lifetimes for a short-dated option. Dealer gamma can use it as a coarse daily regime input only when both spot and every option model tick are delayed together. |
 | `delayed-frozen` | Orientation only. It is yesterday's close. |
 
-A quote from either delayed mode is never `quote_quality: firm`. It reads
-`indicative`, or `stale`, `wide` or `prev_close` when those apply, and carries a
-`delayed_feed` warning. That holds for indices too, which have no session
-calendar to mark a value off-hours. During market hours a price is `stale` once
-its timestamp is more than 15 minutes old; a delayed price is judged after
-allowing for the feed's 20-minute lag, so an ordinary delayed print is not.
+A quote from either delayed mode is never `quote_quality: firm`, an index
+quote included. It reads `indicative`, or `stale`, `wide` or `prev_close` when
+those apply, and carries a `delayed_feed` warning. During its market's hours, a
+stock or fund price is `stale` once its timestamp is more than 15 minutes old;
+a delayed price is judged after allowing for the feed's 20-minute lag, so an
+ordinary delayed print is not.
 
-Indices are the gap in that rule. Their hours do not follow their listing
+Indices are never called `stale`. Their hours do not follow their listing
 venue's stock session (VIX trades extended hours, and a Cboe or Nasdaq listing
 says nothing about when an index is calculated), so an index quote carries no
 session calendar and is never called `stale` or off-hours. An index served only
@@ -140,20 +157,24 @@ There are two distinct causes and they need different fixes.
 "Requested market data is not subscribed". Shared ordinary quotes attempt the
 bounded delayed-aware recovery described above. If no usable fallback arrives,
 the restriction remains visible and retries are bounded; repeated reads do not
-hammer the rejected name. While a quote is served delayed after a 354,
+hammer the rejected name.
+
+While a quote is served delayed after a 354,
 `status.market_data_access` keeps naming the refusal until the next live probe,
 30 minutes after the refusal. It is a log of recent refusals, not an
 entitlement register: a probe refused again renews the entry, a probe the
 gateway leaves unanswered does not, and a confirmed live price clears it. The
 quote's own `data_type`, `feed_type` and `delayed_feed` warning say that it is
 delayed for as long as it is.
+
 A 354 that arrives during a data-farm outage may be transient, so it does not
 hold back later live requests and is named there only once a delayed price is
 actually served; until then it is not reported as an entitlement problem.
 Other terminal request failures keep their backoff.
 A reconnect re-arms acquisition. The dealer-gamma retry remains separate and
-requires clock-aligned delayed spot and option evidence. Options are a separate entitlement
-from the underlying stock, which is the usual surprise: a stock quote can be
+requires clock-aligned delayed spot and option evidence.
+
+Options are a separate entitlement from the underlying stock, which is the usual surprise: a stock quote can be
 live while its chain returns nothing.
 
 **A competing live session.** If the same login is already streaming live data
@@ -171,7 +192,7 @@ this, including what each badge string says verbatim.
 | Position marks and quote sensors | Streaming or snapshot market data for that instrument. |
 | Option and exercise sensors | Option market data for the class, typically OPRA. Contract details alone need less. |
 | Gamma engine | Option market data for SPX and SPY. After an RTH IBKR 354 it can retry once on delayed spot plus delayed option-model ticks; mixed clocks and delayed-frozen data are refused. |
-| Breadth engine and `canary technical` | Historical daily bars. No streaming-quote entitlement is involved. |
+| Breadth engine and `canary technical` | Historical daily bars for the exchange, a separate permission from streaming quotes. |
 | Calendar engine | Nothing. It makes no broker call at all. |
 
 Live quotes also consume subscription slots, which retail accounts cap at
@@ -187,9 +208,18 @@ marks the missing quote as the expected state rather than a data-quality
 defect.
 
 The published series above need no broker session at all, so the vol-of-vol,
-cash-credit, and funding rows are unaffected. Daily bars are a separate
-entitlement path from streaming quotes, so `canary technical` and the S&P 500
-breadth engine keep working.
+cash-credit, and funding rows are unaffected.
+
+Daily bars need no streaming-quote subscription, but IBKR can still refuse a
+history read for want of the exchange's market-data permission. For price
+charts and for the mandate's and strategies' daily series, Canary then reads
+it again in delayed mode, where IBKR serves the exchange's bars to an
+account without the subscription; a strategy line on Xetra, for example, is
+sized on its delayed closes. When IBKR serves a line neither live nor
+delayed, the refusal stands: a strategy entry on it holds and names the cause,
+and a mandate verdict that needs it reads unknown. For those daily series,
+Canary warns once, says to add the exchange's market-data
+subscription at IBKR, and asks again once each trading session.
 Breadth is computed from constituent daily bars precisely because the index
 itself is not redistributed on retail subscriptions. Its first build is slow
 for pacing reasons covered in

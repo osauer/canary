@@ -1,9 +1,6 @@
 # Cash management
 
-Updated: 2026-10-06 20:58 CEST
-
-Canary 3.18 and earlier read the cash sweep at `[buckets.cash_sweep]` and
-have no currency leveling; this page describes the versions after it.
+Updated: 2026-11-07 08:23 CET
 
 The cash sweep and currency leveling manage cash rather than protect
 positions: the sweep buys bills of the same currency with idle cash, and
@@ -27,19 +24,14 @@ pre_authorised = []   # ["cash_sweep"] lets the daemon place the sweep's bill or
 raising `policy_version`, lets the daemon place the sweep's bill buys and
 redemptions itself after the notice and the full veto window, each held to
 the sweep's order cap in force; the window is the one in `[authority]
-veto_window`, shared with protection ([Pre-authorised
-buckets](protection.md#pre-authorised-buckets)). Currency leveling cannot be
+veto_window`, shared with protection. The list alone sends nothing: the
+daemon places those orders only while a standing authority, Protection or
+Fully armed, has been signed on a paired device ([Pre-authorised
+buckets](protection.md#pre-authorised-buckets)). Until then the rows wait for
+you, and `canary proposals status` names them. Only Canary Desk, a private
+project, can sign that authority. In an open-source install nothing is armed,
+so every pre-authorised row and every automatic sweep order waits for you. Currency leveling cannot be
 listed: you approve each repayment.
-
-A file written before cash management had its own section keeps working:
-Canary reads `[buckets.cash_sweep]` as `[cash.sweep]` and `cash_sweep` in
-`[authority] pre_authorised` as the `[cash]` entry. At its next start the
-daemon moves them, after a backup: it rewrites those headers and that one
-entry, keeps every value and comment and changes no setting. The same start
-writes `[cash.leveling]`, off, into a file without it and raises
-`policy_version` by one; `canary policy ensure --dry-run` shows both
-beforehand. A file that writes the sweep in both places is refused until one
-is removed.
 
 ## Changing cash settings from Desk
 
@@ -65,7 +57,10 @@ other line stays as it was. Canary backs the file up beside it first
 (`<file>.bak-desk-<UTC time>`), replaces it in one write readable by you
 only, adopts it at once and keeps a receipt of the save.
 
-You confirm each save with a passkey or in Desk's companion app. After a save
+You confirm each save on a device you hold: with a passkey (a sign-in
+credential stored on that device) or in Desk's companion app on a paired
+device. Each confirmation has an action id, such as `7f3c2a90` above, and the
+comment on each changed line names it. After a save
 you confirmed on your device, further saves from the same Desk console
 session need no new confirmation for as long as `[cash]
 confirmation_window` says, unless they let more reach the broker. The
@@ -123,8 +118,8 @@ the others; DAY, regular hours) through every gate any proposal meets (trading f
 authority, the bill's session, a live two-sided quote read during the preview,
 the order cap in force of `[order_limits]` unless the bill exemption applies, broker WhatIf), and it is sent only when you approve
 it, or by the daemon after the full veto window when you list `cash_sweep`
-under `[cash] pre_authorised`. Without that listing, your approval of each
-order is the last step.
+under `[cash] pre_authorised` and a standing authority is armed. Without both,
+your approval of each order is the last step.
 
 ```toml
 [cash.sweep]
@@ -158,8 +153,8 @@ authorise a sweep. An optional authenticated read-only Web API connection can
 provide the missing observation; see [Settlement evidence](cash-ledger.md).
 **Committed** is working buy orders with a fixed finite limit plus armed, held
 or sending queued buys at their finite worst price. An unknown principal or
-commission bound or a nonfinite total holds the sweep. Outstanding buy records
-currently lack fee envelopes, so new sweeps wait while such buys remain.
+commission bound or a nonfinite total holds the sweep. Outstanding queued buy
+records carry no fee bound, so new sweeps wait while such buys remain.
 A prepared, unarmed queue entry or an
 unapproved proposal never counts. A currency conversion of either side
 working at the broker makes every currency's commitments unknown, so the
@@ -191,10 +186,29 @@ fallback ETF acts only after a completed contract search finds no bill line;
 until you write its `etf_symbol` and `etf_exchange` the status names them under
 `needs_your_number`, and the bills still plan.
 
+A currency table takes three more optional keys. `ladder_rungs` is how many
+target maturities the ladder spreads evenly between `min_maturity_days` and
+`max_maturity_days`. US and euro bills settle on a route Canary maintains:
+SMART, USD one business day after the trade, EUR two (one for trades from
+11 October 2027). `settlement_exchange` and `settlement_days` override that
+route for a currency, and `settlement_valid_through` ends an override on a
+date.
+
+Two optional `[cash.sweep]` keys set an order and a shared cushion.
+`currency_priority` (`usd_first`, `balanced` or `eur_first`) sets the order in
+which currencies' rows are proposed and sent: sales that restore cash always
+go first, then USD or EUR first, or with `balanced` the largest free cash
+first. It never converts, and the runtime setting
+`cash_sweep.currency_priority` overrides it. `reserve_cushion_eur` is one
+cushion for the whole account, in EUR, split between EUR and USD by their
+funding needs (10,000 when only `currency_priority` is written). Writing
+either key switches on this reserve: it works only in an account whose base
+currency is EUR, it needs current funding, stress and exit evidence, and
+while that evidence is missing every currency holds, buys and sales alike.
+
 ### Reserve and order sizing
 
-Owner decisions of 2026-10-05 18:35 CEST. All figures are in the account's
-base currency at the ledger rate.
+All figures are in the account's base currency at the ledger rate.
 
 - **Reserve kept as cash** is the largest of `reserve_floor_base`,
   `reserve_pct_nlv` percent of net liquidation value, and the cash planned
@@ -219,7 +233,7 @@ base currency at the ledger rate.
   and the order cap follow net liquidation value, so without the grid the
   quantity would change on every refresh and an approval would go stale; with
   it the quantity changes only when free cash crosses a step, about a 10,000
-  move in NLV at 10% (owner decision 2026-10-06 08:22 CEST).
+  move in NLV at 10%.
 - **Fail closed.** When a percentage is above 0 and net liquidation value
   cannot be read, every currency holds with nothing bought or sold, and no row
   carries a trading-cap exemption.
@@ -233,7 +247,7 @@ base currency at the ledger rate.
   `trading_cap_exempt_up_to_base`, and both preview and submit check it.
   Without the key, the exemption is off.
 
-- **No buys while borrowed.** Owner decision of 2026-10-05 21:24 CEST. With
+- **No buys while borrowed.** With
   `no_buy_while_borrowed = true`, the sweep buys no bill in any currency while
   any currency's cash is negative by more than 1 unit of that currency. A
   negative balance is a margin loan, and its interest usually costs more than
@@ -359,6 +373,33 @@ order already working for the same bill and side, or sent and not yet
 acknowledged, holds a new preview until it fills or is cancelled; working
 bond buys count as committed cash, and a bill sold inside the settlement
 window counts toward `keep_cash` until it settles.
+
+### Benefit estimate
+
+Every buy preview estimates, in base currency, what the bill earns over
+keeping the cash: the face value paid at maturity, less the purchase at the
+higher of the limit and the ask, less the broker's maximum commission, less
+the interest the cash would have earned until maturity. That interest uses
+the broker's own credit rate on the currency, shown as the row's
+`cash_interest` and read from the Interest Details (Tiers) section of the
+Flex statement ([Optional cash interest
+rates](../start/reporting.md#optional-cash-interest-rates)). Without that
+section the estimate reads unavailable; Canary never assumes a rate. A buy
+whose estimate is zero or less is refused with `cash_sweep_no_net_gain`.
+
+An estimate Canary cannot calculate does not hold the buy. The preview's
+`cash_sweep_economics` then reads `state = "unavailable"`, and its `message`
+names what was missing: the broker's cash rate, the commission, the price or
+the bill's maturity. You can still approve the buy, and a pre-authorised sweep
+still places it after the veto window.
+
+`min_net_gain`, in base currency, is an advisory benchmark above that floor.
+An estimate below it reads `below_benchmark`, and nothing else changes: the
+order keeps the quantity and price you reviewed, and it can still be placed.
+`canary policy check` warns with `sweep_minimum_uneconomic` when the sweep's
+smallest bill order is not worth its commission. That is the case when the
+order, held until the shortest rung matures, would earn less than its
+commission above the interest the same cash earns at the broker.
 
 The snapshot's `cash_sweep` status lists every currency the account ledger
 reports, with its figures and a state:
@@ -556,3 +597,15 @@ the planning prices, and `cushion`, both in the loan's own unit), a
 `currency_leveling` block on each row (with `funding_after`, what its payer
 keeps after it), and `counts.currency_leveling` counts the rows. Set `enabled = false`, or
 remove the table, and raise `policy_version` to stop it.
+
+## Files written by older versions
+
+A file written before cash management had its own section keeps working:
+Canary reads `[buckets.cash_sweep]` as `[cash.sweep]` and `cash_sweep` in
+`[authority] pre_authorised` as the `[cash]` entry. At its next start the
+daemon moves them, after a backup: it rewrites those headers and that one
+entry, keeps every value and comment and changes no setting. The same start
+writes `[cash.leveling]`, off, into a file without it and raises
+`policy_version` by one; `canary policy ensure --dry-run` shows both
+beforehand. A file that writes the sweep in both places is refused until one
+is removed.

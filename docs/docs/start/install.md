@@ -1,6 +1,6 @@
 # Install and first run
 
-Updated: 2026-11-03 14:10 CET
+Updated: 2026-11-07 07:48 CET
 
 `canary` is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.
 
@@ -17,11 +17,7 @@ There is no Windows build. The daemon uses `setsid`, `flock`, and AF_UNIX socket
 
 On Linux, `canary stop`, `canary restart` and the restart after `canary update` read process identity from `/proc`, so they need no `ps` and work the same on BusyBox systems such as Alpine. Before Canary signals a process, it checks that the PID in the daemon's lock file runs `canary daemon`, and it refuses an unrelated or unreadable process without sending a signal. An amd64 binary run on an arm64 host through qemu-user emulation is recognised by its interpreter. Other emulators, such as Rosetta for Linux, FEX or box64, are not: `stop` names the command it saw and leaves the daemon running, so stop it yourself with `kill`.
 
-### Upgrading from v3.26.2 or earlier
-
-If your app uses a path containing spaces, or you run separate HOME/XDG profiles, use `canary update --no-restart` first. Then invoke the newly installed `canary restart` from the app's original profile. The older updater performs activation with its own old restart code even after replacing the file, so its `--restart` cannot apply these fixes. Trading-build users should install the new trading artifact through their existing installation procedure before restarting.
-
-From v3.26.3, app lifecycle commands verify the app's effective HOME, socket, config and state paths before stopping it. A different or unreadable profile is refused without stopping a process; use the app's original environment. Relative profile paths and relative app `--state-dir`/`--log` values need absolute paths. Custom launchd jobs with their own environment or working directory require explicit supervisor management; automatic lifecycle commands leave them untouched. An older saved supervisor recovery record has no profile identity: recover it with `canary setup app` from its original profile instead of automatically resuming it under the current environment.
+Upgrading an existing install is covered in [Updating](updating.md).
 
 ## Pick an install path
 
@@ -29,7 +25,7 @@ From v3.26.3, app lifecycle commands verify the app's effective HOME, socket, co
 | --- | --- | --- |
 | Claude Desktop bundle | Open [`canary.mcpb`](https://github.com/osauer/canary/releases/latest/download/canary.mcpb) with Claude Desktop | Claude Desktop is your only host. The bundle carries its own macOS and Linux binaries. |
 | Shell installer | `curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh \| sh` | You want one shared binary for the terminal and for every MCP host. |
-| Public Go module / v2 CLI | `go install github.com/osauer/canary/v2/cmd/canary@latest` | You intentionally want the maintained v2 Go line. This does not install product v3. |
+| Public Go module / v2 CLI | `go install github.com/osauer/canary/v2/cmd/canary@latest` | You intentionally want the newest v2 release. This does not install v3. |
 | Release tarball | Download `canary-vX.Y.Z-<os>-<arch>.tar.gz`, verify it against `SHA256SUMS` | You verify downloads by hand, or you install to a managed location. |
 | Clone and build | `make install GO_TAGS=""` | You are working on the code. |
 
@@ -37,18 +33,17 @@ Plain `make install` and `make restart-daemon` use this repository's experimenta
 
 The [Claude Desktop install page](../../claude-desktop-interactive-brokers/index.html) walks through the bundle step by step. [Packaging and distribution](../internals/packaging.md) describes what each artifact contains.
 
-Product v3 and later use the signed installer, MCPB, or release tarballs. The
+Version 3 installs through the signed installer, MCPB, or release tarballs. The
 public Go module remains `github.com/osauer/canary/v2`: Go ignores root v3 tags
-for that module path, so `/v2/...@latest` continues to resolve the newest valid
-v2 tag. This keeps existing library consumers and source-built v2 installations
-on their maintained major instead of silently crossing the product boundary.
+for that module path, so `/v2/...@latest` resolves the newest v2 tag. Existing
+library consumers and source-built v2 installations stay on v2 instead of
+crossing to v3 without asking.
 
 ## Current source and signed releases
 
-The documentation and MCP discovery catalogue follow `main`. FX contribution
-and lending-fee reporting are included in v3.16.0 signed binaries and MCPB.
-Future commands and tools can appear here before a signed release. Check your
-installed `canary --help` and the
+The documentation and MCP discovery catalogue follow `main`, so a command or
+tool can appear here before a signed release carries it. Check your installed
+`canary --help` and the
 [latest release](https://github.com/osauer/canary/releases/latest).
 
 To try current source with a read-only build:
@@ -67,8 +62,8 @@ Go, Make and the versions declared in the repository are required.
 
 1. Detects your OS and architecture, and refuses anything other than Darwin or Linux on arm64 or amd64.
 2. Resolves the latest release by following the `/releases/latest` redirect, so it makes no API call and cannot hit a rate limit.
-3. Downloads the tarball, `SHA256SUMS`, and `SHA256SUMS.asc`. From v1.0.0 onward a missing signature aborts the install rather than falling back to a checksum-only path.
-4. Imports the release-signing key from the tagged source tree into a throwaway keyring, checks its fingerprint against `D98426D48FED85EFA33904694D922A4F922B7D7D`, and verifies the signature. A fingerprint or signature mismatch aborts. `gpg` is required for v1.0.0 and later.
+3. Downloads the tarball, `SHA256SUMS`, and `SHA256SUMS.asc`. A missing signature aborts the install rather than falling back to a checksum-only path.
+4. Imports the release-signing key from the tagged source tree into a throwaway keyring, checks its fingerprint against `D98426D48FED85EFA33904694D922A4F922B7D7D`, and verifies the signature. A fingerprint or signature mismatch aborts. `gpg` is required.
 5. Verifies the SHA-256 checksum.
 6. Lists the archive before extracting it. Anything beyond `canary`, `LICENSE`, and `README.md` is rejected, and a symlinked `canary` is rejected too.
 7. Installs the binary mode 0755 into `~/.local/bin`, or into `CANARY_INSTALL_DIR` if you set one.
@@ -80,7 +75,7 @@ Prefer to read it first: `curl -fsSL https://raw.githubusercontent.com/osauer/ca
 
 ## Check it worked: `canary status`
 
-`canary status` is the one command worth memorizing. It answers whether the daemon is up, whether the gateway handshake completed, which endpoint and account it landed on, and which subsystem is still warming.
+`canary status` is the one command worth memorising. It answers whether the daemon is up, whether the gateway handshake completed, which endpoint and account it landed on, and which subsystem is still warming.
 
 ```sh
 canary status
@@ -89,19 +84,21 @@ canary status
 A healthy install prints something close to this. The values below are synthetic:
 
 ```text
-IBKR Gateway  READY
+Canary  READY
 
-Session        DU0000000 via 127.0.0.1:4001 (tls=false, discovered), client 15
+Session        DU0000000 (PAPER) via 127.0.0.1:4002 (tls=false, discovered),
+               client 15
 Market data    Live
-Daemon         v1.0.0, up 30m42s
+Daemon         v3.34.1, up 30m42s
 TWS            API server 178
 Gateway setup  as expected · read 09:02
-Executions     other-client fills not yet observed · check TWS Master API client
-               ID is 15
+Executions     other-client fills not yet observed · required TWS Master API
+               client ID: 15
 SPX members    cache:2026-05-22, 503 names
+Colors         Amber = row needs attention; headline = overall Canary status.
 ```
 
-The badge on the first line is `READY`, `STARTING`, `ATTENTION`, or `OFFLINE`. `discovered` on the Session row means the port came from the probe; `pinned` means it came from your config file. Rows for data farms, market access, background work, subsystems, trading, and data quality appear only when they have something to say, and a `Next concern` row appears only when there is one.
+The badge on the first line is `READY`, `STARTING`, `ATTENTION`, or `OFFLINE`. When it is not `READY`, a `Reason` row directly below it names the cause. `discovered` on the Session row means the port came from the probe; `pinned` means it came from your config file. Rows for data farms, market access, background work, subsystems, trading, and data quality appear only when they have something to say.
 
 The `Executions` row reports evidence of fills from other clients. Before one is observed, visibility is unproven even if TWS is already configured correctly. TWS reports fills entered by hand or by other API clients only to its master client, so the execution cost report and the decision scorecard see them only after you set **Global Configuration → API → Settings → Master API client ID** in TWS to Canary's client ID; the row reads `all clients (proven HH:MM)` once the first such fill has been seen, and `canary status --json` carries the same facts under `executions`.
 
@@ -116,21 +113,22 @@ It lists what the gateway refused, when, and when Canary will ask again — IBKR
 On a first run with no IBKR app open, the badge is `OFFLINE` and the `Last attempt` row says what the daemon found and what to do next. The values below are synthetic:
 
 ```text
-IBKR Gateway  OFFLINE
+Canary  OFFLINE
+Reason         Broker data connection unavailable
 
 Session        auto-detect via 127.0.0.1 (tls=false), client 15
 Market data    unavailable until connected
-Daemon         v1.0.0, just started
+Daemon         v3.34.1, just started
 TWS            not connected
 Last attempt   no IBKR listener found on 127.0.0.1 ports [4001 4002 7496 7497]
                (probe timeout 200ms); no TWS / IB Gateway / IBKR Desktop process
                found — start one and Canary will reconnect automatically
-Next concern   Broker data connection unavailable
 
   Daemon log: ~/.local/state/ibkr/ibkr-daemon.log
+Colors         Amber = row needs attention; headline = overall Canary status.
 ```
 
-The `Last attempt` row is the daemon's own verdict on its last connect attempt, printed as written: no IBKR app running, a port that refuses the connection while an app runs (with the setting to check, or the `[gateway]` port to pin in `config.toml`), a handshake that did not finish, or a port that accepts connections and drops them. [Troubleshooting](troubleshooting.md) explains each message. The `Next concern` row keeps the daemon's overall verdict.
+The `Last attempt` row is the daemon's own verdict on its last connect attempt, printed as written: no IBKR app running, a port that refuses the connection while an app runs (with the setting to check, or the `[gateway]` port to pin in `config.toml`), a handshake that did not finish, or a port that accepts connections and drops them. [Troubleshooting](troubleshooting.md) explains each message. The `Reason` row keeps the daemon's overall verdict.
 
 When the daemon has no verdict from the gateway yet, `status` polls every 500 ms for up to 25 seconds before giving up, then prints the daemon log path, and the API checklist when the daemon has not yet said why the handshake stalls. When the gateway is not connected, the command exits 1; `canary status --json` carries the same verdict under `verdict` and the connect error under `last_error`, which makes it usable in a script.
 
@@ -138,9 +136,9 @@ No config file is needed for this. The daemon probes `4001` (Gateway live), `400
 
 ## Two things that surprise people
 
-**The daemon starts itself.** Any daemon-backed command dials the Unix socket, and starts `canary daemon` in its own session when the socket is missing, waiting up to 5 seconds for it to appear. You never start it by hand. One daemon serves the CLI and every MCP host, so they share a single gateway connection and client ID. It exits once 15 minutes pass with no client connection and no background work in flight, which `[daemon].idle_timeout` controls.
+**The daemon starts itself.** Any daemon-backed command dials the Unix socket, and starts `canary daemon` in its own session when the socket is missing. It waits for the socket for 5 seconds plus 6 seconds per 40 MiB of `daemon.db`, up to four hours, because the daemon checks its whole database, and may upgrade it, before it accepts connections. A daemon that exits during start-up is reported at once. You never start it by hand. One daemon serves the CLI and every MCP host, so they share a single gateway connection and client ID. It exits once 15 minutes pass with no client connection and no background work in flight, which `[daemon].idle_timeout` controls.
 
-**The first breadth build takes about 74 minutes.** S&P 500 breadth is computed locally from constituent daily bars, because IBKR does not redistribute S&P DJI's breadth indices on retail subscriptions. The shared historical-data limiter allows an initial 60 requests and then refills at 0.1 per second, so the remaining 443 names pace out to roughly 74 minutes on a cold cache. Nothing is broken while that runs: `canary status` shows `breadth:computing` and a `Background` row reading `refreshing rolling SPX breadth`. The snapshot is published only once coverage reaches 80% of the member count; below that the engine keeps the per-name windows it did fetch, retries every 12 minutes, and gives up after 15 tries until the next post-close refresh. The idle timer will not cut the build short: breadth counts as background work, so the daemon stays up until the refresh finishes or the retry budget runs out. Later refreshes are quick, and the cache survives restarts.
+**The first breadth build takes about 74 minutes.** S&P 500 breadth is computed locally from constituent daily bars, because IBKR does not redistribute S&P DJI's breadth indices on retail subscriptions. The shared historical-data limiter allows an initial 60 requests and then refills at 0.1 per second, so the remaining 443 names pace out to roughly 74 minutes on a cold cache. Nothing is broken while that runs: `canary status` shows `breadth:computing` and a `Background` row reading `refreshing rolling SPX breadth`. The snapshot is published only once coverage reaches 80% of the member count; below that the engine keeps the per-name windows it did fetch and tries again every 12 minutes until a pass reaches 80%, with no limit on the number of tries. The idle timer will not cut the build short: breadth counts as background work while a pass runs and while a retry is pending, so the daemon stays up until the snapshot is published. Later refreshes are quick, and the cache survives restarts.
 
 ## Where things land
 

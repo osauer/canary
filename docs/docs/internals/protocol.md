@@ -1,6 +1,6 @@
 # TWS wire protocol
 
-Updated: 2026-11-03 08:22 CET
+Updated: 2026-11-07 07:48 CET
 
 `pkg/ibkr` is a clean-room Go implementation of the TWS wire protocol. It is
 not a full replacement for every TWS API method; it covers the broker reads and
@@ -27,7 +27,7 @@ preview, place, modify, cancel, or exercise tools.
 Order caps bind every equity/ETF or single-leg option order, including an
 apparent close or reduction that does not lower its underlying's absolute
 delta. They are the risk constitution's `[order_limits]`
-in force (owner decision 2026-10-05 19:56 CEST): the notional cap is
+in force: the notional cap is
 min(ceiling, max(floor, pct × NLV)) from the last current account reading, the
 floor when NLV cannot be read, and a missing key refuses every preview with
 `order_risk_limit` naming it. `trading.status` and `risk_policy.snapshot` carry
@@ -50,8 +50,7 @@ then only up to the sweep's own order cap in force, for a same-currency bill
 with no conversion ([Reserve and order sizing](../operate/cash.md#reserve-and-order-sizing)).
 A close or reduction that lowers the absolute net delta of its underlying and
 of the whole book, and leaves no short option uncovered, passes the notional
-cap and the option-contract cap (owner decisions 2026-10-07 08:13 and 09:51
-CEST): the daemon measures every equity and option leg with the position
+cap and the option-contract cap: the daemon measures every equity and option leg with the position
 deltas its risk verdicts use, at preview and again at admission, reads the
 open-order inventory so the order and every other working order in its
 direction stay within the held line, and the first-byte guard reuses the
@@ -68,11 +67,14 @@ same concrete broker session. A reconnect or redemption-time change rejects
 the token. The first-byte guard treats the redeemed value as immutable for that
 session and never issues a new broker request or reparses an unstamped cache.
 
-Option-exercise preview likewise returns the typed
-`exercise_submission_unavailable` blocker and mints no token because exact
-option-to-underlying risk policy and durable one-shot authority are not yet
-approved. These disabled daemon capabilities do not become available merely
-because the lower-level wire method or a platform workflow setting exists.
+Option exercise uses the same preview-token path. An exercise preview that
+passes every check mints a token that expires after five minutes and binds the
+account, mode, endpoint, client ID, the opportunity's key and revision, the
+underlying contract and the portfolio generation. A submit revalidates the
+opportunity, requires the exact quantity and verifies that token; only a
+trading build then sends the exercise, inside the daemon's bound broker-write
+transaction. A daemon capability does not become available merely because the
+lower-level wire method or a platform workflow setting exists.
 
 ## Using the package
 
@@ -227,22 +229,25 @@ paired with an existing reduce/cover proposal.
 
 | Capability | Wire opcodes | Library entry point | Status |
 |---|---|---|---|
-| Account summary | `reqAccountSummary` (62), `accountSummary` (63), `acctValue` (6) | `Connector.RequestAccountSummary`, `GetAccountSummary` | ready |
-| Positions + portfolio | `reqPositions` (61), `position` (61), `portfolioValue` (7), `$LEDGER:ALL` | `Connector.CachedPositions` | ready |
+| Account summary | `reqAccountSummary` (62), `accountSummary` (63), `acctValue` (6) | `Connector.RequestAccountSummary`, `Connection.GetAccountSummary` | ready |
+| Positions + portfolio | `reqPositions` (61), `position` (61), `reqAcctData` (6), `portfolioValue` (7), `acctDownloadEnd` (54), `$LEDGER:ALL` | `Connector.CachedPositions` | ready |
 | Snapshot quote | `reqMktData` (1) snapshot=true, `tickPrice` (1), `tickSnapshotEnd` (57) | `Connector.FetchMarketSnapshot` | ready |
 | Streaming quote | `reqMktData` (1) snapshot=false, `tickPrice` / `tickSize` / `tickGeneric` / `tickString` | `Connector.SubscribeMarketData`, `MarketDataSnapshot` | ready |
 | Generic-tick set | gen-ticks `100,101,104,106,165,221,233,236` (option volume, open interest, historical and implied vol, misc stats, mark price, RTVolume, shortable) | populated into `MarketData` automatically | ready |
 | Contract resolution | `reqContractData` (9), `contractData` (10) | `Connector.FetchContractDetails` | ready |
 | Option chains | `reqSecDefOptParams` (78), `tickOptionComputation` (21) | `Connector.FetchOptionExpiries`, `FetchOptionExpiryStrikes`, `OptionGreeks`, `OptionIV` | ready |
-| Daily historical bars | `reqHistoricalData` (20), `historicalData` (17), `historicalDataEnd` (17) | `Connector.FetchHistoricalDailyBars`, exact-contract `Connector.FetchHistoricalDailyFeeRates` | ready; `FEE_RATE` is a held-short daemon fallback and remains policy-ineligible until its scale fixture is commissioned |
+| Daily historical bars | `reqHistoricalData` (20), `historicalData` (17), `historicalDataEnd` (108) | `Connector.FetchHistoricalDailyBars`, exact-contract `Connector.FetchHistoricalDailyFeeRates` | ready; `FEE_RATE` is a held-short daemon fallback and remains policy-ineligible until its scale fixture is commissioned |
 | Market-data type switch | `reqMarketDataType` (59), `marketDataType` (58) | `Connector.SetMarketDataType` | ready |
 | Unrestricted order placement / cancel | `placeOrder` (3), `cancelOrder` (4) | `Connector.SubmitOrder`, `CancelOrder`; `Connection.PlaceOrder`, `CancelOrder` | disabled by default (`ErrTradingDisabled`); `-tags trading` only |
 | Paper-gated order placement / cancel | `placeOrder` (3), `cancelOrder` (4) | `Connector.SubmitPaperOrder`, `CancelPaperOrder`; `Connection.PlacePaperOrder`, `CancelPaperOrder` | all builds; validates paper account and connection coordinates, but does not replace application authorization |
 | Broker WhatIf preview | `placeOrder` (3) with WhatIf | `Connector.PreviewOrderWhatIf`, `Connection.PreviewOrderWhatIf` | all builds; broker evaluation that does not create a working order, never submit authority |
-| Option exercise / lapse | `exerciseOptions` (21) | `Connector.ExerciseOptions`, `Connection.ExerciseOptions` | low-level wire disabled by default (`ErrTradingDisabled`) and `-tags trading` only; daemon preview/submission remains typed-disabled with no token |
-| API open-order snapshot | `reqAllOpenOrders` (5) | `Connector.SnapshotOpenOrders`, `Connection.RequestAllOpenOrders` | all builds; covers API-created orders across clients, not manual TWS orders by itself |
+| Option exercise / lapse | `exerciseOptions` (21) | `Connector.ExerciseOptions`, `Connection.ExerciseOptions` | low-level wire disabled by default (`ErrTradingDisabled`) and `-tags trading` only; the daemon sends an exercise only against a five-minute exercise preview token |
+| API open-order snapshot | `reqAllOpenOrders` (16) | `Connector.SnapshotOpenOrders`, `Connection.RequestAllOpenOrders` | all builds; covers API-created orders across clients, not manual TWS orders by itself |
+| Executions | `reqExecutions` (7), `execDetails` (11), `execDetailsEnd` (55) | `Connector.FetchExecutions`, `FetchExecutionsFiltered` | ready; read-only; the `LastNDays` filter needs server version 200 or later |
+| Daily P&L | `reqPnL` (92), `reqPnLSingle` (94), `pnl` (94), `pnlSingle` (95) | `Connector.SubscribeAccountPnL`, `SubscribePositionDailyPnL` | ready; read-only |
+| API settings read | protocol 219 on a separate connection: `startApi` (271), config request (308), config reply (310) | `Connector.ReadAPIConfig` | all builds; read-only, closes after the read |
 | Real-time bars | `reqRealTimeBars` (50) | - | not implemented |
-| Market depth (L2) | `reqMktDepth` (10), `reqMktDepthL2` (13) | - | not implemented |
+| Market depth (L2) | `reqMktDepth` (10) | - | not implemented |
 | Fundamental data | `reqFundamentalData` (52) | - | not implemented |
 | Wall Street Horizon earnings dates | `reqWshMetaData` (100), `reqWshEventData` (102) | `Connector.FetchWSHEarnings` | ready; read-only, subscription-gated |
 | News bulletins | `reqNewsBulletins` (12) | - | not implemented |
@@ -267,6 +272,6 @@ resubscribe complete it. Without a positive gross position value the end marker
 alone completes the generation; so it does without a rate for a held currency,
 and the log says so.
 
-Tests exercise handshake and parser behavior across IB Gateway server versions
+Tests exercise handshake and parser behaviour across IB Gateway server versions
 100 through 203. Runtime connections reject versions below 124 and negotiate
 the highest supported protocol version with newer gateways.

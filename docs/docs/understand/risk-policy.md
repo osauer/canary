@@ -1,6 +1,6 @@
 # Writing a risk policy
 
-Updated: 2026-11-02 10:22 CET
+Updated: 2026-11-07 08:23 CET
 
 The personal risk policy is one TOML file you review and edit. It holds the
 capital numbers, drawdown ladder, exception cap, reconciliation tolerances, and
@@ -35,7 +35,9 @@ When no file exists, the installer and each daemon start write a skeleton
 there, and `canary policy default constitution` prints the same file. Every
 capital key arrives commented out, the base currency and the `[inventory]`
 pins included; the only values filled in are the structural envelope below
-and `[order_limits]`. The capital placeholders carry no recommendation; the
+and `[order_limits]`. The `[mandate]` tables arrive as commented proposals;
+once you write `[mandate]`, the next daemon start writes four of its default
+tables for you (see the table below). The capital placeholders carry no recommendation; the
 `[order_limits]` values are Canary's starting limits and apply until you change
 them. The file opens
 with `# Canary defaults, not yet reviewed.` until you delete that line. A file
@@ -61,22 +63,27 @@ integer you raise on each revision.
 
 | Section | Keys | What the numbers govern |
 |---|---|---|
-| `[capital]` | `base_currency`, `protected_floor`, `declared_risk_capital`, `max_equity_age_minutes`, `max_unreconciled_days` | The currency every figure is stated in, equity that is never risk capital, the money you have authorized to be at risk, and how stale an equity reading or a reconciliation may get |
+| `[capital]` | `base_currency`, `protected_floor`, `declared_risk_capital`, `max_equity_age_minutes`, `max_unreconciled_days` | The currency every figure is stated in, equity that is never risk capital, the money you have authorised to be at risk, and how stale an equity reading or a reconciliation may get |
 | `[drawdown]` | `warn_consumed_pct`, `block_consumed_pct`, `block_enforcement`, `release` | Two tiers, each a percent of declared risk capital consumed from the cash-flow-adjusted equity peak, the enforcement class of the block tier, and how a latched brake clears (`manual` by default, or `automatic`) |
 | `[override]` | `max_duration_hours` | The longest a one-shot exception may live |
 | `[recon]` | `amount_tolerance_pct`, `amount_tolerance_min`, `date_window_business_days`, `max_report_age_days`, `max_equity_divergence_pct` | Which statement-versus-declared-event differences you want to look at, and how old the statement evidence may be |
-| `[cadence]` | `morning.class`, `eod.class`, `weekly.class` | Which routine reviews get completion journaling |
+| `[cadence]` | `morning.class`, `eod.class`, `weekly.class`; optional `[cadence.nudges]` `timezone`, `reconcile_warning_days`; optional `[cadence.monthly]` `class`, `day_of_month`, `nudge_at_local` | Which routine reviews get completion journaling, and when the reminders fall. Every reminder value has a default ([Making a revision effective](#making-a-revision-effective)) |
 | `[inventory]` | `rulebook`, `protection`, `stress` pins; `require_signoff` | The sibling policy versions this constitution was approved against, identity only; whether a changed sibling blocks governance evidence until the pin is updated (default off: disclosure only) |
 | `[position_add]` (optional) | `admission_contract`, `max_stock_pct_nlv`, `max_underlying_stock_pct_nlv` | Owner-chosen stock allocation ceilings for opening or increasing long stock positions; no defaults. The explicit `stock-entry-v1` admission contract activates cash, allocation and portfolio-risk checks for stock increases, including ordinary orders. |
 | `[portfolio_plan]` (optional) | `contract`, `valid_until`, `targets` | Advisory selection of one next portfolio action. Each exact-stock target specifies bands as a share of NLV, entry regimes, priority, price ceiling and reason. No defaults, cash reservation or execution authority. |
-| `[mandate]` (optional) | `max_loss_pct`, `vol_target_pct`, `tax_reserve_base`, `started_at`, `gap_shock_pct`, `gap_room_pct`, optional `index_gap_shock_pct`; `[mandate.sleeves]` `owner_vol_pct`, `core_vol_pct`, `overlay_vol_pct`, optional `owner_stop_pct` | The mandate: the largest loss of the risk base (equity after the tax reserve, cash-flow adjusted from the start date) you tolerate, the volatility budget at full room that sizes the sleeve allocations, and the one-name gap stress (a broad index fund or index takes `index_gap_shock_pct` instead when written). Written, the daemon measures the book's loss measure (every bought option at its premium at risk, protection included, plus the cash loss to the stop of every share line a working stop covers; an unstopped line counts nothing and is named) against the loss room (`max_loss_pct` of the budget base, less the drawdown taken), measures the book's ex-ante volatility as the 1-day swing, and enforces sleeve allocations on additions (`canary mandate`; details below). Reductions, closes, cancels and hedges retain their existing gates. Absent, nothing changes. |
-| `[mandate.iv_fallback]` (optional) | `short_band_pct`, `month_band_pct`, `long_band_pct`, `measured_pct`, `range_pct` | What an option without its own implied volatility may do to the verdict. Before a session's first quote, after a restart or outside an option's market hours, the position row carries no volatility; Canary then prices the option at the volatility its own mark implies. Written, the verdict runs the book with every such option moved down and up by its band (under 8 days to expiry, 8 to 35 days, beyond), and judges half the resulting range of the S&P-fall figure against the loss room: within `measured_pct` the verdict reads as measured, within `range_pct` only when it is the same at both edges, beyond it unknown. `canary mandate` lists the options, their bands and the range. Absent, or with a key missing, one such option leaves the verdict unknown, as before. Beside a written `[mandate]`, daemon start writes this table once with 65, 15 and 8 for the bands and 5 and 20 for the tiers (owner decision 2026-10-29 07:06 CET), after a backup and with a higher `policy_version`; a table you wrote is kept, and one you delete afterwards is not written again. |
-| `[mandate.index_hedge]` (optional) | `max_contracts` | The Reduce index hedge: Micro E-mini S&P 500 futures sold until a 10% S&P fall leaves the book about even ([Protection](../operate/protection.md)). The table's presence is the permission to place one: absent, or without `max_contracts`, the plan still prices the hedge and placing it is refused with the table named. `max_contracts` is the most contracts one hedge may hold after it is placed, a hard stop against a wrong size, never the target. There is no second switch. Beside a written `[mandate]`, daemon start writes this table once with `max_contracts = 25` (owner decision 2026-10-29 07:06 CET), as it writes `[mandate.iv_fallback]`; delete it to keep the hedge unplaceable. The table only permits placing: a hedge is sold only when you ask for it and confirm the order on your device. |
-| `[mandate.core]` (optional) | `rule`, `isin`, `currency`, `scale_pct`, `band_pct`, `min_order_base`, `max_value_pct`; optional `con_id`, `exchange`, `kill_drawdown_k` (needed once `stage` is `live`) | The core sleeve: one broad index fund held while its month-end close is above its 10-month average, sized to `[mandate.sleeves]` `core_vol_pct` of the budget. The fund is named by `isin` and `currency`: Canary uses the line IBKR lists under that ISIN in that currency, reads its daily closes on the listing's primary exchange and judges sessions and decision days on that exchange's calendar; `canary core` shows the contract and venue. If IBKR lists more than one line, or a different line than last time, the core holds until you choose one with `con_id`; a written `exchange` must be one IBKR lists the line on. Written, the daemon decides its target each month and `canary core` shows the decision, the target shares, the holding and what the rule would trade. While `stage` is unwritten or `shadow` it proposes nothing; written `live` with `spec_hash`, each month's decision becomes at most one `core_rebalance` proposal row you confirm on your device (a DAY limit at the live mid, sized to the frozen target and the mandate's headroom, served for the first five sessions after the decision that the US also trades; a sale to zero continues until sold), never pre-authorised: sent on your device confirmation, or by an authorized controller under the device-confirmed standing mandate, while a row served for your review (the core holds) is yours alone; `canary core` shows the pending row and the last decision. Protection's automatic sales leave the core's line out, and the mandate's forced reduction still covers it. A missing key holds the core and is named there, `kill_drawdown_k` included while the core is live (its bound is in units of the sleeve invested at its stage; 1 or more refuses the file). Absent, nothing changes. |
-| `[mandate.strategies.<id>]` (optional) | `rule`, `spec_hash`, `sleeve`, `risk_allocation_pct` (not for the overlay), `stage`, `scale_pct`; for the rule `timed-holding-v1`: `isin`, `currency`, `signal`, `band_pct`, `min_order_base`, `max_value_pct`; optional `con_id`, `exchange`, `kill_drawdown_k` | A later machine strategy of the strategy register, one table per strategy: the compiled rule it runs, the lab spec it cites, its sleeve and risk allocation, its ladder stage (`shadow`, `live` or `suspended`) and the scale it sizes at. Under `timed-holding-v1` the entry names its fund by ISIN and currency (the account's base currency), a signal from the library (`trend-sma10m`: held while the month-end close is above its 10-month average) and the core's numbers, and the evaluator decides it as it decides the core; `canary strategy ID` shows the decision, the target, the paper position and what the rule would trade. A missing key holds that strategy and is named there, `kill_drawdown_k` included while the entry is live (its bound is in units of the sleeve invested at its stage; 1 or more refuses the file). Absent, nothing changes. |
+| `[mandate]` (optional) | `max_loss_pct`, `vol_target_pct`, `tax_reserve_base`, `started_at`, `gap_shock_pct`, `gap_room_pct`, optional `index_gap_shock_pct`; `[mandate.sleeves]` `owner_vol_pct`, `core_vol_pct`, `overlay_vol_pct`, optional `owner_stop_pct` | The mandate: the largest loss you tolerate, as a share of the budget base (the high-water mark of the risk base, which is equity after the tax reserve, moved by deposits and withdrawals since the start date), the volatility budget at full room that sizes the sleeve allocations, and the one-name gap stress (a broad index fund or index takes `index_gap_shock_pct` instead when written). Written, the daemon measures the book's loss measure (every bought option at its premium at risk, the higher of the price paid and today's value, protection included; plus the cash loss to the stop of every share line a working stop or trail covers; plus a held index-hedge future's loss in a 10% index move against it, or to its stop when a working stop covers the whole line; an unstopped share line counts nothing and is named) against the loss room (`max_loss_pct` of the budget base, less the drawdown taken), measures the book's ex-ante volatility as the 1-day swing, and enforces sleeve allocations on additions (`canary mandate`; details below). Reductions, closes, cancels and hedges retain their existing gates. Absent, nothing changes. |
+| `[mandate.iv_fallback]` (optional) | `short_band_pct`, `month_band_pct`, `long_band_pct`, `measured_pct`, `range_pct` | What an option without its own implied volatility may do to the verdict. Before a session's first quote, after a restart or outside an option's market hours, the position row carries no volatility; Canary then prices the option at the volatility its own mark implies. Written, the verdict runs the book with every such option moved down and up by its band (under 8 days to expiry, 8 to 35 days, beyond), and judges half the resulting range of the S&P-fall figure against the loss room: within `measured_pct` the verdict reads as measured, within `range_pct` only when it is the same at both edges, beyond it unknown. `canary mandate` lists the options, their bands and the range. Absent, or with a key missing, one such option leaves the verdict unknown. Beside a written `[mandate]`, daemon start writes this table once with 65, 15 and 8 for the bands and 5 and 20 for the tiers, after a backup and with a higher `policy_version`; a table you wrote is kept, and one you delete afterwards is not written again. |
+| `[mandate.index_hedge]` (optional) | `max_contracts` | The Reduce index hedge: Micro E-mini S&P 500 futures sold until a 10% S&P fall leaves the book about even ([Protection](../operate/protection.md)). The table's presence is the permission to place one: absent, or without `max_contracts`, the plan still prices the hedge and placing it is refused with the table named. `max_contracts` is the most contracts one hedge may hold after it is placed, a hard stop against a wrong size, never the target. There is no second switch. Beside a written `[mandate]`, daemon start writes this table once with `max_contracts = 25`, as it writes `[mandate.iv_fallback]`; delete it to keep the hedge unplaceable. The table only permits placing. Canary never sells a hedge on its own: you place the previewed sale from a terminal in the trading build with its preview token, or through the device-confirmed basket in Canary Desk. During a breach of the loss room, the forced reduction buys back what has passed neutral, under the same arming as its other rows. |
+| `[mandate.regime_gate]` (optional) | `breadth_min_pct`, `half_scale_pct`, `stale_after_sessions`, `confirm_closes` | The regime gate. Strategy one's screen (`canary strategy-one`) sizes its trade plans by it; no strategy that places orders reads it. It takes three readings on the latest settled US close: SPY above its ten-month average, more than `breadth_min_pct` of S&P 500 stocks above their 50-day average, and HYG above its 50-day average. Three on: full size; two: `half_scale_pct` of it; one or none: no new entries and no adds. A reading changes only after `confirm_closes` consecutive closes agree, and counts off when it is more than `stale_after_sessions` sessions old. Absent, or with a key missing, the gate reads off, and strategy one's screen plans no entries. Beside a written `[mandate]`, daemon start writes this table once with 50, 50, 1 and 2. |
+| `[mandate.reduction]` (optional) | `cheap_leg_give_pct_of_loss` | How the forced reduction ([Forced reduction](../operate/protection.md#forced-reduction)) prices an option cut whose bid-ask spread is wider than its cap: at the bid when what the cut gives up against the mid is at most this percent of the loss measure it removes, otherwise at the mid. Absent, such a cut goes at the mid. Beside a written `[mandate]`, daemon start writes this table once with 2. |
+| `[mandate.core]` (optional) | `rule`, `isin`, `currency`, `scale_pct`, `band_pct`, `min_order_base`, `max_value_pct`; optional `con_id`, `exchange`, `kill_drawdown_k` (needed once `stage` is `live`) | The core sleeve: one broad index fund held while its month-end close is above its 10-month average, sized to `[mandate.sleeves]` `core_vol_pct` of the budget. The fund is named by `isin` and `currency`: Canary uses the line IBKR lists under that ISIN in that currency, reads its daily closes on the listing's primary exchange and judges sessions and decision days on that exchange's calendar; `canary core` shows the contract and venue. If IBKR lists more than one line, or a different line than last time, the core holds until you choose one with `con_id`; a written `exchange` must be one IBKR lists the line on. Written, the daemon decides its target each month and `canary core` shows the decision, the target shares, the holding and what the rule would trade. While `stage` is unwritten or `shadow` it proposes nothing; written `live` with `spec_hash`, each month's decision becomes at most one `core_rebalance` proposal row you confirm on your device (a DAY limit at the live mid, sized to the target fixed at the month's decision and the mandate's headroom, served for the first five sessions after the decision that the US also trades; a sale to zero continues until sold), never pre-authorised, so the daemon's own scheduler never sends it: it goes on your device confirmation, or through Canary Desk's controller while a standing authority you armed stands (a buy needs Fully armed), and a row served for your review (the core holds) goes only on your confirmation; `canary core` shows the pending row and the last decision. Protection's automatic sales leave the core's line out, and the mandate's forced reduction still covers it. A missing key holds the core and is named there, `kill_drawdown_k` included while the core is live (its bound is in units of the sleeve invested at its stage; 1 or more refuses the file). Absent, nothing changes. |
+| `[mandate.strategies.<id>]` (optional) | `rule`, `spec_hash`, `sleeve`, `risk_allocation_pct` (not for the overlay), `stage`, `scale_pct`; for the rule `timed-holding-v1`: `isin`, `currency`, `signal`, `band_pct`, `min_order_base`, `max_value_pct`; optional `con_id`, `exchange`, `kill_drawdown_k` | A machine strategy of the strategy register beside the core, one table per strategy: the compiled rule it runs, the lab spec it cites, its sleeve and risk allocation, its ladder stage (`shadow`, `live` or `suspended`) and the scale it sizes at. Under `timed-holding-v1` the entry names its fund by ISIN and currency (the account's base currency), a signal from the library (`trend-sma10m`: held while the month-end close is above its 10-month average) and the core's numbers, and the evaluator decides it as it decides the core; `canary strategy ID` shows the decision, the target, the paper position and what the rule would trade. A missing key holds that strategy and is named there, `kill_drawdown_k` included while the entry is live (its bound is in units of the sleeve invested at its stage; 1 or more refuses the file). Absent, nothing changes. |
+| `[desk_device]` (optional) | `companion`, `passkey` | The public keys of the device credentials the Desk console enrolled for you, each written once by hand from the key Desk shows. Canary checks a Desk save's device confirmation against them before that save changes `[order_limits]`. A line that does not parse leaves the policy loaded and is reported as unverifiable. |
 | `[order_limits]` | `max_order_floor_base`, `max_order_pct_nlv`, `max_order_ceiling_base`, `max_option_contracts`, `allow_stock_short`, `allow_option_sell_to_open`, `max_bond_maturity_years`, `reduce_allowance_pct`, `reduce_option_allowance_pct` | The per-order notional cap, which scales with net liquidation value between the floor and the ceiling, the option contract cap, whether an order may open a stock short or sell an option to open, the longest maturity a bond or bill buy may have, and how far beyond the bid or ask a percent reduction's limit may sit (stocks and ETFs; options, at least one tick). Every order preview and broker send must pass them, apart from the protective-stop and sweep-bill exemptions ([Order limits](policy.md#order-limits)) |
 
-The verdict reads within while the loss measure is inside the loss room and no name breaches its gap cap, reduce over the room or on a gap breach, and unknown while anything is missing. Sleeve allocations are enforced on additions. A sleeve must fit its allocation both before and after an addition, measured both by its contribution to the book's risk and by its standalone risk. Unknown or stale evidence, an addition that creates or deepens a gap-cap breach, a stock order that would take the loss measure over the loss room, and the maximum-loss boundary prevent additions. Forced reduction cuts the name with the most premium at risk first, its largest position within it, until the book fits 95% of the loss room; it keeps waiting for your approval on the device. Other order gates remain binding.
+The verdict reads within while the loss measure is inside the loss room and no name breaches its gap cap, reduce over the room or on a gap breach, and unknown while anything is missing. Sleeve allocations are enforced on additions. A sleeve must fit its allocation both before and after an addition, measured both by its contribution to the book's risk and by its standalone risk. Unknown or stale evidence, an addition that creates or deepens a gap-cap breach, a stock order that would take the loss measure over the loss room, and the maximum-loss boundary prevent additions (`mandate_budget`). Option buys are judged by the premium limits instead: `mandate_premium` refuses a buy that would take the premium at risk on its name past the rulebook's `option_name_act_pct` of NLV, or the book's past the premium budget's act level ([The rulebook](rulebook.md#limits-that-refuse-or-hold-orders)).
+
+When two consecutive scheduled verdicts, at least five and at most fifteen minutes apart, read reduce, the forced reduction proposes one reduce-only batch. It first cuts any name over its gap cap, then the premium at risk left, each time the cheapest relief first: the most of the loss measure removed per unit of market value given up, so a deep out-of-the-money option goes before a dated one and both before shares. It stops once the book fits 95% of the loss room with every gap cap met. It never sells protection, a long put on an index in the rulebook's `hedge_symbols` included, and never sells a holding on your keep list (`canary locks`). It never buys back a short option or sells the shares that cover one. A protective put's premium still counts, so the batch alone may not bring the book back inside the room. The rows wait for your confirmation on the device, unless the protection policy lists `mandate_reduction` under `[authority].pre_authorised` and a standing authority, Protection or Fully armed, stands: you sign it once on a paired device, and the daemon keeps it in its own store. Canary then places them itself after the veto window, which a mandate row never skips ([Protection](../operate/protection.md)). Other order gates remain binding.
 
 Risk-adding option purchases also count premium committed by pending buy
 orders against the existing name and portfolio limits. An uncertain send or
@@ -86,7 +93,7 @@ combo's bought-option premium, the next risk-adding option purchase waits for
 clear order and position evidence. The existing protective-put entry exemption
 is unchanged.
 
-Machine allocations reserve risk only at the effective live scale of a rule that sends orders; a live strategy on hold retains its reservation while holding positions. The core's rule sends since 3.23 (its monthly rows), so a core written `live` reserves its scale; a core in shadow, as the live file runs it, and the overlay without a strategy reserve nothing. The owner receives the remainder; `owner_vol_pct` remains recorded-only. The core contract belongs to the core sleeve regardless of who buys it.
+Machine allocations reserve risk only at the effective live scale of a rule that sends orders; a live strategy on hold retains its reservation while holding positions. The core's rule sends orders (its monthly rows), so a core written `live` reserves its scale; a core in shadow, and the overlay without a strategy, reserve nothing. The owner receives the remainder; `owner_vol_pct` remains recorded-only. The core contract belongs to the core sleeve regardless of who buys it.
 
 `owner_stop_pct` (optional) gives the owner's sleeve a drawdown stop of its own inside the whole book's maximum loss: the sleeve's equity-like measure is the book's cash-flow-adjusted risk base less the machine sleeves' marked P&L since the start, kept against its own high-water mark. When its drawdown reaches the stop, the forced reduction cuts the owner's sleeve, reduce-only, to half its risk at the stop, through the same batch, veto window and pre-authorisation as a budget breach, and the owner's sleeve adds nothing until the drawdown is back under the stop's release, five points under the stop (a 25% stop releases under 20%); the target is pinned for the engagement, so a drawdown oscillating around the stop cuts the sleeve once, and a new engagement after a release pins half the use at that time. Machine sleeves are untouched. `canary mandate` shows the sleeve's drawdown, high-water mark and stop state. Absent, nothing changes.
 
@@ -166,15 +173,18 @@ limits are no longer runtime settings; they are this file's `[order_limits]`.
    makes the whole capital tier `unapproved`, not only the control that needs
    it.
 
-Raising `policy_version` past certain points enlarges the decision set.
-`recon.max_equity_divergence_pct` is accepted only at version 3 or above and
-becomes material there. The version-4 `[cadence.nudges]` and `[cadence.monthly]`
-tables are different: every cadence value has a built-in default — the nudge
-clock is the machine's own timezone, the reconcile warning starts 2 days out,
-and the monthly pulse falls on the first working day at 09:00 — so the keys
-are optional overrides, never approval material. A version bump made for an
-unrelated edit can therefore move a complete policy to `unapproved` only
-through the non-cadence keys it newly requires.
+A file at `schema_version = 2`, the one Canary writes, has every feature at
+any `policy_version`. Only a legacy schema-1 file ties features to its revision
+number: `recon.max_equity_divergence_pct` is accepted from `policy_version` 3
+and becomes a required decision there, and `[cadence.nudges]`,
+`[cadence.monthly]` and `inventory.require_signoff` are accepted from 4. In
+such a file, a version bump made for an unrelated edit can move a complete
+policy to `unapproved` through the keys it newly requires.
+
+Every cadence value has a built-in default: the nudge clock is the machine's
+own timezone, the reconcile warning starts 2 days out, and the monthly pulse
+falls on the first working day at 09:00. The cadence keys are optional
+overrides, never approval material.
 
 ## Sibling policy changes and sign-off
 
@@ -182,7 +192,7 @@ The `[inventory]` pins record which sibling-policy versions (rulebook,
 protection, stress) this constitution was written against. When a sibling
 changes — a protection-policy edit bumps its own version, for example — the
 pins no longer match the live identities. What that mismatch means is governed
-by `inventory.require_signoff` (version 4 or above, optional):
+by `inventory.require_signoff` (optional):
 
 - **Off, the default.** The change is bookkeeping and the human surfaces stay
   quiet: `canary policy show` and the brief mention pins only when a live
@@ -218,12 +228,17 @@ declare that cap, overrides are unavailable. `--control` must name a key that
 fingerprint and expires on its own. A durable change is a version bump, not a
 longer override.
 
-Two overrides reach evaluation. One on `capital.max_unreconciled_days` can
+Three overrides reach evaluation. One on `capital.max_unreconciled_days` can
 extend that deadline, never shorten it. One on
 `order_limits.max_order_floor_base` lifts the floor to
 `max_order_ceiling_base`, so the order cap in force is the ceiling until it
-expires; the other `[order_limits]` keys refuse an override. Others are
-recorded and displayed.
+expires; the other `[order_limits]` keys refuse an override. One on
+`mandate.vol_target_pct` lifts the mandate's additions gate and the premium
+limits on option buys for your own orders. While it runs, the drawdown brake,
+the no-room hold at the maximum loss, the owner sleeve's stop, every order cap
+and the device confirmation of each order still apply; the other `[mandate]`
+keys change only by a revision. Overrides on other keys are recorded and
+displayed.
 
 A latched drawdown block is not an override case. It engages provisionally:
 the broker statement covering the latch day releases it automatically when a
@@ -273,12 +288,17 @@ in `(0,100]`, chosen by you. They cap all stock market value and stock in the
 selected underlying respectively, including pending buys.
 
 **Activation is a separate policy decision:** `admission_contract =
-"stock-entry-v1"` makes the pass bands of Rulebook rules 1 (issuer concentration),
-3 (premium budget/sell-only), 15 (net exposure), 18 (issuer loss budget) and 19
-(margin headroom) mandatory for long-stock increases. This includes ordinary
-stock BUYs and applies regardless of those rules' advisory display modes.
-Allocation percentages alone do not activate these new admission checks. No
-policy values or admission approval are installed automatically.
+"stock-entry-v1"` makes ordinary stock buys that increase a long position pass
+the same checks as `canary add`, whatever those rules' display modes. The
+checks read Rulebook rules 1 (issuer concentration), 12 (index protection),
+15 (net exposure), 16 (delta swing), 17 (cluster), 18 (issuer loss budget) and
+19 (margin headroom) on the book after the purchase. A row that cannot be
+measured holds the purchase. A `--max` plan stops below their watch levels; an
+exact quantity at watch or act carries the row as a warning you confirm at the
+preview. Rule 15 counts only when the purchase leaves net exposure further
+from zero, rule 3 never holds a stock buy, and rules 8 and 14 only warn.
+Allocation percentages alone do not activate these checks. No policy values or
+admission approval are installed automatically.
 
 Purchases must fit settled cash in their own currency after fees, commitments
 and currency floats. The account cash reserve is funded once across measured
@@ -286,7 +306,6 @@ cash currencies; another currency can cover the reserve, but cannot fund this
 purchase. The exact broker margin simulation must retain the approved headroom
 floor, including look-ahead where available. Missing evidence holds the order.
 
-This increment supports stock additions and openings only. Unknown pending
-activity, queued instructions, pending non-stock orders, or corporate debt
-without combined issuer mapping can hold the plan. Bonds and option orders
-will have separate sizing rules in later increments.
+The plan covers stock additions and openings only. Unknown pending activity,
+queued instructions, pending non-stock orders, or corporate debt without
+combined issuer mapping can hold the plan.

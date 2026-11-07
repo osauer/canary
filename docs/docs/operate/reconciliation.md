@@ -1,6 +1,6 @@
 # Reconciliation
 
-Updated: 2026-10-06 05:45 CEST
+Updated: 2026-11-07 07:39 CET
 
 `canary recon` matches the external cash flows on your IBKR Flex statements
 against the capital events you declared. The statement is the broker's record.
@@ -18,11 +18,18 @@ statements and reports how many it skipped. If it cannot resolve one account,
 or no retained statement belongs to that account, reconciliation stays
 unavailable instead of pooling the data.
 
-One number depends on this. Drawdown is measured from a cash-flow-adjusted peak,
+Two numbers depend on this. Drawdown is measured from a cash-flow-adjusted peak,
 so equity that moved because you moved money has to be separated from equity
 that moved because the market did. Declaring a loss as a withdrawal is the one
 channel that could understate drawdown, and it lands here as a `ledger_only`
 exception.
+
+The mandate's maximum-loss measure is the second. It compares equity net of
+declared and statement cash flows with its high-water mark. When equity moves
+by more than those flows and the book's own P&L explain, Canary treats the move
+as a suspected cash flow. It then holds the mandate's remaining loss room as
+unknown until you declare the flow (`canary policy capital-event`) or a
+statement covering that day is reconciled.
 
 `canary recon` is advisory. Its report and dismissals are CLI-only; the
 read-only MCP tool `canary_recon_status` reports acquisition and
@@ -36,8 +43,10 @@ canary reporting status
 canary reporting performance
 canary recon
 canary recon --refresh
+canary recon status
 canary recon equity
 canary recon backtest
+canary recon dismiss --line LINE_ID --reason "..."
 ```
 
 `reporting status` inspects the shared statement source before consumer-specific
@@ -45,7 +54,8 @@ reconciliation. `reporting performance` prints the retained statement equity
 series, its dated external flows and year-to-date income sums for a consumer that
 computes cash-flow-adjusted returns itself; it computes no return and names no
 account. With no `recon` subcommand Canary runs `show`. `--refresh` kicks one background Flex fetch
-before reporting. `equity` prints the statement-derived daily equity series with
+before reporting. `status` reports statement acquisition and whether the latest
+report extended the reconcile clock, and why not when it did not. `equity` prints the statement-derived daily equity series with
 your declared events interleaved at their place in the timeline. `backtest`
 replays the whole window and compares the replayed drawdown path against what
 the runtime observed.
@@ -61,14 +71,14 @@ risk policy so nothing can be classified at all.
 | Category | What it means |
 |---|---|
 | `matched` | statement flow and declared event agree within your tolerances |
-| `confirmed` | broker-confirmed flow needing no declaration (policy v3) |
-| `missing_from_ledger` | statement flow with no declaration (policy v2) |
+| `confirmed` | broker-confirmed flow; the statement is the record, so it needs no declaration |
+| `missing_from_ledger` | statement flow with no declaration, reported only under an older risk policy file that still requires declarations |
 | `ledger_only` | declared event with no statement flow |
 | `amount_mismatch` | dates align, amounts differ beyond tolerance |
 | `date_mismatch` | amounts align, the declared date sits outside the window |
 | `ambiguous` | more than one candidate pairing |
 | `uncategorized` | statement line type the parser does not classify |
-| `baseline` | pre-genesis flow already inside the seeded baseline |
+| `baseline` | flow dated before the capital ledger was seeded, already inside its starting balance |
 
 `matched`, `confirmed`, and `baseline` need nothing from you. Everything else is
 counted as unresolved until you resolve it.
@@ -133,7 +143,7 @@ time; a report that ends before the latch cannot explain a later deposit or
 withdrawal. An automatic release preserves the high-water mark and requires
 fresh equity, approved policy and current reconciliation evidence.
 
-Under risk-policy v3 a clean report extends the reconcile clock by itself. The
+A clean report extends the reconcile clock by itself. The
 conditions are checked rather than assumed: the policy active, the report free
 of unresolved exceptions, the statement fresher than `max_report_age_days`, and
 a statement-versus-runtime equity comparison at the same closing prices and FX
