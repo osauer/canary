@@ -1,6 +1,6 @@
 # Canary with moomoo and Futu: experimental support
 
-Updated: 2026-11-07 09:04 CET
+Updated: 2026-11-07 09:16 CET
 
 Canary is a local tool that reads a brokerage account and reports on its positions
 and risk. It normally works with Interactive Brokers. It can also read a moomoo or
@@ -48,10 +48,9 @@ Interactive Brokers, start a second daemon with its own `XDG_CONFIG_HOME`, `XDG_
 
 ## What you don't get
 
-Among what you don't get: placing orders, daily P&L, the market regime read,
-portfolio stress, Edge (the review of past decisions), statement reporting and
-reconciliation, the market overview, the market tape and technical analysis.
-`canary status` lists most of the rest.
+Placing orders, daily P&L, the market regime read, portfolio stress, Edge (the review
+of past decisions), statement reporting and reconciliation, the market overview, the
+market tape and technical analysis, among others. `canary status` lists most of them.
 
 ## How far it has been tested
 
@@ -59,9 +58,9 @@ reconciliation, the market overview, the market tape and technical analysis.
 
 | Area | Tested against |
 | --- | --- |
-| Login, finding the account with none set, quote rights | A real moomoo login |
-| Hong Kong and US quotes | A real moomoo login |
-| A refused quote naming the missing right | A real moomoo login |
+| Login, finding the account with none set, quote rights | A real login |
+| Hong Kong and US quotes | A real login |
+| A refused quote naming the missing right | A real login |
 | Quotes from any other market | Not tested with a quote right |
 | Reading balances, holdings, order and fill history | Simulator only |
 | Currency conversion | Simulator only; never compared with a real rate |
