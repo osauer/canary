@@ -10,6 +10,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runRulesPolicy shows the Rulebook limits in force (from the daemon) or,
@@ -29,7 +30,7 @@ func runRulesPolicy(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "rules policy: usage is `canary rules policy [--json]`, `canary rules policy set KEY=VALUE…` or `canary rules policy reset KEY…|--all`")
 	}
 	var res rpc.RulesResult
-	if err := env.Conn.Call(ctx, rpc.MethodRulesSnapshot, rpc.RulesSnapshotParams{}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.RulesSnapshot, rpc.RulesSnapshotParams{}, &res); err != nil {
 		return fail(env, "rules policy: %v", err)
 	}
 	if res.Policy == nil || res.PolicyStatus == nil {

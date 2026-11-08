@@ -10,6 +10,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runPolicyCheck reads config.toml and every policy file against each other
@@ -60,12 +61,12 @@ func runPolicyCheck(ctx context.Context, env *Env, args []string) int {
 // leaves its checks skipped; none fails the command.
 func policyCheckLiveInputs(ctx context.Context, env *Env, in *daemon.PolicyCheckInput) {
 	var acct rpc.AccountResult
-	if err := env.Conn.Call(ctx, rpc.MethodAccountSummary, struct{}{}, &acct); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.AccountSummary, rpc.AccountSummaryParams{}, &acct); err != nil {
 		in.BookSkipped = "the account read failed (" + firstLine(err.Error()) + ")"
 	} else {
 		var pos rpc.PositionsResult
 		posPtr := &pos
-		if err := env.Conn.Call(ctx, rpc.MethodPositionsList, struct{}{}, &pos); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.PositionsList, rpc.PositionsListParams{}, &pos); err != nil {
 			posPtr = nil
 		}
 		in.Book = daemon.PolicyCheckBookFrom(&acct, posPtr)
@@ -74,7 +75,7 @@ func policyCheckLiveInputs(ctx context.Context, env *Env, in *daemon.PolicyCheck
 		}
 	}
 	var snap rpc.RiskPolicyResult
-	if err := env.Conn.Call(ctx, rpc.MethodRiskPolicySnapshot, struct{}{}, &snap); err == nil {
+	if err := rpc.Call(ctx, env.Conn, api.RiskPolicySnapshot, rpc.NoParams{}, &snap); err == nil {
 		in.FileStatus = map[string]string{}
 		for _, f := range snap.Files {
 			in.FileStatus[f.Policy] = f.Status

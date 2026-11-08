@@ -6,11 +6,12 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runPortfolioPlan(ctx context.Context, env *Env, jsonOut bool) int {
 	var out rpc.PortfolioPlanResult
-	if err := env.Conn.Call(ctx, rpc.MethodPortfolioPlan, nil, &out); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.PortfolioPlan, rpc.NoParams{}, &out); err != nil {
 		return fail(env, "portfolio plan: %v", err)
 	}
 	if jsonOut {

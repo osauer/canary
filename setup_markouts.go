@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // SetupMarkoutsParams filters the entry-markout read by order, fill date or symbol.
@@ -28,6 +29,6 @@ func (c *Client) SetupMarkouts(ctx context.Context, in SetupMarkoutsParams) (*Se
 	}
 	defer conn.Close()
 	var out SetupMarkoutsResult
-	err = conn.Call(ctx, rpc.MethodSetupsMarkouts, in, &out)
+	err = rpc.Call(ctx, conn, api.SetupsMarkouts, in, &out)
 	return &out, daemonError(err)
 }

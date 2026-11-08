@@ -7,6 +7,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runTrading(ctx context.Context, env *Env, args []string) int {
@@ -45,7 +46,7 @@ func runTradingStatus(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "trading: unknown subcommand %q (try `canary trading status`)", fs.Arg(0))
 	}
 	var res rpc.TradingStatus
-	if err := env.Conn.Call(ctx, rpc.MethodTradingStatus, nil, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradingStatus, rpc.NoParams{}, &res); err != nil {
 		return fail(env, "trading status: %v", err)
 	}
 	if *jsonOut {

@@ -13,6 +13,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"time"
 )
 
@@ -23,7 +24,7 @@ func FetchStress(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
 }) (rpc.StressResult, error) {
 	var out rpc.StressSnapshotResult
-	if err := conn.Call(ctx, rpc.MethodStressSnapshot, rpc.StressSnapshotParams{}, &out); err != nil {
+	if err := rpc.Call(ctx, conn, api.StressSnapshot, rpc.StressSnapshotParams{}, &out); err != nil {
 		return rpc.StressResult{}, err
 	}
 	return out.Stress, nil
@@ -35,7 +36,7 @@ func FetchStressWithRegimeMonitor(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
 }) (rpc.StressResult, *rpc.RegimeMonitorResult, error) {
 	var out rpc.StressSnapshotResult
-	if err := conn.Call(ctx, rpc.MethodStressSnapshot, rpc.StressSnapshotParams{RegimeMonitor: true}, &out); err != nil {
+	if err := rpc.Call(ctx, conn, api.StressSnapshot, rpc.StressSnapshotParams{RegimeMonitor: true}, &out); err != nil {
 		return rpc.StressResult{}, nil, err
 	}
 	if out.RegimeMonitor == nil {
@@ -53,22 +54,22 @@ func Compose(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
 }) (rpc.StressResult, rpc.RegimeSnapshotResult, error) {
 	var acct rpc.AccountResult
-	if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &acct); err != nil {
+	if err := rpc.Call(ctx, conn, api.AccountSummary, rpc.AccountSummaryParams{}, &acct); err != nil {
 		return rpc.StressResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("account: %w", err)
 	}
 	var pos rpc.PositionsResult
-	if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{}, &pos); err != nil {
+	if err := rpc.Call(ctx, conn, api.PositionsList, rpc.PositionsListParams{}, &pos); err != nil {
 		return rpc.StressResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("positions: %w", err)
 	}
 	var regime rpc.RegimeSnapshotResult
-	if err := conn.Call(ctx, rpc.MethodRegimeSnapshot, rpc.RegimeSnapshotParams{}, &regime); err != nil {
+	if err := rpc.Call(ctx, conn, api.RegimeSnapshot, rpc.RegimeSnapshotParams{}, &regime); err != nil {
 		return rpc.StressResult{}, rpc.RegimeSnapshotResult{}, fmt.Errorf("regime: %w", err)
 	}
 	marketEvents := fetchStressMarketEvents(ctx, conn, pos)
 	concentration, netExposure, margin := fetchStressRulebook(ctx, conn)
 	if acct.DailyPnL == nil {
 		var refreshed rpc.AccountResult
-		if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &refreshed); err == nil && refreshed.DailyPnL != nil {
+		if err := rpc.Call(ctx, conn, api.AccountSummary, rpc.AccountSummaryParams{}, &refreshed); err == nil && refreshed.DailyPnL != nil {
 			acct = refreshed
 		}
 	}
@@ -86,7 +87,7 @@ func fetchStressRulebook(ctx context.Context, conn interface {
 	Call(context.Context, string, any, any) error
 }) (*rpc.StressConcentration, *rpc.StressNetExposure, *rpc.StressMarginHeadroom) {
 	var rules rpc.RulesResult
-	if err := conn.Call(ctx, rpc.MethodRulesSnapshot, rpc.RulesSnapshotParams{}, &rules); err != nil {
+	if err := rpc.Call(ctx, conn, api.RulesSnapshot, rpc.RulesSnapshotParams{}, &rules); err != nil {
 		reason := "the Rulebook read failed: " + err.Error()
 		return &rpc.StressConcentration{Reason: reason}, &rpc.StressNetExposure{Reason: reason}, &rpc.StressMarginHeadroom{Reason: reason}
 	}
@@ -101,7 +102,7 @@ func fetchStressMarketEvents(ctx context.Context, conn interface {
 		return rpc.MarketEventsResult{}
 	}
 	var out rpc.MarketEventsResult
-	if err := conn.Call(ctx, rpc.MethodMarketEventsSnapshot, rpc.MarketEventsParams{Symbols: symbols}, &out); err != nil {
+	if err := rpc.Call(ctx, conn, api.MarketEventsSnapshot, rpc.MarketEventsParams{Symbols: symbols}, &out); err != nil {
 		now := time.Now().UTC()
 		out = rpc.MarketEventsResult{
 			Kind:          rpc.MarketEventsKind,

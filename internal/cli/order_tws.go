@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runOrderTWSControl cancels or changes an order placed by hand in TWS
@@ -18,8 +19,8 @@ import (
 // `orders open` row, which the command prints before sending. A refusal or
 // an uncertain outcome is printed in full; in text mode it exits 1, with
 // --json the result carries it. Nothing is retried.
-func runOrderTWSControl(ctx context.Context, env *Env, args []string, method string) int {
-	modify := method == rpc.MethodOrderTWSModify
+func runOrderTWSControl(ctx context.Context, env *Env, args []string, method rpc.Method[rpc.OrderTWSControlParams, rpc.OrderTWSControlResult]) int {
+	modify := method == api.OrderTWSModify
 	name := "order tws-cancel"
 	if modify {
 		name = "order tws-modify"
@@ -69,7 +70,7 @@ func runOrderTWSControl(ctx context.Context, env *Env, args []string, method str
 		return fail(env, "%s: %v", name, err)
 	}
 	var res rpc.OrderTWSControlResult
-	if err := env.Conn.Call(ctx, method, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, method, params, &res); err != nil {
 		return fail(env, "%s: %v", name, err)
 	}
 	if *jsonOut {
@@ -87,7 +88,7 @@ func runOrderTWSControl(ctx context.Context, env *Env, args []string, method str
 // untrackedOrderRow reads the current untracked row for permID.
 func untrackedOrderRow(ctx context.Context, env *Env, permID int) (rpc.OrderView, error) {
 	var open rpc.OrdersOpenResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrdersOpen, rpc.OrdersOpenParams{}, &open); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrdersOpen, rpc.OrdersOpenParams{}, &open); err != nil {
 		return rpc.OrderView{}, fmt.Errorf("read open orders: %w", err)
 	}
 	if open.UntrackedStatus != rpc.OrdersUntrackedCurrent {

@@ -14,6 +14,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // sellOnlyLine states the result-level hold fact under the header,
@@ -57,7 +58,7 @@ func runRules(ctx context.Context, env *Env, args []string) int {
 	}
 
 	var res rpc.RulesResult
-	if err := env.Conn.Call(ctx, rpc.MethodRulesSnapshot, rpc.RulesSnapshotParams{Symbol: *symbol}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.RulesSnapshot, rpc.RulesSnapshotParams{Symbol: *symbol}, &res); err != nil {
 		return fail(env, "rules: %v", err)
 	}
 	if *jsonOut {
@@ -390,7 +391,7 @@ func runRulesHistory(ctx context.Context, env *Env, args []string) int {
 		Limit: *limit,
 	}
 	var res rpc.RulesHistoryResult
-	if err := env.Conn.Call(ctx, rpc.MethodRulesHistory, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.RulesHistory, params, &res); err != nil {
 		return fail(env, "rules history: %v", err)
 	}
 	if *jsonOut {

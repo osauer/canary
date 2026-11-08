@@ -11,6 +11,7 @@ import (
 	"os"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runWatchlist(ctx context.Context, env *Env, args []string) int {
@@ -28,14 +29,13 @@ func runWatchlist(ctx context.Context, env *Env, args []string) int {
 		op = fs.Arg(0)
 	}
 	var out rpc.Watchlist
-	var method string
-	var params any
+	var send func() error
 	switch op {
 	case "list":
 		if fs.NArg() > 1 || *spec != "" || *conID != 0 || *revision != -1 || *id != "" {
 			return fail(env, "usage: canary watchlist list [--json]")
 		}
-		method = rpc.MethodWatchlistList
+		send = func() error { return rpc.Call(ctx, env.Conn, api.WatchlistList, rpc.NoParams{}, &out) }
 	case "replace":
 		if fs.NArg() != 1 || *spec == "" || *conID != 0 || *revision != -1 || *id != "" {
 			return fail(env, "usage: canary watchlist replace --spec PATH|- [--json]")
@@ -71,7 +71,8 @@ func runWatchlist(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "watchlist: %v", err)
 		}
 		*revision, *id = *wire.ExpectedRevision, wire.RequestID
-		method, params = rpc.MethodWatchlistReplace, rpc.WatchlistReplaceRequest{Symbols: wire.Symbols, ExpectedRevision: *revision, RequestID: *id}
+		req := rpc.WatchlistReplaceRequest{Symbols: wire.Symbols, ExpectedRevision: *revision, RequestID: *id}
+		send = func() error { return rpc.Call(ctx, env.Conn, api.WatchlistReplace, req, &out) }
 	case "add", "remove":
 		if fs.NArg() != 2 || *spec != "" || (op == "remove" && *conID != 0) {
 			return fail(env, "usage: canary watchlist add|remove SYMBOL [--con-id ID] [--expected-revision N] [--request-id ID] [--json]")
@@ -82,7 +83,7 @@ func runWatchlist(ctx context.Context, env *Env, args []string) int {
 		}
 		if *revision == -1 {
 			var current rpc.Watchlist
-			if err = env.Conn.Call(ctx, rpc.MethodWatchlistList, nil, &current); err != nil {
+			if err = rpc.Call(ctx, env.Conn, api.WatchlistList, rpc.NoParams{}, &current); err != nil {
 				return fail(env, "watchlist: read revision: %v", err)
 			}
 			*revision = current.Revision
@@ -91,9 +92,11 @@ func runWatchlist(ctx context.Context, env *Env, args []string) int {
 			*id = rand.Text()
 		}
 		if op == "add" {
-			method, params = rpc.MethodWatchlistAdd, rpc.WatchlistAddRequest{Contract: contract, ExpectedRevision: *revision, RequestID: *id}
+			req := rpc.WatchlistAddRequest{Contract: contract, ExpectedRevision: *revision, RequestID: *id}
+			send = func() error { return rpc.Call(ctx, env.Conn, api.WatchlistAdd, req, &out) }
 		} else {
-			method, params = rpc.MethodWatchlistRemove, rpc.WatchlistRemoveRequest{Symbol: contract.Symbol, ExpectedRevision: *revision, RequestID: *id}
+			req := rpc.WatchlistRemoveRequest{Symbol: contract.Symbol, ExpectedRevision: *revision, RequestID: *id}
+			send = func() error { return rpc.Call(ctx, env.Conn, api.WatchlistRemove, req, &out) }
 		}
 	default:
 		return fail(env, "usage: canary watchlist list|add|remove|replace [--json]")
@@ -103,7 +106,7 @@ func runWatchlist(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "watchlist: %v", err)
 		}
 	}
-	if err := env.Conn.Call(ctx, method, params, &out); err != nil {
+	if err := send(); err != nil {
 		var rpcErr *rpc.Error
 		if *jsonOut && errors.As(err, &rpcErr) && rpcErr.Code == rpc.CodeWatchlistConflict {
 			_ = printJSON(env, struct {

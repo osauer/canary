@@ -50,8 +50,8 @@ func TestSettlementProbeCLIRequiresExplicitOneShotJSON(t *testing.T) {
 				if err := json.Unmarshal(out.Bytes(), &got); err != nil || got.Probe.Status != "completed_empty" {
 					t.Fatal(out.String(), err)
 				}
-			} else if c.params != nil {
-				t.Fatal("ordinary request params changed")
+			} else if c.params != nil && c.params != (rpc.AccountSummaryParams{}) {
+				t.Fatal("ordinary request asked for a diagnostic", c.params)
 			}
 		})
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/osauer/canary/v2/internal/procinfo"
 	"github.com/osauer/canary/v2/internal/productidentity"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/update"
 )
 
@@ -460,7 +461,7 @@ func readDaemonHealth(ctx context.Context, socketPath string) (rpc.HealthResult,
 	}
 	defer conn.Close()
 	var health rpc.HealthResult
-	if err := conn.Call(ctx, rpc.MethodStatusHealth, nil, &health); err != nil {
+	if err := rpc.Call(ctx, conn, api.StatusHealth, rpc.HealthParams{}, &health); err != nil {
 		return rpc.HealthResult{}, true, err
 	}
 	return health, true, nil

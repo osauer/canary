@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runProposalsPrepare(ctx context.Context, env *Env, args []string) int {
@@ -23,7 +24,7 @@ func runProposalsPrepare(ctx context.Context, env *Env, args []string) int {
 	}
 	var res rpc.TradeProposalPrepareResult
 	p := rpc.TradeProposalPreviewParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, TimeoutMs: int(timeout.Milliseconds())}
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsPrepare, p, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsPrepare, p, &res); err != nil {
 		return fail(env, "proposals prepare: %v", err)
 	}
 	return printJSON(env, res)
@@ -65,7 +66,7 @@ func runProposalsPreparedStatus(ctx context.Context, env *Env, args []string) in
 		return fail(env, "%v", err)
 	}
 	var res rpc.TradeProposalPreparedStatusResult
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsPreparedStatus, rpc.TradeProposalPreparedStatusParams{PreparedRef: reference}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsPreparedStatus, rpc.TradeProposalPreparedStatusParams{PreparedRef: reference}, &res); err != nil {
 		return fail(env, "proposals prepared-status: %v", err)
 	}
 	if *jsonOut {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/stress"
 )
 
@@ -41,13 +42,13 @@ func runPositions(ctx context.Context, env *Env, args []string) int {
 		params := rpc.PositionsListParams{Symbol: *symbol, Type: *typeF}
 		if *jsonOut && *view == rpc.ViewRisk {
 			var risk rpc.PositionsRiskResult
-			if err := env.Conn.Call(ctx, rpc.MethodPositionsRisk, params, &risk); err != nil {
+			if err := rpc.Call(ctx, env.Conn, api.PositionsRisk, params, &risk); err != nil {
 				return fail(env, "positions: %v", err)
 			}
 			return printJSONTo(env, out, risk)
 		}
 		var res rpc.PositionsResult
-		if err := env.Conn.Call(ctx, rpc.MethodPositionsList, params, &res); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.PositionsList, params, &res); err != nil {
 			return fail(env, "positions: %v", err)
 		}
 		applySort(res.Stocks, *sortBy)

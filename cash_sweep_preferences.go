@@ -3,6 +3,7 @@ package canary
 import (
 	"context"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // CashSweepPreferences is the daemon's runtime ordering preference and receipt.
@@ -23,7 +24,7 @@ func (c *Client) CashSweepPreferences(ctx context.Context) (*CashSweepPreference
 	}
 	defer conn.Close()
 	var out CashSweepPreferences
-	err = conn.Call(ctx, rpc.MethodCashSweepPreferencesGet, nil, &out)
+	err = rpc.Call(ctx, conn, api.CashSweepPreferencesGet, rpc.NoParams{}, &out)
 	return &out, daemonError(err)
 }
 
@@ -36,6 +37,6 @@ func (c *Client) SetCashSweepPriority(ctx context.Context, in SetCashSweepPriori
 	}
 	defer conn.Close()
 	var out CashSweepPreferences
-	err = conn.Call(ctx, rpc.MethodCashSweepPrioritySet, in, &out)
+	err = rpc.Call(ctx, conn, api.CashSweepPrioritySet, in, &out)
 	return &out, daemonError(err)
 }

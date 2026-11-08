@@ -12,8 +12,7 @@ import (
 // compiler holds both sides to one request type.
 type Method[P, R any] struct{ Name string }
 
-// NoParams is the request of a method that takes none. Call sends no params
-// for it, exactly as a nil request did before.
+// NoParams is the request of a method that takes none.
 type NoParams struct{}
 
 // requestTypes is written only while package api initialises its declarations.
@@ -63,7 +62,8 @@ func (f CallerFunc) Call(ctx context.Context, method string, params, out any) er
 }
 
 // Call sends method m with request p through c and decodes the result into
-// out.
+// out. NoParams is sent as no params, the same bytes a nil request sent
+// before declarations.
 func Call[P, R any](ctx context.Context, c Caller, m Method[P, R], p P, out *R) error {
 	var params any = p
 	if _, none := any(p).(NoParams); none {

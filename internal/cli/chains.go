@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runChains(ctx context.Context, env *Env, args []string) int {
@@ -34,7 +35,7 @@ func runChains(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "chains recorded: %v", err)
 	}
 	var res rpc.ChainsRecordedResult
-	if err := env.Conn.Call(ctx, rpc.MethodChainsRecorded, p, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ChainsRecorded, p, &res); err != nil {
 		return fail(env, "chains recorded: %v", err)
 	}
 	switch {
@@ -64,7 +65,7 @@ func exportChainRows(ctx context.Context, env *Env, res rpc.ChainsRecordedResult
 		for {
 			var page rpc.ChainsRecordedRowsResult
 			p := rpc.ChainsRecordedRowsParams{RunID: run.RunID, Symbol: symbol, After: after, Limit: rpc.ChainsRowsMaxLimit}
-			if err := env.Conn.Call(ctx, rpc.MethodChainsRecordedRows, p, &page); err != nil {
+			if err := rpc.Call(ctx, env.Conn, api.ChainsRecordedRows, p, &page); err != nil {
 				w.Flush()
 				return fail(env, "chains recorded: rows of run %d: %v", run.RunID, err)
 			}

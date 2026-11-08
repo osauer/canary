@@ -27,8 +27,8 @@ func TestCurrencySettlementProbeExplicitOneShotJSON(t *testing.T) {
 				if !ok || !p.CurrencySettlementProbe || p.SettlementProbe {
 					t.Fatal(c.params)
 				}
-			} else if c.params != nil {
-				t.Fatal("ordinary read enabled diagnostics")
+			} else if c.params != nil && c.params != (rpc.AccountSummaryParams{}) {
+				t.Fatal("ordinary read enabled diagnostics", c.params)
 			}
 		})
 	}

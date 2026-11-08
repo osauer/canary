@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Proposal veto: the owner stops one pre-authorised submission before its
@@ -39,11 +40,11 @@ const OriginPairedDevice = rpc.OrderOriginPairedDevice
 // method error is returned as an error.
 func (c *Client) VetoProposal(ctx context.Context, in TradeProposalVetoParams) (*TradeProposalVetoResult, error) {
 	var out TradeProposalVetoResult
-	method := rpc.MethodTradeProposalsVeto
+	method := api.TradeProposalsVeto
 	if in.NoticeID != "" || !in.VetoUntil.IsZero() {
-		method = rpc.MethodTradeProposalsVetoWindow
+		method = api.TradeProposalsVetoWindow
 	}
-	if err := c.callPrivate(ctx, method, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), method, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

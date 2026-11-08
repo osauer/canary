@@ -27,6 +27,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const exitNoDaemon = 2
@@ -46,7 +47,7 @@ func run(ctx context.Context, socket string, out, errOut io.Writer) int {
 	defer conn.Close()
 
 	var positions rpc.PositionsResult
-	if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{}, &positions); err != nil {
+	if err := rpc.Call(ctx, conn, api.PositionsList, rpc.PositionsListParams{}, &positions); err != nil {
 		fmt.Fprintf(out, "holdings|unavailable|%s\n", oneLine(err.Error()))
 	} else if why := unavailable(positions.Authority); why != "" {
 		fmt.Fprintf(out, "holdings|unavailable|%s\n", why)
@@ -68,7 +69,7 @@ func run(ctx context.Context, socket string, out, errOut io.Writer) int {
 	}
 
 	var account rpc.AccountResult
-	if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &account); err != nil {
+	if err := rpc.Call(ctx, conn, api.AccountSummary, rpc.AccountSummaryParams{}, &account); err != nil {
 		fmt.Fprintf(out, "money|unavailable|%s\n", oneLine(err.Error()))
 		return 0
 	}

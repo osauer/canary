@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runSetups(ctx context.Context, env *Env, args []string) int {
@@ -46,7 +47,7 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "setups coverage: %v", err)
 		}
 		var out rpc.SetupCoverageResult
-		if err := env.Conn.Call(ctx, rpc.MethodSetupsCoverage, p, &out); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.SetupsCoverage, p, &out); err != nil {
 			return fail(env, "setups coverage: %v", err)
 		}
 		if *jsonOut {
@@ -75,7 +76,7 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "setups options: %v", err)
 		}
 		var out rpc.SetupOptionsResult
-		if err := env.Conn.Call(ctx, rpc.MethodSetupsOptions, p, &out); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.SetupsOptions, p, &out); err != nil {
 			return fail(env, "setups options: %v", err)
 		}
 		if *jsonOut {
@@ -127,7 +128,7 @@ func runSetups(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "setups: %v", err)
 	}
 	var result rpc.SetupResult
-	if err = env.Conn.Call(ctx, rpc.MethodSetupsEvaluate, p, &result); err != nil {
+	if err = rpc.Call(ctx, env.Conn, api.SetupsEvaluate, p, &result); err != nil {
 		return fail(env, "setups: %v", err)
 	}
 	if *jsonOut {
@@ -171,7 +172,7 @@ func runSetupMarkouts(ctx context.Context, env *Env, p rpc.SetupMarkoutsParams, 
 		return fail(env, "setups markouts: %v", err)
 	}
 	var out rpc.SetupMarkoutsResult
-	if err := env.Conn.Call(ctx, rpc.MethodSetupsMarkouts, p, &out); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.SetupsMarkouts, p, &out); err != nil {
 		return fail(env, "setups markouts: %v", err)
 	}
 	if out.Targets == nil {

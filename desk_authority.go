@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Desk automatic authority: the owner's device-confirmed standing mandate for
@@ -35,7 +36,7 @@ type DeskAuthorityStatus = rpc.DeskAuthorityStatus
 // a breach of the mandate's loss room (HeldBy; before 2026-10-31 the drawdown brake).
 func (c *Client) DeskAuthority(ctx context.Context) (*DeskAuthorityStatus, error) {
 	var out DeskAuthorityStatus
-	if err := c.callPrivate(ctx, rpc.MethodDeskAuthorityStatus, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskAuthorityStatus, rpc.NoParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -44,7 +45,7 @@ func (c *Client) DeskAuthority(ctx context.Context) (*DeskAuthorityStatus, error
 // PrepareDeskAuthority returns exact terms for the owner's device review.
 func (c *Client) PrepareDeskAuthority(ctx context.Context, in DeskAuthorityPrepareParams) (*DeskAuthorityPrepared, error) {
 	var out DeskAuthorityPrepared
-	if err := c.callPrivate(ctx, rpc.MethodDeskAuthorityPrepare, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskAuthorityPrepare, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -54,7 +55,7 @@ func (c *Client) PrepareDeskAuthority(ctx context.Context, in DeskAuthorityPrepa
 // confirmation. It does not start the controller.
 func (c *Client) ConfirmDeskAuthority(ctx context.Context, in DeskAuthorityConfirmParams) (*DeskAuthorityStatus, error) {
 	var out DeskAuthorityStatus
-	if err := c.callPrivate(ctx, rpc.MethodDeskAuthorityConfirm, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskAuthorityConfirm, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -64,7 +65,7 @@ func (c *Client) ConfirmDeskAuthority(ctx context.Context, in DeskAuthorityConfi
 // daemon-held generation. Upgrading needs a fresh confirmation.
 func (c *Client) ControlDeskAuthority(ctx context.Context, in DeskAuthorityControlParams) (*DeskAuthorityStatus, error) {
 	var out DeskAuthorityStatus
-	if err := c.callPrivate(ctx, rpc.MethodDeskAuthorityControl, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskAuthorityControl, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -107,7 +108,7 @@ const (
 // review.
 func (c *Client) PrepareDeskOverride(ctx context.Context, in DeskOverridePrepareParams) (*DeskOverridePrepared, error) {
 	var out DeskOverridePrepared
-	if err := c.callPrivate(ctx, rpc.MethodDeskOverridePrepare, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskOverridePrepare, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -117,7 +118,7 @@ func (c *Client) PrepareDeskOverride(ctx context.Context, in DeskOverridePrepare
 // confirmation; a retry of the same terms answers with the same override.
 func (c *Client) ConfirmDeskOverride(ctx context.Context, in DeskOverrideConfirmParams) (*RiskPolicyWriteResult, error) {
 	var out RiskPolicyWriteResult
-	if err := c.callPrivate(ctx, rpc.MethodDeskOverrideConfirm, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskOverrideConfirm, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

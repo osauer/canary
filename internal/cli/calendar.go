@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runCalendar(ctx context.Context, env *Env, args []string) int {
@@ -30,7 +31,7 @@ func runCalendar(ctx context.Context, env *Env, args []string) int {
 		}
 	}
 	var res rpc.MarketCalendarResult
-	if err := env.Conn.Call(ctx, rpc.MethodMarketCalendar, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.MarketCalendar, params, &res); err != nil {
 		return fail(env, "calendar: %v", err)
 	}
 	if *jsonOut {

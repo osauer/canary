@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Desk execution contract (rpc.MethodDeskExecution*): one daemon path for a
@@ -88,7 +89,7 @@ type DeskExecutionLookupResult = rpc.DeskExecutionLookupResult
 // authorisations. A daemon without it is unavailable to Desk.
 func (c *Client) DeskExecutionCapabilities(ctx context.Context) (*DeskExecutionCapabilitiesResult, error) {
 	var out DeskExecutionCapabilitiesResult
-	if err := c.callPrivate(ctx, rpc.MethodDeskExecutionCapabilities, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskExecutionCapabilities, rpc.NoParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -98,7 +99,7 @@ func (c *Client) DeskExecutionCapabilities(ctx context.Context) (*DeskExecutionC
 // read-only; an error never means that nothing happened.
 func (c *Client) LookupDeskExecution(ctx context.Context, in DeskExecutionLookupParams) (*DeskExecutionLookupResult, error) {
 	var out DeskExecutionLookupResult
-	if err := c.callPrivate(ctx, rpc.MethodDeskExecutionLookup, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskExecutionLookup, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -122,7 +123,7 @@ func ValidateAutomaticOrder(items []DeskExecutionItem) error {
 // IDs with LookupDeskExecution.
 func (c *Client) SubmitDeskExecution(ctx context.Context, in DeskExecutionSubmitParams) (*DeskExecutionSubmitResult, error) {
 	var out DeskExecutionSubmitResult
-	if err := c.callPrivate(ctx, rpc.MethodDeskExecutionSubmit, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callPrivate), api.DeskExecutionSubmit, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

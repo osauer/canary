@@ -21,6 +21,7 @@ import (
 	"github.com/osauer/canary/v2/internal/procinfo"
 	"github.com/osauer/canary/v2/internal/productidentity"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/update"
 )
 
@@ -1060,7 +1061,7 @@ func startDaemonAndFetchHealthUsing(ctx context.Context, socketPath string, prog
 
 	fetch := func(ctx context.Context) (rpc.HealthResult, error) {
 		var res rpc.HealthResult
-		err := conn.Call(ctx, rpc.MethodStatusHealth, nil, &res)
+		err := rpc.Call(ctx, conn, api.StatusHealth, rpc.HealthParams{}, &res)
 		return res, err
 	}
 	health, err := fetch(ctx)

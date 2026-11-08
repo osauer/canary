@@ -3,6 +3,7 @@ package canary
 import (
 	"context"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Watchlist is Canary's accepted owner list and current receipt clock.
@@ -23,6 +24,6 @@ func (c *Client) Watchlist(ctx context.Context) (*Watchlist, error) {
 	}
 	defer conn.Close()
 	var out Watchlist
-	err = conn.Call(ctx, rpc.MethodWatchlistList, nil, &out)
+	err = rpc.Call(ctx, conn, api.WatchlistList, rpc.NoParams{}, &out)
 	return &out, daemonError(err)
 }

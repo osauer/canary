@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runRecon renders the post-trade reconciliation report
@@ -48,7 +49,7 @@ func runRecon(ctx context.Context, env *Env, args []string) int {
 			return parseExit(err)
 		}
 		var res rpc.ReconStatusResult
-		if err := env.Conn.Call(ctx, rpc.MethodReconStatus, rpc.ReconStatusParams{}, &res); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.ReconStatus, rpc.ReconStatusParams{}, &res); err != nil {
 			return fail(env, "recon status: %v", err)
 		}
 		return printJSON(env, res)
@@ -140,7 +141,7 @@ func runReconEquity(ctx context.Context, env *Env, args []string) int {
 		Limit: *limit,
 	}
 	var res rpc.ReconEquityResult
-	if err := env.Conn.Call(ctx, rpc.MethodReconEquity, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ReconEquity, params, &res); err != nil {
 		return fail(env, "recon equity: %v", err)
 	}
 	if *jsonOut {
@@ -209,7 +210,7 @@ func runReconShow(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.ReconResult
-	if err := env.Conn.Call(ctx, rpc.MethodReconSnapshot, rpc.ReconSnapshotParams{Refresh: *refresh}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ReconSnapshot, rpc.ReconSnapshotParams{Refresh: *refresh}, &res); err != nil {
 		return fail(env, "recon: %v", err)
 	}
 	if *jsonOut {
@@ -358,7 +359,7 @@ func runReconBacktest(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.ReconBacktestResult
-	if err := env.Conn.Call(ctx, rpc.MethodReconBacktest, rpc.ReconSnapshotParams{Refresh: *refresh}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ReconBacktest, rpc.ReconSnapshotParams{Refresh: *refresh}, &res); err != nil {
 		return fail(env, "recon backtest: %v", err)
 	}
 	if *jsonOut {
@@ -522,7 +523,7 @@ func runReconDismiss(ctx context.Context, env *Env, args []string) int {
 	}
 	params := rpc.ReconDismissParams{LineID: *line, Reason: *reason, Origin: env.Origin}
 	var res rpc.RiskPolicyWriteResult
-	if err := env.Conn.Call(ctx, rpc.MethodReconDismiss, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ReconDismiss, params, &res); err != nil {
 		return fail(env, "recon dismiss: %v", err)
 	}
 	if *jsonOut {

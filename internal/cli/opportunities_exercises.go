@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runOpportunityExercises(ctx context.Context, env *Env, args []string) int {
@@ -19,7 +20,7 @@ func runOpportunityExercises(ctx context.Context, env *Env, args []string) int {
 		return failUnexpectedArgs(env, fs)
 	}
 	var out rpc.ExercisePendingResult
-	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesExercises, nil, &out); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OpportunitiesExercises, rpc.NoParams{}, &out); err != nil {
 		return fail(env, "opportunities exercises: %v", err)
 	}
 	if *jsonOut {
@@ -45,7 +46,7 @@ func runOpportunityReconcileExercise(ctx context.Context, env *Env, args []strin
 	}
 	p := rpc.ExerciseReconcileParams{RequestRef: strings.TrimSpace(fs.Arg(0)), Revision: strings.TrimSpace(fs.Arg(1)), EvidenceID: strings.TrimSpace(*evidence), ConfirmComplete: *confirmed, Origin: env.Origin}
 	var out rpc.ExerciseReconcileResult
-	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesReconcileExercise, p, &out); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OpportunitiesReconcileExercise, p, &out); err != nil {
 		return fail(env, "opportunities reconcile-exercise: %v", err)
 	}
 	if *jsonOut {

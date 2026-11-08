@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runSettings(ctx context.Context, env *Env, args []string) int {
@@ -63,7 +64,7 @@ func runSettingsShow(ctx context.Context, env *Env, args []string) int {
 		return failUnexpectedArgs(env, fs)
 	}
 	var res rpc.PlatformSettings
-	if err := env.Conn.Call(ctx, rpc.MethodSettingsGet, nil, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.SettingsGet, rpc.NoParams{}, &res); err != nil {
 		return fail(env, "settings show: %v", err)
 	}
 	if *jsonOut {
@@ -92,7 +93,7 @@ func runSettingsSet(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "settings set: %v", err)
 	}
 	var res rpc.PlatformSettings
-	if err := env.Conn.Call(ctx, rpc.MethodSettingsUpdate, patch, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.SettingsUpdate, patch, &res); err != nil {
 		return fail(env, "settings set: %v", err)
 	}
 	if *jsonOut {

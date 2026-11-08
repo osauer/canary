@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runAccount(ctx context.Context, env *Env, args []string) int {
@@ -26,7 +27,7 @@ func runAccount(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "account: --currency-settlement-probe requires --json, cannot watch or combine diagnostics")
 		}
 		var result rpc.AccountCurrencySettlementProbe
-		if err := env.Conn.Call(ctx, rpc.MethodAccountSummary, rpc.AccountSummaryParams{CurrencySettlementProbe: true}, &result); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.AccountCurrencySettlementProbe, rpc.AccountSummaryParams{CurrencySettlementProbe: true}, &result); err != nil {
 			return fail(env, "account: %v", err)
 		}
 		return printJSONTo(env, env.Stdout, result)
@@ -36,7 +37,7 @@ func runAccount(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "account: --settlement-probe requires --json and cannot watch")
 		}
 		var result rpc.AccountSettlementComparison
-		if err := env.Conn.Call(ctx, rpc.MethodAccountSummary, rpc.AccountSummaryParams{SettlementProbe: true}, &result); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.AccountSettlementComparison, rpc.AccountSummaryParams{SettlementProbe: true}, &result); err != nil {
 			return fail(env, "account: %v", err)
 		}
 		return printJSONTo(env, env.Stdout, result)
@@ -44,7 +45,7 @@ func runAccount(ctx context.Context, env *Env, args []string) int {
 
 	fetchAndRender := func(out io.Writer) int {
 		var res rpc.AccountResult
-		if err := env.Conn.Call(ctx, rpc.MethodAccountSummary, nil, &res); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.AccountSummary, rpc.AccountSummaryParams{}, &res); err != nil {
 			return fail(env, "account: %v", err)
 		}
 		if *jsonOut {

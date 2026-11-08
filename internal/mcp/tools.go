@@ -11,6 +11,7 @@ import (
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/feedback"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/scorecard"
 	"github.com/osauer/canary/v2/internal/stress"
 )
@@ -53,7 +54,7 @@ var Tools = []Tool{
 		// The producer owns the bounded page. Preserve additive evidence even
 		// when this SDK predates its optional fields.
 		var r json.RawMessage
-		if err := conn.Call(ctx, rpc.MethodDataHealth, p, &r); err != nil {
+		if err := rpc.Call(ctx, conn, api.DataHealthRaw, p, &r); err != nil {
 			return nil, err
 		}
 		return r, nil
@@ -87,21 +88,21 @@ var Tools = []Tool{
 		}},
 	{Name: "canary_data_check", Title: "Canary Required Data Check", RPCMethods: []string{rpc.MethodDataCheck}, ReadOnlyHint: new(true), Description: "Request or inspect a coalesced bounded check of required data sources using reference quote probes, not a holdings inventory. Counts describe sources, not instruments. Reuses Canary subscriptions and existing retry windows; history, options and public sources keep their producer schedules. Returns queued/running or completed coverage; it cannot purchase subscriptions or repair access. Use canary_data_health for the passive canonical report. Does not place orders, change settings or restart the gateway.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 		var r rpc.DataCheckResult
-		if err := conn.Call(ctx, rpc.MethodDataCheck, nil, &r); err != nil {
+		if err := rpc.Call(ctx, conn, api.DataCheck, rpc.NoParams{}, &r); err != nil {
 			return nil, err
 		}
 		return json.Marshal(r)
 	}},
 	{Name: "canary_portfolio", Title: "Canary Portfolio Composition", RPCMethods: []string{rpc.MethodPortfolioSnapshot}, Description: "Read current portfolio composition in account base currency: signed market value by asset class and by GICS sector as a share of net liquidation. Options count at premium value under their underlying; the embedded index funds (SPY, QQQ, IWM) spread over published sector weights with their as-of dates; other funds pool without look-through. Holdings the broker no longer quotes or marks at zero are excluded and counted. Cost basis uses broker average cost including the option multiplier. This is allocation, not directional risk, a return percentage, or statement performance.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 		var res rpc.PortfolioSnapshotResult
-		if err := conn.Call(ctx, rpc.MethodPortfolioSnapshot, nil, &res); err != nil {
+		if err := rpc.Call(ctx, conn, api.PortfolioSnapshot, rpc.NoParams{}, &res); err != nil {
 			return nil, err
 		}
 		return json.Marshal(res)
 	}},
 	{Name: "canary_recon_status", Title: "Canary Reconciliation Status", RPCMethods: []string{rpc.MethodReconStatus}, Description: "Read redacted automatic statement acquisition and capital-flow/equity reconciliation status. Acquisition health is separate from evaluation. This does not prove complete broker order or fill visibility and performs no refresh, reconciliation acknowledgement, or broker action. IBKR only; on OpenD the result reports `not_applicable`.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 		var res rpc.ReconStatusResult
-		if err := conn.Call(ctx, rpc.MethodReconStatus, rpc.ReconStatusParams{}, &res); err != nil {
+		if err := rpc.Call(ctx, conn, api.ReconStatus, rpc.ReconStatusParams{}, &res); err != nil {
 			return nil, err
 		}
 		return json.Marshal(res)
@@ -124,13 +125,13 @@ var Tools = []Tool{
 			}
 			if strings.TrimSpace(in.BondIdentifier) != "" {
 				var res rpc.MarketBondResult
-				if err := conn.Call(ctx, rpc.MethodMarketBond, rpc.MarketBondParams{Identifier: in.BondIdentifier, Currency: in.BondCurrency}, &res); err != nil {
+				if err := rpc.Call(ctx, conn, api.MarketBond, rpc.MarketBondParams{Identifier: in.BondIdentifier, Currency: in.BondCurrency}, &res); err != nil {
 					return nil, err
 				}
 				return json.Marshal(res)
 			}
 			var res rpc.MarketSnapshotResult
-			if err := conn.Call(ctx, rpc.MethodMarketSnapshot, nil, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.MarketSnapshot, rpc.NoParams{}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -146,7 +147,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var res rpc.MarketHistoryResult
-			if err := conn.Call(ctx, rpc.MethodMarketHistory, p, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.MarketHistory, p, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -170,7 +171,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var res rpc.MarketTapeResult
-			if err := conn.Call(ctx, rpc.MethodMarketTape, p, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.MarketTape, p, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -185,7 +186,7 @@ var Tools = []Tool{
 		JSONSchema:         schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.HealthResult
-			if err := conn.Call(ctx, rpc.MethodStatusHealth, nil, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.StatusHealth, rpc.HealthParams{}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -199,7 +200,7 @@ var Tools = []Tool{
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.TradingStatus
-			if err := conn.Call(ctx, rpc.MethodTradingStatus, nil, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.TradingStatus, rpc.NoParams{}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -213,7 +214,7 @@ var Tools = []Tool{
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.PlatformSettings
-			if err := conn.Call(ctx, rpc.MethodSettingsGet, nil, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.SettingsGet, rpc.NoParams{}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -231,7 +232,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var res rpc.OrdersOpenResult
-			if err := conn.Call(ctx, rpc.MethodOrdersOpen, in, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.OrdersOpen, in, &res); err != nil {
 				return nil, err
 			}
 			sanitizeOrdersOpenForMCP(&res)
@@ -255,7 +256,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var res rpc.OrdersHistoryResult
-			if err := conn.Call(ctx, rpc.MethodOrdersHistory, in, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.OrdersHistory, in, &res); err != nil {
 				return nil, err
 			}
 			sanitizeOrdersHistoryForMCP(&res)
@@ -276,7 +277,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var res rpc.OrderStatusResult
-			if err := conn.Call(ctx, rpc.MethodOrderStatus, in, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.OrderStatus, in, &res); err != nil {
 				return nil, err
 			}
 			sanitizeOrderStatusForMCP(&res)
@@ -291,7 +292,7 @@ var Tools = []Tool{
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.AccountResult
-			if err := conn.Call(ctx, rpc.MethodAccountSummary, nil, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.AccountSummary, rpc.AccountSummaryParams{}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -325,13 +326,13 @@ var Tools = []Tool{
 			params := rpc.PositionsListParams{Symbol: in.Symbol, Type: in.Type}
 			if in.View == rpc.ViewRisk {
 				var risk rpc.PositionsRiskResult
-				if err := conn.Call(ctx, rpc.MethodPositionsRisk, params, &risk); err != nil {
+				if err := rpc.Call(ctx, conn, api.PositionsRisk, params, &risk); err != nil {
 					return nil, err
 				}
 				return json.Marshal(risk)
 			}
 			var res rpc.PositionsResult
-			if err := conn.Call(ctx, rpc.MethodPositionsList, params, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.PositionsList, params, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -345,7 +346,7 @@ var Tools = []Tool{
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.PositionsResult
-			if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{Type: "opt"}, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.PositionsList, rpc.PositionsListParams{Type: "opt"}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(rpc.NewPositionStrategiesView(&res))
@@ -374,7 +375,7 @@ var Tools = []Tool{
 				return nil, fmt.Errorf("symbols is required and must be non-empty")
 			}
 			var res rpc.TechnicalResult
-			if err := conn.Call(ctx, rpc.MethodTechnical, in, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.Technical, in, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -399,7 +400,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var res rpc.MarketCalendarResult
-			if err := conn.Call(ctx, rpc.MethodMarketCalendar, in, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.MarketCalendar, in, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -418,7 +419,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var out rpc.MacroSnapshotResult
-			if err := conn.Call(ctx, rpc.MethodMacroSnapshot, in, &out); err != nil {
+			if err := rpc.Call(ctx, conn, api.MacroSnapshot, in, &out); err != nil {
 				return nil, err
 			}
 			return json.Marshal(out)
@@ -444,7 +445,7 @@ var Tools = []Tool{
 				return nil, fmt.Errorf("monitor view cannot include profiles")
 			}
 			var res rpc.RegimeSnapshotResult
-			if err := conn.Call(ctx, rpc.MethodRegimeSnapshot, rpc.RegimeSnapshotParams{}, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.RegimeSnapshot, rpc.RegimeSnapshotParams{}, &res); err != nil {
 				return nil, err
 			}
 			if in.View == "monitor" {
@@ -555,7 +556,7 @@ var Tools = []Tool{
 		RPCMethods:   []string{rpc.MethodBriefSnapshot},
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.BriefResult
-			if err := conn.Call(ctx, rpc.MethodBriefSnapshot, rpc.BriefSnapshotParams{}, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.BriefSnapshot, rpc.BriefSnapshotParams{}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -570,7 +571,7 @@ var Tools = []Tool{
 		JSONSchema:   schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.ReportingStatusResult
-			if err := conn.Call(ctx, rpc.MethodReportingStatus, struct{}{}, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.ReportingStatus, rpc.NoParams{}, &res); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateReportingStatusResult(res); err != nil {
@@ -588,7 +589,7 @@ var Tools = []Tool{
 		JSONSchema:   schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.FXResult
-			if err := conn.Call(ctx, rpc.MethodFX, struct{}{}, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.FX, rpc.NoParams{}, &res); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateFXResult(res); err != nil {
@@ -607,7 +608,7 @@ var Tools = []Tool{
 		JSONSchema:   schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.ReportingPerformanceResult
-			if err := conn.Call(ctx, rpc.MethodReportingPerformance, struct{}{}, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.ReportingPerformance, rpc.NoParams{}, &res); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateReportingPerformanceResult(res); err != nil {
@@ -636,7 +637,7 @@ var Tools = []Tool{
 				return nil, fmt.Errorf("month must be YYYY-MM")
 			}
 			var res rpc.ReportingCostsResult
-			if err := conn.Call(ctx, rpc.MethodReportingCosts, params, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.ReportingCosts, params, &res); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateReportingCostsResult(res); err != nil {
@@ -670,7 +671,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var res rpc.EdgeResult
-			if err := conn.Call(ctx, rpc.MethodEdgeSnapshot, in, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.EdgeSnapshot, in, &res); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateEdgeResult(res); err != nil {
@@ -717,7 +718,7 @@ var Tools = []Tool{
 			}
 			p.Symbols = symbols
 			var result rpc.LendingMarketResult
-			if err := conn.Call(ctx, rpc.MethodLendingMarket, p, &result); err != nil {
+			if err := rpc.Call(ctx, conn, api.LendingMarket, p, &result); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateLendingMarketResult(result, symbols); err != nil {
@@ -750,7 +751,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var result rpc.LendingScreenResult
-			if err := conn.Call(ctx, rpc.MethodLendingScreen, p, &result); err != nil {
+			if err := rpc.Call(ctx, conn, api.LendingScreen, p, &result); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateLendingScreenResult(result, p); err != nil {
@@ -777,7 +778,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var result rpc.MarketEventsResult
-			if err := conn.Call(ctx, rpc.MethodMarketEventsSnapshot, rpc.MarketEventsParams{Symbols: symbols}, &result); err != nil {
+			if err := rpc.Call(ctx, conn, api.MarketEventsSnapshot, rpc.MarketEventsParams{Symbols: symbols}, &result); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateLendingRateScope(result, symbols); err != nil {
@@ -808,7 +809,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var result rpc.FinancingFeesResult
-			if err := conn.Call(ctx, rpc.MethodFinancingFees, params, &result); err != nil {
+			if err := rpc.Call(ctx, conn, api.FinancingFees, params, &result); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateFinancingFeesResponse(result, params); err != nil {
@@ -833,7 +834,7 @@ var Tools = []Tool{
 				return nil, err
 			}
 			var res rpc.RulesResult
-			if err := conn.Call(ctx, rpc.MethodRulesSnapshot, rpc.RulesSnapshotParams{Symbol: in.Symbol}, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.RulesSnapshot, rpc.RulesSnapshotParams{Symbol: in.Symbol}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -848,7 +849,7 @@ var Tools = []Tool{
 		JSONSchema:   schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
 			var res rpc.RiskPolicyResult
-			if err := conn.Call(ctx, rpc.MethodRiskPolicySnapshot, struct{}{}, &res); err != nil {
+			if err := rpc.Call(ctx, conn, api.RiskPolicySnapshot, rpc.NoParams{}, &res); err != nil {
 				return nil, err
 			}
 			if res.Plausibility == nil {
@@ -876,10 +877,10 @@ var Tools = []Tool{
 			}
 			var res rpc.TradeProposalSnapshot
 			if in.Refresh {
-				if err := conn.Call(ctx, rpc.MethodTradeProposalsRefresh, rpc.TradeProposalRefreshParams{Show: in.Show}, &res); err != nil {
+				if err := rpc.Call(ctx, conn, api.TradeProposalsRefresh, rpc.TradeProposalRefreshParams{Show: in.Show}, &res); err != nil {
 					return nil, err
 				}
-			} else if err := conn.Call(ctx, rpc.MethodTradeProposalsSnapshot, rpc.TradeProposalSnapshotParams{Show: in.Show}, &res); err != nil {
+			} else if err := rpc.Call(ctx, conn, api.TradeProposalsSnapshot, rpc.TradeProposalSnapshotParams{Show: in.Show}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)
@@ -905,10 +906,10 @@ var Tools = []Tool{
 			}
 			var res rpc.OpportunitySnapshot
 			if in.Refresh {
-				if err := conn.Call(ctx, rpc.MethodOpportunitiesRefresh, rpc.OpportunityRefreshParams{Show: in.Show}, &res); err != nil {
+				if err := rpc.Call(ctx, conn, api.OpportunitiesRefresh, rpc.OpportunityRefreshParams{Show: in.Show}, &res); err != nil {
 					return nil, err
 				}
-			} else if err := conn.Call(ctx, rpc.MethodOpportunitiesSnapshot, rpc.OpportunitySnapshotParams{Show: in.Show}, &res); err != nil {
+			} else if err := rpc.Call(ctx, conn, api.OpportunitiesSnapshot, rpc.OpportunitySnapshotParams{Show: in.Show}, &res); err != nil {
 				return nil, err
 			}
 			return json.Marshal(res)

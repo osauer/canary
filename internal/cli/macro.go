@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"strings"
 )
 
@@ -20,7 +21,7 @@ func runMacro(ctx context.Context, env *Env, args []string) int {
 		return failUnexpectedArgs(env, fs)
 	}
 	var out rpc.MacroSnapshotResult
-	if err := env.Conn.Call(ctx, rpc.MethodMacroSnapshot, rpc.MacroSnapshotParams{WindowStart: *start, WindowEnd: *end}, &out); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.MacroSnapshot, rpc.MacroSnapshotParams{WindowStart: *start, WindowEnd: *end}, &out); err != nil {
 		return fail(env, "macro: %v", err)
 	}
 	if *jsonOut {

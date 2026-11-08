@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runMarketBond is canary market --symbol <ISIN|CUSIP> --type BILL|BOND: a
@@ -17,7 +18,7 @@ import (
 // stages or sends an order.
 func runMarketBond(ctx context.Context, env *Env, identifier, secType, currency string, jsonOut bool) int {
 	var res rpc.MarketBondResult
-	if err := env.Conn.Call(ctx, rpc.MethodMarketBond, rpc.MarketBondParams{Identifier: identifier, Currency: currency, SecType: secType}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.MarketBond, rpc.MarketBondParams{Identifier: identifier, Currency: currency, SecType: secType}, &res); err != nil {
 		return fail(env, "market bond: %v", err)
 	}
 	if jsonOut {

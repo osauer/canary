@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/stress"
 	"time"
 )
@@ -84,7 +85,7 @@ type FinancingClient interface {
 // FinancingFees reads retained statement fees without contacting the broker.
 func (c Real) FinancingFees(ctx context.Context, params rpc.FinancingFeesParams) (*rpc.FinancingFeesResult, error) {
 	var out rpc.FinancingFeesResult
-	if err := c.call(ctx, rpc.MethodFinancingFees, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.FinancingFees, params, &out); err != nil {
 		return nil, err
 	}
 	if err := rpc.ValidateFinancingFeesResponse(out, params); err != nil {
@@ -104,7 +105,7 @@ type PushDeliveryProofClient interface {
 // evidence reporting must not start a broker-connected process.
 func (c Real) ReportPushDeliveryProof(ctx context.Context, proof rpc.PushDeliveryProof) (*rpc.AlertDeliveryProofResult, error) {
 	var out rpc.AlertDeliveryProofResult
-	if err := (Real{SocketPath: c.SocketPath}).call(ctx, rpc.MethodAlertDeliveryProof, proof, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(Real{SocketPath: c.SocketPath}.call), api.AlertDeliveryProof, proof, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -118,7 +119,7 @@ type MarketTapeClient interface {
 // MarketTape composes a bounded retrospective tape in the daemon.
 func (c Real) MarketTape(ctx context.Context, params rpc.MarketTapeParams) (*rpc.MarketTapeResult, error) {
 	var out rpc.MarketTapeResult
-	if err := c.call(ctx, rpc.MethodMarketTape, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.MarketTape, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -141,7 +142,7 @@ var (
 // Status returns the daemon health snapshot.
 func (c Real) Status(ctx context.Context) (*rpc.HealthResult, error) {
 	var out rpc.HealthResult
-	if err := c.call(ctx, rpc.MethodStatusHealth, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.StatusHealth, rpc.HealthParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -156,7 +157,7 @@ func (c Real) MarketCalendar(ctx context.Context) (*rpc.MarketCalendarResult, er
 func (c Real) MarketCalendarFor(ctx context.Context, market string) (*rpc.MarketCalendarResult, error) {
 	var out rpc.MarketCalendarResult
 	params := rpc.MarketCalendarParams{Market: market, At: time.Now().UTC(), Days: 3}
-	if err := c.call(ctx, rpc.MethodMarketCalendar, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.MarketCalendar, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -165,7 +166,7 @@ func (c Real) MarketCalendarFor(ctx context.Context, market string) (*rpc.Market
 // Account returns the daemon's typed account-summary result.
 func (c Real) Account(ctx context.Context) (*rpc.AccountResult, error) {
 	var out rpc.AccountResult
-	if err := c.call(ctx, rpc.MethodAccountSummary, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.AccountSummary, rpc.AccountSummaryParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -174,7 +175,7 @@ func (c Real) Account(ctx context.Context) (*rpc.AccountResult, error) {
 // Positions returns the daemon's current typed positions view.
 func (c Real) Positions(ctx context.Context) (*rpc.PositionsResult, error) {
 	var out rpc.PositionsResult
-	if err := c.call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{}, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.PositionsList, rpc.PositionsListParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -187,7 +188,7 @@ func (c Real) Quote(ctx context.Context, contract rpc.ContractParams) (*rpc.Quot
 		Contract:  contract,
 		TimeoutMs: int(appQuoteSnapshotTimeout.Milliseconds()),
 	}
-	if err := c.call(ctx, rpc.MethodQuoteSnapshot, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.QuoteSnapshot, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -216,7 +217,7 @@ func (c Real) StreamQuote(ctx context.Context, contract rpc.ContractParams, onFr
 // MarketEvents returns the daemon-classified market-event snapshot.
 func (c Real) MarketEvents(ctx context.Context, params rpc.MarketEventsParams) (*rpc.MarketEventsResult, error) {
 	var out rpc.MarketEventsResult
-	if err := c.call(ctx, rpc.MethodMarketEventsSnapshot, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.MarketEventsSnapshot, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -259,7 +260,7 @@ func (c Real) AlertCandidates(ctx context.Context) (*rpc.AlertCandidateSnapshot,
 
 func alertCandidates(ctx context.Context, call func(context.Context, string, any, any) error) (*rpc.AlertCandidateSnapshot, error) {
 	var out rpc.AlertCandidateSnapshot
-	if err := call(ctx, rpc.MethodAlertCandidates, rpc.AlertCandidatesParams{}, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(call), api.AlertCandidates, rpc.AlertCandidatesParams{}, &out); err != nil {
 		return nil, err
 	}
 	if err := rpc.ValidateAlertCandidateSnapshot(out); err != nil {
@@ -271,7 +272,7 @@ func alertCandidates(ctx context.Context, call func(context.Context, string, any
 // Rules returns the daemon-authored rulebook snapshot.
 func (c Real) Rules(ctx context.Context) (*rpc.RulesResult, error) {
 	var out rpc.RulesResult
-	if err := c.call(ctx, rpc.MethodRulesSnapshot, rpc.RulesSnapshotParams{}, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.RulesSnapshot, rpc.RulesSnapshotParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -280,7 +281,7 @@ func (c Real) Rules(ctx context.Context) (*rpc.RulesResult, error) {
 // Brief returns the daemon-authored trading brief snapshot.
 func (c Real) Brief(ctx context.Context) (*rpc.BriefResult, error) {
 	var out rpc.BriefResult
-	if err := c.call(ctx, rpc.MethodBriefSnapshot, rpc.BriefSnapshotParams{}, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.BriefSnapshot, rpc.BriefSnapshotParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -290,7 +291,7 @@ func (c Real) Brief(ctx context.Context) (*rpc.BriefResult, error) {
 // start Flex or HMDS work.
 func (c Real) EdgeSnapshot(ctx context.Context, params rpc.EdgeSnapshotParams) (*rpc.EdgeResult, error) {
 	var out rpc.EdgeResult
-	if err := c.call(ctx, rpc.MethodEdgeSnapshot, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.EdgeSnapshot, params, &out); err != nil {
 		return nil, err
 	}
 	if err := rpc.ValidateEdgeResult(out); err != nil {
@@ -303,7 +304,7 @@ func (c Real) EdgeSnapshot(ctx context.Context, params rpc.EdgeSnapshotParams) (
 // health without granting app-side evaluation authority.
 func (c Real) NudgesSnapshot(ctx context.Context) (*rpc.NudgesSnapshotResult, error) {
 	var out rpc.NudgesSnapshotResult
-	if err := c.call(ctx, rpc.MethodNudgesSnapshot, rpc.NudgesSnapshotParams{}, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.NudgesSnapshot, rpc.NudgesSnapshotParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -312,7 +313,7 @@ func (c Real) NudgesSnapshot(ctx context.Context) (*rpc.NudgesSnapshotResult, er
 // ReconcileStatus returns and validates the daemon's reconciliation automation
 func (c Real) ReconcileStatus(ctx context.Context) (*rpc.ReconStatusResult, error) {
 	var out rpc.ReconStatusResult
-	if err := c.call(ctx, rpc.MethodReconStatus, rpc.ReconStatusParams{}, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.ReconStatus, rpc.ReconStatusParams{}, &out); err != nil {
 		return nil, err
 	}
 	if err := rpc.ValidateReconAutomationStatus(out.Status); err != nil {
@@ -325,7 +326,7 @@ func (c Real) ReconcileStatus(ctx context.Context) (*rpc.ReconStatusResult, erro
 // typed result.
 func (c Real) ReconcileCheck(ctx context.Context) (*rpc.ReconCheckResult, error) {
 	var out rpc.ReconCheckResult
-	if err := c.call(ctx, rpc.MethodReconCheck, rpc.ReconCheckParams{}, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.ReconCheck, rpc.ReconCheckParams{}, &out); err != nil {
 		return nil, err
 	}
 	if err := rpc.ValidateReconCheckResult(out); err != nil {
@@ -337,7 +338,7 @@ func (c Real) ReconcileCheck(ctx context.Context) (*rpc.ReconCheckResult, error)
 // TradingStatus returns the daemon's current broker-write readiness surface.
 func (c Real) TradingStatus(ctx context.Context) (*rpc.TradingStatus, error) {
 	var out rpc.TradingStatus
-	if err := c.call(ctx, rpc.MethodTradingStatus, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradingStatus, rpc.NoParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -346,7 +347,7 @@ func (c Real) TradingStatus(ctx context.Context) (*rpc.TradingStatus, error) {
 // AutoTradeStatus returns the daemon-owned automation readiness surface.
 func (c Real) AutoTradeStatus(ctx context.Context) (*rpc.AutoTradeStatus, error) {
 	var out rpc.AutoTradeStatus
-	if err := c.call(ctx, rpc.MethodAutoTradeStatus, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.AutoTradeStatus, rpc.NoParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -355,7 +356,7 @@ func (c Real) AutoTradeStatus(ctx context.Context) (*rpc.AutoTradeStatus, error)
 // OpportunitiesStatus returns the daemon-owned opportunity-engine status.
 func (c Real) OpportunitiesStatus(ctx context.Context) (*rpc.OpportunityStatus, error) {
 	var out rpc.OpportunityStatus
-	if err := c.call(ctx, rpc.MethodOpportunitiesStatus, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OpportunitiesStatus, rpc.NoParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -364,7 +365,7 @@ func (c Real) OpportunitiesStatus(ctx context.Context) (*rpc.OpportunityStatus, 
 // OpportunitiesSnapshot returns the daemon-authored opportunity snapshot.
 func (c Real) OpportunitiesSnapshot(ctx context.Context, params rpc.OpportunitySnapshotParams) (*rpc.OpportunitySnapshot, error) {
 	var out rpc.OpportunitySnapshot
-	if err := c.call(ctx, rpc.MethodOpportunitiesSnapshot, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OpportunitiesSnapshot, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -373,7 +374,7 @@ func (c Real) OpportunitiesSnapshot(ctx context.Context, params rpc.OpportunityS
 // OpportunitiesRefresh asks the daemon to refresh its opportunity snapshot.
 func (c Real) OpportunitiesRefresh(ctx context.Context, params rpc.OpportunityRefreshParams) (*rpc.OpportunitySnapshot, error) {
 	var out rpc.OpportunitySnapshot
-	if err := c.call(ctx, rpc.MethodOpportunitiesRefresh, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OpportunitiesRefresh, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -382,7 +383,7 @@ func (c Real) OpportunitiesRefresh(ctx context.Context, params rpc.OpportunityRe
 // OpportunitiesPreviewExercise requests the daemon's guarded exercise preview.
 func (c Real) OpportunitiesPreviewExercise(ctx context.Context, params rpc.OpportunityExercisePreviewParams) (*rpc.OpportunityExercisePreviewResult, error) {
 	var out rpc.OpportunityExercisePreviewResult
-	if err := c.call(ctx, rpc.MethodOpportunitiesPreviewExercise, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OpportunitiesPreviewExercise, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -392,7 +393,7 @@ func (c Real) OpportunitiesPreviewExercise(ctx context.Context, params rpc.Oppor
 // daemon still enforces preview, eligibility, account, mode, and write policy.
 func (c Real) OpportunitiesSubmitExercise(ctx context.Context, params rpc.OpportunityExerciseSubmitParams) (*rpc.OpportunityExerciseSubmitResult, error) {
 	var out rpc.OpportunityExerciseSubmitResult
-	if err := c.call(ctx, rpc.MethodOpportunitiesSubmitExercise, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OpportunitiesSubmitExercise, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -401,7 +402,7 @@ func (c Real) OpportunitiesSubmitExercise(ctx context.Context, params rpc.Opport
 // OpportunitiesIgnore asks the daemon to apply an opportunity-ignore action.
 func (c Real) OpportunitiesIgnore(ctx context.Context, params rpc.OpportunityIgnoreParams) (*rpc.OpportunityIgnoreResult, error) {
 	var out rpc.OpportunityIgnoreResult
-	if err := c.call(ctx, rpc.MethodOpportunitiesIgnore, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OpportunitiesIgnore, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -410,7 +411,7 @@ func (c Real) OpportunitiesIgnore(ctx context.Context, params rpc.OpportunityIgn
 // TradeProposalsSnapshot returns the daemon-authored proposal snapshot.
 func (c Real) TradeProposalsSnapshot(ctx context.Context, params rpc.TradeProposalSnapshotParams) (*rpc.TradeProposalSnapshot, error) {
 	var out rpc.TradeProposalSnapshot
-	if err := c.call(ctx, rpc.MethodTradeProposalsSnapshot, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsSnapshot, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -419,7 +420,7 @@ func (c Real) TradeProposalsSnapshot(ctx context.Context, params rpc.TradePropos
 // TradeProposalsRefresh asks the daemon to refresh its proposal snapshot.
 func (c Real) TradeProposalsRefresh(ctx context.Context, params rpc.TradeProposalRefreshParams) (*rpc.TradeProposalSnapshot, error) {
 	var out rpc.TradeProposalSnapshot
-	if err := c.call(ctx, rpc.MethodTradeProposalsRefresh, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsRefresh, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -428,7 +429,7 @@ func (c Real) TradeProposalsRefresh(ctx context.Context, params rpc.TradeProposa
 // TradeProposalsPreview requests the daemon's guarded proposal preview.
 func (c Real) TradeProposalsPreview(ctx context.Context, params rpc.TradeProposalPreviewParams) (*rpc.TradeProposalPreviewResult, error) {
 	var out rpc.TradeProposalPreviewResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsPreview, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsPreview, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -438,7 +439,7 @@ func (c Real) TradeProposalsPreview(ctx context.Context, params rpc.TradeProposa
 // authorization and preview-token checks remain daemon-owned.
 func (c Real) TradeProposalsSubmit(ctx context.Context, params rpc.TradeProposalSubmitParams) (*rpc.TradeProposalSubmitResult, error) {
 	var out rpc.TradeProposalSubmitResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsSubmit, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsSubmit, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -447,7 +448,7 @@ func (c Real) TradeProposalsSubmit(ctx context.Context, params rpc.TradeProposal
 // TradeProposalsReducePreview requests the daemon's guarded single-proposal
 func (c Real) TradeProposalsReducePreview(ctx context.Context, params rpc.TradeProposalReduceParams) (*rpc.TradeProposalReduceResult, error) {
 	var out rpc.TradeProposalReduceResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsReducePreview, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsReducePreview, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -457,7 +458,7 @@ func (c Real) TradeProposalsReducePreview(ctx context.Context, params rpc.TradeP
 // daemon broker-write gates remain binding.
 func (c Real) TradeProposalsReduceSubmit(ctx context.Context, params rpc.TradeProposalReduceParams) (*rpc.TradeProposalReduceResult, error) {
 	var out rpc.TradeProposalReduceResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsReduceSubmit, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsReduceSubmit, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -466,7 +467,7 @@ func (c Real) TradeProposalsReduceSubmit(ctx context.Context, params rpc.TradePr
 // TradeProposalsReducePortfolioPreview requests the daemon's guarded portfolio
 func (c Real) TradeProposalsReducePortfolioPreview(ctx context.Context, params rpc.TradeProposalReducePortfolioParams) (*rpc.TradeProposalReducePortfolioResult, error) {
 	var out rpc.TradeProposalReducePortfolioResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsReducePortfolioPreview, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsReducePortfolioPreview, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -476,7 +477,7 @@ func (c Real) TradeProposalsReducePortfolioPreview(ctx context.Context, params r
 // reduction request; daemon broker-write gates remain binding.
 func (c Real) TradeProposalsReducePortfolioSubmit(ctx context.Context, params rpc.TradeProposalReducePortfolioParams) (*rpc.TradeProposalReducePortfolioResult, error) {
 	var out rpc.TradeProposalReducePortfolioResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsReducePortfolioSubmit, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsReducePortfolioSubmit, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -487,7 +488,7 @@ func (c Real) TradeProposalsReducePortfolioSubmit(ctx context.Context, params rp
 // result flows into the ordinary preview/submit gates.
 func (c Real) TradeProposalsRequestStop(ctx context.Context, params rpc.TradeProposalRequestStopParams) (*rpc.TradeProposalRequestStopResult, error) {
 	var out rpc.TradeProposalRequestStopResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsRequestStop, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsRequestStop, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -496,7 +497,7 @@ func (c Real) TradeProposalsRequestStop(ctx context.Context, params rpc.TradePro
 // TradeProposalsIgnore asks the daemon to apply a proposal-ignore action.
 func (c Real) TradeProposalsIgnore(ctx context.Context, params rpc.TradeProposalIgnoreParams) (*rpc.TradeProposalIgnoreResult, error) {
 	var out rpc.TradeProposalIgnoreResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsIgnore, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsIgnore, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -507,7 +508,7 @@ func (c Real) TradeProposalsIgnore(ctx context.Context, params rpc.TradeProposal
 // every other origin.
 func (c Real) TradeProposalsVeto(ctx context.Context, params rpc.TradeProposalVetoParams) (*rpc.TradeProposalVetoResult, error) {
 	var out rpc.TradeProposalVetoResult
-	if err := c.call(ctx, rpc.MethodTradeProposalsVeto, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.TradeProposalsVeto, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -516,7 +517,7 @@ func (c Real) TradeProposalsVeto(ctx context.Context, params rpc.TradeProposalVe
 // Settings returns the daemon-owned platform settings snapshot.
 func (c Real) Settings(ctx context.Context) (*rpc.PlatformSettings, error) {
 	var out rpc.PlatformSettings
-	if err := c.call(ctx, rpc.MethodSettingsGet, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.SettingsGet, rpc.NoParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -525,7 +526,7 @@ func (c Real) Settings(ctx context.Context) (*rpc.PlatformSettings, error) {
 // UpdateSettings transports an opaque JSON merge patch to the daemon's typed
 func (c Real) UpdateSettings(ctx context.Context, patch json.RawMessage) (*rpc.PlatformSettings, error) {
 	var out rpc.PlatformSettings
-	if err := c.call(ctx, rpc.MethodSettingsUpdate, patch, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.SettingsUpdate, patch, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -534,7 +535,7 @@ func (c Real) UpdateSettings(ctx context.Context, patch json.RawMessage) (*rpc.P
 // OrderPreview requests the daemon's broker WhatIf and policy-gated preview.
 func (c Real) OrderPreview(ctx context.Context, params rpc.OrderPreviewParams) (*rpc.OrderPreviewResult, error) {
 	var out rpc.OrderPreviewResult
-	if err := c.call(ctx, rpc.MethodOrderPreview, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OrderPreview, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -544,7 +545,7 @@ func (c Real) OrderPreview(ctx context.Context, params rpc.OrderPreviewParams) (
 // proportional, broker-guaranteed combo preview. The app never authors legs.
 func (c Real) StrategyPreview(ctx context.Context, params rpc.StrategyPreviewParams) (*rpc.OrderPreviewResult, error) {
 	var out rpc.OrderPreviewResult
-	if err := c.call(ctx, rpc.MethodStrategyPreview, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.StrategyPreview, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -554,7 +555,7 @@ func (c Real) StrategyPreview(ctx context.Context, params rpc.StrategyPreviewPar
 // preview-token, account, mode, freeze, eligibility, and journaling gates.
 func (c Real) OrderPlace(ctx context.Context, params rpc.OrderPlaceParams) (*rpc.OrderPlaceResult, error) {
 	var out rpc.OrderPlaceResult
-	if err := c.call(ctx, rpc.MethodOrderPlace, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OrderPlace, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -564,7 +565,7 @@ func (c Real) OrderPlace(ctx context.Context, params rpc.OrderPlaceParams) (*rpc
 // retains preview-token and broker-write authority.
 func (c Real) OrderModify(ctx context.Context, params rpc.OrderModifyParams) (*rpc.OrderModifyResult, error) {
 	var out rpc.OrderModifyResult
-	if err := c.call(ctx, rpc.MethodOrderModify, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OrderModify, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -574,7 +575,7 @@ func (c Real) OrderModify(ctx context.Context, params rpc.OrderModifyParams) (*r
 // policy and broker authority remain daemon-owned.
 func (c Real) OrderCancel(ctx context.Context, params rpc.OrderCancelParams) (*rpc.OrderCancelResult, error) {
 	var out rpc.OrderCancelResult
-	if err := c.call(ctx, rpc.MethodOrderCancel, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OrderCancel, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -583,7 +584,7 @@ func (c Real) OrderCancel(ctx context.Context, params rpc.OrderCancelParams) (*r
 // OrdersOpen returns the daemon's open-order journal view.
 func (c Real) OrdersOpen(ctx context.Context, params rpc.OrdersOpenParams) (*rpc.OrdersOpenResult, error) {
 	var out rpc.OrdersOpenResult
-	if err := c.call(ctx, rpc.MethodOrdersOpen, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OrdersOpen, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -592,7 +593,7 @@ func (c Real) OrdersOpen(ctx context.Context, params rpc.OrdersOpenParams) (*rpc
 // OrderStatus returns the daemon's status for one locally journaled order.
 func (c Real) OrderStatus(ctx context.Context, params rpc.OrderStatusParams) (*rpc.OrderStatusResult, error) {
 	var out rpc.OrderStatusResult
-	if err := c.call(ctx, rpc.MethodOrderStatus, params, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.call), api.OrderStatus, params, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

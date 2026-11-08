@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runReportingFX(ctx context.Context, env *Env, args []string) int {
@@ -16,12 +17,12 @@ func runReportingFX(ctx context.Context, env *Env, args []string) int {
 	if fs.NArg() != 0 {
 		return fail(env, "usage: canary reporting fx [--backfill] [--json]")
 	}
-	method := rpc.MethodFX
+	method := api.FX
 	if *backfill {
-		method = rpc.MethodFXBackfill
+		method = api.FXBackfill
 	}
 	var result rpc.FXResult
-	if err := env.Conn.Call(ctx, method, struct{}{}, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, method, rpc.NoParams{}, &result); err != nil {
 		return fail(env, "reporting fx: %v", err)
 	}
 	if err := rpc.ValidateFXResult(result); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runData(ctx context.Context, env *Env, args []string) int {
@@ -24,7 +25,7 @@ func runData(ctx context.Context, env *Env, args []string) int {
 	}
 	if command == "check" {
 		var r rpc.DataCheckResult
-		if err := env.Conn.Call(ctx, rpc.MethodDataCheck, nil, &r); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.DataCheck, rpc.NoParams{}, &r); err != nil {
 			return fail(env, "data check: %v", err)
 		}
 		if *jsonOut {
@@ -34,7 +35,7 @@ func runData(ctx context.Context, env *Env, args []string) int {
 		return 0
 	}
 	var r rpc.DataHealthResult
-	if err := env.Conn.Call(ctx, rpc.MethodDataHealth, rpc.DataHealthParams{Offset: *offset, Limit: *limit, Revision: *revision}, &r); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.DataHealth, rpc.DataHealthParams{Offset: *offset, Limit: *limit, Revision: *revision}, &r); err != nil {
 		return fail(env, "data health: %v", err)
 	}
 	if *jsonOut {

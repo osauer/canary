@@ -14,6 +14,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/redact"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Conn is the daemon read surface the collector needs; *dial.Conn and the
@@ -146,7 +147,7 @@ func Collect(ctx context.Context, conn Conn, host Host, in Input) (Report, error
 	r.Holdings = "not masked: no daemon reachable"
 	if conn != nil && ctx != nil {
 		var health rpc.HealthResult
-		if err := conn.Call(ctx, rpc.MethodStatusHealth, nil, &health); err != nil {
+		if err := rpc.Call(ctx, conn, api.StatusHealth, rpc.HealthParams{}, &health); err != nil {
 			r.Notes = append(r.Notes, "status not read: "+err.Error())
 		} else {
 			r.Daemon = daemonPicture(health)
@@ -154,14 +155,14 @@ func Collect(ctx context.Context, conn Conn, host Host, in Input) (Report, error
 			r.Daemon.LastError = health.LastError
 		}
 		var positions rpc.PositionsResult
-		if err := conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{}, &positions); err != nil {
+		if err := rpc.Call(ctx, conn, api.PositionsList, rpc.PositionsListParams{}, &positions); err != nil {
 			r.Holdings = "not masked: positions not read (" + err.Error() + ")"
 		} else {
 			held = holdingsOf(positions)
 			r.Holdings = "masked"
 		}
 		var data rpc.DataHealthResult
-		if err := conn.Call(ctx, rpc.MethodDataHealth, rpc.DataHealthParams{}, &data); err != nil {
+		if err := rpc.Call(ctx, conn, api.DataHealth, rpc.DataHealthParams{}, &data); err != nil {
 			r.Notes = append(r.Notes, "data health not read: "+err.Error())
 		} else {
 			r.Data = dataPicture(data, redact.Outbound(id, held))

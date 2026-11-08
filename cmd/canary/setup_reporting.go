@@ -17,6 +17,7 @@ import (
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func setupReporting(args []string) int {
@@ -98,7 +99,7 @@ func setupReporting(args []string) int {
 		return 1
 	}
 	var validation rpc.ReportingValidationResult
-	err = conn.Call(ctx, rpc.MethodReportingValidate, rpc.ReportingValidateParams{QueryID: queryID, TokenPath: candidatePath}, &validation)
+	err = rpc.Call(ctx, conn, api.ReportingValidate, rpc.ReportingValidateParams{QueryID: queryID, TokenPath: candidatePath}, &validation)
 	_ = conn.Close()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "canary setup reporting: candidate validation failed safely; existing reporting configuration was not changed")
@@ -350,7 +351,7 @@ func printPostSetupReportingStatus(ctx context.Context) int {
 	}
 	defer conn.Close()
 	var status rpc.ReportingStatusResult
-	if err := conn.Call(ctx, rpc.MethodReportingStatus, struct{}{}, &status); err != nil {
+	if err := rpc.Call(ctx, conn, api.ReportingStatus, rpc.NoParams{}, &status); err != nil {
 		fmt.Fprintln(os.Stderr, "Reporting configuration is active; run `canary reporting status` to inspect it.")
 		return 0
 	}

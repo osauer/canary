@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runReportingCosts(ctx context.Context, env *Env, args []string) int {
@@ -22,7 +23,7 @@ func runReportingCosts(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "reporting costs: --month must be YYYY-MM")
 	}
 	var result rpc.ReportingCostsResult
-	if err := env.Conn.Call(ctx, rpc.MethodReportingCosts, rpc.ReportingCostsParams{Month: *month}, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ReportingCosts, rpc.ReportingCostsParams{Month: *month}, &result); err != nil {
 		return fail(env, "reporting costs: %v", err)
 	}
 	if err := rpc.ValidateReportingCostsResult(result); err != nil {

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runAdd(ctx context.Context, env *Env, args []string) int {
@@ -57,7 +58,7 @@ func runAdd(ctx context.Context, env *Env, args []string) int {
 	}
 	if fs.Arg(0) == "preview" {
 		var out rpc.OrderPreviewResult
-		if err := env.Conn.Call(ctx, rpc.MethodAddPreview, p, &out); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.AddPreview, p, &out); err != nil {
 			return fail(env, "add preview: %v", err)
 		}
 		if *jsonOut {
@@ -70,7 +71,7 @@ func runAdd(ctx context.Context, env *Env, args []string) int {
 		return 0
 	}
 	var out rpc.AddPlanResult
-	if err := env.Conn.Call(ctx, rpc.MethodAddPlan, p, &out); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.AddPlan, p, &out); err != nil {
 		return fail(env, "add plan: %v", err)
 	}
 	if *jsonOut {
@@ -205,7 +206,7 @@ JSON`)
 		return fail(env, "invalid Add market request")
 	}
 	var out rpc.AddMarketResult
-	if err := env.Conn.Call(ctx, rpc.MethodAddMarket, p, &out); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.AddMarket, p, &out); err != nil {
 		return fail(env, "add market: %v", err)
 	}
 	return printJSON(env, out)
@@ -257,7 +258,7 @@ JSON`)
 		return fail(env, "invalid call sizing request")
 	}
 	var out rpc.AddCallPlanResult
-	if err := env.Conn.Call(ctx, rpc.MethodAddCallPlan, p, &out); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.AddCallPlan, p, &out); err != nil {
 		return fail(env, "add call-plan: %v", err)
 	}
 	return printJSON(env, out)

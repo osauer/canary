@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/stress"
 )
 
@@ -34,7 +35,7 @@ func runRegime(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "regime: --profiles requires --json")
 	}
 	var res rpc.RegimeSnapshotResult
-	if err := env.Conn.Call(ctx, rpc.MethodRegimeSnapshot, rpc.RegimeSnapshotParams{}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.RegimeSnapshot, rpc.RegimeSnapshotParams{}, &res); err != nil {
 		return fail(env, "regime: %v", err)
 	}
 	if *jsonOut {

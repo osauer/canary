@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runEdge(ctx context.Context, env *Env, args []string) int {
@@ -62,7 +63,7 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 // validated; pages from different snapshots are refused rather than merged.
 func fetchEdge(ctx context.Context, env *Env, params rpc.EdgeSnapshotParams, all bool) (rpc.EdgeResult, error) {
 	var result rpc.EdgeResult
-	if err := env.Conn.Call(ctx, rpc.MethodEdgeSnapshot, params, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.EdgeSnapshot, params, &result); err != nil {
 		return rpc.EdgeResult{}, err
 	}
 	if err := rpc.ValidateEdgeResult(result); err != nil {
@@ -76,7 +77,7 @@ func fetchEdge(ctx context.Context, env *Env, params rpc.EdgeSnapshotParams, all
 		page := params
 		page.OptionOffset = *next
 		var more rpc.EdgeResult
-		if err := env.Conn.Call(ctx, rpc.MethodEdgeSnapshot, page, &more); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.EdgeSnapshot, page, &more); err != nil {
 			return rpc.EdgeResult{}, err
 		}
 		if err := rpc.ValidateEdgeResult(more); err != nil {

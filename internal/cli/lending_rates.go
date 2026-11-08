@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Rates adapts the existing daemon observation. It does not quote a lender's
@@ -16,7 +17,7 @@ func runLendingRates(ctx context.Context, env *Env, symbols string, jsonOut bool
 		return fail(env, "lending rates: %v", err)
 	}
 	var result rpc.MarketEventsResult
-	if err := env.Conn.Call(ctx, rpc.MethodMarketEventsSnapshot, rpc.MarketEventsParams{Symbols: list}, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.MarketEventsSnapshot, rpc.MarketEventsParams{Symbols: list}, &result); err != nil {
 		return fail(env, "lending rates: %v", err)
 	}
 	if err := rpc.ValidateLendingRateScope(result, list); err != nil {
@@ -45,7 +46,7 @@ func runLendingScreen(ctx context.Context, env *Env, p rpc.LendingScreenParams, 
 		return fail(env, "lending screen: %v", err)
 	}
 	var result rpc.LendingScreenResult
-	if err := env.Conn.Call(ctx, rpc.MethodLendingScreen, p, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.LendingScreen, p, &result); err != nil {
 		return fail(env, "lending screen: %v", err)
 	}
 	if err := rpc.ValidateLendingScreenResult(result, p); err != nil {
@@ -69,7 +70,7 @@ func runLendingMarket(ctx context.Context, env *Env, symbols string) int {
 		return fail(env, "lending market: %v", err)
 	}
 	var result rpc.LendingMarketResult
-	if err := env.Conn.Call(ctx, rpc.MethodLendingMarket, rpc.LendingMarketParams{Symbols: p}, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.LendingMarket, rpc.LendingMarketParams{Symbols: p}, &result); err != nil {
 		return fail(env, "lending market: %v", err)
 	}
 	if err := rpc.ValidateLendingMarketResult(result, p); err != nil {

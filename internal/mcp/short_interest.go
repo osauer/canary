@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func shortInterestTool() Tool {
@@ -32,7 +33,7 @@ func shortInterestTool() Tool {
 				return nil, err
 			}
 			var r rpc.ShortInterestScreenResult
-			if err := conn.Call(ctx, rpc.MethodShortInterestScreen, p, &r); err != nil {
+			if err := rpc.Call(ctx, conn, api.ShortInterestScreen, p, &r); err != nil {
 				return nil, err
 			}
 			if err := rpc.ValidateShortInterestScreenResult(r, p); err != nil {

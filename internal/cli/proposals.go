@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runProposals(ctx context.Context, env *Env, args []string) int {
@@ -80,7 +81,7 @@ func runProposalsStatus(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.AutoTradeStatus
-	if err := env.Conn.Call(ctx, rpc.MethodAutoTradeStatus, nil, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.AutoTradeStatus, rpc.NoParams{}, &res); err != nil {
 		return fail(env, "proposals status: %v", err)
 	}
 	if *jsonOut {
@@ -98,7 +99,7 @@ func runProposalsRefresh(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.TradeProposalSnapshot
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsRefresh, rpc.TradeProposalRefreshParams{Show: true}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsRefresh, rpc.TradeProposalRefreshParams{Show: true}, &res); err != nil {
 		return fail(env, "proposals refresh: %v", err)
 	}
 	if *jsonOut {
@@ -120,7 +121,7 @@ func runProposalsList(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.TradeProposalSnapshot
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsSnapshot, rpc.TradeProposalSnapshotParams{Show: true}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsSnapshot, rpc.TradeProposalSnapshotParams{Show: true}, &res); err != nil {
 		return fail(env, "proposals list: %v", err)
 	}
 	if *jsonOut {
@@ -148,7 +149,7 @@ func runProposalsPreview(ctx context.Context, env *Env, args []string) int {
 	}
 	var res rpc.TradeProposalPreviewResult
 	params := rpc.TradeProposalPreviewParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, TimeoutMs: int(timeout.Milliseconds()), FastPath: *fastPath}
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsPreview, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsPreview, params, &res); err != nil {
 		return fail(env, "proposals preview: %v", err)
 	}
 	if *jsonOut {
@@ -184,7 +185,7 @@ func runProposalsSubmit(ctx context.Context, env *Env, args []string) int {
 	}
 	var res rpc.TradeProposalSubmitResult
 	params := rpc.TradeProposalSubmitParams{PreparedRef: reference, Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, FastPath: *fastPath, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsSubmit, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsSubmit, params, &res); err != nil {
 		return fail(env, "proposals submit: %v", err)
 	}
 	if *jsonOut {
@@ -293,15 +294,15 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 		}
 		pparams := rpc.TradeProposalReducePortfolioParams{Percent: *percent, AdaptivePriority: *adaptive, TimeoutMs: int(timeout.Milliseconds()),
 			Mode: strings.ToLower(strings.TrimSpace(*mode)), Sectors: sectors, MinBeta: *minBeta, PlanOnly: *plan, ProposalKeys: proposalKeys}
-		method := rpc.MethodTradeProposalsReducePortfolioPreview
+		method := api.TradeProposalsReducePortfolioPreview
 		if *submit {
-			method = rpc.MethodTradeProposalsReducePortfolioSubmit
+			method = api.TradeProposalsReducePortfolioSubmit
 			pparams.Origin = env.Origin
 			pparams.PreviewTokens = tokens
 			pparams.RequestRef = strings.TrimSpace(*requestRef)
 		}
 		var pres rpc.TradeProposalReducePortfolioResult
-		if err := env.Conn.Call(ctx, method, pparams, &pres); err != nil {
+		if err := rpc.Call(ctx, env.Conn, method, pparams, &pres); err != nil {
 			return fail(env, "proposals reduce: %v", err)
 		}
 		if *jsonOut {
@@ -329,9 +330,9 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 		AdaptivePriority: *adaptive,
 		TimeoutMs:        int(timeout.Milliseconds()),
 	}
-	method := rpc.MethodTradeProposalsReducePreview
+	method := api.TradeProposalsReducePreview
 	if *submit {
-		method = rpc.MethodTradeProposalsReduceSubmit
+		method = api.TradeProposalsReduceSubmit
 		params.Origin = env.Origin
 		params.RequestRef = strings.TrimSpace(*requestRef)
 		if len(tokens) == 1 {
@@ -339,7 +340,7 @@ func runProposalsReduce(ctx context.Context, env *Env, args []string) int {
 		}
 	}
 	var res rpc.TradeProposalReduceResult
-	if err := env.Conn.Call(ctx, method, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, method, params, &res); err != nil {
 		return fail(env, "proposals reduce: %v", err)
 	}
 	if *jsonOut {
@@ -373,7 +374,7 @@ func runProposalsRequestStop(ctx context.Context, env *Env, args []string) int {
 	}
 	params := rpc.TradeProposalRequestStopParams{ConID: *conID, Symbol: symbol, Show: true}
 	var res rpc.TradeProposalRequestStopResult
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsRequestStop, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsRequestStop, params, &res); err != nil {
 		return fail(env, "proposals request-stop: %v", err)
 	}
 	if *jsonOut {
@@ -703,7 +704,7 @@ func runProposalsIgnore(ctx context.Context, env *Env, args []string) int {
 		params.Revision = fs.Arg(1)
 	}
 	var res rpc.TradeProposalIgnoreResult
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsIgnore, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsIgnore, params, &res); err != nil {
 		return fail(env, "proposals ignore: %v", err)
 	}
 	if *jsonOut {
@@ -734,7 +735,7 @@ func runProposalsVeto(ctx context.Context, env *Env, args []string) int {
 		params.Revision = fs.Arg(1)
 	}
 	var res rpc.TradeProposalVetoResult
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsVeto, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsVeto, params, &res); err != nil {
 		return fail(env, "proposals veto: %v", err)
 	}
 	if *jsonOut {

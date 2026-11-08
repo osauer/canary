@@ -9,6 +9,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func stockAddTool() Tool {
@@ -38,7 +39,7 @@ func stockAddTool() Tool {
 				return nil, err
 			}
 			var out rpc.AddPlanResult
-			if err := conn.Call(ctx, rpc.MethodAddPlan, p, &out); err != nil {
+			if err := rpc.Call(ctx, conn, api.AddPlan, p, &out); err != nil {
 				return nil, err
 			}
 			return json.Marshal(out)

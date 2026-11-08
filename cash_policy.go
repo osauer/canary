@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // CashPolicySnapshot is the cash management settings as the daemon reads
@@ -84,7 +85,7 @@ const (
 // outside the MCP catalogue and the CLI: Desk's console calls it.
 func (c *Client) CashPolicy(ctx context.Context) (*CashPolicySnapshot, error) {
 	var out CashPolicySnapshot
-	if err := c.callCashPolicy(ctx, rpc.MethodCashPolicyGet, nil, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callCashPolicy), api.CashPolicyGet, rpc.NoParams{}, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -94,7 +95,7 @@ func (c *Client) CashPolicy(ctx context.Context) (*CashPolicySnapshot, error) {
 // nothing.
 func (c *Client) CheckCashPolicy(ctx context.Context, in CashPolicyCheckRequest) (*CashPolicyCheckResult, error) {
 	var out CashPolicyCheckResult
-	if err := c.callCashPolicy(ctx, rpc.MethodCashPolicyCheck, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callCashPolicy), api.CashPolicyCheck, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
@@ -106,7 +107,7 @@ func (c *Client) CheckCashPolicy(ctx context.Context, in CashPolicyCheckRequest)
 // and returns the receipt's version.
 func (c *Client) ApplyCashPolicy(ctx context.Context, in CashPolicyApplyRequest) (*CashPolicyApplyResult, error) {
 	var out CashPolicyApplyResult
-	if err := c.callCashPolicy(ctx, rpc.MethodCashPolicyApply, in, &out); err != nil {
+	if err := rpc.Call(ctx, rpc.CallerFunc(c.callCashPolicy), api.CashPolicyApply, in, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

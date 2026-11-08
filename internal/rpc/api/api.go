@@ -151,6 +151,10 @@ var (
 	OrderTWSModify                       = rpc.Define[rpc.OrderTWSControlParams, rpc.OrderTWSControlResult](rpc.MethodOrderTWSModify)
 )
 
+// DataHealthRaw keeps the daemon's data health page as sent, so an MCP host
+// sees optional fields this build does not know yet.
+var DataHealthRaw = rpc.Define[rpc.DataHealthParams, json.RawMessage](rpc.MethodDataHealth)
+
 // Account summary's settlement diagnostics: the same method and request,
 // answering other result shapes when the request selects one.
 var (

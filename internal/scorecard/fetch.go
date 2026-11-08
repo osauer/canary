@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Fetch reads the daemon's decision scorecard. The daemon evaluates it, so a
@@ -17,7 +18,7 @@ func Fetch(ctx context.Context, conn interface {
 		return rpc.ScorecardResult{}, err
 	}
 	var out rpc.ScorecardResult
-	if err := conn.Call(ctx, rpc.MethodScorecardRead, params, &out); err != nil {
+	if err := rpc.Call(ctx, conn, api.ScorecardRead, params, &out); err != nil {
 		return rpc.ScorecardResult{}, err
 	}
 	return out, nil

@@ -3,6 +3,7 @@ package canary
 import (
 	"context"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"time"
 )
 
@@ -39,7 +40,7 @@ func (c *Client) EvaluateSetup(ctx context.Context, in SetupEvaluateParams) (*Se
 	}
 	defer conn.Close()
 	var out SetupResult
-	err = conn.Call(ctx, rpc.MethodSetupsEvaluate, in, &out)
+	err = rpc.Call(ctx, conn, api.SetupsEvaluate, in, &out)
 	return &out, daemonError(err)
 }
 
@@ -67,6 +68,6 @@ func (c *Client) SetupCoverage(ctx context.Context, in SetupCoverageParams) (*Se
 	}
 	defer conn.Close()
 	var out SetupCoverageResult
-	err = conn.Call(ctx, rpc.MethodSetupsCoverage, in, &out)
+	err = rpc.Call(ctx, conn, api.SetupsCoverage, in, &out)
 	return &out, daemonError(err)
 }

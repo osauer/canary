@@ -8,6 +8,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runPolicy renders and operates the risk constitution
@@ -238,7 +239,7 @@ func runPolicyShow(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "policy show: name at most one section (try `canary policy show cash_sweep`)")
 	}
 	var res rpc.RiskPolicyResult
-	if err := env.Conn.Call(ctx, rpc.MethodRiskPolicySnapshot, struct{}{}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.RiskPolicySnapshot, rpc.NoParams{}, &res); err != nil {
 		return fail(env, "policy: %v", err)
 	}
 	res.Effective = policyEffectiveFor(ctx, env, &res)
@@ -550,7 +551,7 @@ func runPolicyCapitalEvent(ctx context.Context, env *Env, args []string) int {
 		}
 		params.EffectiveAt = t
 	}
-	return callPolicyWrite(ctx, env, rpc.MethodRiskPolicyCapitalEvent, params, *jsonOut)
+	return callPolicyWrite(ctx, env, api.RiskPolicyCapitalEvent, params, *jsonOut)
 }
 
 func runPolicyOverride(ctx context.Context, env *Env, args []string) int {
@@ -563,7 +564,7 @@ func runPolicyOverride(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	params := rpc.OverrideParams{Control: *control, Reason: *reason, Hours: *hours, Origin: env.Origin}
-	return callPolicyWrite(ctx, env, rpc.MethodRiskPolicyOverride, params, *jsonOut)
+	return callPolicyWrite(ctx, env, api.RiskPolicyOverride, params, *jsonOut)
 }
 
 func runPolicyResetDrawdown(ctx context.Context, env *Env, args []string) int {
@@ -574,7 +575,7 @@ func runPolicyResetDrawdown(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	params := rpc.ResetDrawdownParams{Reason: *reason, Origin: env.Origin}
-	return callPolicyWrite(ctx, env, rpc.MethodRiskPolicyResetDrawdown, params, *jsonOut)
+	return callPolicyWrite(ctx, env, api.RiskPolicyResetDrawdown, params, *jsonOut)
 }
 
 func runPolicyCorrectPeak(ctx context.Context, env *Env, args []string) int {
@@ -587,12 +588,12 @@ func runPolicyCorrectPeak(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	params := rpc.CorrectPeakParams{FromStatements: *fromStatements, PeakBase: *peak, Reason: *reason, Origin: env.Origin}
-	return callPolicyWrite(ctx, env, rpc.MethodRiskPolicyCorrectPeak, params, *jsonOut)
+	return callPolicyWrite(ctx, env, api.RiskPolicyCorrectPeak, params, *jsonOut)
 }
 
-func callPolicyWrite(ctx context.Context, env *Env, method string, params any, jsonOut bool) int {
+func callPolicyWrite[P any](ctx context.Context, env *Env, method rpc.Method[P, rpc.RiskPolicyWriteResult], params P, jsonOut bool) int {
 	var res rpc.RiskPolicyWriteResult
-	if err := env.Conn.Call(ctx, method, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, method, params, &res); err != nil {
 		return fail(env, "policy: %v", err)
 	}
 	if jsonOut {

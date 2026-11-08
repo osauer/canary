@@ -10,6 +10,7 @@ import (
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // handshakeWaitBudget bounds how long `canary status` waits for the daemon's
@@ -27,18 +28,18 @@ func runStatus(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.HealthResult
-	if err := env.Conn.Call(ctx, rpc.MethodStatusHealth, nil, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.StatusHealth, rpc.HealthParams{}, &res); err != nil {
 		return fail(env, "status: %v", err)
 	}
 
 	fetch := func(ctx context.Context) (rpc.HealthResult, error) {
 		var r rpc.HealthResult
-		err := env.Conn.Call(ctx, rpc.MethodStatusHealth, nil, &r)
+		err := rpc.Call(ctx, env.Conn, api.StatusHealth, rpc.HealthParams{}, &r)
 		return r, err
 	}
 	res = waitForStatusVerdict(ctx, env.Stderr, *jsonOut, res, fetch)
 	if *gatewayDiagnostics {
-		if err := env.Conn.Call(ctx, rpc.MethodStatusHealth, rpc.HealthParams{GatewayDiagnostics: true}, &res); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.StatusHealth, rpc.HealthParams{GatewayDiagnostics: true}, &res); err != nil {
 			return fail(env, "status diagnostics: %v", err)
 		}
 	}
@@ -55,7 +56,7 @@ func runStatus(ctx context.Context, env *Env, args []string) int {
 	// Best-effort: an older daemon without the method just loses the row.
 	var alerts *rpc.AlertCandidateSnapshot
 	var snapshot rpc.AlertCandidateSnapshot
-	if err := env.Conn.Call(ctx, rpc.MethodAlertCandidates, rpc.AlertCandidatesParams{}, &snapshot); err == nil {
+	if err := rpc.Call(ctx, env.Conn, api.AlertCandidates, rpc.AlertCandidatesParams{}, &snapshot); err == nil {
 		alerts = &snapshot
 	}
 	renderStatusText(env, &res, alerts)

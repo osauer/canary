@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runOrders(ctx context.Context, env *Env, args []string) int {
@@ -50,7 +51,7 @@ func runOrdersOpen(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "orders open: usage is `canary orders open [--json]`")
 	}
 	var res rpc.OrdersOpenResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrdersOpen, rpc.OrdersOpenParams{}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrdersOpen, rpc.OrdersOpenParams{}, &res); err != nil {
 		return fail(env, "orders open: %v", err)
 	}
 	if *jsonOut {
@@ -84,7 +85,7 @@ func runOrdersHistory(ctx context.Context, env *Env, args []string) int {
 		EventLimit: *eventLimit,
 	}
 	var res rpc.OrdersHistoryResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrdersHistory, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrdersHistory, params, &res); err != nil {
 		return fail(env, "orders history: %v", err)
 	}
 	if *jsonOut {
@@ -105,7 +106,7 @@ func runOrderStatus(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "order status: usage is `canary order status <order-ref|order-id|perm-id>`")
 	}
 	var res rpc.OrderStatusResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrderStatus, rpc.OrderStatusParams{ID: strings.TrimSpace(rest[0])}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrderStatus, rpc.OrderStatusParams{ID: strings.TrimSpace(rest[0])}, &res); err != nil {
 		return fail(env, "order status: %v", err)
 	}
 	if *jsonOut {

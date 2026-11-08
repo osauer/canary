@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // A leveling repayment is approved once for all its conversions (owner
@@ -42,7 +43,7 @@ func runProposalsPrepareBundle(ctx context.Context, env *Env, args []string) int
 	}
 	var res rpc.TradeProposalPrepareBundleResult
 	p := rpc.TradeProposalPrepareBundleParams{BundleID: fs.Arg(0), Revision: fs.Arg(1), TimeoutMs: int(timeout.Milliseconds())}
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsPrepareBundle, p, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsPrepareBundle, p, &res); err != nil {
 		return fail(env, "proposals prepare-bundle: %v", err)
 	}
 	if *jsonOut {
@@ -100,7 +101,7 @@ func runProposalsSubmitBundle(ctx context.Context, env *Env, args []string) int 
 	var res rpc.TradeProposalSubmitBundleResult
 	p := rpc.TradeProposalSubmitBundleParams{BundleRef: in.BundleRef, BundleID: in.BundleID, Revision: in.Revision, TermsDigest: in.TermsDigest,
 		Confirmation: in.Confirmation, FastPath: true, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsSubmitBundle, p, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsSubmitBundle, p, &res); err != nil {
 		return fail(env, "proposals submit-bundle: %v", err)
 	}
 	if *jsonOut {
@@ -125,7 +126,7 @@ func runProposalsBundleStatus(ctx context.Context, env *Env, args []string) int 
 		return fail(env, "%v", err)
 	}
 	var res rpc.TradeProposalPreparedBundleStatusResult
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsPreparedBundleStatus, rpc.TradeProposalPreparedBundleStatusParams{BundleRef: reference}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsPreparedBundleStatus, rpc.TradeProposalPreparedBundleStatusParams{BundleRef: reference}, &res); err != nil {
 		return fail(env, "proposals bundle-status: %v", err)
 	}
 	if *jsonOut {

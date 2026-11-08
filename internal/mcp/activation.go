@@ -9,6 +9,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/update"
 )
 
@@ -32,7 +33,7 @@ func (s *Server) statusWithActivation(ctx context.Context, conn *dial.Conn, raw 
 		var settings rpc.PlatformSettings
 		if update.IsDevelopmentBuild(s.version) || !update.EvaluateAvailability(health.DaemonVersion, s.version).Available {
 			info.Guidance = "MCP and daemon versions differ, but replacing the daemon with this MCP build is not a verified upgrade. Update the older installation to the intended release and recheck canary_status; do not downgrade the daemon."
-		} else if err := conn.Call(ctx, rpc.MethodSettingsGet, nil, &settings); err != nil || settings.Build.TradingWritesAvailable.Source != rpc.SettingsSourceBuild {
+		} else if err := rpc.Call(ctx, conn, api.SettingsGet, rpc.NoParams{}, &settings); err != nil || settings.Build.TradingWritesAvailable.Source != rpc.SettingsSourceBuild {
 			info.Guidance = "MCP and daemon versions differ. The daemon build could not be verified. Use the updated installation matching the daemon's build to restart it, then recheck canary_status."
 		} else if settings.Build.TradingWritesAvailable.Value != mcpTradingBuild {
 			info.Guidance = "MCP and daemon versions differ and their trading capabilities differ. Update and restart the daemon from its matching build; do not replace a trading daemon with the standard MCPB binary. Then recheck canary_status."

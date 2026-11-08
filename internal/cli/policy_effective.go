@@ -9,6 +9,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // The full policy print of `canary policy show --explain` and
@@ -43,7 +44,7 @@ func policyEffectiveFor(ctx context.Context, env *Env, res *rpc.RiskPolicyResult
 	}
 	var settings *rpc.PlatformSettings
 	var got rpc.PlatformSettings
-	if err := env.Conn.Call(ctx, rpc.MethodSettingsGet, struct{}{}, &got); err == nil {
+	if err := rpc.Call(ctx, env.Conn, api.SettingsGet, rpc.NoParams{}, &got); err == nil {
 		settings = &got
 	}
 	return daemon.PolicyEffectiveFromFiles("", res.Files, res.Limits, settings)

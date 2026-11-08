@@ -6,6 +6,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func portfolioPlanTool() Tool {
@@ -17,7 +18,7 @@ func portfolioPlanTool() Tool {
 				return nil, err
 			}
 			var out rpc.PortfolioPlanResult
-			if err := conn.Call(ctx, rpc.MethodPortfolioPlan, nil, &out); err != nil {
+			if err := rpc.Call(ctx, conn, api.PortfolioPlan, rpc.NoParams{}, &out); err != nil {
 				return nil, err
 			}
 			return json.Marshal(out)

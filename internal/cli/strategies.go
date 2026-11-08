@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runStrategies(ctx context.Context, env *Env, args []string) int {
@@ -53,7 +54,7 @@ func runStrategiesList(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "strategies list: no positional arguments are accepted")
 	}
 	var res rpc.PositionsResult
-	if err := env.Conn.Call(ctx, rpc.MethodPositionsList, rpc.PositionsListParams{}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.PositionsList, rpc.PositionsListParams{}, &res); err != nil {
 		return fail(env, "strategies list: %v", err)
 	}
 	// An unavailable read exits 0 with its authority and reason, as
@@ -103,7 +104,7 @@ func runStrategyOperation(ctx context.Context, env *Env, operation string, args 
 		LimitPrice: limit, TimeoutMs: int(timeout.Milliseconds()), Source: "strategy_cli",
 	}
 	var preview rpc.OrderPreviewResult
-	if err := env.Conn.Call(ctx, rpc.MethodStrategyPreview, params, &preview); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.StrategyPreview, params, &preview); err != nil {
 		return fail(env, "strategies %s: %v", operation, err)
 	}
 	if !*submit {
@@ -117,7 +118,7 @@ func runStrategyOperation(ctx context.Context, env *Env, operation string, args 
 		return fail(env, "strategies %s: broker preview did not accept this combo; no order was sent", operation)
 	}
 	var placed rpc.OrderPlaceResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrderPlace, rpc.OrderPlaceParams{
+	if err := rpc.Call(ctx, env.Conn, api.OrderPlace, rpc.OrderPlaceParams{
 		PreviewToken: preview.PreviewToken, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin,
 	}, &placed); err != nil {
 		return fail(env, "strategies %s: %v", operation, err)

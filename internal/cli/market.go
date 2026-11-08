@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runMarket(ctx context.Context, env *Env, args []string) int {
@@ -48,13 +49,13 @@ func runMarket(ctx context.Context, env *Env, args []string) int {
 	}
 	if *symbol != "" {
 		var result rpc.MarketHistoryResult
-		if err := env.Conn.Call(ctx, rpc.MethodMarketHistory, rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: *symbol, SecType: *sec, Exchange: *exchange, Currency: *currency}, Range: *r}, &result); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.MarketHistory, rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: *symbol, SecType: *sec, Exchange: *exchange, Currency: *currency}, Range: *r}, &result); err != nil {
 			return fail(env, "market history: %v", err)
 		}
 		return printJSON(env, result)
 	}
 	var result rpc.MarketSnapshotResult
-	if err := env.Conn.Call(ctx, rpc.MethodMarketSnapshot, nil, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.MarketSnapshot, rpc.NoParams{}, &result); err != nil {
 		return fail(env, "market: %v", err)
 	}
 	return printJSON(env, result)
@@ -73,7 +74,7 @@ func runPortfolio(ctx context.Context, env *Env, args []string) int {
 	if fs.NArg() != 0 {
 		return fail(env, "usage: canary portfolio [plan] [--json]")
 	}
-	if err := env.Conn.Call(ctx, rpc.MethodPortfolioSnapshot, nil, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.PortfolioSnapshot, rpc.NoParams{}, &res); err != nil {
 		return fail(env, "portfolio: %v", err)
 	}
 	return printJSON(env, res)

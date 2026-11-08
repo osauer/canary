@@ -11,6 +11,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runOrder exposes lifecycle inspection, cancellation, and — restored by
@@ -41,9 +42,9 @@ func runOrder(ctx context.Context, env *Env, args []string) int {
 	case "modify":
 		return runOrderModify(ctx, env, args)
 	case "tws-cancel":
-		return runOrderTWSControl(ctx, env, args, rpc.MethodOrderTWSCancel)
+		return runOrderTWSControl(ctx, env, args, api.OrderTWSCancel)
 	case "tws-modify":
-		return runOrderTWSControl(ctx, env, args, rpc.MethodOrderTWSModify)
+		return runOrderTWSControl(ctx, env, args, api.OrderTWSModify)
 	default:
 		return runOrderCancel(ctx, env, args)
 	}
@@ -201,7 +202,7 @@ func runOrderPreview(ctx context.Context, env *Env, args []string) int {
 		params.Contract.Currency = "USD"
 	}
 	var res rpc.OrderPreviewResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrderPreview, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrderPreview, params, &res); err != nil {
 		return fail(env, "order preview: %v", err)
 	}
 	if *jsonOut {
@@ -239,7 +240,7 @@ func runBondOrderPreview(ctx context.Context, env *Env, secType string, rest []s
 		TimeoutMs: int(timeout.Milliseconds()),
 	}
 	var res rpc.OrderPreviewResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrderPreview, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrderPreview, params, &res); err != nil {
 		return fail(env, "order preview: %v", err)
 	}
 	if jsonOut {
@@ -300,7 +301,7 @@ func runOrderPlace(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "order place: --preview-token is required")
 	}
 	var res rpc.OrderPlaceResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrderPlace, rpc.OrderPlaceParams{PreviewToken: strings.TrimSpace(*token), Origin: env.Origin, AcceptAddWarnings: *acceptWarnings}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrderPlace, rpc.OrderPlaceParams{PreviewToken: strings.TrimSpace(*token), Origin: env.Origin, AcceptAddWarnings: *acceptWarnings}, &res); err != nil {
 		return fail(env, "order place: %v", err)
 	}
 	if *jsonOut {
@@ -324,7 +325,7 @@ func runOrderModify(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "order modify: --preview-token is required")
 	}
 	var res rpc.OrderModifyResult
-	if err := env.Conn.Call(ctx, rpc.MethodOrderModify, rpc.OrderModifyParams{ID: strings.TrimSpace(fs.Arg(0)), PreviewToken: strings.TrimSpace(*token), Origin: env.Origin}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrderModify, rpc.OrderModifyParams{ID: strings.TrimSpace(fs.Arg(0)), PreviewToken: strings.TrimSpace(*token), Origin: env.Origin}, &res); err != nil {
 		return fail(env, "order modify: %v", err)
 	}
 	if *jsonOut {
@@ -345,7 +346,7 @@ func runOrderCancel(ctx context.Context, env *Env, args []string) int {
 	}
 	var res rpc.OrderCancelResult
 	params := rpc.OrderCancelParams{ID: strings.TrimSpace(fs.Arg(0)), Origin: env.Origin}
-	if err := env.Conn.Call(ctx, rpc.MethodOrderCancel, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OrderCancel, params, &res); err != nil {
 		return fail(env, "order cancel: %v", err)
 	}
 	if *jsonOut {

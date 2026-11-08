@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runEdgeReplay is `canary edge replay`: the daemon replays long-option exit
@@ -36,7 +37,7 @@ func runEdgeReplay(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "edge replay: %v", err)
 	}
 	var result rpc.EdgeReplayResult
-	if err := env.Conn.Call(ctx, rpc.MethodEdgeReplay, params, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.EdgeReplay, params, &result); err != nil {
 		return fail(env, "edge replay: %v", err)
 	}
 	if err := rpc.ValidateEdgeReplayResult(result); err != nil {

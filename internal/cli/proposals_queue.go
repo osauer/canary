@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // queueArmInputMaxBytes bounds the arm object read from standard input.
@@ -83,7 +84,7 @@ func runProposalsQueuePrepare(ctx context.Context, env *Env, args []string) int 
 			return fail(env, "queue prepare requires one v2 owner-order object")
 		}
 	}
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsQueuePrepare, p, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsQueuePrepare, p, &res); err != nil {
 		return fail(env, "proposals queue prepare: %v", err)
 	}
 	return printJSON(env, res)
@@ -136,7 +137,7 @@ func runProposalsQueueArm(ctx context.Context, env *Env, args []string) int {
 	var res rpc.TradeProposalQueueResult
 	p := rpc.TradeProposalQueueArmParams{QueuedRef: in.QueuedRef, TermsDigest: in.TermsDigest, DeskActionID: in.DeskActionID,
 		Credential: in.Credential, Envelope: in.Envelope, Origin: env.Origin}
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsQueueArm, p, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsQueueArm, p, &res); err != nil {
 		return fail(env, "proposals queue arm: %v", err)
 	}
 	if *jsonOut {
@@ -159,7 +160,7 @@ func runProposalsQueueCancel(ctx context.Context, env *Env, args []string) int {
 	}
 	var res rpc.TradeProposalQueueResult
 	p := rpc.TradeProposalQueueCancelParams{QueueID: fs.Arg(0), All: *all, Reason: strings.TrimSpace(*reason), Origin: env.Origin, PreparedOnly: *preparedOnly}
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsQueueCancel, p, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsQueueCancel, p, &res); err != nil {
 		return fail(env, "proposals queue cancel: %v", err)
 	}
 	if *jsonOut {
@@ -179,7 +180,7 @@ func runProposalsQueueList(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "proposals queue list: usage is `canary proposals queue list [--live]`")
 	}
 	var res rpc.TradeProposalQueueListResult
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsQueueList, rpc.TradeProposalQueueListParams{LiveOnly: *live}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsQueueList, rpc.TradeProposalQueueListParams{LiveOnly: *live}, &res); err != nil {
 		return fail(env, "proposals queue list: %v", err)
 	}
 	if *jsonOut {
@@ -205,7 +206,7 @@ func runProposalsQueueStatus(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "proposals queue status: usage is `canary proposals queue status QUEUE_ID`")
 	}
 	var res rpc.TradeProposalQueueResult
-	if err := env.Conn.Call(ctx, rpc.MethodTradeProposalsQueueStatus, rpc.TradeProposalQueueStatusParams{QueueID: fs.Arg(0)}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsQueueStatus, rpc.TradeProposalQueueStatusParams{QueueID: fs.Arg(0)}, &res); err != nil {
 		return fail(env, "proposals queue status: %v", err)
 	}
 	if *jsonOut {

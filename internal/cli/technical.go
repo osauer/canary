@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runTechnical(ctx context.Context, env *Env, args []string) int {
@@ -34,7 +35,7 @@ func runTechnical(ctx context.Context, env *Env, args []string) int {
 		Currency:     strings.ToUpper(strings.TrimSpace(*currency)),
 	}
 	var res rpc.TechnicalResult
-	if err := env.Conn.Call(ctx, rpc.MethodTechnical, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.Technical, params, &res); err != nil {
 		return fail(env, "technical: %v", err)
 	}
 	if *jsonOut {

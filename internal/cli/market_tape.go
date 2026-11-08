@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runMarketTape(ctx context.Context, env *Env, args []string) int {
@@ -32,7 +33,7 @@ func runMarketTape(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "market tape: %v", err)
 	}
 	var result rpc.MarketTapeResult
-	if err := env.Conn.Call(ctx, rpc.MethodMarketTape, p, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.MarketTape, p, &result); err != nil {
 		return fail(env, "market tape: %v", err)
 	}
 	if *jsonOut {

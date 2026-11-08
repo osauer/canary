@@ -25,6 +25,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // WireFrame mirrors pkg/ibkr.WireFrame's JSON shape. Kept as a separate
@@ -219,7 +220,7 @@ func runProbe(name, socket, symbol, expiry, side, scope string, width int) error
 	switch name {
 	case "quote":
 		var out rpc.Quote
-		err = conn.Call(ctx, rpc.MethodQuoteSnapshot, rpc.QuoteSnapshotParams{
+		err = rpc.Call(ctx, conn, api.QuoteSnapshot, rpc.QuoteSnapshotParams{
 			Contract:         rpc.ContractParams{Symbol: symbol, SecType: "STK", Currency: "USD"},
 			TimeoutMs:        5_000,
 			IncludeLiquidity: true,
@@ -229,7 +230,7 @@ func runProbe(name, socket, symbol, expiry, side, scope string, width int) error
 		}
 	case "chain-expiries":
 		var out rpc.ChainExpiriesResult
-		err = conn.Call(ctx, rpc.MethodChainExpiries, rpc.ChainExpiriesParams{Symbol: symbol}, &out)
+		err = rpc.Call(ctx, conn, api.ChainExpiries, rpc.ChainExpiriesParams{Symbol: symbol}, &out)
 		if err == nil {
 			err = enc.Encode(out)
 		}
@@ -245,7 +246,7 @@ func runProbe(name, socket, symbol, expiry, side, scope string, width int) error
 			return fmt.Errorf("--side must be calls, puts, or both")
 		}
 		var out rpc.ChainResult
-		err = conn.Call(ctx, rpc.MethodChainFetch, rpc.ChainFetchParams{
+		err = rpc.Call(ctx, conn, api.ChainFetch, rpc.ChainFetchParams{
 			Symbol: symbol, Expiry: expiry, Width: width, Side: side,
 		}, &out)
 		if err == nil {
@@ -253,7 +254,7 @@ func runProbe(name, socket, symbol, expiry, side, scope string, width int) error
 		}
 	case "regime":
 		var out rpc.RegimeSnapshotResult
-		err = conn.Call(ctx, rpc.MethodRegimeSnapshot, rpc.RegimeSnapshotParams{}, &out)
+		err = rpc.Call(ctx, conn, api.RegimeSnapshot, rpc.RegimeSnapshotParams{}, &out)
 		if err == nil {
 			rpc.StripRegimeGammaProfiles(&out)
 			err = enc.Encode(out)
@@ -264,7 +265,7 @@ func runProbe(name, socket, symbol, expiry, side, scope string, width int) error
 			return fmt.Errorf("--scope must be spy, spx, or empty")
 		}
 		var out rpc.GammaZeroSPXResult
-		err = conn.Call(ctx, rpc.MethodGammaZeroSPX, rpc.GammaZeroSPXParams{WaitMs: 0, Scope: scope}, &out)
+		err = rpc.Call(ctx, conn, api.GammaZeroSPX, rpc.GammaZeroSPXParams{WaitMs: 0, Scope: scope}, &out)
 		if err == nil {
 			rpc.StripGammaProfiles(&out)
 			err = enc.Encode(out)

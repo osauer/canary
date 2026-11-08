@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"strings"
 )
 
@@ -34,7 +35,7 @@ func runShortInterest(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "short-interest screen: %v", err)
 	}
 	var r rpc.ShortInterestScreenResult
-	if err := env.Conn.Call(ctx, rpc.MethodShortInterestScreen, p, &r); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ShortInterestScreen, p, &r); err != nil {
 		return fail(env, "short-interest screen: %v", err)
 	}
 	if err := rpc.ValidateShortInterestScreenResult(r, p); err != nil {

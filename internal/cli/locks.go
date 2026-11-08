@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // runLocks reads and edits the owner's keep list. A locked name is never
@@ -32,13 +33,17 @@ func runLocks(ctx context.Context, env *Env, args []string) int {
 		op = fs.Arg(0)
 	}
 	var out rpc.HoldingLocks
-	method, params := rpc.MethodHoldingLocksList, any(nil)
+	send := func() error {
+		return rpc.Call(ctx, env.Conn, api.HoldingLocksList, rpc.HoldingLocksListRequest{}, &out)
+	}
 	switch op {
 	case "automatic-list":
 		if fs.NArg() != 1 || !*jsonOut || *conID != 0 || *revision != -1 || *id != "" {
 			return fail(env, "usage: canary locks automatic-list --json")
 		}
-		params = rpc.HoldingLocksListRequest{AutomaticOnly: true}
+		send = func() error {
+			return rpc.Call(ctx, env.Conn, api.HoldingLocksList, rpc.HoldingLocksListRequest{AutomaticOnly: true}, &out)
+		}
 	case "automatic-update":
 		if fs.NArg() != 1 || env.Stdin == nil || !*jsonOut {
 			return fail(env, "usage: canary locks automatic-update --json < request.json")
@@ -61,8 +66,8 @@ func runLocks(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "locks: %v", err)
 		}
 		*revision, *id = *in.ExpectedRevision, in.RequestID
-		// Preserve required-field presence for the daemon's strict decoder.
-		method, params = rpc.MethodHoldingLocksReplace, json.RawMessage(raw)
+		req := rpc.HoldingLocksReplaceRequest{Automatic: in.Automatic, ExpectedRevision: *revision, RequestID: *id}
+		send = func() error { return rpc.Call(ctx, env.Conn, api.HoldingLocksReplace, req, &out) }
 	case "list":
 		if fs.NArg() > 1 || *conID != 0 || *revision != -1 || *id != "" {
 			return fail(env, "usage: canary locks list [--json]")
@@ -72,7 +77,7 @@ func runLocks(ctx context.Context, env *Env, args []string) int {
 			return fail(env, "usage: canary locks lock|unlock SYMBOL [--con-id ID] [--role hedge|core] [--expected-revision N] [--request-id ID] [--json]")
 		}
 		var current rpc.HoldingLocks
-		if err := env.Conn.Call(ctx, rpc.MethodHoldingLocksList, nil, &current); err != nil {
+		if err := rpc.Call(ctx, env.Conn, api.HoldingLocksList, rpc.HoldingLocksListRequest{}, &current); err != nil {
 			return fail(env, "locks: read current list: %v", err)
 		}
 		if *revision == -1 {
@@ -95,11 +100,12 @@ func runLocks(ctx context.Context, env *Env, args []string) int {
 		if err = rpc.ValidateWatchlistMutation(*revision, *id); err != nil {
 			return fail(env, "locks: %v", err)
 		}
-		method, params = rpc.MethodHoldingLocksReplace, rpc.HoldingLocksReplaceRequest{Locks: next, ExpectedRevision: *revision, RequestID: *id}
+		req := rpc.HoldingLocksReplaceRequest{Locks: next, ExpectedRevision: *revision, RequestID: *id}
+		send = func() error { return rpc.Call(ctx, env.Conn, api.HoldingLocksReplace, req, &out) }
 	default:
 		return fail(env, "usage: canary locks list|lock|unlock [--json]; automatic-list|automatic-update --json")
 	}
-	if err := env.Conn.Call(ctx, method, params, &out); err != nil {
+	if err := send(); err != nil {
 		var rpcErr *rpc.Error
 		if *jsonOut && errors.As(err, &rpcErr) && rpcErr.Code == rpc.CodeHoldingLocksConflict {
 			_ = printJSON(env, struct {

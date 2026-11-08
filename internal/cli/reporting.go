@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runReporting(ctx context.Context, env *Env, args []string) int {
@@ -39,7 +40,7 @@ func runReporting(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "reporting status: usage is `canary reporting status [--json]`")
 	}
 	var result rpc.ReportingStatusResult
-	if err := env.Conn.Call(ctx, rpc.MethodReportingStatus, struct{}{}, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ReportingStatus, rpc.NoParams{}, &result); err != nil {
 		return fail(env, "reporting status: %v", err)
 	}
 	if *jsonOut {
@@ -76,7 +77,7 @@ func runReportingPerformance(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "reporting performance: usage is `canary reporting performance [--json]`")
 	}
 	var result rpc.ReportingPerformanceResult
-	if err := env.Conn.Call(ctx, rpc.MethodReportingPerformance, struct{}{}, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.ReportingPerformance, rpc.NoParams{}, &result); err != nil {
 		return fail(env, "reporting performance: %v", err)
 	}
 	if err := rpc.ValidateReportingPerformanceResult(result); err != nil {

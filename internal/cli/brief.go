@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runBrief(ctx context.Context, env *Env, args []string) int {
@@ -20,7 +21,7 @@ func runBrief(ctx context.Context, env *Env, args []string) int {
 		return failUnexpectedArgs(env, fs)
 	}
 	var res rpc.BriefResult
-	if err := env.Conn.Call(ctx, rpc.MethodBriefSnapshot, rpc.BriefSnapshotParams{}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.BriefSnapshot, rpc.BriefSnapshotParams{}, &res); err != nil {
 		return fail(env, "brief: %v", err)
 	}
 	if *jsonOut {

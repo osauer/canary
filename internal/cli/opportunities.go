@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runOpportunities(ctx context.Context, env *Env, args []string) int {
@@ -61,7 +62,7 @@ func runOpportunitiesStatus(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.OpportunityStatus
-	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesStatus, nil, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OpportunitiesStatus, rpc.NoParams{}, &res); err != nil {
 		return fail(env, "opportunities status: %v", err)
 	}
 	if *jsonOut {
@@ -78,7 +79,7 @@ func runOpportunitiesRefresh(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.OpportunitySnapshot
-	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesRefresh, rpc.OpportunityRefreshParams{Show: true}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OpportunitiesRefresh, rpc.OpportunityRefreshParams{Show: true}, &res); err != nil {
 		return fail(env, "opportunities refresh: %v", err)
 	}
 	if *jsonOut {
@@ -95,7 +96,7 @@ func runOpportunitiesList(ctx context.Context, env *Env, args []string) int {
 		return parseExit(err)
 	}
 	var res rpc.OpportunitySnapshot
-	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesSnapshot, rpc.OpportunitySnapshotParams{Show: true}, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OpportunitiesSnapshot, rpc.OpportunitySnapshotParams{Show: true}, &res); err != nil {
 		return fail(env, "opportunities list: %v", err)
 	}
 	if *jsonOut {
@@ -118,7 +119,7 @@ func runOpportunitiesPreview(ctx context.Context, env *Env, args []string) int {
 	}
 	var res rpc.OpportunityExercisePreviewResult
 	params := rpc.OpportunityExercisePreviewParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
-	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesPreviewExercise, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OpportunitiesPreviewExercise, params, &res); err != nil {
 		return fail(env, "opportunities preview: %v", err)
 	}
 	if *jsonOut {
@@ -145,7 +146,7 @@ func runOpportunitiesExercise(ctx context.Context, env *Env, args []string) int 
 	}
 	var res rpc.OpportunityExerciseSubmitResult
 	params := rpc.OpportunityExerciseSubmitParams{Key: fs.Arg(0), Revision: fs.Arg(1), Quantity: *qty, PreviewToken: strings.TrimSpace(*token), TimeoutMs: int(timeout.Milliseconds()), Origin: env.Origin}
-	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesSubmitExercise, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OpportunitiesSubmitExercise, params, &res); err != nil {
 		return fail(env, "opportunities exercise: %v", err)
 	}
 	if *jsonOut {
@@ -170,7 +171,7 @@ func runOpportunitiesIgnore(ctx context.Context, env *Env, args []string) int {
 		params.Revision = fs.Arg(1)
 	}
 	var res rpc.OpportunityIgnoreResult
-	if err := env.Conn.Call(ctx, rpc.MethodOpportunitiesIgnore, params, &res); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.OpportunitiesIgnore, params, &res); err != nil {
 		return fail(env, "opportunities ignore: %v", err)
 	}
 	if *jsonOut {

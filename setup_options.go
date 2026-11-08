@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // SetupOptionsParams chooses a listing stage or an exact standard call tuple.
@@ -34,6 +35,6 @@ func (c *Client) DiscoverSetupOptions(ctx context.Context, in SetupOptionsParams
 	}
 	defer conn.Close()
 	var out SetupOptionsResult
-	err = conn.Call(ctx, rpc.MethodSetupsOptions, in, &out)
+	err = rpc.Call(ctx, conn, api.SetupsOptions, in, &out)
 	return &out, daemonError(err)
 }

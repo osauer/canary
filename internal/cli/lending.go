@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func runLending(ctx context.Context, env *Env, args []string) int {
@@ -77,7 +78,7 @@ func runLending(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "lending fees: %v", err)
 	}
 	var result rpc.FinancingFeesResult
-	if err := env.Conn.Call(ctx, rpc.MethodFinancingFees, params, &result); err != nil {
+	if err := rpc.Call(ctx, env.Conn, api.FinancingFees, params, &result); err != nil {
 		return fail(env, "lending fees: %v", err)
 	}
 	if err := rpc.ValidateFinancingFeesResponse(result, params); err != nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/dial"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func accountIntradayTool() Tool {
@@ -17,7 +18,7 @@ func accountIntradayTool() Tool {
 				return nil, err
 			}
 			var out rpc.AccountIntradayResult
-			if err := conn.Call(ctx, rpc.MethodAccountIntraday, nil, &out); err != nil {
+			if err := rpc.Call(ctx, conn, api.AccountIntraday, rpc.NoParams{}, &out); err != nil {
 				return nil, err
 			}
 			return json.Marshal(out)
