@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/core"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
@@ -40,8 +41,8 @@ func (s *Server) handleStrategyOne(ctx context.Context) (*rpc.StrategyOneResult,
 	}
 	latest := spx.CompletedSessionKey(now)
 	settled := regimeGateSettledAt(latest, now)
-	conn := s.gatewayConnector()
-	spyBars, spyFetched := s.regimeGateBars(ctx, conn, "SPY", regimeGateSPYDays, now)
+	reads := s.brokerReads()
+	spyBars, spyFetched := s.regimeGateBars(ctx, reads, "SPY", regimeGateSPYDays, now)
 	spy := settledSeries(spyBars, spyFetched, latest, settled)
 	if len(spy.Dates) == 0 {
 		return hold("SPY's daily history could not be read")
@@ -76,7 +77,7 @@ func (s *Server) handleStrategyOne(ctx context.Context) (*rpc.StrategyOneResult,
 	out.Notes = append(out.Notes, "no register entry names "+core.StrongNamesRuleID+": the strategy holds no risk allocation and no positions, so every plan is recorded and nothing is bought")
 	first := core.StrongNamesV1.Screen(in)
 	for _, e := range first.Entries {
-		if a := s.strategyOneATR(ctx, conn, e.Symbol, latest, settled, now); a > 0 {
+		if a := s.strategyOneATR(ctx, reads, e.Symbol, latest, settled, now); a > 0 {
 			in.ATR[e.Symbol] = a
 		}
 	}
@@ -123,8 +124,8 @@ func strategyOneSeries(w spx.ConstituentWindow, sessions []string, latest string
 
 // strategyOneATR is a name's 20-session average true range on settled
 // bars, or 0 when it cannot be read.
-func (s *Server) strategyOneATR(ctx context.Context, conn *ibkrlib.Connector, sym, latest string, settled, now time.Time) float64 {
-	bars, fetched := s.regimeGateBars(ctx, conn, sym, strategyOneATRDays, now)
+func (s *Server) strategyOneATR(ctx context.Context, reads broker.Reads, sym, latest string, settled, now time.Time) float64 {
+	bars, fetched := s.regimeGateBars(ctx, reads, sym, strategyOneATRDays, now)
 	var kept []ibkrlib.HistoricalBar
 	for _, b := range bars {
 		d := historyBarSessionDate(b)

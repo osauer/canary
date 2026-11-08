@@ -3,13 +3,13 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/core"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
@@ -98,9 +98,9 @@ func (s *Server) measureRegimeGate(ctx context.Context, c *risk.Constitution, no
 		return &rpc.RegimeGateView{State: core.GateOff, EvaluatedAt: now, Reason: why}
 	}
 	in := regimeGateInputs{Now: now, Latest: spx.CompletedSessionKey(now)}
-	conn := s.gatewayConnector()
-	in.SPY, in.SPYFetched = s.regimeGateBars(ctx, conn, "SPY", regimeGateSPYDays, now)
-	in.HYG, in.HYGFetched = s.regimeGateBars(ctx, conn, "HYG", regimeGateHYGDays, now)
+	reads := s.brokerReads()
+	in.SPY, in.SPYFetched = s.regimeGateBars(ctx, reads, "SPY", regimeGateSPYDays, now)
+	in.HYG, in.HYGFetched = s.regimeGateBars(ctx, reads, "HYG", regimeGateHYGDays, now)
 	if env, err := s.handleBreadthSPX(ctx, &rpc.Request{Method: rpc.MethodBreadthSPX, Params: json.RawMessage(`{"history_days":` + strconv.Itoa(regimeGateBreadthDays) + `}`)}); err == nil {
 		in.Breadth = env
 	}
@@ -110,19 +110,14 @@ func (s *Server) measureRegimeGate(ctx context.Context, c *risk.Constitution, no
 // regimeGateBars reads the regime engine's cached bars for sym, fetching
 // afresh when the cached copy predates the latest session's settle, and
 // reports when the bars were fetched.
-func (s *Server) regimeGateBars(ctx context.Context, conn *ibkrlib.Connector, sym string, days int, now time.Time) ([]ibkrlib.HistoricalBar, time.Time) {
-	fetch := func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
-		if conn == nil {
-			return nil, errors.New("no gateway connection")
-		}
-		return conn.FetchHistoricalDailyBars(ctx, sym, days, 0)
-	}
+func (s *Server) regimeGateBars(ctx context.Context, reads broker.Reads, sym string, days int, now time.Time) ([]ibkrlib.HistoricalBar, time.Time) {
+	fetch := regimeDailyBars(reads)
 	if s.regimeHistory == nil {
 		bars, _ := fetch(ctx, sym, days)
 		return bars, now
 	}
 	settled := regimeGateSettledAt(spx.CompletedSessionKey(now), now)
-	if e, ok := s.regimeHistory.get(sym, days); ok && e.FetchedAt.Before(settled) && conn != nil {
+	if e, ok := s.regimeHistory.get(sym, days); ok && e.FetchedAt.Before(settled) && reads != nil {
 		if bars, err := fetch(ctx, sym, days); err == nil && len(bars) >= regimeHistoryMinBars(days) {
 			s.regimeHistory.put(sym, days, bars, now)
 			return bars, now

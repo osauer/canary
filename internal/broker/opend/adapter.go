@@ -551,6 +551,57 @@ func (a *Adapter) ReadSnapshots(ctx context.Context, codes []string) (map[string
 	return out, err
 }
 
+// BriefQuote reads one snapshot: OpenD answers a snapshot request without a
+// line, so nothing is opened, held or released, and done sees the one answer.
+// An instrument kind OpenD does not quote (an index, a currency pair) is
+// refused without a request.
+func (a *Adapter) BriefQuote(ctx context.Context, in broker.Instrument, _ []string, timeout time.Duration, done func(broker.BriefQuote) bool) (broker.BriefQuote, error) {
+	code, err := suppliedCode(in)
+	if err != nil {
+		return broker.BriefQuote{}, err
+	}
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	rows, err := a.conn.Snapshots(ctx, code)
+	if err != nil || len(rows) == 0 {
+		return broker.BriefQuote{}, err
+	}
+	q := rows[0]
+	seen := broker.BriefQuote{
+		Bid: q.Bid, Ask: q.Ask, Last: q.Last, Mark: q.Last, Close: q.PrevClose, Week52High: q.Week52High,
+		FeedType:   1,
+		ObservedAt: q.At,
+	}
+	if done != nil {
+		done(seen)
+	}
+	return seen, nil
+}
+
+// DailyBars reads daily bars from OpenD's history call; an instrument kind
+// OpenD does not quote is refused without a request.
+func (a *Adapter) DailyBars(ctx context.Context, in broker.Instrument, days int) ([]broker.Bar, error) {
+	code, err := suppliedCode(in)
+	if err != nil {
+		return nil, err
+	}
+	to := a.now()
+	return a.history(ctx, code, futu.BarDay, to.AddDate(0, 0, -max(days, 1)), to, 0)
+}
+
+// suppliedCode is codeOf for a read that names what is missing: a kind OpenD
+// does not serve wraps [broker.ErrNotSupplied] as well as ErrNotServed.
+func suppliedCode(in broker.Instrument) (string, error) {
+	code, err := codeOf(in)
+	if errors.Is(err, ErrNotServed) {
+		return "", fmt.Errorf("%w: %w", broker.ErrNotSupplied, err)
+	}
+	return code, err
+}
+
 // CodeFor is the code an instrument reads under, for a caller that batches.
 func (a *Adapter) CodeFor(in broker.Instrument) (string, error) { return codeOf(in) }
 

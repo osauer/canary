@@ -32,8 +32,13 @@ func (s *Server) routeTable() map[string]route {
 		api.Callback.Name: serve(api.Callback, "positions", s.handleCallback),
 		api.Seamed.Name:   serve(api.Seamed, "positions", s.handleSeamed),
 		api.Order.Name:    serve(api.Order, "orders", s.handleOrder),
+		api.Lookup.Name:   serve(api.Lookup, "status", s.handleLookup),
 	}
 }
+
+// handleLookup builds the route table, as the coverage lookup does, and runs
+// none of its handlers.
+func (s *Server) handleLookup() (int, error) { return len(s.routeTable()), nil }
 
 func (s *Server) handleClean() (int, error) { return 1, nil }
 

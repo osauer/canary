@@ -76,7 +76,6 @@ trade_proposals.veto_window
 trading.status
 
 [functions]
-(*Server).acquireRegimeSnapshot
 (*Server).addCallHours
 (*Server).answerPathConnectors
 (*Server).backendLinkUnsettled
@@ -112,7 +111,6 @@ trading.status
 (*Server).handlePositionsListCapturedForScope
 (*Server).handleQuoteSnapshot
 (*Server).handleSetupOptions
-(*Server).handleStrategyOne
 (*Server).handleTechnical
 (*Server).heldGermanBinding
 (*Server).historicalBarFarmOutage

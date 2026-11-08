@@ -409,6 +409,38 @@ type Bars interface {
 	SessionBars(ctx context.Context, in Instrument, from, to time.Time, timeout time.Duration) ([]Bar, error)
 }
 
+// DailyBars reads daily bars for an instrument named by symbol and kind, the
+// regime's history read. IBKR keys it by symbol, resolving the default route
+// as it always has; a broker that does not supply the kind answers an error
+// wrapping [ErrNotSupplied].
+type DailyBars interface {
+	DailyBars(ctx context.Context, in Instrument, days int) ([]Bar, error)
+}
+
+// BriefQuote is the line as one brief look sees it: the price ticks, the
+// previous regular-session close, the 52-week high when it was asked for, the
+// broker's data mode (FeedType, numbered as on [Quote]) and when the last
+// price was observed.
+type BriefQuote struct {
+	Bid, Ask, Last, Mark, Close, Week52High float64
+	FeedType                                int
+	ObservedAt                              time.Time
+}
+
+// Snapshots takes one brief look at an instrument named by symbol and kind:
+// it hands done the line as it stands at each read until done says it holds
+// enough or timeout passes, and releases what it opened. The last line read
+// is returned with any error from opening it. A broker that does not supply
+// the kind answers an error wrapping [ErrNotSupplied] and asks nothing of the
+// wire.
+type Snapshots interface {
+	BriefQuote(ctx context.Context, in Instrument, fields []string, timeout time.Duration, done func(BriefQuote) bool) (BriefQuote, error)
+}
+
+// ErrNotSupplied is an instrument kind this broker gives no data for, such as
+// an index or a currency pair on OpenD.
+var ErrNotSupplied = errors.New("this broker does not supply the instrument")
+
 // Instruments resolves a requested instrument to the broker's exact one for
 // a session. A binding that is no longer current fails.
 type Instruments interface {
@@ -438,7 +470,9 @@ type Reads interface {
 	Account
 	Positions
 	Quotes
+	Snapshots
 	Bars
+	DailyBars
 	Instruments
 }
 

@@ -991,21 +991,21 @@ surface:
   chain recorder depend on option chains and Greeks the OpenD leg does not
   serve in phases A to C; they are off the same way.
 
-The regime is off under `opend` in phases A to C, which departs from what this
-section first said (written 2026-11-04 22:20 CET, from building WP12). The first text had regime
-inputs that read broker bars served through the history quota. The streaming side
-of that is built: WP11 budgets lines for the regime's names. The regime engine does
-not consume it. `acquireRegimeSnapshot` returns at its connector check before the
-fan-out runs, so the inputs that touch no broker (credit, funding, the VIX term) are
-off too. Its three broker reads, `snapshot`, `snapshotWith52WHigh` and `history`, are
-typed on the IBKR connector and its bars, and `regime_gate.go` reads that connector
-directly. Moving them changes what a regime publication means when an input is off
-for this broker, so it is its own package with its own review, named under Owner
-decisions.
+The regime runs under `opend` since 2026-11-08, by the owner's decision (see
+Owner decisions). Its broker reads go through the broker connection: a brief
+quote look (`broker.Snapshots`) and daily bars (`broker.DailyBars`), each named
+by symbol and kind. IBKR serves both by symbol through the calls the regime has
+always made; OpenD answers a quote from one snapshot request and refuses an
+index or a currency pair without a request, so VIX, VIX3M and USD/JPY are
+missing on OpenD and the gamma row, which needs SPX option chains, is too. The
+publication names each missing input in a `broker_input_not_supplied` warning,
+one per row, and the verdict rests on the rows that can rank. `regime_gate.go`
+and strategy one read their daily bars the same way. The first text of this
+section (2026-11-04 22:20 CET) had regime inputs served through the history
+quota; the regime draws history for HYG and SPY only.
 
-Two things read through that gap. Portfolio stress composes from the regime, so
-`canary stress` answers unavailable and the app's card reads as a fault rather than
-as off. Rules that use the regime stage say so as a data gap.
+Portfolio stress composes from the regime and is the next package to move;
+until it is, what `canary stress` answers under `opend` is not verified.
 
 OpenD also supplies no FX rate today. A holding outside the account's base currency
 has its value in its own currency, so the rulebook reports it as not measured rather
@@ -1242,7 +1242,7 @@ OpenD contact:
 | --- | --- |
 | The `broker` field on `rpc.QueuedAuthTerms` in Desk's and the companion's allowlists | Needed before a queued authorisation is signed under OpenD (phase D). The field is absent on every IBKR term, so nothing changes until then; `TestQueuedTermsFieldsAreTheSignedContract` names it (found in WP8, 2026-11-04). |
 | Topology: one daemon per broker, with aggregation and routing in Desk (the multi-broker review's option A) | Decided by the owner, 2026-11-04 16:01 CET. Phases A to C stay as written plus the two C1 changes the review named: the policy files on the XDG config root and the scope on the broker instance (applied to this design and the brief 2026-11-04 17:54 CET). The route is a term of every Desk order; a cross-book measure is a later policy decision, after a real Futu book exists. |
-| The regime on OpenD | Proposed 2026-11-04 22:20 CET: a package of its own after WP10. The regime, and the portfolio stress composed from it, stay off under `opend` until then, named on the surface. It decides what a regime publication means when an input is off for this broker. |
+| The regime on OpenD | Decided by the owner, 2026-11-08 19:50 CET: "Yes, on OpenD" (relayed by the multi-broker review session and checked in its transcript). The regime runs on OpenD; an input OpenD does not supply is named in the publication in the reader's words rather than leaving a thinner regime unexplained. The warning's words are a draft until the owner approves them; nothing with them is installed. |
 | FX rates on OpenD | Proposed 2026-11-04 22:20 CET: with the regime package. Without a rate the rulebook reports holdings outside the base currency as not measured. Which source supplies the rate is the decision. |
 | The OpenD build to run | Open, the owner's; nothing here depends on it until phase D's paper proof. |
 | Whether the OpenAPI agreement permits Canary | Read by the coordinating session 2026-11-07, with what could not be read: see the build handoff's "Next". |

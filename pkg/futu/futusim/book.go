@@ -255,6 +255,15 @@ func (b *Book) AddHolding(in Instrument, account uint64, quantity int64, cost fl
 	b.positions = append(b.positions, Position{AccountID: account, Code: in.Code, Quantity: quantity, Cost: cost})
 }
 
+// ListInstrument lists an instrument that no account holds, so it quotes and
+// has history.
+func (b *Book) ListInstrument(in Instrument) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.instruments = append(b.instruments, in)
+	b.walks[in.Code] = newWalk(b.seed, in)
+}
+
 // SetCash sets one currency's cash, for a test that moves the book mid-read.
 func (b *Book) SetCash(id uint64, currency string, amount float64) {
 	b.mu.Lock()

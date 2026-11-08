@@ -74,6 +74,8 @@ type Quote struct {
 	Turnover  float64
 	LotSize   int32
 	Suspended bool
+	// Week52High is the 52-week high; only a snapshot read carries it.
+	Week52High float64
 	// At is OpenD's update time for the last price.
 	At time.Time
 }
@@ -334,6 +336,8 @@ func quoteFromSnapshot(row *qotgetsecuritysnapshot.Snapshot) Quote {
 		LotSize:   basic.GetLotSize(),
 		Suspended: basic.GetIsSuspend(),
 		At:        timeFromSeconds(basic.GetUpdateTimestamp()),
+
+		Week52High: basic.GetHighest52WeeksPrice(),
 	}
 }
 

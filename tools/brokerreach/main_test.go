@@ -10,8 +10,9 @@ import (
 )
 
 // The fixture daemon has one route per way a handler can reach the IBKR
-// connector. Only a read outside the seam counts, a callback's included, and
-// the order-write route is not counted.
+// connector. Only a read outside the seam counts, a callback's included; the
+// order-write route is not counted, and building the route table reaches no
+// handler.
 func TestAnalyseFindsReadsOutsideTheSeam(t *testing.T) {
 	got, err := analyse(filepath.Join("testdata", "fixture"), "")
 	if err != nil {

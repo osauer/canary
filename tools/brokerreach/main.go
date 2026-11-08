@@ -14,7 +14,8 @@
 // Excluded by design, so only reads reachable from route handlers count: the
 // seam and the connection's own connect and reconnect (seamFuncs), and the
 // order-write path, which internal/broker/doc.go keeps off the read seam
-// (writeCapabilities).
+// (writeCapabilities). The search does not enter the route table's builder
+// (tableFuncs), which makes handler values without running one.
 //
 // The call graph is VTA over CHA (golang.org/x/tools/go/callgraph/vta), built
 // for both product builds, default and -tags trading; a route counts when it
@@ -63,6 +64,11 @@ var seamFuncs = []string{
 	"(*Server).triggerReconnect",
 	"(ibkrScope).Scope", // scopeSource's IBKR side; OpenD answers its own scope
 }
+
+// tableFuncs build tables of handler values without running a handler: the
+// route table, which the coverage lookup builds too. The search stops there,
+// or every caller of the lookup would reach every handler.
+var tableFuncs = []string{"(*Server).routeTable"}
 
 // writeCapabilities are the coverage-table capabilities whose routes preview
 // or send broker writes. Writes stay on a concrete IBKR connector by design
@@ -196,6 +202,15 @@ func analyse(root, tags string) (*found, error) {
 	if len(seam) != len(seamFuncs) {
 		return nil, fmt.Errorf("found %d of the %d seamFuncs: update the list", len(seam), len(seamFuncs))
 	}
+	stops := maps.Clone(seam)
+	for fn := range all {
+		if fn.Pkg == daemon && slices.Contains(tableFuncs, fn.RelString(daemon.Pkg)) {
+			stops[fn] = true
+		}
+	}
+	if len(stops) != len(seamFuncs)+len(tableFuncs) {
+		return nil, fmt.Errorf("found %d of the %d tableFuncs: update the list", len(stops)-len(seam), len(tableFuncs))
+	}
 	gateway := prog.LookupMethod(types.NewPointer(server.Type()), daemon.Pkg, "gatewayConnector")
 
 	res := &found{routes: map[string][]string{}, sites: map[string]bool{}}
@@ -231,7 +246,7 @@ func analyse(root, tags string) (*found, error) {
 		if slices.Contains(writeCapabilities, r.capability) {
 			continue
 		}
-		for _, fn := range reachable(graph, r.roots, seam) {
+		for _, fn := range reachable(graph, r.roots, stops) {
 			if reads[fn] {
 				res.routes[method] = append(res.routes[method], fn.RelString(daemon.Pkg))
 			}
@@ -268,8 +283,8 @@ func directRead(instr ssa.Instruction, gateway *ssa.Function, server types.Type)
 }
 
 // reachable lists the functions the roots can reach, not following calls out
-// of the seam.
-func reachable(graph *callgraph.Graph, roots []*ssa.Function, seam map[*ssa.Function]bool) []*ssa.Function {
+// of a stop: the seam and the table builders.
+func reachable(graph *callgraph.Graph, roots []*ssa.Function, stops map[*ssa.Function]bool) []*ssa.Function {
 	seen := map[*ssa.Function]bool{}
 	queue := slices.Clone(roots)
 	var out []*ssa.Function
@@ -281,7 +296,7 @@ func reachable(graph *callgraph.Graph, roots []*ssa.Function, seam map[*ssa.Func
 		}
 		seen[fn] = true
 		out = append(out, fn)
-		if seam[fn] {
+		if stops[fn] {
 			continue
 		}
 		// A closure made here may run wherever it is passed.

@@ -14,4 +14,5 @@ var (
 	Callback = Define[struct{}, int]("callback")
 	Seamed   = Define[struct{}, int]("seamed")
 	Order    = Define[struct{}, int]("order")
+	Lookup   = Define[struct{}, int]("lookup")
 )

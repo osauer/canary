@@ -215,7 +215,7 @@ var capabilities = []Capability{
 		OpenD: Coverage{Status: Partial, Note: "answers from breadth already stored, still labelled IBKR HMDS, and never refreshed; " + ownerDecides}},
 	{Name: "regime", Needs: []string{"quotes", "price bars"},
 		IBKR:  Coverage{Status: Served, Smoke: []string{"regime"}},
-		OpenD: Coverage{Status: Refused, Note: "answers that the regime is unavailable: its broker inputs read the IBKR connector; " + ownerDecides}},
+		OpenD: Coverage{Status: Partial, Note: "reads HYG and SPY from OpenD; OpenD gives no index, currency or option-chain data, so the VIX term structure, USD/JPY and gamma rows are named as missing and do not rank; tested on the simulator only", Tests: []string{"TestOpenDRegimeReadsListedInputsAndRefusesIndicesAndFX"}}},
 	{Name: "portfolio stress", Needs: []string{"account and positions", "quotes", "price bars"},
 		IBKR:  served,
 		OpenD: Coverage{Status: Refused, Note: "composes from the regime, so it answers unavailable; " + ownerDecides}},

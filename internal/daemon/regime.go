@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v2/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -69,12 +72,12 @@ func (s *Server) repairRegimeSnapshotProjections(ctx context.Context) error {
 // classified semantics. It is the only path allowed to tick streaks, latch
 // only after all eight workers returned before the acquisition deadline.
 func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshotResult, bool, regimeSnapshotAfterPublishFunc, error) {
-	c := s.gatewayConnector()
-	if c == nil {
-		return nil, false, nil, s.gatewayUnavailableError()
+	reads := s.brokerReads()
+	if reads == nil {
+		return nil, false, nil, s.sessionUnavailableError()
 	}
 
-	deps := productionRegimeDeps(c, s.regimeDependencyWarnf, s.regimeSeries, s.regimeHistory)
+	deps := productionRegimeDeps(reads, s.regimeDependencyWarnf, s.regimeSeries, s.regimeHistory)
 	outcome := runRegimeFanoutOutcome(
 		ctx,
 		func(c context.Context) rpc.RegimeVIXTerm { return fetchRegimeVIXTerm(c, deps) },
@@ -83,7 +86,13 @@ func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshot
 		func(c context.Context) rpc.RegimeCreditSpreads { return fetchRegimeCreditSpreads(c, deps) },
 		func(c context.Context) rpc.RegimeFundingStress { return fetchRegimeFundingStress(c, deps) },
 		func(c context.Context) rpc.RegimeUSDJPY { return fetchRegimeUSDJPY(c, deps) },
-		func(c context.Context) rpc.RegimeGammaZero { return fetchRegimeGamma(c, s) },
+		func(c context.Context) rpc.RegimeGammaZero {
+			if s.notServedHere(api.GammaZeroSPX.Name) {
+				// The gamma read needs option chains this broker does not serve.
+				deps.gaps.add(regimeGammaInput)
+			}
+			return fetchRegimeGamma(c, s)
+		},
 		func(c context.Context) rpc.RegimeBreadth { return fetchRegimeBreadth(c, s) },
 		s.regimeContentionMessage,
 	)
@@ -109,7 +118,7 @@ func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshot
 	// Cluster tallies via the shared rpc combination. The verdict needs
 	res.Composite = buildRegimeComposite(res)
 	res.Summary = buildRegimeSummary(res)
-	res.WarningDetails = buildRegimeWarnings(res)
+	res.WarningDetails = append(buildRegimeWarnings(res), regimeGapWarnings(reads.Kind(), deps.gaps.list())...)
 	res.DataQuality = regimeSnapshotDataQuality(res)
 	res.SourceHealth = rpc.BuildRegimeSourceHealth(res, res.AsOf)
 	res.Lifecycle = rpc.BuildRegimeLifecycle(res)
@@ -434,6 +443,9 @@ type regimeDeps struct {
 	vvixSeries     func(ctx context.Context) ([]regimeSeriesPoint, error)
 	vix3mSeries    func(ctx context.Context) ([]regimeSeriesPoint, error)
 	logWarnf       func(format string, args ...any)
+	// gaps collects the inputs the broker does not supply; nil in tests that
+	// build their own deps.
+	gaps *regimeGaps
 	// now overrides the fetchers' clock reads. Tests pin it so
 	// calendar-keyed behavior (the closed-date day-change pin, the
 	// off-hours banding branch) is deterministic regardless of when the
@@ -449,35 +461,87 @@ func regimeNow(deps *regimeDeps) time.Time {
 	return time.Now()
 }
 
-// productionRegimeDeps wires the deps struct to the live connector.
-func productionRegimeDeps(c *ibkrlib.Connector, logWarnf func(format string, args ...any), seriesCache *regimeSeriesCache, historyCache *regimeHistoryCache) *regimeDeps {
+// productionRegimeDeps wires the deps struct to the broker connection. Each
+// input is named by symbol and kind (regimeInstrument): IBKR reads it by
+// symbol as it always has, and a broker that does not supply the kind answers
+// without a request, which the snapshot marks unsupplied.
+func productionRegimeDeps(reads broker.Reads, logWarnf func(format string, args ...any), seriesCache *regimeSeriesCache, historyCache *regimeHistoryCache) *regimeDeps {
 	officialSeries := fetchOfficialRegimeSeries
 	if seriesCache != nil {
 		officialSeries = func(ctx context.Context, seriesID string) ([]regimeSeriesPoint, error) {
 			return seriesCache.fetch(ctx, seriesID, fetchOfficialRegimeSeries)
 		}
 	}
+	look := func(ctx context.Context, symbol string, fields []string, timeout time.Duration, done func(broker.BriefQuote) bool) (broker.BriefQuote, error) {
+		return reads.BriefQuote(ctx, regimeInstrument(symbol), fields, timeout, done)
+	}
+	gaps := &regimeGaps{}
+	noted := func(sym string, q snapshotQuote) snapshotQuote {
+		if q.unsupplied {
+			gaps.add(sym)
+		}
+		return q
+	}
 	return &regimeDeps{
 		snapshot: func(ctx context.Context, sym string, timeout time.Duration) snapshotQuote {
-			return briefSnapshotPriceWithClose(ctx, c, sym, timeout, logWarnf)
+			return noted(sym, priceWithClose(briefTicks(ctx, look, sym, timeout, logWarnf)))
 		},
 		snapshotWith52WHigh: func(ctx context.Context, sym string, timeout time.Duration) snapshotQuote {
-			return briefSnapshotPriceWith52WHigh(ctx, c, sym, timeout, logWarnf)
+			return noted(sym, briefWith52WHigh(ctx, look, sym, timeout, logWarnf))
 		},
 		history: func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
-			fetch := func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
-				return c.FetchHistoricalDailyBars(ctx, sym, days, 0)
-			}
+			fetch := regimeDailyBars(reads)
+			var bars []ibkrlib.HistoricalBar
+			var err error
 			if historyCache != nil {
-				return historyCache.fetch(ctx, sym, days, fetch)
+				bars, err = historyCache.fetch(ctx, sym, days, fetch)
+			} else {
+				bars, err = fetch(ctx, sym, days)
 			}
-			return fetch(ctx, sym, days)
+			if errors.Is(err, broker.ErrNotSupplied) {
+				gaps.add(sym)
+			}
+			return bars, err
 		},
+		gaps:           gaps,
 		officialSeries: officialSeries,
 		vvixSeries:     fetchCBOEVVIXSeries,
 		vix3mSeries:    fetchCBOEVIX3MSeries,
 		logWarnf:       logWarnf,
 	}
+}
+
+// regimeDailyBars reads a regime input's daily bars through the broker
+// connection, in the shape the regime's caches hold.
+func regimeDailyBars(reads broker.Reads) func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
+	return func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
+		if reads == nil {
+			return nil, errors.New("no broker connection")
+		}
+		bars, err := reads.DailyBars(ctx, regimeInstrument(sym), days)
+		return brokerIBKR.ToHistoricalBars(bars), err
+	}
+}
+
+// regimeInstrumentKinds are the regime inputs that are not listed shares or
+// funds: the volatility indices and the yen pair.
+var regimeInstrumentKinds = map[string]string{
+	"VIX":     "IND",
+	"VIX3M":   "IND",
+	"VVIX":    "IND",
+	"USD.JPY": "CASH",
+}
+
+// regimeInstrument names a regime input by symbol and kind, so a broker can
+// refuse a kind it does not supply rather than read another security under
+// the same letters.
+func regimeInstrument(symbol string) broker.Instrument {
+	sym := normSym(symbol)
+	kind := regimeInstrumentKinds[sym]
+	if kind == "" {
+		kind = "STK"
+	}
+	return broker.Instrument{Symbol: sym, SecType: kind}
 }
 
 // ----------------------------------------------------------------------------
@@ -1478,6 +1542,13 @@ func minTime(a, b time.Time) time.Time {
 func warnDeps(d *regimeDeps, format string, args ...any) {
 	if d == nil || d.logWarnf == nil {
 		return
+	}
+	// An input the broker does not supply is named in the publication
+	// (regimeGapWarnings), not logged as a fault on every refresh.
+	for _, arg := range args {
+		if err, ok := arg.(error); ok && errors.Is(err, broker.ErrNotSupplied) {
+			return
+		}
 	}
 	d.logWarnf(format, args...)
 }

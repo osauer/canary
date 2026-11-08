@@ -229,6 +229,10 @@ func (s *Server) startRegimeRefreshLoop(ctx context.Context) {
 // must not race cold-start discovery or create a reconnect loop of its own;
 // normal connection ownership will make the next poll eligible.
 func (s *Server) regimeRefreshGatewayReady() bool {
+	if s.opend != nil {
+		// OpenD reconnects on its own; reading its readiness starts nothing.
+		return s.opend.Connector().IsReady()
+	}
 	s.mu.Lock()
 	c := s.connector
 	s.mu.Unlock()
