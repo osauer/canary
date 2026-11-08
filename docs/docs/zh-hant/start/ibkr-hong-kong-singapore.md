@@ -1,6 +1,6 @@
 ---
 translation-of: docs/docs/start/ibkr-hong-kong-singapore.md
-source-revision: f6712a54bf113ab00946fb3984075f049c60f86b
+source-revision: 45f9c3730a24e71676db7b6f51d31df6727bd69d
 nav-title: 香港及新加坡帳戶
 summary: 相同的閘道步驟、以港元、新加坡元或日圓計的基礎貨幣、亞洲交易所日曆，以及何時執行簡報。
 description: 盈透證券（Interactive Brokers）帳戶設於香港、新加坡、日本或澳洲，持有港股或其他亞洲股票時有何不同：IB Gateway 步驟完全相同、港元、新加坡元與日圓數字如何顯示、港交所、新交所、東京、ASX 與滬深港通的日曆，以及亞洲早上的簡報時段。

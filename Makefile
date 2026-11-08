@@ -683,6 +683,7 @@ docs-html-check: ## Build and verify the complete Pages artifact
 # does not block: a typo fix in English must not wait for a native reader.
 # Malformed provenance (a missing source, a bad revision) fails the build.
 docs-translations-check: ## List documentation translations and which are behind their English source
+	@./scripts/check-translation-revisions.sh
 	@go -C scripts/docgen/docs-html run . -root ../../.. -translations
 
 pages-build: ## Build the deployable Pages artifact from tracked sources
