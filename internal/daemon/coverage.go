@@ -1,6 +1,10 @@
 package daemon
 
-import "github.com/osauer/canary/v2/internal/rpc"
+import (
+	"slices"
+
+	"github.com/osauer/canary/v2/internal/rpc"
+)
 
 // CoverageStatus says how a broker serves a capability.
 type CoverageStatus string
@@ -324,4 +328,27 @@ func (s *Server) notServedHere(method string) bool {
 	}
 	c, ok := s.capabilityOf(method)
 	return ok && c.OpenD.Status == NotServed
+}
+
+// BrokerInputs returns what each broker supplies, for the coverage page.
+func BrokerInputs() []Input { return slices.Clone(inputs) }
+
+// Capabilities returns the coverage table in page order, for the coverage page.
+func Capabilities() []Capability { return slices.Clone(capabilities) }
+
+// CapabilityMethods returns each capability's methods, sorted, for the
+// coverage page. A capability without methods is work the daemon does on
+// its own.
+func CapabilityMethods() map[string][]string {
+	out := map[string][]string{}
+	for name, r := range (&Server{}).routeTable() {
+		out[r.capability] = append(out[r.capability], name)
+	}
+	for name, capability := range streamCapabilities {
+		out[capability] = append(out[capability], name)
+	}
+	for _, methods := range out {
+		slices.Sort(methods)
+	}
+	return out
 }

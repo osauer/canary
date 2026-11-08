@@ -1,6 +1,6 @@
 # Internal docs index
 
-Updated: 2026-11-04 12:55 CET
+Updated: 2026-11-08 08:58 CET
 
 Reader's contract: **Current authority** binds today's behavior — read it before
 changing the surface it names. **Approved, not yet implemented** is operator-
@@ -15,6 +15,7 @@ and this index needs the fix.
 
 | Doc | Owns |
 |---|---|
+| [design/broker-coverage.md](design/broker-coverage.md) | What IBKR and OpenD supply and how each capability runs on them; generated from `internal/daemon/coverage.go` |
 | [design/platform-settings.md](design/platform-settings.md) | Settings, config, and state authority — required reading per AGENTS.md |
 | [design/trading-rulebook.md](design/trading-rulebook.md) | Rulebook semantics and authority |
 | [design/budget-governor.md](design/budget-governor.md) | Premium budget governor (`budget_reduction`): basis, ranking, candidates and plan |
