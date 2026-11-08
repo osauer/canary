@@ -72,24 +72,33 @@ type Input struct {
 	Note string
 }
 
+// futuDocs is the public OpenAPI documentation every OpenD note below that
+// names a message Canary has not vendored was read against: the message
+// list, each message's page and the quota page, at the stated version.
+const futuDocs = "Futu OpenAPI docs v10.12, openapi.futunn.com, read 2026-11-08"
+
 // inputs is what each broker supplies, from the vendored OpenD protocol
 // (pkg/futu/internal/pb), the OpenD design (internal-docs/design/broker-opend.md)
-// and the moomoo page. A "to verify" row is a question for OpenD's own
-// documentation, not an answer.
+// and, for every message not vendored, futuDocs. The owner decided
+// (2026-11-08) that each row is settled before a capability is built on it,
+// so that nothing is built on an input OpenD lacks; the lookup settled the
+// seven rows that were open. A row says what the broker supplies, not what
+// Canary reads: a Limited or Supplied input a capability does not use yet is
+// a Canary gap.
 var inputs = []Input{
 	{Name: "session", IBKR: Supplied, OpenD: Supplied},
 	{Name: "account and positions", IBKR: Supplied, OpenD: Supplied, Note: "Trd_GetFunds and Trd_GetPositionList"},
-	{Name: "intraday P&L", IBKR: Supplied, OpenD: ToVerify},
+	{Name: "intraday P&L", IBKR: Supplied, OpenD: Limited, Note: "today's P&L per position only (Trd_GetPositionList td_plVal, vendored), polled, at most 10 refreshed reads per 30 s per account; Trd_GetFunds carries no account-level daily P&L (its unrealizedPL and realizedPL are futures-only) and there is no P&L stream like IBKR's; " + futuDocs},
 	{Name: "quotes", IBKR: Supplied, OpenD: Limited, Note: "only in markets where the login holds the quote right; a subscription quota shared with other clients of the same OpenD"},
 	{Name: "price bars", IBKR: Supplied, OpenD: Limited, Note: "a history quota counted over seven days"},
 	{Name: "contract lookup", IBKR: Supplied, OpenD: Supplied, Note: "Qot_GetStaticInfo"},
-	{Name: "ISIN listings", IBKR: Supplied, OpenD: ToVerify},
-	{Name: "option chains and Greeks", IBKR: Supplied, OpenD: ToVerify, Note: "OpenD's snapshot carries an option's delta and implied volatility; listing a chain is not built"},
-	{Name: "bonds", IBKR: Supplied, OpenD: ToVerify},
+	{Name: "ISIN listings", IBKR: Supplied, OpenD: NotSupplied, Note: "no message takes an ISIN: a security is market plus code and Qot_GetSearchQuote (3262, not vendored) is documented for keywords only; Qot_GetCompanyProfile (3243, not vendored) returns a code's ISIN, the reverse direction, for equities and funds; " + futuDocs},
+	{Name: "option chains and Greeks", IBKR: Supplied, OpenD: Limited, Note: "Qot_GetOptionChain (3209, not vendored) lists a chain's contracts without quotes for HK stock, US stock, HSI and HHI underlyings, 30 days of expiries per call, 10 calls per 30 s, no expired chains; implied volatility, delta, gamma, vega, theta and rho per contract come from the vendored snapshot (Qot_GetSecuritySnapshot OptionSnapshotExData) or basic quote (OptionBasicQotExData), and option subscriptions draw on their own quota of 20 to 400 chains by account tier; " + futuDocs},
+	{Name: "bonds", IBKR: Supplied, OpenD: NotSupplied, Note: "no quote or trade message serves a bond: the quotation and trading coverage tables list no bond contract in any market and no message page names bonds; SecurityType_Bond is only an enum value and Trd_GetFunds carries one aggregate bondAssets figure; " + futuDocs},
 	{Name: "broker statements", IBKR: Supplied, OpenD: NotSupplied, Note: "OpenD has no statement service like IBKR Flex"},
-	{Name: "borrow and fee data", IBKR: Supplied, OpenD: ToVerify},
-	{Name: "earnings calendar", IBKR: Supplied, OpenD: ToVerify, Note: "IBKR's comes from Wall Street Horizon"},
-	{Name: "quoted FX rates", IBKR: Supplied, OpenD: ToVerify, Note: "Canary implies a rate from the account's own totals; no quoted rate is read"},
+	{Name: "borrow and fee data", IBKR: Supplied, OpenD: Limited, Note: "Trd_GetMarginRatio (2223, not vendored) returns per stock whether it is shortable, the short pool remaining in shares and today's borrow rate (shortFeeRate), for HK and US stocks only, 100 codes per call, 10 calls per 30 s; no rate history; " + futuDocs},
+	{Name: "earnings calendar", IBKR: Supplied, OpenD: Limited, Note: "Qot_GetEarningsCalendar (3401, not vendored) lists a market's reporters with date, session, EPS and revenue actuals and estimates, by market, watchlist or positions rather than by symbol, at most seven days per call, 60 calls per 30 s; IBKR's comes from Wall Street Horizon; " + futuDocs},
+	{Name: "quoted FX rates", IBKR: Supplied, OpenD: NotSupplied, Note: "no message returns an exchange rate: the quotation coverage table marks Forex as not available to API users and Trd_GetFunds converts into the account currency without exposing the rate; Canary implies a rate from the account's own totals; " + futuDocs},
 	{Name: "order placement and preview", IBKR: Supplied, OpenD: Supplied, Note: "Trd_PlaceOrder and Trd_ModifyOrder; the preview is a maximum quantity (Trd_GetMaxTrdQtys), not a what-if"},
 	{Name: "order and fill history", IBKR: Supplied, OpenD: Supplied, Note: "Trd_GetHistoryOrderList and Trd_GetHistoryOrderFillList"},
 }
