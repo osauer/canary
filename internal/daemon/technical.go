@@ -12,6 +12,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const (
@@ -24,7 +25,7 @@ const (
 
 func (s *Server) handleTechnical(ctx context.Context, req *rpc.Request) (*rpc.TechnicalResult, error) {
 	var p rpc.TechnicalParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.Technical, req.Params, &p); err != nil {
 		return nil, err
 	}
 	symbols := normalizeTechnicalSymbols(p.Symbols)

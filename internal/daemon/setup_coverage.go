@@ -12,6 +12,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/setups"
 )
 
@@ -453,7 +454,7 @@ func (c *setupCoverageRecorder) snapshot(ctx context.Context, store setupCoverag
 // changes nothing.
 func (s *Server) handleSetupsCoverage(ctx context.Context, req *rpc.Request) (*rpc.SetupCoverageResult, error) {
 	var p rpc.SetupCoverageParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.SetupsCoverage, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeSetupCoverageParams(p)

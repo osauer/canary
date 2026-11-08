@@ -12,6 +12,7 @@ import (
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -19,7 +20,7 @@ const orderWritesAvailable = true
 
 func (s *Server) handleOrderPlace(ctx context.Context, req *rpc.Request) (*rpc.OrderPlaceResult, error) {
 	var p rpc.OrderPlaceParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OrderPlace, req.Params, &p); err != nil {
 		return nil, err
 	}
 	s.brokerWriteMu.Lock()
@@ -29,7 +30,7 @@ func (s *Server) handleOrderPlace(ctx context.Context, req *rpc.Request) (*rpc.O
 
 func (s *Server) handleOrderModify(ctx context.Context, req *rpc.Request) (*rpc.OrderModifyResult, error) {
 	var p rpc.OrderModifyParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OrderModify, req.Params, &p); err != nil {
 		return nil, err
 	}
 	s.brokerWriteMu.Lock()
@@ -39,7 +40,7 @@ func (s *Server) handleOrderModify(ctx context.Context, req *rpc.Request) (*rpc.
 
 func (s *Server) handleOrderCancel(ctx context.Context, req *rpc.Request) (*rpc.OrderCancelResult, error) {
 	var p rpc.OrderCancelParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OrderCancel, req.Params, &p); err != nil {
 		return nil, err
 	}
 	return s.cancelOrder(ctx, p)

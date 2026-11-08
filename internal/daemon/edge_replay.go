@@ -13,6 +13,7 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // replayHistoryLeadDays is how far before the window the underlying history
@@ -29,7 +30,7 @@ const replayHistoryLeadDays = 45
 // is read-only and never reaches the order path.
 func (s *Server) handleEdgeReplay(ctx context.Context, req *rpc.Request) (*rpc.EdgeReplayResult, error) {
 	var params rpc.EdgeReplayParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := decodeFor(api.EdgeReplay, req.Params, &params); err != nil {
 		return nil, err
 	}
 	params, err := rpc.NormalizeEdgeReplayParams(params)

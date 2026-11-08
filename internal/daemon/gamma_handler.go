@@ -8,6 +8,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"math"
 	"os"
 	"sort"
@@ -22,7 +23,7 @@ import (
 //	only on success; otherwise force supersedes the in-flight/error state.
 func (s *Server) handleGammaZeroSPX(ctx context.Context, req *rpc.Request) (*rpc.GammaZeroSPXResult, error) {
 	var p rpc.GammaZeroSPXParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.GammaZeroSPX, req.Params, &p); err != nil {
 		return nil, err
 	}
 

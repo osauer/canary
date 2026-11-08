@@ -16,6 +16,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // One approval for a loan repaid from several currencies (owner answer
@@ -714,7 +715,7 @@ func (e *proposalEngine) PreparedBundleStatus(ctx context.Context, reference str
 
 func (s *Server) handleTradeProposalsPrepareBundle(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalPrepareBundleResult, error) {
 	var p rpc.TradeProposalPrepareBundleParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsPrepareBundle, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -726,7 +727,7 @@ func (s *Server) handleTradeProposalsPrepareBundle(ctx context.Context, req *rpc
 
 func (s *Server) handleTradeProposalsSubmitBundle(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalSubmitBundleResult, error) {
 	var p rpc.TradeProposalSubmitBundleParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsSubmitBundle, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -739,7 +740,7 @@ func (s *Server) handleTradeProposalsSubmitBundle(ctx context.Context, req *rpc.
 
 func (s *Server) handleTradeProposalsPreparedBundleStatus(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalPreparedBundleStatusResult, error) {
 	var p rpc.TradeProposalPreparedBundleStatusParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsPreparedBundleStatus, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {

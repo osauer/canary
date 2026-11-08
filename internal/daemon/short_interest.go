@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 type shortInterestCache struct {
@@ -113,7 +114,7 @@ func validShortInterestPublication(p shortInterestPublication, now time.Time) bo
 
 func (s *Server) handleShortInterestScreen(ctx context.Context, req *rpc.Request) (*rpc.ShortInterestScreenResult, error) {
 	var p rpc.ShortInterestScreenParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ShortInterestScreen, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeShortInterestScreenParams(p)

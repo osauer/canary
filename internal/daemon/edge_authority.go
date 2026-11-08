@@ -20,6 +20,7 @@ import (
 	"github.com/osauer/canary/v2/internal/financing"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -886,7 +887,7 @@ func (s *Server) replaceEdgeStateDocument(ctx context.Context, kind string, raw 
 
 func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc.EdgeResult, error) {
 	var params rpc.EdgeSnapshotParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := decodeFor(api.EdgeSnapshot, req.Params, &params); err != nil {
 		return nil, err
 	}
 	params, err := rpc.NormalizeEdgeSnapshotParams(params)

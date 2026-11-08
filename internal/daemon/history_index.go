@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // History RPC surfaces render journal evidence from daemon.db and never feed
@@ -36,7 +37,7 @@ var errHistoryIndexUnavailable = errors.New("authoritative history storage unava
 
 func (s *Server) handleRulesHistory(ctx context.Context, req *rpc.Request) (*rpc.RulesHistoryResult, error) {
 	var p rpc.RulesHistoryParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.RulesHistory, req.Params, &p); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
@@ -137,7 +138,7 @@ func historyIndexLimitBounded(limit, def, maxLimit int) (int, error) {
 
 func (s *Server) handleReconEquity(ctx context.Context, req *rpc.Request) (*rpc.ReconEquityResult, error) {
 	var p rpc.ReconEquityParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ReconEquity, req.Params, &p); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()

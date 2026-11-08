@@ -11,6 +11,7 @@ import (
 	"github.com/osauer/canary/v2/internal/broker"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -472,7 +473,7 @@ func (s *Server) observeEventHealth(result rpc.MarketEventsResult, session broke
 func dataHealthParams(req *rpc.Request) (rpc.DataHealthParams, error) {
 	var p rpc.DataHealthParams
 	if len(req.Params) > 0 {
-		if err := json.Unmarshal(req.Params, &p); err != nil {
+		if err := json.Unmarshal(req.Params, paramsFor(api.DataHealth, &p)); err != nil {
 			return p, errBadRequest("invalid health parameters")
 		}
 	}

@@ -9,13 +9,14 @@ import (
 	"github.com/osauer/canary/v2/internal/broker"
 	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func (s *Server) handleAccountSummaryRequest(ctx context.Context, req *rpc.Request) (any, error) {
 	var params rpc.AccountSummaryParams
 	if len(req.Params) > 0 {
-		if err := json.Unmarshal(req.Params, &params); err != nil {
+		if err := json.Unmarshal(req.Params, paramsFor(api.AccountSummary, &params)); err != nil {
 			return nil, errors.New("invalid account summary params")
 		}
 	}

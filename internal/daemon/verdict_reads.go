@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/stress"
 )
 
@@ -16,7 +17,7 @@ import (
 func (s *Server) handleStressSnapshot(ctx context.Context, req *rpc.Request) (*rpc.StressSnapshotResult, error) {
 	var p rpc.StressSnapshotParams
 	if len(req.Params) > 0 && string(req.Params) != "null" {
-		if err := json.Unmarshal(req.Params, &p); err != nil {
+		if err := json.Unmarshal(req.Params, paramsFor(api.StressSnapshot, &p)); err != nil {
 			return nil, errBadRequest("stress.snapshot params: " + err.Error())
 		}
 	}
@@ -100,7 +101,7 @@ func (r stressComposeReader) Call(ctx context.Context, method string, params, ou
 // page on request.
 func (s *Server) handleScorecardRead(ctx context.Context, req *rpc.Request) (*rpc.ScorecardResult, error) {
 	var p rpc.ScorecardReadParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ScorecardRead, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeScorecardReadParams(p)

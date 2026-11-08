@@ -16,6 +16,7 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -43,7 +44,7 @@ func (s *Server) handleAddPlan(ctx context.Context, req *rpc.Request) (*rpc.AddP
 	var p rpc.AddParams
 	d := json.NewDecoder(bytes.NewReader(req.Params))
 	d.DisallowUnknownFields()
-	if err := d.Decode(&p); err != nil {
+	if err := d.Decode(paramsFor(api.AddPlan, &p)); err != nil {
 		return nil, errBadRequest(err.Error())
 	}
 	if d.Decode(new(any)) != io.EOF {
@@ -59,7 +60,7 @@ func (s *Server) handleAddPlan(ctx context.Context, req *rpc.Request) (*rpc.AddP
 
 func (s *Server) handleAddPreview(ctx context.Context, req *rpc.Request) (*rpc.OrderPreviewResult, error) {
 	var requested rpc.AddParams
-	if err := json.Unmarshal(req.Params, &requested); err != nil {
+	if err := json.Unmarshal(req.Params, paramsFor(api.AddPreview, &requested)); err != nil {
 		return nil, errBadRequest("invalid Add parameters")
 	}
 	plan, err := s.handleAddPlan(ctx, req)

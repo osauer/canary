@@ -16,6 +16,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -4122,7 +4123,7 @@ func (s *Server) handleAutoTradeStatus() *rpc.AutoTradeStatus {
 
 func (s *Server) handleTradeProposalsSnapshot(req *rpc.Request) *rpc.TradeProposalSnapshot {
 	var p rpc.TradeProposalSnapshotParams
-	_ = decodeParams(req.Params, &p)
+	_ = decodeFor(api.TradeProposalsSnapshot, req.Params, &p)
 	if s.tradeProposals == nil {
 		snap := emptyProposalSnapshot(s.orderNow())
 		return &snap
@@ -4134,7 +4135,7 @@ func (s *Server) handleTradeProposalsSnapshot(req *rpc.Request) *rpc.TradePropos
 
 func (s *Server) handleTradeProposalsRefresh(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalSnapshot, error) {
 	var p rpc.TradeProposalRefreshParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsRefresh, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -4148,7 +4149,7 @@ func (s *Server) handleTradeProposalsRefresh(ctx context.Context, req *rpc.Reque
 
 func (s *Server) handleTradeProposalsPreview(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalPreviewResult, error) {
 	var p rpc.TradeProposalPreviewParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsPreview, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -4160,7 +4161,7 @@ func (s *Server) handleTradeProposalsPreview(ctx context.Context, req *rpc.Reque
 
 func (s *Server) handleTradeProposalsSubmit(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalSubmitResult, error) {
 	var p rpc.TradeProposalSubmitParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsSubmit, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -4174,7 +4175,7 @@ func (s *Server) handleTradeProposalsSubmit(ctx context.Context, req *rpc.Reques
 
 func (s *Server) handleTradeProposalsIgnore(req *rpc.Request) *rpc.TradeProposalIgnoreResult {
 	var p rpc.TradeProposalIgnoreParams
-	_ = decodeParams(req.Params, &p)
+	_ = decodeFor(api.TradeProposalsIgnore, req.Params, &p)
 	if s.tradeProposals == nil {
 		return &rpc.TradeProposalIgnoreResult{Accepted: false, Key: p.Key, Revision: p.Revision, Message: "proposal engine is unavailable", AsOf: s.orderNow()}
 	}

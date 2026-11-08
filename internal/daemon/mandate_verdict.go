@@ -15,6 +15,7 @@ import (
 	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -271,7 +272,7 @@ func (s *Server) refreshMandateVerdict(ctx context.Context) {
 func (s *Server) handleMandateRisk(ctx context.Context, req *rpc.Request) (*rpc.MandateRiskResult, error) {
 	var p rpc.MandateRiskParams
 	if len(req.Params) > 0 && string(req.Params) != "null" {
-		if err := decodeParams(req.Params, &p); err != nil {
+		if err := decodeFor(api.MandateRisk, req.Params, &p); err != nil {
 			return nil, err
 		}
 	}

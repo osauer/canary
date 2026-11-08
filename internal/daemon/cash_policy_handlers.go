@@ -19,6 +19,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const (
@@ -418,7 +419,7 @@ func decodeCashPolicyRequest(raw json.RawMessage, dst any) error {
 
 func (s *Server) handleCashPolicyCheck(ctx context.Context, req *rpc.Request) (*rpc.CashPolicyCheckResult, error) {
 	var in rpc.CashPolicyCheckRequest
-	if err := decodeCashPolicyRequest(req.Params, &in); err != nil {
+	if err := decodeCashPolicyRequest(req.Params, paramsFor(api.CashPolicyCheck, &in)); err != nil {
 		return nil, err
 	}
 	r, err := s.readCashPolicy()
@@ -578,7 +579,7 @@ type cashPolicyConstitutionReceipt struct {
 
 func (s *Server) handleCashPolicyApply(ctx context.Context, req *rpc.Request) (*rpc.CashPolicyApplyResult, error) {
 	var in rpc.CashPolicyApplyRequest
-	if err := decodeCashPolicyRequest(req.Params, &in); err != nil {
+	if err := decodeCashPolicyRequest(req.Params, paramsFor(api.CashPolicyApply, &in)); err != nil {
 		return nil, err
 	}
 	if !cashPriorityRequestID.MatchString(in.RequestID) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // maxBasketLegs bounds how many real orders one portfolio sweep can fan out
@@ -631,7 +632,7 @@ func reduceSweepActionableCount(cands []reduceSweepCandidate) int {
 
 func (s *Server) handleTradeProposalsReducePortfolioPreview(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalReducePortfolioResult, error) {
 	var p rpc.TradeProposalReducePortfolioParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsReducePortfolioPreview, req.Params, &p); err != nil {
 		return nil, err
 	}
 	return s.reducePortfolioPreview(ctx, p)
@@ -639,7 +640,7 @@ func (s *Server) handleTradeProposalsReducePortfolioPreview(ctx context.Context,
 
 func (s *Server) handleTradeProposalsReducePortfolioSubmit(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalReducePortfolioResult, error) {
 	var p rpc.TradeProposalReducePortfolioParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsReducePortfolioSubmit, req.Params, &p); err != nil {
 		return nil, err
 	}
 	// Serialize the whole basket against every other broker writer (R1): one

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 	"math"
 	"slices"
@@ -1210,7 +1211,7 @@ func (s *Server) handleOpportunitiesStatus() *rpc.OpportunityStatus {
 
 func (s *Server) handleOpportunitiesSnapshot(req *rpc.Request) *rpc.OpportunitySnapshot {
 	var p rpc.OpportunitySnapshotParams
-	_ = decodeParams(req.Params, &p)
+	_ = decodeFor(api.OpportunitiesSnapshot, req.Params, &p)
 	if s.opportunities == nil {
 		snap := emptyOpportunitySnapshot(s.orderNow())
 		return &snap
@@ -1221,7 +1222,7 @@ func (s *Server) handleOpportunitiesSnapshot(req *rpc.Request) *rpc.OpportunityS
 
 func (s *Server) handleOpportunitiesRefresh(ctx context.Context, req *rpc.Request) (*rpc.OpportunitySnapshot, error) {
 	var p rpc.OpportunityRefreshParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OpportunitiesRefresh, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.opportunities == nil {
@@ -1234,7 +1235,7 @@ func (s *Server) handleOpportunitiesRefresh(ctx context.Context, req *rpc.Reques
 
 func (s *Server) handleOpportunitiesPreviewExercise(ctx context.Context, req *rpc.Request) (*rpc.OpportunityExercisePreviewResult, error) {
 	var p rpc.OpportunityExercisePreviewParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OpportunitiesPreviewExercise, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.opportunities == nil {
@@ -1246,7 +1247,7 @@ func (s *Server) handleOpportunitiesPreviewExercise(ctx context.Context, req *rp
 
 func (s *Server) handleOpportunitiesSubmitExercise(ctx context.Context, req *rpc.Request) (*rpc.OpportunityExerciseSubmitResult, error) {
 	var p rpc.OpportunityExerciseSubmitParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OpportunitiesSubmitExercise, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.opportunities == nil {
@@ -1260,7 +1261,7 @@ func (s *Server) handleOpportunitiesSubmitExercise(ctx context.Context, req *rpc
 
 func (s *Server) handleOpportunitiesIgnore(req *rpc.Request) *rpc.OpportunityIgnoreResult {
 	var p rpc.OpportunityIgnoreParams
-	_ = decodeParams(req.Params, &p)
+	_ = decodeFor(api.OpportunitiesIgnore, req.Params, &p)
 	if s.opportunities == nil {
 		return &rpc.OpportunityIgnoreResult{Accepted: false, Key: p.Key, Revision: p.Revision, Message: "opportunity engine is unavailable", AsOf: s.orderNow()}
 	}

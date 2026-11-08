@@ -15,6 +15,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const (
@@ -52,7 +53,7 @@ const (
 
 func (s *Server) handleOrdersOpen(ctx context.Context, req *rpc.Request) (*rpc.OrdersOpenResult, error) {
 	var p rpc.OrdersOpenParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OrdersOpen, req.Params, &p); err != nil {
 		return nil, err
 	}
 	views, eventsByKey, integrity, err := s.loadOrderViewsReconciledWithHealth(ctx)
@@ -88,7 +89,7 @@ func (s *Server) handleOrdersOpen(ctx context.Context, req *rpc.Request) (*rpc.O
 
 func (s *Server) handleOrdersHistory(_ context.Context, req *rpc.Request) (*rpc.OrdersHistoryResult, error) {
 	var p rpc.OrdersHistoryParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OrdersHistory, req.Params, &p); err != nil {
 		return nil, err
 	}
 	now := s.orderNow()
@@ -168,7 +169,7 @@ func (s *Server) handleOrdersHistory(_ context.Context, req *rpc.Request) (*rpc.
 
 func (s *Server) handleOrderStatus(ctx context.Context, req *rpc.Request) (*rpc.OrderStatusResult, error) {
 	var p rpc.OrderStatusParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OrderStatus, req.Params, &p); err != nil {
 		return nil, err
 	}
 	id := strings.TrimSpace(p.ID)

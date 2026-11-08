@@ -12,6 +12,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const reportingValidationPollAttempts = 12
@@ -199,7 +200,7 @@ func reportingStatementsFromMetadata(records []corestore.StatementRecord) ([]fle
 
 func (s *Server) handleReportingValidate(ctx context.Context, req *rpc.Request) (*rpc.ReportingValidationResult, error) {
 	var params rpc.ReportingValidateParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := decodeFor(api.ReportingValidate, req.Params, &params); err != nil {
 		return nil, err
 	}
 	queryID := strings.TrimSpace(params.QueryID)

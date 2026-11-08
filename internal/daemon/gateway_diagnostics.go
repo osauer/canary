@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -90,7 +91,7 @@ func (s *Server) readGatewaySetup(ctx context.Context) (ibkrlib.APIConfigDiagnos
 
 func (s *Server) handleStatusHealthRequest(ctx context.Context, req *rpc.Request) (*rpc.HealthResult, error) {
 	var params rpc.HealthParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := decodeFor(api.StatusHealth, req.Params, &params); err != nil {
 		return nil, err
 	}
 	res := s.handleStatusHealth()

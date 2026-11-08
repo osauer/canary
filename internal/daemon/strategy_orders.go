@@ -10,11 +10,12 @@ import (
 
 	"github.com/osauer/canary/v2/internal/config"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func (s *Server) handleStrategyPreview(ctx context.Context, req *rpc.Request) (*rpc.OrderPreviewResult, error) {
 	var p rpc.StrategyPreviewParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.StrategyPreview, req.Params, &p); err != nil {
 		return nil, err
 	}
 	return s.previewStrategyOrder(ctx, p)

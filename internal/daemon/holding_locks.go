@@ -11,6 +11,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // The keep list follows the watchlist's durability: one state document under
@@ -75,7 +76,7 @@ func decodeHoldingLocksReplace(req *rpc.Request) (rpc.HoldingLocksReplaceRequest
 // the keep list is served with Held unknown.
 func (s *Server) handleHoldingLocksList(ctx context.Context, req *rpc.Request) (*rpc.HoldingLocks, error) {
 	var in rpc.HoldingLocksListRequest
-	if len(req.Params) > 32768 || len(req.Params) > 0 && decodeStrictPlatformSettingsJSON(req.Params, &in) != nil {
+	if len(req.Params) > 32768 || len(req.Params) > 0 && decodeStrictPlatformSettingsJSON(req.Params, paramsFor(api.HoldingLocksList, &in)) != nil {
 		return nil, errBadRequest("invalid holding locks list request")
 	}
 	if in.AutomaticOnly {

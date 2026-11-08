@@ -20,6 +20,7 @@ import (
 	"github.com/osauer/canary/v2/internal/register"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // The strategy evaluator (internal-docs/design/strategy-evaluator.md): one
@@ -295,7 +296,7 @@ func coreInactiveResult(now time.Time, c *risk.Constitution) *rpc.CoreTargetResu
 func (s *Server) handleCoreTarget(ctx context.Context, req *rpc.Request) (*rpc.CoreTargetResult, error) {
 	var p rpc.CoreTargetParams
 	if len(req.Params) > 0 && string(req.Params) != "null" {
-		if err := decodeParams(req.Params, &p); err != nil {
+		if err := decodeFor(api.CoreTarget, req.Params, &p); err != nil {
 			return nil, err
 		}
 	}
@@ -313,7 +314,7 @@ func (s *Server) handleCoreTarget(ctx context.Context, req *rpc.Request) (*rpc.C
 func (s *Server) handleStrategyTarget(ctx context.Context, req *rpc.Request) (*rpc.StrategyTargetResult, error) {
 	var p rpc.StrategyTargetParams
 	if len(req.Params) > 0 && string(req.Params) != "null" {
-		if err := decodeParams(req.Params, &p); err != nil {
+		if err := decodeFor(api.StrategyTarget, req.Params, &p); err != nil {
 			return nil, err
 		}
 	}

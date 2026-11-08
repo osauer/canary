@@ -22,6 +22,7 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	positionstrategy "github.com/osauer/canary/v2/internal/strategy"
 )
 
@@ -455,7 +456,7 @@ func (s *Server) handlePositionsListCaptured(ctx context.Context, req *rpc.Reque
 
 func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *rpc.Request, portfolioHealth *ibkrlib.PortfolioStreamHealth, expectedScope brokerStateScope) (healthResult *rpc.PositionsResult, healthErr error) {
 	var p rpc.PositionsListParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.PositionsList, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.opend != nil {
@@ -2067,7 +2068,7 @@ func buildUnderlyingExposureBase(groups []rpc.PositionGroup, baseCcy string) ([]
 // returns a snapshot. We avoid IBKR's true snapshot mode (snapshot=true)
 func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (result *rpc.Quote, resultErr error) {
 	var p rpc.QuoteSnapshotParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.QuoteSnapshot, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if p.Contract.Symbol == "" {
@@ -2502,7 +2503,7 @@ func normaliseOptionQuoteContract(in rpc.ContractParams) (rpc.ContractParams, er
 // subscription registry so callers share one IBKR market-data line per symbol.
 func (s *Server) handleQuoteSubscribe(ctx context.Context, req *rpc.Request, enc *json.Encoder, r *bufio.Reader) {
 	var p rpc.QuoteSubscribeParams
-	if err := json.Unmarshal(req.Params, &p); err != nil {
+	if err := json.Unmarshal(req.Params, paramsFor(api.QuoteSubscribe, &p)); err != nil {
 		writeError(enc, req.ID, rpc.CodeBadRequest, err.Error())
 		return
 	}
@@ -4036,7 +4037,7 @@ func sp500EmbeddedAsOf() time.Time {
 // supported markets, preserving their finite coverage and session windows.
 func (s *Server) handleMarketCalendar(req *rpc.Request) (*rpc.MarketCalendarResult, error) {
 	var p rpc.MarketCalendarParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.MarketCalendar, req.Params, &p); err != nil {
 		return nil, err
 	}
 	market, ok := marketcal.NormalizeMarket(p.Market)
@@ -4113,7 +4114,7 @@ func (s *Server) handleBreadthSPX(_ context.Context, req *rpc.Request) (*rpc.Bre
 
 func (s *Server) buildBreadthSPX(req *rpc.Request, allowRefresh bool) (*rpc.BreadthSPXResult, error) {
 	var p rpc.BreadthSPXParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.BreadthSPX, req.Params, &p); err != nil {
 		return nil, err
 	}
 	historyDays := p.HistoryDays
@@ -4242,8 +4243,10 @@ func (e *badRequestError) Error() string { return e.msg }
 
 func errBadRequest(msg string) error { return &badRequestError{msg: msg} }
 
-// decodeParams unmarshals req.Params into dst and tags failures as bad-request
-func decodeParams[T any](raw json.RawMessage, dst *T) error {
+// decodeFor decodes a request's params into the request type method m declares
+// and tags a failure as a bad request. Empty params leave dst at its zero value.
+// Naming m makes the compiler check that dst is the type every client sends.
+func decodeFor[P, R any](_ rpc.Method[P, R], raw json.RawMessage, dst *P) error {
 	if len(raw) == 0 {
 		return nil
 	}
@@ -4252,6 +4255,11 @@ func decodeParams[T any](raw json.RawMessage, dst *T) error {
 	}
 	return nil
 }
+
+// paramsFor returns dst unchanged. A handler that decodes its request its own
+// way wraps its destination in it, so the compiler still checks that dst is
+// the request type method m declares.
+func paramsFor[P, R any](_ rpc.Method[P, R], dst *P) *P { return dst }
 
 // strikeStep picks a sensible strike interval based on spot. Mirrors common
 // IBKR option spacings; refined chains use whatever IBKR returns.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -547,7 +548,7 @@ var bondISINCurrency = map[string]string{
 // quoted false with a reason), not an error.
 func (s *Server) handleMarketBond(ctx context.Context, req *rpc.Request) (*rpc.MarketBondResult, error) {
 	var p rpc.MarketBondParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.MarketBond, req.Params, &p); err != nil {
 		return nil, err
 	}
 	idType, id, ccy, err := bondIdentifierFor(p.Identifier, p.Currency)

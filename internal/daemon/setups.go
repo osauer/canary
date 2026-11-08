@@ -12,6 +12,7 @@ import (
 	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	"github.com/osauer/canary/v2/internal/setups"
 )
 
@@ -46,7 +47,7 @@ func (s *Server) setupClock() time.Time {
 
 func (s *Server) handleSetupsEvaluate(ctx context.Context, req *rpc.Request) (*rpc.SetupResult, error) {
 	var p rpc.SetupEvaluateParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.SetupsEvaluate, req.Params, &p); err != nil {
 		return nil, err
 	}
 	now := s.setupClock()

@@ -14,6 +14,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const preparedProposalKind = "prepared_proposal_v1"
@@ -370,7 +371,7 @@ func (e *proposalEngine) preparedSubmitPlace(ctx context.Context, p rpc.TradePro
 
 func (s *Server) handleTradeProposalsPrepare(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalPrepareResult, error) {
 	var p rpc.TradeProposalPreviewParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsPrepare, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -382,7 +383,7 @@ func (s *Server) handleTradeProposalsPrepare(ctx context.Context, req *rpc.Reque
 
 func (s *Server) handleTradeProposalsPreparedStatus(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalPreparedStatusResult, error) {
 	var p rpc.TradeProposalPreparedStatusParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsPreparedStatus, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {

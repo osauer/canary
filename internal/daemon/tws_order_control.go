@@ -11,6 +11,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -156,7 +157,7 @@ func (s *Server) handleOrderTWSModify(ctx context.Context, req *rpc.Request) (*r
 
 func (s *Server) handleOrderTWSControl(ctx context.Context, req *rpc.Request, action string) (*rpc.OrderTWSControlResult, error) {
 	var p rpc.OrderTWSControlParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OrderTWSCancel, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if err := p.Validate(action == ibkrlib.TWSOrderControlModify); err != nil {

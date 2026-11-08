@@ -8,6 +8,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // The owner's one-click mandate override from Desk's console (owner,
@@ -48,7 +49,7 @@ var errDeskOverrideControl = errBadRequest("Desk's console grants an override of
 
 func (s *Server) handleDeskOverridePrepare(_ context.Context, req *rpc.Request) (rpc.DeskOverridePrepared, error) {
 	var in rpc.DeskOverridePrepareParams
-	if err := decodeDeskAuthority(req.Params, &in); err != nil {
+	if err := decodeDeskAuthority(req.Params, paramsFor(api.DeskOverridePrepare, &in)); err != nil {
 		return rpc.DeskOverridePrepared{}, err
 	}
 	if strings.TrimSpace(in.Control) != risk.MandateAdditionsOverrideControl {
@@ -80,7 +81,7 @@ func (s *Server) handleDeskOverridePrepare(_ context.Context, req *rpc.Request) 
 
 func (s *Server) handleDeskOverrideConfirm(_ context.Context, req *rpc.Request) (*rpc.RiskPolicyWriteResult, error) {
 	var in rpc.DeskOverrideConfirmParams
-	if err := decodeDeskAuthority(req.Params, &in); err != nil {
+	if err := decodeDeskAuthority(req.Params, paramsFor(api.DeskOverrideConfirm, &in)); err != nil {
 		return nil, err
 	}
 	var terms rpc.DeskOverrideTerms

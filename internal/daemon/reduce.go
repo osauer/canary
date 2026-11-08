@@ -11,6 +11,7 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -894,7 +895,7 @@ func reduceCloseReduceBlockers(preview *rpc.OrderPreviewResult) []rpc.TradingBlo
 
 func (s *Server) handleTradeProposalsReducePreview(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalReduceResult, error) {
 	var p rpc.TradeProposalReduceParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsReducePreview, req.Params, &p); err != nil {
 		return nil, err
 	}
 	return s.tradeProposalReducePreview(ctx, p)
@@ -902,7 +903,7 @@ func (s *Server) handleTradeProposalsReducePreview(ctx context.Context, req *rpc
 
 func (s *Server) handleTradeProposalsReduceSubmit(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalReduceResult, error) {
 	var p rpc.TradeProposalReduceParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsReduceSubmit, req.Params, &p); err != nil {
 		return nil, err
 	}
 	// Serialize the check-then-act broker write against every other writer,

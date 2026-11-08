@@ -14,6 +14,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const exerciseHumanEvidenceProvenance = "human-attested broker evidence"
@@ -156,7 +157,7 @@ func (s *Server) exercisePositionsReflected(ctx context.Context, scope brokerSta
 
 func (s *Server) handleOpportunitiesReconcileExercise(ctx context.Context, req *rpc.Request) (*rpc.ExerciseReconcileResult, error) {
 	var p rpc.ExerciseReconcileParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.OpportunitiesReconcileExercise, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if p.Origin != rpc.OrderOriginHumanTTY {

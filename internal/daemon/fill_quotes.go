@@ -16,6 +16,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/discover"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -921,7 +922,7 @@ func (s *Server) fillQuoteFX(ctx context.Context, currency string) (base string,
 // changes nothing.
 func (s *Server) handleReportingCosts(_ context.Context, req *rpc.Request) (*rpc.ReportingCostsResult, error) {
 	var p rpc.ReportingCostsParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ReportingCosts, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p.Month = strings.TrimSpace(p.Month)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // defaultExpiryIVCap is how many expiries get IV by default — the front
@@ -28,7 +29,7 @@ const chainExpiryWorkers = 4
 // with IVStatus="timeout"|"unavailable" — never fail the whole call.
 func (s *Server) handleChainExpiries(ctx context.Context, req *rpc.Request) (*rpc.ChainExpiriesResult, error) {
 	var p rpc.ChainExpiriesParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ChainExpiries, req.Params, &p); err != nil {
 		return nil, err
 	}
 	sym := normSym(p.Symbol)
@@ -471,7 +472,7 @@ func annotateRepeatedExpiryIV(symbol string, rows []rpc.ChainExpiry) []rpc.DataW
 // Greeks are populated only when IBKR delivers them.
 func (s *Server) handleChainFetch(ctx context.Context, req *rpc.Request) (*rpc.ChainResult, error) {
 	var p rpc.ChainFetchParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ChainFetch, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if p.Symbol == "" {

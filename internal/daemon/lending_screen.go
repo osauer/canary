@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func (s *Server) handleLendingScreen(ctx context.Context, req *rpc.Request) (*rpc.LendingScreenResult, error) {
 	var p rpc.LendingScreenParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.LendingScreen, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeLendingScreenParams(p)

@@ -13,6 +13,7 @@ import (
 	"github.com/osauer/canary/v2/internal/financing"
 	"github.com/osauer/canary/v2/internal/flexstmt"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func financingEvidenceScope(scope brokerStateScope, projectionScope string) string {
@@ -96,7 +97,7 @@ func (s *Server) financingPeriod(ctx context.Context, scope brokerStateScope, wi
 
 func (s *Server) handleFinancingFees(ctx context.Context, req *rpc.Request) (*rpc.FinancingFeesResult, error) {
 	var params rpc.FinancingFeesParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := decodeFor(api.FinancingFees, req.Params, &params); err != nil {
 		return nil, err
 	}
 	params, err := rpc.NormalizeFinancingFeesParams(params)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/macrosource"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const macroStateKind = "macro_public_sources_v1"
@@ -215,7 +216,7 @@ func (s *Server) macroSourceFailures() map[string]rpc.SourceFailure {
 func (s *Server) handleMacroRequest(req rpc.Request) (rpc.MacroSnapshotResult, error) {
 	var in rpc.MacroSnapshotParams
 	if len(req.Params) != 0 {
-		if err := json.Unmarshal(req.Params, &in); err != nil {
+		if err := json.Unmarshal(req.Params, paramsFor(api.MacroSnapshot, &in)); err != nil {
 			return rpc.MacroSnapshotResult{}, errors.New("invalid macro window parameters")
 		}
 	}

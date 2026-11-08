@@ -17,6 +17,7 @@ import (
 	"github.com/osauer/canary/v2/internal/register"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -160,7 +161,7 @@ func (s *Server) coreListings(ctx context.Context, request ibkrlib.ListingReques
 func (s *Server) handleCoreResolve(ctx context.Context, req *rpc.Request) (*rpc.CoreResolveResult, error) {
 	var p rpc.CoreResolveParams
 	if len(req.Params) > 0 && string(req.Params) != "null" {
-		if err := decodeParams(req.Params, &p); err != nil {
+		if err := decodeFor(api.CoreResolve, req.Params, &p); err != nil {
 			return nil, err
 		}
 	}

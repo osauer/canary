@@ -15,6 +15,7 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/register"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -406,7 +407,7 @@ func chainRecorderFailureStatus(err error) string {
 
 func (s *Server) handleChainsRecorded(ctx context.Context, req *rpc.Request) (*rpc.ChainsRecordedResult, error) {
 	var p rpc.ChainsRecordedParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ChainsRecorded, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeChainsRecordedParams(p)
@@ -476,7 +477,7 @@ func chainRecorderState(settings chainrec.Settings, symbolsDefault, running bool
 
 func (s *Server) handleChainsRecordedRows(ctx context.Context, req *rpc.Request) (*rpc.ChainsRecordedRowsResult, error) {
 	var p rpc.ChainsRecordedRowsParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ChainsRecordedRows, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeChainsRecordedRowsParams(p)

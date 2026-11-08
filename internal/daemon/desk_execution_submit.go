@@ -14,6 +14,7 @@ import (
 	"github.com/osauer/canary/v2/internal/core"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // desk.execution.submit with the automatic authorisation is the one path
@@ -209,7 +210,7 @@ func (s *Server) deskAutomaticAuthority(ctx context.Context, in rpc.DeskAutomati
 
 func (s *Server) handleDeskExecutionSubmit(ctx context.Context, req *rpc.Request) (rpc.DeskExecutionSubmitResult, error) {
 	var in rpc.DeskExecutionSubmitParams
-	if err := decodeDeskAuthority(req.Params, &in); err != nil {
+	if err := decodeDeskAuthority(req.Params, paramsFor(api.DeskExecutionSubmit, &in)); err != nil {
 		return rpc.DeskExecutionSubmitResult{}, err
 	}
 	switch {

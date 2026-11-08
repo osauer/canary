@@ -15,6 +15,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const deskAuthorityStateKind = "desk_authority_v1"
@@ -113,7 +114,7 @@ const deskAuthorityFullHeldRefusal = "full automatic trading can be confirmed on
 
 func (s *Server) handleDeskAuthorityPrepare(ctx context.Context, req *rpc.Request) (rpc.DeskAuthorityPrepared, error) {
 	var in rpc.DeskAuthorityPrepareParams
-	if err := decodeDeskAuthority(req.Params, &in); err != nil {
+	if err := decodeDeskAuthority(req.Params, paramsFor(api.DeskAuthorityPrepare, &in)); err != nil {
 		return rpc.DeskAuthorityPrepared{}, err
 	}
 	// Refused here as well as at confirm, so the owner is never asked to sign
@@ -163,7 +164,7 @@ func (s *Server) saveDeskAuthority(ctx context.Context, old int64, next deskAuth
 
 func (s *Server) handleDeskAuthorityConfirm(ctx context.Context, req *rpc.Request) (rpc.DeskAuthorityStatus, error) {
 	var in rpc.DeskAuthorityConfirmParams
-	if err := decodeDeskAuthority(req.Params, &in); err != nil {
+	if err := decodeDeskAuthority(req.Params, paramsFor(api.DeskAuthorityConfirm, &in)); err != nil {
 		return rpc.DeskAuthorityStatus{}, err
 	}
 	var terms rpc.DeskAuthorityTerms
@@ -227,7 +228,7 @@ func (s *Server) handleDeskAuthorityStatus(ctx context.Context) (rpc.DeskAuthori
 
 func (s *Server) handleDeskAuthorityControl(ctx context.Context, req *rpc.Request) (rpc.DeskAuthorityStatus, error) {
 	var in rpc.DeskAuthorityControlParams
-	if err := decodeDeskAuthority(req.Params, &in); err != nil {
+	if err := decodeDeskAuthority(req.Params, paramsFor(api.DeskAuthorityControl, &in)); err != nil {
 		return rpc.DeskAuthorityStatus{}, err
 	}
 	s.deskAuthorityMu.Lock()

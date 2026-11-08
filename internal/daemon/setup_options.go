@@ -12,12 +12,13 @@ import (
 
 	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func (s *Server) handleSetupOptions(ctx context.Context, req *rpc.Request) (*rpc.SetupOptionsResult, error) {
 	var p rpc.SetupOptionsParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.SetupsOptions, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeSetupOptionsParams(p, time.Now())

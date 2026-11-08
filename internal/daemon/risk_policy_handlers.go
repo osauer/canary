@@ -9,6 +9,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Risk-constitution RPC handlers (internal-docs/design/risk-policy.md). The snapshot
@@ -181,7 +182,7 @@ func requireHumanRiskPolicyOrigin(origin string) error {
 
 func (s *Server) handleRiskPolicyCapitalEvent(_ context.Context, req *rpc.Request) (*rpc.RiskPolicyWriteResult, error) {
 	var p rpc.CapitalEventParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.RiskPolicyCapitalEvent, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if err := requireHumanRiskPolicyOrigin(p.Origin); err != nil {
@@ -275,7 +276,7 @@ func (s *Server) reconcileReportAssessmentForScope(reportID string, scope broker
 func (s *Server) handleReconSnapshot(ctx context.Context, req *rpc.Request) (*rpc.ReconResult, error) {
 	var p rpc.ReconSnapshotParams
 	if len(req.Params) > 0 {
-		if err := decodeParams(req.Params, &p); err != nil {
+		if err := decodeFor(api.ReconSnapshot, req.Params, &p); err != nil {
 			return nil, err
 		}
 	}
@@ -306,7 +307,7 @@ func (s *Server) handleReconStatus(ctx context.Context, req *rpc.Request) (*rpc.
 		return nil, errBadRequest("recon status params must be an empty JSON object")
 	}
 	var params rpc.ReconStatusParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := decodeFor(api.ReconStatus, req.Params, &params); err != nil {
 		return nil, err
 	}
 	status, err := s.currentReconAutomationStatus(ctx)
@@ -321,7 +322,7 @@ func (s *Server) handleReconCheck(ctx context.Context, req *rpc.Request) (*rpc.R
 		return nil, errBadRequest("recon check params must be an empty JSON object")
 	}
 	var params rpc.ReconCheckParams
-	if err := decodeParams(req.Params, &params); err != nil {
+	if err := decodeFor(api.ReconCheck, req.Params, &params); err != nil {
 		return nil, err
 	}
 	now := time.Now()
@@ -362,7 +363,7 @@ func (s *Server) handleReconCheck(ctx context.Context, req *rpc.Request) (*rpc.R
 func (s *Server) handleReconBacktest(ctx context.Context, req *rpc.Request) (*rpc.ReconBacktestResult, error) {
 	var p rpc.ReconSnapshotParams
 	if len(req.Params) > 0 {
-		if err := decodeParams(req.Params, &p); err != nil {
+		if err := decodeFor(api.ReconBacktest, req.Params, &p); err != nil {
 			return nil, err
 		}
 	}
@@ -374,7 +375,7 @@ func (s *Server) handleReconBacktest(ctx context.Context, req *rpc.Request) (*rp
 
 func (s *Server) handleReconDismiss(_ context.Context, req *rpc.Request) (*rpc.RiskPolicyWriteResult, error) {
 	var p rpc.ReconDismissParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.ReconDismiss, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if err := requireHumanRiskPolicyOrigin(p.Origin); err != nil {
@@ -433,7 +434,7 @@ func (s *Server) dismissReconLine(p rpc.ReconDismissParams) (*rpc.RiskPolicyWrit
 
 func (s *Server) handleRiskPolicyOverride(_ context.Context, req *rpc.Request) (*rpc.RiskPolicyWriteResult, error) {
 	var p rpc.OverrideParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.RiskPolicyOverride, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if err := requireHumanRiskPolicyOrigin(p.Origin); err != nil {
@@ -452,7 +453,7 @@ func (s *Server) handleRiskPolicyOverride(_ context.Context, req *rpc.Request) (
 
 func (s *Server) handleRiskPolicyResetDrawdown(_ context.Context, req *rpc.Request) (*rpc.RiskPolicyWriteResult, error) {
 	var p rpc.ResetDrawdownParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.RiskPolicyResetDrawdown, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if err := requireHumanRiskPolicyOrigin(p.Origin); err != nil {
@@ -470,7 +471,7 @@ func (s *Server) handleRiskPolicyResetDrawdown(_ context.Context, req *rpc.Reque
 
 func (s *Server) handleRiskPolicyCorrectPeak(_ context.Context, req *rpc.Request) (*rpc.RiskPolicyWriteResult, error) {
 	var p rpc.CorrectPeakParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.RiskPolicyCorrectPeak, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if err := requireHumanRiskPolicyOrigin(p.Origin); err != nil {

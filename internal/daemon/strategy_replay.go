@@ -13,6 +13,7 @@ import (
 	"github.com/osauer/canary/v2/internal/register"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // The strategy replay (strategy-evaluator.md §9): the rule run over the
@@ -34,7 +35,7 @@ const strategyReplayRange = "5Y"
 func (s *Server) handleStrategyReplay(ctx context.Context, req *rpc.Request) (*rpc.StrategyReplayResult, error) {
 	var p rpc.StrategyReplayParams
 	if len(req.Params) > 0 && string(req.Params) != "null" {
-		if err := decodeParams(req.Params, &p); err != nil {
+		if err := decodeFor(api.StrategyReplay, req.Params, &p); err != nil {
 			return nil, err
 		}
 	}

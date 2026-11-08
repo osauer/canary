@@ -7,12 +7,13 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
 func (s *Server) handleAddCallPlan(ctx context.Context, req *rpc.Request) (*rpc.AddCallPlanResult, error) {
 	var p rpc.AddCallPlanParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.AddCallPlan, req.Params, &p); err != nil {
 		return nil, err
 	}
 	c := p.Contract

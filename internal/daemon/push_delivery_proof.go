@@ -10,6 +10,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const pushDeliveryProofStateKind = "push_delivery_proof"
@@ -140,7 +141,7 @@ func (s *Server) handleAlertDeliveryProof(ctx context.Context, req *rpc.Request)
 	if len(req.Params) == 0 {
 		return nil, errBadRequest("push delivery proof is required")
 	}
-	if err := decodeParams(req.Params, &proof); err != nil {
+	if err := decodeFor(api.AlertDeliveryProof, req.Params, &proof); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()

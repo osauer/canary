@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const (
@@ -39,7 +40,7 @@ func (s *Server) handleAlertCandidates(ctx context.Context, req *rpc.Request) (*
 	}
 	if len(req.Params) > 0 {
 		var params rpc.AlertCandidatesParams
-		if err := decodeParams(req.Params, &params); err != nil {
+		if err := decodeFor(api.AlertCandidates, req.Params, &params); err != nil {
 			return nil, err
 		}
 	}
@@ -87,7 +88,7 @@ func (s *Server) handleAlertStatus(ctx context.Context, req *rpc.Request) (*rpc.
 	}
 	if len(req.Params) > 0 {
 		var params rpc.AlertStatusParams
-		if err := decodeParams(req.Params, &params); err != nil {
+		if err := decodeFor(api.AlertStatus, req.Params, &params); err != nil {
 			return nil, err
 		}
 	}

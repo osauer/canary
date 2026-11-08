@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // handleTradeProposalsRequestStop generates a protective trailing-stop
@@ -14,7 +15,7 @@ import (
 // ordinary trade_proposals.preview / trade_proposals.submit gates.
 func (s *Server) handleTradeProposalsRequestStop(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalRequestStopResult, error) {
 	var p rpc.TradeProposalRequestStopParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsRequestStop, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {

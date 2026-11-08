@@ -18,6 +18,7 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -1900,7 +1901,7 @@ func (e *proposalEngine) automaticCount(scope brokerStateScope, match func(autom
 
 func (s *Server) handleTradeProposalsVeto(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalVetoResult, error) {
 	var p rpc.TradeProposalVetoParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsVeto, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if req.Method == rpc.MethodTradeProposalsVetoWindow && (strings.TrimSpace(p.NoticeID) == "" || p.VetoUntil.IsZero()) {

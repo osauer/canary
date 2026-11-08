@@ -10,6 +10,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // The Desk execution journal (internal-docs/design/desk-execution.md) records
@@ -173,7 +174,7 @@ func (s *Server) handleDeskExecutionCapabilities() rpc.DeskExecutionCapabilities
 
 func (s *Server) handleDeskExecutionLookup(ctx context.Context, req *rpc.Request) (rpc.DeskExecutionLookupResult, error) {
 	var in rpc.DeskExecutionLookupParams
-	if err := decodeDeskAuthority(req.Params, &in); err != nil {
+	if err := decodeDeskAuthority(req.Params, paramsFor(api.DeskExecutionLookup, &in)); err != nil {
 		return rpc.DeskExecutionLookupResult{}, err
 	}
 	if len(in.RequestIDs) == 0 || len(in.RequestIDs) > 100 {

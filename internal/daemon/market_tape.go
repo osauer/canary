@@ -11,11 +11,12 @@ import (
 	"github.com/osauer/canary/v2/internal/breadth/spx"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 func (s *Server) handleMarketTape(ctx context.Context, req *rpc.Request) (*rpc.MarketTapeResult, error) {
 	var p rpc.MarketTapeParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.MarketTape, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeMarketTapeParams(p)

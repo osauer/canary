@@ -13,6 +13,7 @@ import (
 
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const (
@@ -285,7 +286,7 @@ func setupMarkoutMissing(t rpc.SetupMarkoutTarget, reason string, now time.Time)
 // captures or reads the broker.
 func (s *Server) handleSetupMarkouts(ctx context.Context, req *rpc.Request) (*rpc.SetupMarkoutsResult, error) {
 	var p rpc.SetupMarkoutsParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.SetupsMarkouts, req.Params, &p); err != nil {
 		return nil, err
 	}
 	p, err := rpc.NormalizeSetupMarkoutsParams(p)

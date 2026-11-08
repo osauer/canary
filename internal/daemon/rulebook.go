@@ -17,6 +17,7 @@ import (
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -345,7 +346,7 @@ func (s *Server) rulebookEarningsOverrides() map[string]string {
 func (s *Server) handleRulesSnapshot(ctx context.Context, req *rpc.Request) (*rpc.RulesResult, error) {
 	var params rpc.RulesSnapshotParams
 	if len(req.Params) > 0 {
-		if err := decodeParams(req.Params, &params); err != nil {
+		if err := decodeFor(api.RulesSnapshot, req.Params, &params); err != nil {
 			return nil, err
 		}
 	}

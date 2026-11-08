@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
@@ -49,7 +50,7 @@ type lendingMarketCache struct {
 
 func (s *Server) handleLendingMarket(ctx context.Context, req *rpc.Request) (*rpc.LendingMarketResult, error) {
 	var p rpc.LendingMarketParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.LendingMarket, req.Params, &p); err != nil {
 		return nil, err
 	}
 	symbols, err := rpc.NormalizeLendingRateSymbols(p.Symbols)

@@ -27,6 +27,7 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const (
@@ -332,7 +333,7 @@ func (s *Server) installMarketEventCache() {
 
 func (s *Server) handleMarketEventsSnapshot(ctx context.Context, req *rpc.Request) (*rpc.MarketEventsResult, error) {
 	var p rpc.MarketEventsParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.MarketEventsSnapshot, req.Params, &p); err != nil {
 		return nil, err
 	}
 	symbols := normalizeMarketEventSymbols(append(p.Symbols, p.Symbol))

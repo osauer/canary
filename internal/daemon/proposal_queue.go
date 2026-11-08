@@ -20,6 +20,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 // Queued authorisations (owner decisions #26–#31, 2026-09-28; see
@@ -1287,7 +1288,7 @@ func queuedSendQuote(q rpc.OrderQuoteSnapshot) *rpc.QueuedAuthQuote {
 
 func (s *Server) handleTradeProposalsQueuePrepare(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalQueuePrepareResult, error) {
 	var p rpc.TradeProposalQueuePrepareParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsQueuePrepare, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -1299,7 +1300,7 @@ func (s *Server) handleTradeProposalsQueuePrepare(ctx context.Context, req *rpc.
 
 func (s *Server) handleTradeProposalsQueueArm(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalQueueResult, error) {
 	var p rpc.TradeProposalQueueArmParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsQueueArm, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -1311,7 +1312,7 @@ func (s *Server) handleTradeProposalsQueueArm(ctx context.Context, req *rpc.Requ
 
 func (s *Server) handleTradeProposalsQueueCancel(ctx context.Context, req *rpc.Request) (*rpc.TradeProposalQueueResult, error) {
 	var p rpc.TradeProposalQueueCancelParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsQueueCancel, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -1323,7 +1324,7 @@ func (s *Server) handleTradeProposalsQueueCancel(ctx context.Context, req *rpc.R
 
 func (s *Server) handleTradeProposalsQueueList(req *rpc.Request) (*rpc.TradeProposalQueueListResult, error) {
 	var p rpc.TradeProposalQueueListParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsQueueList, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {
@@ -1335,7 +1336,7 @@ func (s *Server) handleTradeProposalsQueueList(req *rpc.Request) (*rpc.TradeProp
 
 func (s *Server) handleTradeProposalsQueueStatus(req *rpc.Request) (*rpc.TradeProposalQueueResult, error) {
 	var p rpc.TradeProposalQueueStatusParams
-	if err := decodeParams(req.Params, &p); err != nil {
+	if err := decodeFor(api.TradeProposalsQueueStatus, req.Params, &p); err != nil {
 		return nil, err
 	}
 	if s.tradeProposals == nil {

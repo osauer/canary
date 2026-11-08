@@ -16,6 +16,7 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v2/internal/rpc/api"
 )
 
 const (
@@ -631,7 +632,7 @@ func (s *Server) handleNudgesSnapshot(ctx context.Context, req *rpc.Request) (*r
 	}
 	if len(req.Params) > 0 {
 		var p rpc.NudgesSnapshotParams
-		if err := decodeParams(req.Params, &p); err != nil {
+		if err := decodeFor(api.NudgesSnapshot, req.Params, &p); err != nil {
 			return nil, err
 		}
 	}
