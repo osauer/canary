@@ -92,7 +92,7 @@ RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
 
-.PHONY: help ci-gate-scope-check opend-sim futu-proto-check futu-proto-regen reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-smoke-read-only release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members refresh-fund-sectors hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build pages-coverage account-data-check hook-behavior-check agent-config-check docs-translations-check
+.PHONY: help ci-gate-scope-check broker-reach-check opend-sim futu-proto-check futu-proto-regen reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-smoke-read-only release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members refresh-fund-sectors hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build pages-coverage account-data-check hook-behavior-check agent-config-check docs-translations-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -353,7 +353,7 @@ CHECK_TEST_LEGS = test-daemon-trading test-daemon-default test-internal test-pkg
 CI_ONLY_TARGETS = app-render-check regression-spine-check futu-proto-regen
 CHECK_DEPS ?= plugin-check parity-check $(CHECK_TEST_LEGS)
 CHECK_JOBS ?= 8
-CHECK_TARGETS = $(CHECK_DEPS) ci-gate-scope-check agent-config-check reduction-metrics-check regression-spine-contract-check go-dependencies-check futu-proto-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
+CHECK_TARGETS = $(CHECK_DEPS) ci-gate-scope-check agent-config-check reduction-metrics-check regression-spine-contract-check go-dependencies-check broker-reach-check futu-proto-check modernize-check docs-check docs-html-check changelog-check account-data-check product-identity-check release-packaging-check smoke-contract-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check remote-relay-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check
 CHECK_TARGETS += build-space-contract-check timed-leg-contract-check
 CHECK_MAKEFLAGS = $(if $(filter 0,$(MAKELEVEL)),-j$(CHECK_JOBS),)
 check: ## agent config/hooks + Go docs/format/vet/staticcheck/vulns + modernize/plugin/parity/docs/changelog/account/app checks + CI's Go test legs (binding pre-commit gate)
@@ -390,6 +390,15 @@ product-identity-check: ## Reject retired product/module/site/CLI/MCP identities
 
 go-dependencies-check: ## Enforce the minimal product module and tidy isolated build-tool modules
 	@./scripts/check-go-dependencies.sh
+
+# Read routes that reach the IBKR connector outside the broker seam, found by
+# a call graph over both product builds (tools/brokerreach). The list in
+# internal/daemon/testdata/direct-ibkr-reads.txt only shrinks.
+broker-reach-check: ## Hold the routes that read IBKR outside the broker seam to a list that only shrinks
+	@# -count=1: the test loads its fixture through go list, which Go's test
+	@# cache does not watch, so a cached pass could outlive a changed fixture.
+	@GOWORK=off go -C tools test -count=1 ./brokerreach
+	@GOWORK=off go -C tools run ./brokerreach
 
 go-doc-check: ## Verify package and exported API documentation across all tracked Go build variants
 	go run ./scripts/go-doc-audit -check
