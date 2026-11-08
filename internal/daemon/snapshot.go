@@ -16,9 +16,9 @@ type snapshotTicks struct {
 	bid, ask, last, mark, closePx float64
 	dataType                      string
 	observedAt                    time.Time
-	// unsupplied is a look the broker refused because it does not supply
-	// the instrument at all.
-	unsupplied bool
+	// refusal is the broker's refusal of the look: it does not supply the
+	// instrument, or the login holds no quote right for it (brokerRefusal).
+	refusal error
 }
 
 // snapshotQuote is a resolved snapshot price: the last → mid → bid → ask →
@@ -28,9 +28,9 @@ type snapshotQuote struct {
 	price, prevClose, week52High float64
 	dataType                     string
 	observedAt                   time.Time
-	// unsupplied is a look the broker refused because it does not supply
-	// the instrument at all.
-	unsupplied bool
+	// refusal is the broker's refusal of the look: it does not supply the
+	// instrument, or the login holds no quote right for it (brokerRefusal).
+	refusal error
 }
 
 // briefLook takes one brief look at a quote line by symbol: the broker
@@ -46,12 +46,25 @@ func connectorLook(c *ibkrlib.Connector) briefLook {
 	}
 }
 
-// warnLook reports a failed look, except an instrument the broker does not
-// supply: that is a gap the caller names, not a fault.
+// warnLook reports a failed look, except a broker refusal: that is a gap the
+// caller names, not a fault.
 func warnLook(warnf func(string, ...any), symbol string, err error) {
-	if err != nil && warnf != nil && !errors.Is(err, broker.ErrNotSupplied) {
+	if err != nil && warnf != nil && brokerRefusal(err) == nil {
 		warnf("snapshot: SubscribeMarketData %s failed: %v", normSym(symbol), err)
 	}
+}
+
+// brokerRefusal is err when it is the broker refusing an input outright: an
+// instrument it does not supply, or a market the login holds no quote right
+// for. Any other error, a fault to retry, is nil here.
+func brokerRefusal(err error) error {
+	if errors.Is(err, broker.ErrNotSupplied) {
+		return err
+	}
+	if _, ok := errors.AsType[*broker.NoQuoteRightError](err); ok {
+		return err
+	}
+	return nil
 }
 
 // briefSnapshotPriceWithClose wraps briefSnapshotFull and returns the
@@ -90,7 +103,7 @@ func priceWithClose(t snapshotTicks) snapshotQuote {
 	case t.closePx > 0:
 		price = t.closePx
 	default:
-		return snapshotQuote{unsupplied: t.unsupplied}
+		return snapshotQuote{refusal: t.refusal}
 	}
 	return snapshotQuote{price: price, prevClose: t.closePx, dataType: t.dataType, observedAt: t.observedAt}
 }
@@ -130,7 +143,7 @@ func briefWith52WHigh(ctx context.Context, look briefLook, symbol string, timeou
 		return (last > 0 || (bid > 0 && ask > 0) || mark > 0) && out.week52High > 0
 	})
 	warnLook(warnf, symbol, err)
-	out.unsupplied = errors.Is(err, broker.ErrNotSupplied)
+	out.refusal = brokerRefusal(err)
 
 	switch {
 	case last > 0:
@@ -176,7 +189,7 @@ func briefTicks(ctx context.Context, look briefLook, symbol string, timeout time
 		return out.bid > 0 || out.ask > 0 || out.last > 0 || out.mark > 0
 	})
 	warnLook(warnf, symbol, err)
-	out.unsupplied = errors.Is(err, broker.ErrNotSupplied)
+	out.refusal = brokerRefusal(err)
 	return out
 }
 

@@ -4,7 +4,7 @@
 
 Canary reads one brokerage account through IBKR (TWS or IB Gateway) or through OpenD (moomoo, Futu). Most of what it shows is computed by Canary from what the broker supplies: the regime, portfolio stress, Edge and gamma are Canary's, not the broker's. So this page has two tables. The first says what each broker supplies. The second says how each capability runs on each broker and, where OpenD falls short, why. The same table decides what the daemon refuses under OpenD.
 
-On OpenD, of 43 capabilities: 1 served, 6 partial, 19 unverified, 3 refused, 14 not served. Of those not fully served, 4 need data OpenD does not supply, 10 wait on a check of what OpenD supplies, and 6 have what they need from OpenD but are not yet read there.
+On OpenD, of 43 capabilities: 1 served, 7 partial, 19 unverified, 2 refused, 14 not served. Of those not fully served, 4 need data OpenD does not supply, 10 wait on a check of what OpenD supplies, and 5 have what they need from OpenD but are not yet read there.
 
 ## What each broker supplies
 
@@ -48,8 +48,8 @@ Statuses: *served* works and a test or live check shows it; *partial* works with
 | gamma | option chains and Greeks | served | not served | to verify: option chains and Greeks | reads the IBKR connector |
 | bond lookup | bonds | served | not served | to verify: bonds | reads the IBKR connector |
 | breadth | price bars | served | partial |   | answers from breadth already stored, still labelled IBKR HMDS, and never refreshed; what it should say on OpenD is the owner's decision |
-| regime | quotes, price bars | served | partial |   | reads HYG and SPY from OpenD; OpenD gives no index, currency or option-chain data, so the VIX term structure, USD/JPY and gamma rows are named as missing and do not rank; tested on the simulator only |
-| portfolio stress | account and positions, quotes, price bars | served | refused | Canary | composes from the regime, so it answers unavailable; what it should say on OpenD is the owner's decision |
+| regime | quotes, price bars | served | partial |   | reads HYG and SPY from OpenD; OpenD gives no index, currency or option-chain data, so the VIX term structure, USD/JPY and gamma rows are named as missing, and with two or more rows missing the headline stays "data incomplete"; a missing quote right is named too; tested on the simulator only |
+| portfolio stress | account and positions, quotes, price bars | served | partial |   | composes from the OpenD regime, so its market context carries the regime's missing rows and its input health reads degraded; tested on the simulator only |
 | macro | no broker data | served | unverified |   | reads no broker; the simulator tests run without macro sources |
 | market calendar and events | no broker data | served | unverified |   |   |
 | brief | account and positions, quotes | served | partial |   | names what OpenD does not serve and the holdings it does not analyse |
@@ -98,8 +98,8 @@ Tests run without a live broker; the wire smoke reads a live IBKR gateway (`scri
 | gamma | live smoke `gamma`; live smoke `gamma-spx` | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp` | `gamma.zero_spx` |
 | bond lookup |   | `TestOpenDUpNeverAnswersGatewayUnavailable` | `market.bond` |
 | breadth |   |   | `breadth.spx` |
-| regime | live smoke `regime` | `TestOpenDRegimeReadsListedInputsAndRefusesIndicesAndFX` | `regime.snapshot` |
-| portfolio stress |   |   | `stress.snapshot` |
+| regime | live smoke `regime` | `TestOpenDRegimeReadsListedInputsAndRefusesIndicesAndFX`; `TestOpenDRegimeAndStressAnswerEndToEnd`; `TestOpenDRegimeNamesAMissingQuoteRight` | `regime.snapshot` |
+| portfolio stress |   | `TestOpenDRegimeAndStressAnswerEndToEnd` | `stress.snapshot` |
 | macro |   |   | `macro.snapshot` |
 | market calendar and events |   |   | `market.calendar`, `market_events.snapshot` |
 | brief |   | `TestBriefCoverageNamesTheGapOnlyUnderOpenD`; `TestBriefNamesAHoldingItDoesNotAnalyse` | `brief.snapshot`, `nudges.snapshot` |

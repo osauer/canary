@@ -446,6 +446,9 @@ type Server struct {
 	// protectiveStopGuardPositionsForTest replaces the guard's portfolio
 	// projection read in hermetic tests; production leaves it nil.
 	protectiveStopGuardPositionsForTest func(ctx context.Context, scope brokerStateScope) ([]*ibkrlib.RawPosition, bool)
+	// regimeSourcesForTest replaces the regime's public sources (FRED, the
+	// Federal Reserve, Treasury, Cboe); nil reads the public sites.
+	regimeSourcesForTest *regimeSources
 	// protectiveOCAConfirmWaitForTest shortens how long a sale waits for the
 	// broker to confirm the change to Canary's own stop; zero keeps
 	// protectiveOCAConfirmWait.

@@ -567,7 +567,7 @@ func (a *Adapter) BriefQuote(ctx context.Context, in broker.Instrument, _ []stri
 	}
 	rows, err := a.conn.Snapshots(ctx, code)
 	if err != nil || len(rows) == 0 {
-		return broker.BriefQuote{}, err
+		return broker.BriefQuote{}, quoteRightRefusal(err)
 	}
 	q := rows[0]
 	seen := broker.BriefQuote{
@@ -589,7 +589,17 @@ func (a *Adapter) DailyBars(ctx context.Context, in broker.Instrument, days int)
 		return nil, err
 	}
 	to := a.now()
-	return a.history(ctx, code, futu.BarDay, to.AddDate(0, 0, -max(days, 1)), to, 0)
+	bars, err := a.history(ctx, code, futu.BarDay, to.AddDate(0, 0, -max(days, 1)), to, 0)
+	return bars, quoteRightRefusal(err)
+}
+
+// quoteRightRefusal names a refusal for a missing quote right in the broker's
+// neutral terms; any other error passes through.
+func quoteRightRefusal(err error) error {
+	if refusal, ok := errors.AsType[*futu.QuoteRightError](err); ok {
+		return &broker.NoQuoteRightError{Market: refusal.Market, Err: err}
+	}
+	return err
 }
 
 // suppliedCode is codeOf for a read that names what is missing: a kind OpenD

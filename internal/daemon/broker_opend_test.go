@@ -170,6 +170,8 @@ func startOpenDServerInMode(t *testing.T, sim *futusim.Server, account, mode str
 		}), nil)
 		srv.opend.SetLineBudget(srv.opendBudget.allowed)
 	}
+	// The regime runs under OpenD; its public sources stay offline in tests.
+	srv.regimeSourcesForTest = new(offlineRegimeSources())
 	serving := make(chan struct{}, 1)
 	srv.initialAcceptLoopStartedForTest = func() { serving <- struct{}{} }
 	ctx, cancel := context.WithCancel(context.Background())
@@ -482,6 +484,8 @@ func TestStartWritesPolicyTemplatesUnderTheStacksOwnRoot(t *testing.T) {
 		Config: cfg, SocketPath: filepath.Join(dir, "ibkrd.sock"), Version: "v3.33.1", EnsurePolicyFiles: true,
 		Logger: NewLogger(&bytes.Buffer{}, "error"), StateDatabasePath: filepath.Join(dir, "daemon.db"), DisableMacroSources: true,
 	})
+	// The regime runs under OpenD; its public sources stay offline in tests.
+	srv.regimeSourcesForTest = new(offlineRegimeSources())
 	serving := make(chan struct{}, 1)
 	srv.initialAcceptLoopStartedForTest = func() { serving <- struct{}{} }
 	ctx, cancel := context.WithCancel(context.Background())

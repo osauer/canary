@@ -77,7 +77,11 @@ func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshot
 		return nil, false, nil, s.sessionUnavailableError()
 	}
 
-	deps := productionRegimeDeps(reads, s.regimeDependencyWarnf, s.regimeSeries, s.regimeHistory)
+	sources := publicRegimeSources
+	if s.regimeSourcesForTest != nil {
+		sources = *s.regimeSourcesForTest
+	}
+	deps := productionRegimeDeps(reads, sources, s.regimeDependencyWarnf, s.regimeSeries, s.regimeHistory)
 	outcome := runRegimeFanoutOutcome(
 		ctx,
 		func(c context.Context) rpc.RegimeVIXTerm { return fetchRegimeVIXTerm(c, deps) },
@@ -89,7 +93,7 @@ func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshot
 		func(c context.Context) rpc.RegimeGammaZero {
 			if s.notServedHere(api.GammaZeroSPX.Name) {
 				// The gamma read needs option chains this broker does not serve.
-				deps.gaps.add(regimeGammaInput)
+				deps.gaps.add(regimeGammaInput, broker.ErrNotSupplied)
 			}
 			return fetchRegimeGamma(c, s)
 		},
@@ -118,7 +122,7 @@ func (s *Server) acquireRegimeSnapshot(ctx context.Context) (*rpc.RegimeSnapshot
 	// Cluster tallies via the shared rpc combination. The verdict needs
 	res.Composite = buildRegimeComposite(res)
 	res.Summary = buildRegimeSummary(res)
-	res.WarningDetails = append(buildRegimeWarnings(res), regimeGapWarnings(reads.Kind(), deps.gaps.list())...)
+	res.WarningDetails = append(buildRegimeWarnings(res), regimeGapWarnings(reads.Kind(), deps.gaps)...)
 	res.DataQuality = regimeSnapshotDataQuality(res)
 	res.SourceHealth = rpc.BuildRegimeSourceHealth(res, res.AsOf)
 	res.Lifecycle = rpc.BuildRegimeLifecycle(res)
@@ -465,11 +469,11 @@ func regimeNow(deps *regimeDeps) time.Time {
 // input is named by symbol and kind (regimeInstrument): IBKR reads it by
 // symbol as it always has, and a broker that does not supply the kind answers
 // without a request, which the snapshot marks unsupplied.
-func productionRegimeDeps(reads broker.Reads, logWarnf func(format string, args ...any), seriesCache *regimeSeriesCache, historyCache *regimeHistoryCache) *regimeDeps {
-	officialSeries := fetchOfficialRegimeSeries
+func productionRegimeDeps(reads broker.Reads, sources regimeSources, logWarnf func(format string, args ...any), seriesCache *regimeSeriesCache, historyCache *regimeHistoryCache) *regimeDeps {
+	officialSeries := sources.official
 	if seriesCache != nil {
 		officialSeries = func(ctx context.Context, seriesID string) ([]regimeSeriesPoint, error) {
-			return seriesCache.fetch(ctx, seriesID, fetchOfficialRegimeSeries)
+			return seriesCache.fetch(ctx, seriesID, sources.official)
 		}
 	}
 	look := func(ctx context.Context, symbol string, fields []string, timeout time.Duration, done func(broker.BriefQuote) bool) (broker.BriefQuote, error) {
@@ -477,9 +481,7 @@ func productionRegimeDeps(reads broker.Reads, logWarnf func(format string, args 
 	}
 	gaps := &regimeGaps{}
 	noted := func(sym string, q snapshotQuote) snapshotQuote {
-		if q.unsupplied {
-			gaps.add(sym)
-		}
+		gaps.add(sym, q.refusal)
 		return q
 	}
 	return &regimeDeps{
@@ -498,17 +500,31 @@ func productionRegimeDeps(reads broker.Reads, logWarnf func(format string, args 
 			} else {
 				bars, err = fetch(ctx, sym, days)
 			}
-			if errors.Is(err, broker.ErrNotSupplied) {
-				gaps.add(sym)
-			}
+			gaps.add(sym, brokerRefusal(err))
 			return bars, err
 		},
 		gaps:           gaps,
 		officialSeries: officialSeries,
-		vvixSeries:     fetchCBOEVVIXSeries,
-		vix3mSeries:    fetchCBOEVIX3MSeries,
+		vvixSeries:     sources.vvix,
+		vix3mSeries:    sources.vix3m,
 		logWarnf:       logWarnf,
 	}
+}
+
+// regimeSources are the regime inputs that read no broker: the official
+// series (FRED, the Federal Reserve, Treasury) and Cboe's VVIX and VIX3M
+// closes.
+type regimeSources struct {
+	official    func(ctx context.Context, seriesID string) ([]regimeSeriesPoint, error)
+	vvix, vix3m func(ctx context.Context) ([]regimeSeriesPoint, error)
+}
+
+// publicRegimeSources read the public sites; a test daemon swaps in its own
+// through Server.regimeSourcesForTest so no test reaches the network.
+var publicRegimeSources = regimeSources{
+	official: fetchOfficialRegimeSeries,
+	vvix:     fetchCBOEVVIXSeries,
+	vix3m:    fetchCBOEVIX3MSeries,
 }
 
 // regimeDailyBars reads a regime input's daily bars through the broker
@@ -534,7 +550,7 @@ var regimeInstrumentKinds = map[string]string{
 
 // regimeInstrument names a regime input by symbol and kind, so a broker can
 // refuse a kind it does not supply rather than read another security under
-// the same letters.
+// the same letters. A refused input is named in the publication.
 func regimeInstrument(symbol string) broker.Instrument {
 	sym := normSym(symbol)
 	kind := regimeInstrumentKinds[sym]
@@ -1543,10 +1559,10 @@ func warnDeps(d *regimeDeps, format string, args ...any) {
 	if d == nil || d.logWarnf == nil {
 		return
 	}
-	// An input the broker does not supply is named in the publication
+	// An input the broker refuses is named in the publication
 	// (regimeGapWarnings), not logged as a fault on every refresh.
 	for _, arg := range args {
-		if err, ok := arg.(error); ok && errors.Is(err, broker.ErrNotSupplied) {
+		if err, ok := arg.(error); ok && brokerRefusal(err) != nil {
 			return
 		}
 	}

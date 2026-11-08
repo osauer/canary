@@ -441,6 +441,22 @@ type Snapshots interface {
 // an index or a currency pair on OpenD.
 var ErrNotSupplied = errors.New("this broker does not supply the instrument")
 
+// NoQuoteRightError is a quote the broker refused because the login holds no
+// quote right for the instrument's market. Market is the broker's market name
+// (US, HK, SG).
+type NoQuoteRightError struct {
+	Market string
+	Err    error
+}
+
+// Error names the market and the broker's own refusal.
+func (e *NoQuoteRightError) Error() string {
+	return "the login has no " + e.Market + " quote right: " + e.Err.Error()
+}
+
+// Unwrap is the broker's own refusal.
+func (e *NoQuoteRightError) Unwrap() error { return e.Err }
+
 // Instruments resolves a requested instrument to the broker's exact one for
 // a session. A binding that is no longer current fails.
 type Instruments interface {

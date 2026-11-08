@@ -1,6 +1,7 @@
 # Futu OpenD as a second broker
 
-Updated: 2026-11-04 12:55 CET (after four cold reviews on 2026-11-04,
+Updated: 2026-11-08 21:01 CET (the regime and portfolio stress run on OpenD);
+earlier 2026-11-04 12:55 CET (after four cold reviews on 2026-11-04,
 [reviews/2026-11-04-broker-opend-design-review.md](../reviews/2026-11-04-broker-opend-design-review.md))
 Status: proposed design, awaiting the owner's ack of three decisions (the
 last section). Owner decision 2026-11-03 09:49 CET: Futu OpenD becomes the
@@ -1004,8 +1005,15 @@ and strategy one read their daily bars the same way. The first text of this
 section (2026-11-04 22:20 CET) had regime inputs served through the history
 quota; the regime draws history for HYG and SPY only.
 
-Portfolio stress composes from the regime and is the next package to move;
-until it is, what `canary stress` answers under `opend` is not verified.
+Portfolio stress composes from the regime and answers under `opend` with its
+input health degraded. With VIX, USD/JPY and gamma always missing, two or more
+row groups are impaired, so by the regime's own rule (`RegimeCurrencyBlankFloor`)
+an OpenD regime publishes its figures and named gaps under "Market state
+undefined — data incomplete" and gives no market verdict. Whether an OpenD
+regime should rank on fewer rows is the owner's decision. A login without a
+market's quote right is named the same way (`broker_quote_right_missing`).
+`TestOpenDRegimeAndStressAnswerEndToEnd` and
+`TestOpenDRegimeNamesAMissingQuoteRight` dispatch both on the simulator.
 
 OpenD also supplies no FX rate today. A holding outside the account's base currency
 has its value in its own currency, so the rulebook reports it as not measured rather
