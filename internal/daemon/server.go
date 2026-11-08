@@ -3129,6 +3129,14 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		writeError(enc, req.ID, code, msg)
 		return false
 	}
+	// A field the method's request does not have is refused, never dropped: a
+	// misspelt or newer field would otherwise run the request without it. It
+	// runs last, on the params the handler reads: a method this broker does not
+	// serve says so first, and an instrument has been resolved or refused.
+	if err := rpc.CheckParams(req.Method, req.Params); err != nil {
+		writeError(enc, req.ID, rpc.CodeBadRequest, "decode params: "+err.Error())
+		return false
+	}
 	switch req.Method {
 	case rpc.MethodAccountSummary:
 		s.unary(req, enc, func() (any, error) { return s.handleAccountSummaryRequest(ctx, req) })

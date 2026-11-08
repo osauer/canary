@@ -2,6 +2,11 @@
 // the result it answers. Clients send through rpc.Call with these declarations
 // and the daemon decodes requests through them, so a request type cannot drift
 // between the two sides. The names follow the rpc.Method* constants.
+//
+// The daemon refuses a request that names a field its declared type does not
+// have (rpc.CheckParams). So a request field is added, never removed or
+// renamed, while any client built before the change can still reach the
+// daemon: Desk compiles Canary at a pinned version and must be re-pinned first.
 package api
 
 import (

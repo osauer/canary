@@ -1,7 +1,11 @@
 package rpc
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"reflect"
 	"slices"
 )
@@ -70,4 +74,25 @@ func Call[P, R any](ctx context.Context, c Caller, m Method[P, R], p P, out *R) 
 		params = nil
 	}
 	return c.Call(ctx, m.Name, params, out)
+}
+
+// CheckParams refuses params that are not one JSON value of the request type
+// declared for method name, or that carry a field that type does not have.
+// Empty and null params pass: the method then reads its zero request. A name
+// nobody declared passes too; dispatch refuses it as an unknown method.
+func CheckParams(name string, raw json.RawMessage) error {
+	t, ok := requestTypes[name]
+	raw = bytes.TrimSpace(raw)
+	if !ok || len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil
+	}
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	if err := d.Decode(reflect.New(t).Interface()); err != nil {
+		return err
+	}
+	if d.Decode(new(any)) != io.EOF {
+		return errors.New("params hold more than one JSON value")
+	}
+	return nil
 }

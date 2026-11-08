@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -91,4 +92,20 @@ func exprText(e ast.Expr) string {
 		return exprText(v.X) + "." + v.Sel.Name
 	}
 	return ""
+}
+
+// A request field the method does not declare is refused before any handler
+// runs, for a method with a request and for one that takes none.
+func TestDispatchRefusesAnUndeclaredRequestField(t *testing.T) {
+	t.Parallel()
+	srv := &Server{logger: NewLogger(&bytes.Buffer{}, "error")}
+	for _, tc := range []struct{ method, params, field string }{
+		{rpc.MethodPositionsList, `{"symbol":"AAPL","bogus":1}`, "bogus"},
+		{rpc.MethodTradingStatus, `{"account":"U1"}`, "account"},
+	} {
+		res := dispatchRaw(t, srv, tc.method, tc.params)
+		if res.Ok || res.Error == nil || res.Error.Code != rpc.CodeBadRequest || !strings.Contains(res.Error.Message, `unknown field "`+tc.field+`"`) {
+			t.Errorf("%s %s: %+v", tc.method, tc.params, res.Error)
+		}
+	}
 }

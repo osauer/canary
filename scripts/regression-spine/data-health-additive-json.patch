@@ -1,12 +1,13 @@
 diff --git a/internal/mcp/tools.go b/internal/mcp/tools.go
 --- a/internal/mcp/tools.go
 +++ b/internal/mcp/tools.go
-@@ -54,3 +54,3 @@ var Tools = []Tool{
+@@ -55,7 +55,7 @@ var Tools = []Tool{
  		// when this SDK predates its optional fields.
 -		var r json.RawMessage
+-		if err := rpc.Call(ctx, conn, api.DataHealthRaw, p, &r); err != nil {
 +		var r rpc.DataHealthResult
- 		if err := conn.Call(ctx, rpc.MethodDataHealth, p, &r); err != nil {
-@@ -58,3 +58,3 @@ var Tools = []Tool{
++		if err := rpc.Call(ctx, conn, api.DataHealth, p, &r); err != nil {
+ 			return nil, err
  		}
 -		return r, nil
 +		return json.Marshal(r)
