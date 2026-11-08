@@ -199,42 +199,14 @@ func rpcMethodConstants(t *testing.T) map[string]string {
 	return out
 }
 
-func dispatchMethodValues(t *testing.T, constants map[string]string) map[string]bool {
+// dispatchMethodValues is every method the daemon dispatches: its route table
+// and the two streams the connection serves. constants is kept for the
+// callers' signature.
+func dispatchMethodValues(t *testing.T, _ map[string]string) map[string]bool {
 	t.Helper()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "server.go", nil, 0)
-	if err != nil {
-		t.Fatalf("parse server.go: %v", err)
-	}
-	out := map[string]bool{}
-	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Name.Name != "dispatch" || fn.Body == nil {
-			continue
-		}
-		ast.Inspect(fn.Body, func(node ast.Node) bool {
-			clause, ok := node.(*ast.CaseClause)
-			if !ok {
-				return true
-			}
-			for _, expr := range clause.List {
-				sel, ok := expr.(*ast.SelectorExpr)
-				if !ok {
-					continue
-				}
-				pkg, ok := sel.X.(*ast.Ident)
-				if !ok || pkg.Name != "rpc" || !strings.HasPrefix(sel.Sel.Name, "Method") {
-					continue
-				}
-				value, ok := constants[sel.Sel.Name]
-				if !ok {
-					t.Errorf("dispatch uses unresolved rpc.%s", sel.Sel.Name)
-					continue
-				}
-				out[value] = true
-			}
-			return true
-		})
+	out := map[string]bool{rpc.MethodDisplaySubscribe: true, rpc.MethodQuoteSubscribe: true}
+	for name := range (&Server{}).routeTable() {
+		out[name] = true
 	}
 	return out
 }

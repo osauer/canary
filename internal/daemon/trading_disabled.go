@@ -17,15 +17,15 @@ const orderWritesAvailable = false
 // submitted from this build.
 var errStandardBuildWrite = fmt.Errorf("%w: order writes are unavailable in this standard build; previews work, and placing, changing or cancelling an order needs the trading build", ErrTradingDisabled)
 
-func (s *Server) handleOrderPlace(_ context.Context, _ *rpc.Request) (any, error) {
+func (s *Server) handleOrderPlace(_ context.Context, _ *rpc.Request) (*rpc.OrderPlaceResult, error) {
 	return nil, errStandardBuildWrite
 }
 
-func (s *Server) handleOrderModify(_ context.Context, _ *rpc.Request) (any, error) {
+func (s *Server) handleOrderModify(_ context.Context, _ *rpc.Request) (*rpc.OrderModifyResult, error) {
 	return nil, errStandardBuildWrite
 }
 
-func (s *Server) handleOrderCancel(_ context.Context, _ *rpc.Request) (any, error) {
+func (s *Server) handleOrderCancel(_ context.Context, _ *rpc.Request) (*rpc.OrderCancelResult, error) {
 	return nil, errStandardBuildWrite
 }
 

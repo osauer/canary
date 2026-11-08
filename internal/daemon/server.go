@@ -62,6 +62,10 @@ var perCandidateConnectBudget = 25 * time.Second
 
 // Server is the daemon process state.
 type Server struct {
+	// routes is the unary method table, built on first dispatch (routes.go).
+	routesOnce sync.Once
+	routes     map[string]route
+
 	gatewayDiagnosticsMu sync.Mutex
 	// gatewaySetup is the session's last settings read, for the status row.
 	gatewaySetup gatewaySetupStore
@@ -3138,266 +3142,6 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		return false
 	}
 	switch req.Method {
-	case rpc.MethodAccountSummary:
-		s.unary(req, enc, func() (any, error) { return s.handleAccountSummaryRequest(ctx, req) })
-	case rpc.MethodPositionsRisk:
-		s.unary(req, enc, func() (any, error) { return s.handlePositionsRisk(ctx, req) })
-	case rpc.MethodPositionsList:
-		s.unary(req, enc, func() (any, error) { return s.handlePositionsList(ctx, req) })
-	case rpc.MethodAccountIntraday:
-		s.unary(req, enc, func() (any, error) { return s.handleAccountIntraday(ctx, req) })
-	case rpc.MethodPortfolioSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handlePortfolioSnapshot(ctx) })
-	case rpc.MethodPortfolioPlan:
-		s.unary(req, enc, func() (any, error) { return s.handlePortfolioPlan(ctx, req) })
-	case rpc.MethodMarketSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleMarketSnapshot(ctx, req) })
-	case rpc.MethodMarketHistory:
-		s.unary(req, enc, func() (any, error) { return s.handleMarketHistory(ctx, req) })
-	case rpc.MethodMarketBond:
-		s.unary(req, enc, func() (any, error) { return s.handleMarketBond(ctx, req) })
-	case rpc.MethodMarketTape:
-		s.unary(req, enc, func() (any, error) { return s.handleMarketTape(ctx, req) })
-	case rpc.MethodQuoteSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleQuoteSnapshot(ctx, req) })
-	case rpc.MethodChainFetch:
-		s.unary(req, enc, func() (any, error) { return s.handleChainFetch(ctx, req) })
-	case rpc.MethodChainExpiries:
-		s.unary(req, enc, func() (any, error) { return s.handleChainExpiries(ctx, req) })
-	case rpc.MethodChainsRecorded:
-		s.unary(req, enc, func() (any, error) { return s.handleChainsRecorded(ctx, req) })
-	case rpc.MethodChainsRecordedRows:
-		s.unary(req, enc, func() (any, error) { return s.handleChainsRecordedRows(ctx, req) })
-	case rpc.MethodTechnical:
-		s.unary(req, enc, func() (any, error) { return s.handleTechnical(ctx, req) })
-	case rpc.MethodAddCallPlan:
-		s.unary(req, enc, func() (any, error) { return s.handleAddCallPlan(ctx, req) })
-	case rpc.MethodAddMarket:
-		s.unary(req, enc, func() (any, error) { return s.handleAddMarket(ctx, req) })
-	case rpc.MethodAddPlan:
-		s.unary(req, enc, func() (any, error) { return s.handleAddPlan(ctx, req) })
-	case rpc.MethodAddPreview:
-		s.unary(req, enc, func() (any, error) { return s.handleAddPreview(ctx, req) })
-	case rpc.MethodSetupsEvaluate:
-		s.unary(req, enc, func() (any, error) { return s.handleSetupsEvaluate(ctx, req) })
-	case rpc.MethodSetupsOptions:
-		s.unary(req, enc, func() (any, error) { return s.handleSetupOptions(ctx, req) })
-	case rpc.MethodSetupsCoverage:
-		s.unary(req, enc, func() (any, error) { return s.handleSetupsCoverage(ctx, req) })
-	case rpc.MethodSetupsMarkouts:
-		s.unary(req, enc, func() (any, error) { return s.handleSetupMarkouts(ctx, req) })
-	case rpc.MethodMacroSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleMacroRequest(*req) })
-	case rpc.MethodMarketCalendar:
-		s.unary(req, enc, func() (any, error) { return s.handleMarketCalendar(req) })
-	case rpc.MethodBreadthSPX:
-		s.unary(req, enc, func() (any, error) { return s.handleBreadthSPX(ctx, req) })
-	case rpc.MethodGammaZeroSPX:
-		s.unary(req, enc, func() (any, error) { return s.handleGammaZeroSPX(ctx, req) })
-	case rpc.MethodRegimeSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleRegimeSnapshot(ctx, req) })
-	case rpc.MethodStressSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleStressSnapshot(ctx, req) })
-	case rpc.MethodScorecardRead:
-		s.unary(req, enc, func() (any, error) { return s.handleScorecardRead(ctx, req) })
-	case rpc.MethodMandateRisk:
-		s.unary(req, enc, func() (any, error) { return s.handleMandateRisk(ctx, req) })
-	case rpc.MethodCoreTarget:
-		s.unary(req, enc, func() (any, error) { return s.handleCoreTarget(ctx, req) })
-	case rpc.MethodStrategyTarget:
-		s.unary(req, enc, func() (any, error) { return s.handleStrategyTarget(ctx, req) })
-	case rpc.MethodStrategyOne:
-		s.unary(req, enc, func() (any, error) { return s.handleStrategyOne(ctx) })
-	case rpc.MethodStrategyReplay:
-		s.unary(req, enc, func() (any, error) { return s.handleStrategyReplay(ctx, req) })
-	case rpc.MethodCoreResolve:
-		s.unary(req, enc, func() (any, error) { return s.handleCoreResolve(ctx, req) })
-	case rpc.MethodAlertCandidates:
-		s.unary(req, enc, func() (any, error) { return s.handleAlertCandidates(ctx, req) })
-	case rpc.MethodAlertStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleAlertStatus(ctx, req) })
-	case rpc.MethodAlertDeliveryProof:
-		s.unary(req, enc, func() (any, error) { return s.handleAlertDeliveryProof(ctx, req) })
-	case rpc.MethodRulesHistory:
-		s.unary(req, enc, func() (any, error) { return s.handleRulesHistory(ctx, req) })
-	case rpc.MethodReconEquity:
-		s.unary(req, enc, func() (any, error) { return s.handleReconEquity(ctx, req) })
-	case rpc.MethodReportingStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleReportingStatus(ctx) })
-	case rpc.MethodFX:
-		s.unary(req, enc, func() (any, error) { return s.handleFX(ctx) })
-	case rpc.MethodFXBackfill:
-		s.unary(req, enc, func() (any, error) { return s.handleFXBackfill(ctx) })
-	case rpc.MethodReportingPerformance:
-		s.unary(req, enc, func() (any, error) { return s.handleReportingPerformance(ctx) })
-	case rpc.MethodReportingCosts:
-		s.unary(req, enc, func() (any, error) { return s.handleReportingCosts(ctx, req) })
-	case rpc.MethodReportingValidate:
-		s.unary(req, enc, func() (any, error) { return s.handleReportingValidate(ctx, req) })
-	case rpc.MethodEdgeSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleEdgeSnapshot(ctx, req) })
-	case rpc.MethodEdgeReplay:
-		s.unary(req, enc, func() (any, error) { return s.handleEdgeReplay(ctx, req) })
-	case rpc.MethodShortInterestScreen:
-		s.unary(req, enc, func() (any, error) { return s.handleShortInterestScreen(ctx, req) })
-	case rpc.MethodLendingMarket:
-		s.unary(req, enc, func() (any, error) { return s.handleLendingMarket(ctx, req) })
-	case rpc.MethodLendingScreen:
-		s.unary(req, enc, func() (any, error) { return s.handleLendingScreen(ctx, req) })
-	case rpc.MethodFinancingFees:
-		s.unary(req, enc, func() (any, error) { return s.handleFinancingFees(ctx, req) })
-	case rpc.MethodMarketEventsSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleMarketEventsSnapshot(ctx, req) })
-	case rpc.MethodDataHealth:
-		s.unary(req, enc, func() (any, error) {
-			p, err := dataHealthParams(req)
-			if err != nil {
-				return nil, err
-			}
-			return s.handleDataHealth(p)
-		})
-	case rpc.MethodDataCheck:
-		s.unary(req, enc, func() (any, error) { return s.requestDataHealthCheck() })
-	case rpc.MethodStatusHealth:
-		s.unary(req, enc, func() (any, error) { return s.handleStatusHealthRequest(ctx, req) })
-	case rpc.MethodTradingStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleTradingStatus(), nil })
-	case rpc.MethodAutoTradeStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleAutoTradeStatus(), nil })
-	case rpc.MethodRulesSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleRulesSnapshot(ctx, req) })
-	case rpc.MethodBriefSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleBriefSnapshot(ctx, req) })
-	case rpc.MethodNudgesSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleNudgesSnapshot(ctx, req) })
-	case rpc.MethodRiskPolicySnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicySnapshot(ctx, req) })
-	case rpc.MethodRiskPolicyCapitalEvent:
-		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicyCapitalEvent(ctx, req) })
-	case rpc.MethodRiskPolicyOverride:
-		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicyOverride(ctx, req) })
-	case rpc.MethodRiskPolicyResetDrawdown:
-		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicyResetDrawdown(ctx, req) })
-	case rpc.MethodRiskPolicyCorrectPeak:
-		s.unary(req, enc, func() (any, error) { return s.handleRiskPolicyCorrectPeak(ctx, req) })
-	case rpc.MethodReconSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleReconSnapshot(ctx, req) })
-	case rpc.MethodReconStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleReconStatus(ctx, req) })
-	case rpc.MethodReconCheck:
-		s.unary(req, enc, func() (any, error) { return s.handleReconCheck(ctx, req) })
-	case rpc.MethodReconBacktest:
-		s.unary(req, enc, func() (any, error) { return s.handleReconBacktest(ctx, req) })
-	case rpc.MethodReconDismiss:
-		s.unary(req, enc, func() (any, error) { return s.handleReconDismiss(ctx, req) })
-	case rpc.MethodTradeProposalsSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsSnapshot(req), nil })
-	case rpc.MethodTradeProposalsRefresh:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsRefresh(ctx, req) })
-	case rpc.MethodTradeProposalsPrepare:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsPrepare(ctx, req) })
-	case rpc.MethodTradeProposalsPreparedStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsPreparedStatus(ctx, req) })
-	case rpc.MethodTradeProposalsPrepareBundle:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsPrepareBundle(ctx, req) })
-	case rpc.MethodTradeProposalsSubmitBundle:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsSubmitBundle(ctx, req) })
-	case rpc.MethodTradeProposalsPreparedBundleStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsPreparedBundleStatus(ctx, req) })
-	case rpc.MethodTradeProposalsPreview:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsPreview(ctx, req) })
-	case rpc.MethodTradeProposalsSubmit:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsSubmit(ctx, req) })
-	case rpc.MethodTradeProposalsIgnore:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsIgnore(req), nil })
-	case rpc.MethodTradeProposalsVeto, rpc.MethodTradeProposalsVetoWindow:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsVeto(ctx, req) })
-	case rpc.MethodTradeProposalsQueuePrepare:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueuePrepare(ctx, req) })
-	case rpc.MethodTradeProposalsQueueArm:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueueArm(ctx, req) })
-	case rpc.MethodTradeProposalsQueueCancel:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueueCancel(ctx, req) })
-	case rpc.MethodTradeProposalsQueueList:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueueList(req) })
-	case rpc.MethodTradeProposalsQueueStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsQueueStatus(req) })
-	case rpc.MethodTradeProposalsRequestStop:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsRequestStop(ctx, req) })
-	case rpc.MethodTradeProposalsReducePreview:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsReducePreview(ctx, req) })
-	case rpc.MethodTradeProposalsReduceSubmit:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsReduceSubmit(ctx, req) })
-	case rpc.MethodTradeProposalsReducePortfolioPreview:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsReducePortfolioPreview(ctx, req) })
-	case rpc.MethodTradeProposalsReducePortfolioSubmit:
-		s.unary(req, enc, func() (any, error) { return s.handleTradeProposalsReducePortfolioSubmit(ctx, req) })
-	case rpc.MethodOpportunitiesExercises:
-		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesExercises(ctx) })
-	case rpc.MethodOpportunitiesReconcileExercise:
-		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesReconcileExercise(ctx, req) })
-	case rpc.MethodOpportunitiesStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesStatus(), nil })
-	case rpc.MethodOpportunitiesSnapshot:
-		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesSnapshot(req), nil })
-	case rpc.MethodOpportunitiesRefresh:
-		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesRefresh(ctx, req) })
-	case rpc.MethodOpportunitiesPreviewExercise:
-		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesPreviewExercise(ctx, req) })
-	case rpc.MethodOpportunitiesSubmitExercise:
-		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesSubmitExercise(ctx, req) })
-	case rpc.MethodOpportunitiesIgnore:
-		s.unary(req, enc, func() (any, error) { return s.handleOpportunitiesIgnore(req), nil })
-	case rpc.MethodHoldingLocksList:
-		s.unary(req, enc, func() (any, error) { return s.handleHoldingLocksList(ctx, req) })
-	case rpc.MethodHoldingLocksReplace:
-		s.unary(req, enc, func() (any, error) { return s.handleHoldingLocksReplace(ctx, req) })
-	case rpc.MethodWatchlistList:
-		s.unary(req, enc, func() (any, error) { return s.handleWatchlistList(ctx) })
-	case rpc.MethodWatchlistReplace, rpc.MethodWatchlistAdd, rpc.MethodWatchlistRemove:
-		s.unary(req, enc, func() (any, error) { return s.handleWatchlistMutation(ctx, req) })
-	case rpc.MethodCashSweepPreferencesGet:
-		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPreferencesContext(ctx) })
-	case rpc.MethodCashSweepPrioritySet:
-		s.unary(req, enc, func() (any, error) { return s.handleCashSweepPrioritySet(ctx, req) })
-	case rpc.MethodDeskExecutionCapabilities:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskExecutionCapabilities(), nil })
-	case rpc.MethodDeskExecutionLookup:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskExecutionLookup(ctx, req) })
-	case rpc.MethodDeskExecutionSubmit:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskExecutionSubmit(ctx, req) })
-	case rpc.MethodDeskAuthorityStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityStatus(ctx) })
-	case rpc.MethodDeskAuthorityPrepare:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityPrepare(ctx, req) })
-	case rpc.MethodDeskAuthorityConfirm:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityConfirm(ctx, req) })
-	case rpc.MethodDeskAuthorityControl:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskAuthorityControl(ctx, req) })
-	case rpc.MethodDeskOverridePrepare:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskOverridePrepare(ctx, req) })
-	case rpc.MethodDeskOverrideConfirm:
-		s.unary(req, enc, func() (any, error) { return s.handleDeskOverrideConfirm(ctx, req) })
-	case rpc.MethodCashPolicyGet:
-		s.unary(req, enc, func() (any, error) { return s.handleCashPolicyGet(ctx, req) })
-	case rpc.MethodCashPolicyCheck:
-		s.unary(req, enc, func() (any, error) { return s.handleCashPolicyCheck(ctx, req) })
-	case rpc.MethodCashPolicyApply:
-		s.unary(req, enc, func() (any, error) { return s.handleCashPolicyApply(ctx, req) })
-	case rpc.MethodSettingsGet:
-		s.unary(req, enc, func() (any, error) { return s.handleSettingsGet() })
-	case rpc.MethodSettingsUpdate:
-		s.unary(req, enc, func() (any, error) { return s.handleSettingsUpdate(ctx, req) })
-	case rpc.MethodOrdersOpen:
-		s.unary(req, enc, func() (any, error) { return s.handleOrdersOpen(ctx, req) })
-	case rpc.MethodOrdersHistory:
-		s.unary(req, enc, func() (any, error) { return s.handleOrdersHistory(ctx, req) })
-	case rpc.MethodOrderStatus:
-		s.unary(req, enc, func() (any, error) { return s.handleOrderStatus(ctx, req) })
-	case rpc.MethodOrderPreview:
-		s.unary(req, enc, func() (any, error) { return s.handleOrderPreview(ctx, req) })
-	case rpc.MethodStrategyPreview:
-		s.unary(req, enc, func() (any, error) { return s.handleStrategyPreview(ctx, req) })
 	case rpc.MethodDisplaySubscribe:
 		// serveConn handles this method with the owned socket and write deadlines.
 		writeError(enc, req.ID, rpc.CodeInternal, "display stream requires its socket owner")
@@ -3405,19 +3149,13 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 	case rpc.MethodQuoteSubscribe:
 		s.handleQuoteSubscribe(ctx, req, enc, r)
 		return true
-	case rpc.MethodOrderPlace:
-		s.unary(req, enc, func() (any, error) { return s.handleOrderPlace(ctx, req) })
-	case rpc.MethodOrderModify:
-		s.unary(req, enc, func() (any, error) { return s.handleOrderModify(ctx, req) })
-	case rpc.MethodOrderCancel:
-		s.unary(req, enc, func() (any, error) { return s.handleOrderCancel(ctx, req) })
-	case rpc.MethodOrderTWSCancel:
-		s.unary(req, enc, func() (any, error) { return s.handleOrderTWSCancel(ctx, req) })
-	case rpc.MethodOrderTWSModify:
-		s.unary(req, enc, func() (any, error) { return s.handleOrderTWSModify(ctx, req) })
-	default:
-		writeError(enc, req.ID, rpc.CodeUnknownMethod, "unknown method: "+req.Method)
 	}
+	route, ok := s.route(req.Method)
+	if !ok {
+		writeError(enc, req.ID, rpc.CodeUnknownMethod, "unknown method: "+req.Method)
+		return false
+	}
+	s.unary(req, enc, func() (any, error) { return route(ctx, req) })
 	return false
 }
 
