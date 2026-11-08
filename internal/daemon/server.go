@@ -3121,7 +3121,7 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		writeError(enc, req.ID, rpc.CodeUnknownMethod, "unknown method: "+req.Method)
 		return false
 	}
-	if s.opend != nil && ibkrOnlyMethods[req.Method] {
+	if s.notServedHere(req.Method) {
 		writeError(enc, req.ID, rpc.CodeNotApplicable, ibkrOnlyMessage)
 		return false
 	}
@@ -3155,7 +3155,7 @@ func (s *Server) dispatch(ctx context.Context, req *rpc.Request, enc *json.Encod
 		writeError(enc, req.ID, rpc.CodeUnknownMethod, "unknown method: "+req.Method)
 		return false
 	}
-	s.unary(req, enc, func() (any, error) { return route(ctx, req) })
+	s.unary(req, enc, func() (any, error) { return route.call(ctx, req) })
 	return false
 }
 

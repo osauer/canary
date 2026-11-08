@@ -11,38 +11,10 @@ import (
 	"github.com/osauer/canary/v2/pkg/futu"
 )
 
-// ibkrOnlyMethods answer "not applicable" under another broker: statements, Edge,
-// reconciliation and the US borrow data all rest on IBKR's inputs.
-var ibkrOnlyMethods = map[string]bool{
-	rpc.MethodEdgeSnapshot:         true,
-	rpc.MethodEdgeReplay:           true,
-	rpc.MethodReconSnapshot:        true,
-	rpc.MethodReconCheck:           true,
-	rpc.MethodReconStatus:          true,
-	rpc.MethodReconBacktest:        true,
-	rpc.MethodReconDismiss:         true,
-	rpc.MethodReconEquity:          true,
-	rpc.MethodReportingStatus:      true,
-	rpc.MethodReportingValidate:    true,
-	rpc.MethodReportingCosts:       true,
-	rpc.MethodReportingPerformance: true,
-	rpc.MethodLendingMarket:        true,
-	rpc.MethodLendingScreen:        true,
-	rpc.MethodFinancingFees:        true,
-	rpc.MethodShortInterestScreen:  true,
-	// These read the IBKR connector's market data and chains. Under OpenD they
-	// said the connection was down while it was up.
-	rpc.MethodMarketSnapshot:    true,
-	rpc.MethodPortfolioSnapshot: true,
-	rpc.MethodMarketTape:        true,
-	rpc.MethodTechnical:         true,
-	rpc.MethodChainFetch:        true,
-	rpc.MethodChainExpiries:     true,
-	rpc.MethodGammaZeroSPX:      true,
-	rpc.MethodCoreResolve:       true,
-}
-
-// opendNotServed names, in the reader's words, what OpenD does not serve.
+// opendNotServed names, in the reader's words, what OpenD does not serve, as
+// the status row and the brief show it. Each is a capability OpenD does not
+// fully serve (TestStatusRowListsOnlyWhatOpenDDoesNotServe); the coverage
+// table is the full account.
 var opendNotServed = []string{"regime", "Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "gamma", "cash sweep", "market overview", "market tape", "technical analysis", "option chains"}
 
 // brokerCapabilities says what the daemon's broker can do.

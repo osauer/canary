@@ -19,10 +19,11 @@ func TestNotApplicableIsATypedResult(t *testing.T) {
 		t.Fatal("another failure read as not_applicable")
 	}
 	var out map[string]string
-	if err := json.Unmarshal(notApplicableResult("canary_edge"), &out); err != nil {
+	daemonSaid := &rpc.Error{Code: rpc.CodeNotApplicable, Message: "IBKR only: this daemon serves OpenD"}
+	if err := json.Unmarshal(notApplicableResult("canary_edge", fmt.Errorf("call: %w", daemonSaid)), &out); err != nil {
 		t.Fatal(err)
 	}
-	if out["status"] != "not_applicable" || out["tool"] != "canary_edge" || out["reason"] == "" {
+	if out["status"] != "not_applicable" || out["tool"] != "canary_edge" || out["reason"] != daemonSaid.Message {
 		t.Fatalf("result %v", out)
 	}
 	for _, name := range []string{"canary_edge", "canary_recon_status", "canary_reporting", "canary_lending_market", "canary_short_interest_screen"} {

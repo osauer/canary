@@ -164,14 +164,9 @@ func TestBorrowSourcesReadAsIBKROnlyUnderOpenD(t *testing.T) {
 // The IBKR-only methods answer a typed not_applicable under OpenD, not an error of
 // any other kind; the same request under IBKR reaches its handler.
 func TestIBKROnlyMethodsAnswerNotApplicable(t *testing.T) {
-	for method := range ibkrOnlyMethods {
-		if _, ok := rpc.LookupMethodTiming(method); !ok {
-			t.Errorf("%s is not a known method", method)
-		}
-	}
 	for _, method := range []string{rpc.MethodEdgeSnapshot, rpc.MethodReconStatus, rpc.MethodReportingStatus, rpc.MethodLendingMarket, rpc.MethodFinancingFees, rpc.MethodShortInterestScreen} {
-		if !ibkrOnlyMethods[method] {
-			t.Errorf("%s is not gated", method)
+		if c, ok := (&Server{}).capabilityOf(method); !ok || c.OpenD.Status != NotServed {
+			t.Errorf("%s is not gated: %+v", method, c)
 		}
 	}
 	sim := futusim.Start(t, futusim.Options{})

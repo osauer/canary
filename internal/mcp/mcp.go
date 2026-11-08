@@ -453,7 +453,7 @@ func (s *Server) handleToolsCall(ctx context.Context, id, params json.RawMessage
 	}
 	out, err := tool.Handler(callCtx, conn, p.Arguments)
 	if err != nil && notApplicable(err) {
-		out, err = notApplicableResult(p.Name), nil
+		out, err = notApplicableResult(p.Name, err), nil
 	}
 	if err != nil {
 		if toolCallTimedOut(callCtx, err) && timeout > 0 {

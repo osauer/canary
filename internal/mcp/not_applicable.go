@@ -15,12 +15,17 @@ func notApplicable(err error) bool {
 }
 
 // notApplicableResult is a typed result: an AI host must never mistake "off for
-// this broker" for "broken".
-func notApplicableResult(tool string) json.RawMessage {
+// this broker" for "broken". The reason is the daemon's own words.
+func notApplicableResult(tool string, err error) json.RawMessage {
+	reason := "this daemon's broker does not serve it"
+	var rpcErr *rpc.Error
+	if errors.As(err, &rpcErr) && rpcErr.Message != "" {
+		reason = rpcErr.Message
+	}
 	out, _ := json.Marshal(map[string]string{
 		"status": rpc.CodeNotApplicable,
 		"tool":   tool,
-		"reason": "IBKR only: this daemon serves OpenD",
+		"reason": reason,
 	})
 	return out
 }
