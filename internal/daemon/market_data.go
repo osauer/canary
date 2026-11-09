@@ -16,13 +16,13 @@ import (
 )
 
 func (s *Server) handleMarketSnapshot(ctx context.Context, req *rpc.Request) (*rpc.MarketSnapshotResult, error) {
-	connector := s.gatewayConnector()
-	if connector == nil {
-		return nil, s.gatewayUnavailableError()
+	reads := s.brokerReads()
+	if reads == nil {
+		return nil, s.sessionUnavailableError()
 	}
-	binding, ok := connector.CaptureSession()
+	binding, ok := reads.Capture()
 	if !ok {
-		return nil, s.gatewayUnavailableError()
+		return nil, s.sessionUnavailableError()
 	}
 	positions, err := s.handlePositionsList(ctx, &rpc.Request{Params: json.RawMessage(`{}`)})
 	if err != nil {
@@ -63,20 +63,21 @@ func (s *Server) handleMarketSnapshot(ctx context.Context, req *rpc.Request) (*r
 
 		if item.Kind == "future" {
 			q := item.Quote.Contract
-			c, err := connector.FrontFuture(ctx, ibkrlib.Contract{Symbol: q.Symbol, SecType: "FUT", Exchange: q.Exchange, Currency: q.Currency}, time.Now())
+			c, err := reads.FrontContract(ctx, broker.Instrument{Symbol: q.Symbol, SecType: "FUT", Venue: q.Exchange, Currency: q.Currency}, time.Now())
 			if err != nil {
 				item.Quote = nil
-				item.Error = err.Error()
+				item.Error = marketRowError(reads.Kind(), *item, err)
 				return
 			}
-			item.Quote.Contract = rpc.ContractParams{ConID: c.ConID, Symbol: c.Symbol, SecType: c.SecType, Exchange: c.Exchange, Currency: c.Currency, Expiry: c.Expiry, LocalSymbol: c.LocalSymbol, TradingClass: c.TradingClass, Multiplier: c.Multiplier}
+			conID, _ := c.IDInt()
+			item.Quote.Contract = rpc.ContractParams{ConID: conID, Symbol: c.Symbol, SecType: c.SecType, Exchange: c.Venue, Currency: c.Currency, Expiry: c.Expiry, LocalSymbol: c.LocalSymbol, TradingClass: c.TradingClass, Multiplier: c.Multiplier}
 			item.Name += " · " + c.LocalSymbol
 		}
 		raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: item.Quote.Contract, TimeoutMs: 2000})
 		q, err := s.handleQuoteSnapshot(ctx, &rpc.Request{Params: raw})
 		item.Quote = q
 		if err != nil {
-			item.Error = err.Error()
+			item.Error = marketRowError(reads.Kind(), *item, err)
 		}
 	}
 	for i := range result.Instruments {
@@ -91,7 +92,7 @@ func (s *Server) handleMarketSnapshot(ctx context.Context, req *rpc.Request) (*r
 	markMarketSnapshotCoverage(result)
 	// Never attach holdings-derived scope across a broker-session transition.
 	current, err := s.handlePositionsList(ctx, &rpc.Request{Params: json.RawMessage(`{}`)})
-	if err != nil || !connector.SessionCurrent(binding) || current.Authority == nil || current.Authority.Availability != rpc.AccountDataAvailable || current.Authority.Freshness != rpc.AccountDataFreshnessCurrent || current.Authority.Scope != result.Authority.Scope {
+	if err != nil || !reads.Current(binding) || current.Authority == nil || current.Authority.Availability != rpc.AccountDataAvailable || current.Authority.Freshness != rpc.AccountDataFreshnessCurrent || current.Authority.Scope != result.Authority.Scope {
 		return nil, errors.New("portfolio scope changed during market observation")
 	}
 	s.followSnapshotHistory(result)

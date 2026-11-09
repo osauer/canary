@@ -437,6 +437,14 @@ type Snapshots interface {
 	BriefQuote(ctx context.Context, in Instrument, fields []string, timeout time.Duration, done func(BriefQuote) bool) (BriefQuote, error)
 }
 
+// Futures resolves a futures root to its dated front-month contract: the
+// nearest expiry strictly after now, as the broker defines it. A broker that
+// does not supply futures answers an error wrapping [ErrNotSupplied] and asks
+// nothing of the wire.
+type Futures interface {
+	FrontContract(ctx context.Context, in Instrument, now time.Time) (Instrument, error)
+}
+
 // ErrNotSupplied is an instrument kind this broker gives no data for, such as
 // an index or a currency pair on OpenD.
 var ErrNotSupplied = errors.New("this broker does not supply the instrument")
@@ -489,6 +497,7 @@ type Reads interface {
 	Snapshots
 	Bars
 	DailyBars
+	Futures
 	Instruments
 }
 

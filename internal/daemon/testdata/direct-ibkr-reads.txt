@@ -106,7 +106,6 @@ trading.status
 (*Server).handleCurrencySettlementProbe
 (*Server).handleGammaZeroSPX
 (*Server).handleMarketBond
-(*Server).handleMarketSnapshot
 (*Server).handlePortfolioSnapshot
 (*Server).handlePositionsListCapturedForScope
 (*Server).handleQuoteSnapshot

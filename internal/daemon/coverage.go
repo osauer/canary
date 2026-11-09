@@ -197,7 +197,7 @@ var capabilities = []Capability{
 		OpenD: Coverage{Status: Unverified, Note: "the display stream was not probed"}},
 	{Name: "market overview", Needs: []string{"quotes", "price bars"},
 		IBKR:  served,
-		OpenD: Coverage{Status: NotServed, Note: readsIBKR, Tests: []string{"TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp"}}},
+		OpenD: Coverage{Status: Partial, Note: "prices the held names and the US ETF references from OpenD; OpenD gives no index or futures data, so those rows are named as missing and the overview reads partial; history is not followed for OpenD rows, so price bars are not drawn here; tested on the simulator only", Tests: []string{"TestOpenDMarketOverviewPricesWhatOpenDCarriesAndNamesTheRest"}}},
 	{Name: "portfolio allocation", Needs: []string{"account and positions", "quotes"},
 		IBKR:  served,
 		OpenD: Coverage{Status: NotServed, Note: readsIBKR, Tests: []string{"TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp"}}},

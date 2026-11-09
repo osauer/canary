@@ -4,7 +4,7 @@
 
 Canary reads one brokerage account through IBKR (TWS or IB Gateway) or through OpenD (moomoo, Futu). Most of what it shows is computed by Canary from what the broker supplies: the regime, portfolio stress, Edge and gamma are Canary's, not the broker's. So this page has two tables. The first says what each broker supplies. The second says how each capability runs on each broker and, where OpenD falls short, why. The same table decides what the daemon refuses under OpenD.
 
-On OpenD, of 43 capabilities: 1 served, 7 partial, 19 unverified, 2 refused, 14 not served. Of those not fully served, 7 need data OpenD does not supply, 0 wait on a check of what OpenD supplies, and 9 have what they need from OpenD but are not yet read there.
+On OpenD, of 43 capabilities: 1 served, 8 partial, 19 unverified, 2 refused, 13 not served. Of those not fully served, 7 need data OpenD does not supply, 0 wait on a check of what OpenD supplies, and 8 have what they need from OpenD but are not yet read there.
 
 ## What each broker supplies
 
@@ -39,7 +39,7 @@ Statuses: *served* works and a test or live check shows it; *partial* works with
 | quotes | quotes | served | partial |   | only in markets where the login holds the quote right |
 | price history | price bars | served | unverified |   |   |
 | market display | quotes | served | unverified |   | the display stream was not probed |
-| market overview | quotes, price bars | served | not served | Canary | reads the IBKR connector |
+| market overview | quotes, price bars | served | partial |   | prices the held names and the US ETF references from OpenD; OpenD gives no index or futures data, so those rows are named as missing and the overview reads partial; history is not followed for OpenD rows, so price bars are not drawn here; tested on the simulator only |
 | portfolio allocation | account and positions, quotes | served | not served | Canary | reads the IBKR connector |
 | market tape | quotes, price bars | served | not served | Canary | joins on IBKR contract ids |
 | technical analysis | price bars | served | not served | Canary | reads the IBKR connector |
@@ -89,7 +89,7 @@ Tests run without a live broker; the wire smoke reads a live IBKR gateway (`scri
 | quotes | live smoke `quote-spy` | `TestAMarketWithoutAQuoteRightIsNamedAndLeavesTheOthers`; `TestLinesGoToTheBookThenTheRegimeAndTheRestAreSnapshots`; Hong Kong and US quotes on one real moomoo US login (Desk's moomoo page, 2026-11-07) | `quote.snapshot`, `quote.subscribe` |
 | price history |   |   | `market.history` |
 | market display |   |   | `display.subscribe` |
-| market overview |   | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp` | `market.snapshot` |
+| market overview |   | `TestOpenDMarketOverviewPricesWhatOpenDCarriesAndNamesTheRest` | `market.snapshot` |
 | portfolio allocation |   | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp` | `portfolio.snapshot` |
 | market tape |   | `TestMarketTapeCollectionDoesNotStartUnderOpenD` | `market.tape` |
 | technical analysis |   | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp` | `technical.snapshot` |

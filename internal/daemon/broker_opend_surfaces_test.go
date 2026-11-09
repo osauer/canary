@@ -100,7 +100,7 @@ func TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp(t *testing.T) {
 	defer stop()
 	waitOpenDReady(t, srv)
 	for _, method := range []string{
-		rpc.MethodMarketSnapshot, rpc.MethodPortfolioSnapshot, rpc.MethodMarketTape, rpc.MethodTechnical,
+		rpc.MethodPortfolioSnapshot, rpc.MethodMarketTape, rpc.MethodTechnical,
 		rpc.MethodChainFetch, rpc.MethodChainExpiries, rpc.MethodGammaZeroSPX, rpc.MethodCoreResolve,
 	} {
 		res := dispatchRaw(t, srv, method, `{"symbol":"AAPL"}`)

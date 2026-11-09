@@ -613,7 +613,16 @@ func suppliedCode(in broker.Instrument) (string, error) {
 }
 
 // CodeFor is the code an instrument reads under, for a caller that batches.
-func (a *Adapter) CodeFor(in broker.Instrument) (string, error) { return codeOf(in) }
+// A kind OpenD does not serve is named as not supplied, so the caller can
+// tell a gap from a fault.
+func (a *Adapter) CodeFor(in broker.Instrument) (string, error) { return suppliedCode(in) }
+
+// FrontContract answers that OpenD supplies no futures, without a request:
+// no vendored message resolves a futures root, and futures are not served on
+// OpenD in this phase.
+func (a *Adapter) FrontContract(_ context.Context, in broker.Instrument, _ time.Time) (broker.Instrument, error) {
+	return broker.Instrument{}, fmt.Errorf("%w: %w: %s", broker.ErrNotSupplied, ErrNotServed, strings.ToUpper(strings.TrimSpace(in.Symbol))+"/FUT")
+}
 
 func quoteOf(q futu.Quote) *broker.Quote {
 	out := &broker.Quote{
