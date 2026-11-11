@@ -13,8 +13,8 @@ Markets        HK, US, SG tradable on this account
 Broker access  stocks on HK, US, SG; options and futures not served on OpenD
 Quote rights   HK LV2 · SG none · US LV1
 Quotas         subscriptions 37 of 100 · history 12 of 100 (7-day window)
-Not on OpenD   regime, Edge, reconciliation, statement reporting, borrow
-               availability, earnings (WSH), breadth, gamma, cash sweep
+Not on OpenD   Edge, reconciliation, statement reporting, borrow availability,
+               earnings (WSH), breadth, gamma, cash sweep
 Subsystems     all 3 ready
 Trading        paper ready
 Strategies     core live · row BUY 908 SYNX for 2026-09-04 · generated, opening
@@ -41,8 +41,8 @@ Canary  \x1b[32m\x1b[1mREADY\x1b[0m\x1b[0m
 \x1b[2mBroker access \x1b[0m stocks on HK, US, SG; options and futures not served on OpenD
 \x1b[2mQuote rights  \x1b[0m HK LV2 · SG none · US LV1
 \x1b[2mQuotas        \x1b[0m subscriptions 37 of 100 · history 12 of 100 (7-day window)
-\x1b[2mNot on OpenD  \x1b[0m regime, Edge, reconciliation, statement reporting, borrow
-               availability, earnings (WSH), breadth, gamma, cash sweep
+\x1b[2mNot on OpenD  \x1b[0m Edge, reconciliation, statement reporting, borrow availability,
+               earnings (WSH), breadth, gamma, cash sweep
 \x1b[2mSubsystems    \x1b[0m \x1b[32mall 3 ready\x1b[0m
 \x1b[2mTrading       \x1b[0m \x1b[32mpaper ready\x1b[0m
 \x1b[2mStrategies    \x1b[0m core live · row BUY 908 SYNX for 2026-09-04 · generated, opening

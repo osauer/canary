@@ -11,8 +11,8 @@ OpenD          10.10 (build 7008) · quote server logged in · trade server logg
 Protocol       serverVer 1010 · Canary minimum 1010
 Real account   1000001 (Margin, HK US): set [opend] account to use it
 Real account   1000002 (Cash, SG): set [opend] account to use it
-Not on OpenD   regime, Edge, reconciliation, statement reporting, borrow
-               availability, earnings (WSH), breadth, gamma, cash sweep
+Not on OpenD   Edge, reconciliation, statement reporting, borrow availability,
+               earnings (WSH), breadth, gamma, cash sweep
 Last attempt   OpenD lists 2 real accounts on this login: run `canary status` to
                see them, then set [opend] account to the one to use
 Subsystems     all 3 ready
@@ -41,8 +41,8 @@ Canary  \x1b[2m\x1b[1mSTARTING\x1b[0m\x1b[0m
 \x1b[2mProtocol      \x1b[0m serverVer 1010 · Canary minimum 1010
 \x1b[2mReal account  \x1b[0m 1000001 (Margin, HK US): set [opend] account to use it
 \x1b[2mReal account  \x1b[0m 1000002 (Cash, SG): set [opend] account to use it
-\x1b[2mNot on OpenD  \x1b[0m regime, Edge, reconciliation, statement reporting, borrow
-               availability, earnings (WSH), breadth, gamma, cash sweep
+\x1b[2mNot on OpenD  \x1b[0m Edge, reconciliation, statement reporting, borrow availability,
+               earnings (WSH), breadth, gamma, cash sweep
 \x1b[2mLast attempt  \x1b[0m OpenD lists 2 real accounts on this login: run `canary status` to
                see them, then set [opend] account to the one to use
 \x1b[2mSubsystems    \x1b[0m \x1b[32mall 3 ready\x1b[0m

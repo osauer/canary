@@ -967,7 +967,7 @@ surface:
 - Data health lists each such source with the additive source state
   `not_applicable` and the reason "IBKR only"; it is never `stale`.
 - `canary status` prints one `Not on OpenD` row naming them in words:
-  "regime, Edge, reconciliation, statement reporting, borrow availability,
+  "Edge, reconciliation, statement reporting, borrow availability,
   earnings (WSH), breadth, gamma, cash sweep". The row is informational; the
   verdict does not degrade for it.
 - The brief's coverage section names the missing items where it would

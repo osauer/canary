@@ -15,7 +15,7 @@ import (
 // the status row and the brief show it. Each is a capability OpenD does not
 // fully serve (TestStatusRowListsOnlyWhatOpenDDoesNotServe); the coverage
 // table is the full account.
-var opendNotServed = []string{"regime", "Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "gamma", "cash sweep", "market overview", "market tape", "technical analysis", "option chains"}
+var opendNotServed = []string{"Edge", "reconciliation", "statement reporting", "borrow availability", "earnings (WSH)", "breadth", "gamma", "cash sweep", "market tape", "technical analysis", "option chains"}
 
 // brokerCapabilities says what the daemon's broker can do.
 func (s *Server) brokerCapabilities() *rpc.BrokerCapabilities {

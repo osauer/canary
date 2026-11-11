@@ -79,18 +79,42 @@ func TestCoverageProofsExist(t *testing.T) {
 	}
 }
 
+// listedThoughPartial are the words the status row keeps although their
+// capability is Partial on OpenD, because "not on OpenD" is still the truer
+// line for the reader. Each entry leaves when its reason does.
+var listedThoughPartial = map[string]bool{
+	// Answers only from breadth stored before; OpenD never refreshes it, and
+	// the decision on it is open.
+	"breadth": true,
+}
+
 // The status row and the brief say what OpenD does not serve in a short list.
-// It may say less than the table, never that something OpenD serves is missing.
+// It may say less than the table, never that something OpenD serves, even in
+// part, is missing.
 func TestStatusRowListsOnlyWhatOpenDDoesNotServe(t *testing.T) {
 	t.Parallel()
-	for _, word := range opendNotServed {
+	status := func(word string) (CoverageStatus, bool) {
 		i := slices.IndexFunc(capabilities, func(c Capability) bool { return c.Name == word })
 		if i < 0 {
-			t.Errorf("the status row lists %q, which is no capability", word)
-			continue
+			return "", false
 		}
-		if st := capabilities[i].OpenD.Status; st == Served || st == Unverified {
+		return capabilities[i].OpenD.Status, true
+	}
+	for _, word := range opendNotServed {
+		st, ok := status(word)
+		switch {
+		case !ok:
+			t.Errorf("the status row lists %q, which is no capability", word)
+		case st == Partial && listedThoughPartial[word]:
+		case st == Served || st == Partial || st == Unverified:
 			t.Errorf("the status row lists %q as not on OpenD, but the table says %s", word, st)
+		}
+	}
+	for word := range listedThoughPartial {
+		if !slices.Contains(opendNotServed, word) {
+			t.Errorf("%q is no longer in the status row: drop it from listedThoughPartial", word)
+		} else if st, _ := status(word); st != Partial {
+			t.Errorf("%q is %s on OpenD, no longer partial: drop it from listedThoughPartial", word, st)
 		}
 	}
 }

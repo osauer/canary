@@ -8,8 +8,8 @@ Market data    unavailable until connected
 Daemon         v0.0.0-golden, up 2h0m0s
 OpenD          waiting for the disclaimer in OpenD
 Protocol       serverVer 1010 · Canary minimum 1010
-Not on OpenD   regime, Edge, reconciliation, statement reporting, borrow
-               availability, earnings (WSH), breadth, gamma, cash sweep
+Not on OpenD   Edge, reconciliation, statement reporting, borrow availability,
+               earnings (WSH), breadth, gamma, cash sweep
 Last attempt   OpenD is not ready: its program status is UnAgreeDisclaimer
 Subsystems     all 3 ready
 Trading        paper ready
@@ -34,8 +34,8 @@ Canary  \x1b[2m\x1b[1mSTARTING\x1b[0m\x1b[0m
 \x1b[2mDaemon        \x1b[0m v0.0.0-golden, up 2h0m0s
 \x1b[2mOpenD         \x1b[0m \x1b[33mwaiting for the disclaimer in OpenD\x1b[0m
 \x1b[2mProtocol      \x1b[0m serverVer 1010 · Canary minimum 1010
-\x1b[2mNot on OpenD  \x1b[0m regime, Edge, reconciliation, statement reporting, borrow
-               availability, earnings (WSH), breadth, gamma, cash sweep
+\x1b[2mNot on OpenD  \x1b[0m Edge, reconciliation, statement reporting, borrow availability,
+               earnings (WSH), breadth, gamma, cash sweep
 \x1b[2mLast attempt  \x1b[0m OpenD is not ready: its program status is UnAgreeDisclaimer
 \x1b[2mSubsystems    \x1b[0m \x1b[32mall 3 ready\x1b[0m
 \x1b[2mTrading       \x1b[0m \x1b[32mpaper ready\x1b[0m
