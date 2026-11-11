@@ -1,6 +1,6 @@
 module github.com/osauer/canary-docs-html
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/longbridgeapp/opencc v0.3.13
