@@ -224,7 +224,7 @@ broker-critical write, so production reads need limits and indexes.
 The connection runs in SQLite's exclusive locking mode, set before it first
 uses the WAL. SQLite then keeps the WAL's index in the daemon's memory instead
 of a shared `daemon.db-shm` file, and holds an exclusive lock on `daemon.db`
-until the daemon stops. Any other SQLite opener, read-only or not, is refused as
+for as long as the connection is open. Any other SQLite opener, read-only or not, is refused as
 `database is locked`, so none can hand the daemon an older or rebuilt index.
 Only an `immutable=1` open still succeeds; it reads the main file alone,
 ignores the WAL, and changes nothing. A shared index file did
@@ -236,13 +236,22 @@ does not start, and the `start:` line names the process. A killed
 daemon leaves its WAL and no index; the next start rebuilds the index from the
 WAL and reads every commit.
 
-The exclusive lock is a POSIX lock, so it lasts only while no descriptor of
-`daemon.db` in the daemon is closed. Once a second the daemon checks for the
-traces an opener would leave if the lock were lost: a `daemon.db-shm` appears,
-or the WAL is removed or replaced. Either latches broker writes with
-`outside_opener` until a restart, the log names any process holding the index
-file, and the files are copied to `damaged/outside-opener-<time>/` as for a
-lost write below.
+The lock has two gaps. It is a POSIX lock, so it lasts only while no
+descriptor of `daemon.db` in the daemon is closed. And the daemon replaces its
+connection when SQLite reports it unusable, as after a read cancelled
+mid-statement: closing the old connection folds and deletes the WAL and
+releases the lock, and the next store call opens a new connection with a new
+WAL. A process that opens the file in that gap keeps the new connection out:
+the daemon's next write fails as busy and blocks broker writes until a
+restart.
+
+Once a second the daemon checks for the traces an outside opener would leave:
+a `daemon.db-shm` appears, or the WAL is removed or replaced while the
+daemon's connection stays the same. A WAL replaced by the daemon's own new
+connection is not reported. Either trace blocks broker writes with
+`outside_opener` until a restart. The log names any process holding the
+index file, and the files are copied to `damaged/outside-opener-<time>/`, as
+for a lost write below.
 
 SQLite's automatic checkpoint copies the WAL back into `daemon.db` every 1,000
 pages while the daemon runs. A `journal_size_limit` of 64 MiB then truncates

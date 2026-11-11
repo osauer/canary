@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"syscall"
 	"time"
@@ -22,6 +21,8 @@ import (
 // daemon.db-shm, or it checkpoints and removes the log the daemon writes to.
 // Either way the daemon's index no longer describes the file, so the watch
 // latches the store fail-closed and names the process holding the index file.
+// The store's own connection also replaces the log when its pool reopens it;
+// the store tells that apart (corestore.Store.LogChanged).
 const (
 	// A minute let one-shot openers slip between checks; a second also
 	// bounds how long the daemon writes on after its lock is lost.
@@ -35,7 +36,6 @@ const (
 // outsideOpenerWatch is touched only by its loop. It holds no descriptor of
 // the store's files.
 type outsideOpenerWatch struct {
-	wal     os.FileInfo // the log as first seen with the store open
 	warned  map[int]bool
 	latched bool
 }
@@ -89,14 +89,8 @@ func (s *Server) checkOutsideSQLiteOpeners(ctx context.Context) {
 		w.warned = map[int]bool{}
 	}
 	reason := ""
-	wal, err := os.Stat(s.coreStorePath + "-wal")
-	switch {
-	case err == nil && w.wal == nil:
-		w.wal = wal
-	case errors.Is(err, fs.ErrNotExist) && w.wal != nil:
-		reason = "daemon.db-wal was removed"
-	case err == nil && !os.SameFile(w.wal, wal):
-		reason = "daemon.db-wal was replaced"
+	if changed, err := s.coreStore.LogChanged(ctx); err == nil && changed != "" {
+		reason = "daemon.db-wal was " + changed
 	}
 	shmPath := s.coreStorePath + "-shm"
 	if _, err := os.Lstat(shmPath); err == nil {

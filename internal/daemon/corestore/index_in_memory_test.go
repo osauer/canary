@@ -2,7 +2,9 @@ package corestore
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
@@ -333,5 +335,218 @@ func TestStoreLeftWithoutCloseReopensAtItsNewestHead(t *testing.T) {
 	}
 	if _, err := os.Lstat(path + "-shm"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("an index file exists after the reopen: %v", err)
+	}
+}
+
+// rawConn runs fn on the store's driver connection, through the pool.
+func (s *Store) rawConn(ctx context.Context, fn func(any) error) error {
+	c, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.Raw(fn)
+}
+
+// requireStoreStillOwnsItsFile checks what must hold after the pool replaced
+// the store's connection: the store is ready, its log check reports nothing,
+// the next mutation lands one past the newest head, no index file exists, and
+// an outside opener is still refused.
+func requireStoreStillOwnsItsFile(t *testing.T, f *recoveryFixture, newest AuthorityHead) {
+	t.Helper()
+	if reason, err := f.store.LogChanged(t.Context()); err != nil || reason != "" {
+		t.Fatalf("log check after the store's own reopen = %q %v, want nothing", reason, err)
+	}
+	if err := f.mutate(t, "after"); err != nil {
+		t.Fatalf("mutation after the store's own reopen: %v", err)
+	}
+	if got := f.store.Health(); !got.Ready {
+		t.Fatalf("store latched after its own reopen: %+v", got)
+	}
+	if got := f.head(t); got.HeadGeneration != newest.HeadGeneration+1 {
+		t.Fatalf("head after the next mutation = %d, want %d", got.HeadGeneration, newest.HeadGeneration+1)
+	}
+	if reason, err := f.store.LogChanged(t.Context()); err != nil || reason != "" {
+		t.Fatalf("log check after the next mutation = %q %v, want nothing", reason, err)
+	}
+	if err := requireIndexInMemory(f.store.path); err != nil {
+		t.Fatal(err)
+	}
+	for _, got := range runHelper(t, "CANARY_TEST_CORESTORE_OUTSIDE="+f.store.path) {
+		if !strings.HasPrefix(got, "refused: ") || !strings.Contains(got, "locked") {
+			t.Fatalf("outside open after the store's own reopen: %s, want refused as locked", got)
+		}
+	}
+}
+
+func driverConnOf(t *testing.T, s *Store) any {
+	t.Helper()
+	var dc any
+	if err := s.rawConn(t.Context(), func(c any) error { dc = c; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	return dc
+}
+
+// A read whose context ends mid-statement interrupts the connection; the
+// driver then reports it unusable and the pool opens another on the next
+// call. That is the store's own reopen, not an outside opener.
+func TestCancelledReadReopensTheConnectionAndTheStoreKeepsItsFile(t *testing.T) {
+	f := openRecoveryFixture(t)
+	if err := f.mutate(t, "before"); err != nil {
+		t.Fatal(err)
+	}
+	before := driverConnOf(t, f.store)
+	newest := f.head(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+	var n int64
+	if err := f.store.db.QueryRowContext(ctx, `WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM c) SELECT count(*) FROM c`).Scan(&n); err == nil {
+		t.Fatal("an endless read finished")
+	}
+	if driverConnOf(t, f.store) == before {
+		t.Fatal("the pool kept the interrupted connection; this test no longer reaches a reopen")
+	}
+	requireStoreStillOwnsItsFile(t, f, newest)
+}
+
+// A connection the driver reports bad is closed at once. The last close of
+// an exclusive connection folds and deletes the log, and the next call opens
+// a new connection with a new log.
+func TestBadConnectionReopensAndTheStoreKeepsItsFile(t *testing.T) {
+	f := openRecoveryFixture(t)
+	if err := f.mutate(t, "before"); err != nil {
+		t.Fatal(err)
+	}
+	newest := f.head(t)
+	wal, err := os.Stat(f.store.path + "-wal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.rawConn(t.Context(), func(any) error { return driver.ErrBadConn }); !errors.Is(err, driver.ErrBadConn) {
+		t.Fatalf("raw: %v", err)
+	}
+	if _, err := os.Stat(f.store.path + "-wal"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the closed connection left its log: %v", err)
+	}
+	requireStoreStillOwnsItsFile(t, f, newest)
+	if now, err := os.Stat(f.store.path + "-wal"); err != nil || os.SameFile(wal, now) {
+		t.Fatalf("the reopened connection writes the old log (%v); this test no longer reaches a new log", err)
+	}
+}
+
+// Between the pool's close and its reopen the store holds no lock. A process
+// that opens the file in that gap holds it, and the store's next write fails
+// closed instead of sharing the file.
+func TestOpenerInTheReopenGapMakesTheNextWriteFailClosed(t *testing.T) {
+	rec := &healthRecorder{t: t}
+	path := filepath.Join(privateTempDir(t), "daemon.db")
+	store, err := Open(t.Context(), Options{Path: path, BusyTimeout: 100 * time.Millisecond, CommitObserver: func(AuthorityHead) error { return nil }, HealthObserver: rec.observe})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	rec.store.Store(store)
+	f := &recoveryFixture{store: store, recorder: rec}
+	if err := f.mutate(t, "before"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.rawConn(t.Context(), func(any) error { return driver.ErrBadConn }); !errors.Is(err, driver.ErrBadConn) {
+		t.Fatalf("raw: %v", err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestCorestoreOutsideOpenerHelper$")
+	cmd.Env = append(os.Environ(), "CANARY_TEST_CORESTORE_OLD_BUILD="+path, "CANARY_TEST_CORESTORE_HOLD=1")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+	})
+	reader := bufio.NewReader(stdout)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("the opener did not get in during the gap: %v", err)
+		}
+		if strings.HasPrefix(line, helperLine) {
+			if _, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(line, helperLine)), 10, 64); err != nil {
+				t.Fatalf("the opener did not get in during the gap: %s", line)
+			}
+			break
+		}
+	}
+	if err := f.mutate(t, "after"); err == nil {
+		t.Fatal("a write was accepted while another process held the file")
+	}
+	if got := store.Health(); got.Ready || got.Code != "busy" {
+		t.Fatalf("health after a write beside an outside opener = %+v, want latched busy", got)
+	}
+}
+
+// One connection serves the store: a reader waits while a write transaction
+// is open, and never sees what that transaction has not committed. A
+// connection pinned outside the pool would run the reader inside the
+// transaction instead.
+func TestReaderWaitsForAnOpenWriteTransaction(t *testing.T) {
+	f := openRecoveryFixture(t)
+	before := f.head(t)
+	tx, err := f.store.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ExecContext(t.Context(), `UPDATE store_meta SET head_generation=head_generation+1000 WHERE singleton=1`); err != nil {
+		t.Fatal(err)
+	}
+	read := make(chan AuthorityHead, 1)
+	go func() {
+		head, _ := f.store.AuthorityHead(context.Background())
+		read <- head
+	}()
+	select {
+	case head := <-read:
+		t.Fatalf("a reader ran during an open write transaction and read generation %d", head.HeadGeneration)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if head := <-read; head != before {
+		t.Fatalf("reader after the rollback read %+v, want %+v", head, before)
+	}
+}
+
+// The proof that the index is private names what it found: an index file,
+// or a path it could not inspect.
+func TestIndexProofNamesWhatItFound(t *testing.T) {
+	dir := privateTempDir(t)
+	path := filepath.Join(dir, "daemon.db")
+	if err := requireIndexInMemory(path); err != nil {
+		t.Fatalf("no index file: %v", err)
+	}
+	if err := os.WriteFile(path+"-shm", nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := requireIndexInMemory(path); err == nil || !strings.HasSuffix(err.Error(), "daemon.db-shm exists") {
+		t.Fatalf("index file present: %v", err)
+	}
+	locked := filepath.Join(dir, "locked")
+	if err := os.Mkdir(locked, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(locked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	if err := requireIndexInMemory(filepath.Join(locked, "daemon.db")); err == nil || !errors.Is(err, os.ErrPermission) || strings.Contains(err.Error(), "<nil>") {
+		t.Fatalf("uninspectable path: %v", err)
 	}
 }

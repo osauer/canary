@@ -37,8 +37,13 @@ type Store struct {
 	readHead       func(context.Context) (AuthorityHead, error)
 	checkIntegrity func(context.Context) (IntegrityReport, error)
 
-	writeMu             sync.Mutex
-	lastObservedHead    AuthorityHead
+	writeMu          sync.Mutex
+	lastObservedHead AuthorityHead
+	// logMu guards the log as last seen through the store's connection, for
+	// LogChanged.
+	logMu               sync.Mutex
+	logConn             any
+	logFile             os.FileInfo
 	recoveryMinimumHead AuthorityHead
 	healthMu            sync.RWMutex
 	health              Health
@@ -200,7 +205,68 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 	store.checkIntegrity = func(ctx context.Context) (IntegrityReport, error) {
 		return checkIntegrityDB(ctx, store.db)
 	}
+	if _, err := store.LogChanged(ctx); err != nil {
+		return fail(fmt.Errorf("learn the authority's log: %w", err))
+	}
 	return store, nil
+}
+
+// logCheckWait bounds how long LogChanged waits for the store's connection,
+// which a long transaction may hold.
+const logCheckWait = 200 * time.Millisecond
+
+// LogChanged reports how daemon.db-wal stopped being the log this store's
+// connection writes: "removed" or "replaced", or "" when it is that log.
+//
+// The pool holds one connection and closes it when the driver reports it
+// unusable, as after an interrupted statement; the next call opens another.
+// The last close of an exclusive connection folds and deletes the log, so the
+// new connection starts a new one, and a changed log alone does not prove an
+// outside opener. LogChanged holds the pool's connection while it looks, so
+// no reopen can happen during the check, and compares it with the connection
+// it last saw: a new connection is the store's own reopen, and its log is
+// learned again. A changed log under the same connection is not the store's
+// doing. An error means the check could not run this time (the connection
+// was busy past logCheckWait, or the store is closed); it proves nothing.
+//
+// A reopen and an outside change between two checks read as the reopen.
+func (s *Store) LogChanged(ctx context.Context) (string, error) {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, logCheckWait)
+	defer cancel()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	var driverConn any
+	if err := conn.Raw(func(dc any) error { driverConn = dc; return nil }); err != nil {
+		return "", err
+	}
+	if driverConn != s.logConn {
+		// A new connection opens its log on its first read.
+		var objects int
+		if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM main.sqlite_schema`).Scan(&objects); err != nil {
+			return "", err
+		}
+		log, err := os.Stat(s.path + "-wal")
+		if err != nil {
+			return "", fmt.Errorf("inspect the authority's log: %w", err)
+		}
+		s.logConn, s.logFile = driverConn, log
+		return "", nil
+	}
+	log, err := os.Stat(s.path + "-wal")
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return "removed", nil
+	case err != nil:
+		return "", fmt.Errorf("inspect the authority's log: %w", err)
+	case !os.SameFile(s.logFile, log):
+		return "replaced", nil
+	}
+	return "", nil
 }
 
 func ensurePrivateParent(parent string) error {
@@ -279,10 +345,15 @@ func openAuthorityDB(ctx context.Context, path string, busy time.Duration) (*sql
 // requireIndexInMemory fails when path has a -shm file while this process
 // holds the authority open: the log's index is then shared, not private.
 func requireIndexInMemory(path string) error {
-	if _, err := os.Lstat(path + "-shm"); !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("the log's index is in a shared file, not in this process's memory: %s-shm (%v)", filepath.Base(path), err)
+	_, err := os.Lstat(path + "-shm")
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err == nil:
+		return fmt.Errorf("the log's index is in a shared file, not in this process's memory: %s-shm exists", filepath.Base(path))
+	default:
+		return fmt.Errorf("inspect %s-shm to prove the log's index is in this process's memory: %w", filepath.Base(path), err)
 	}
-	return nil
 }
 
 // shmDMSByte is SQLite's dead-man-switch byte in a -shm file,
