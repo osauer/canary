@@ -41,7 +41,7 @@ Account  U1234567 · base=HKD · live
 ```text
   LEG                           QTY         AVG        MARK  CHANGE / GREEKS             MKT VALUE     UNREAL P&L
   700
-  Stock                      500 sh  HKD 340.40  HKD 388.20  +HKD 1,100.00 (+0.57%)  HKD 194,100.00  HKD 23,900.00
+  Stock                      100 sh  HKD 352.60  HKD 401.80  +HKD 380.00 (+0.95%)     HKD 40,180.00   HKD 4,920.00
   D05
   Stock                     1000 sh   SGD 41.10   SGD 43.75  -SGD 250.00 (-0.57%)    SGD 43,750.00   SGD 2,650.00
   7203
