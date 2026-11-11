@@ -477,8 +477,8 @@ func TestOpenerInTheReopenGapMakesTheNextWriteFailClosed(t *testing.T) {
 		if err != nil {
 			t.Fatalf("the opener did not get in during the gap: %v", err)
 		}
-		if strings.HasPrefix(line, helperLine) {
-			if _, err := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(line, helperLine)), 10, 64); err != nil {
+		if after, ok := strings.CutPrefix(line, helperLine); ok {
+			if _, err := strconv.ParseInt(strings.TrimSpace(after), 10, 64); err != nil {
 				t.Fatalf("the opener did not get in during the gap: %s", line)
 			}
 			break
