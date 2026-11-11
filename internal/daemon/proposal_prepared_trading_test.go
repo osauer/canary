@@ -5,7 +5,6 @@ package daemon
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -231,16 +230,17 @@ func TestPreparedProposalRefusalsNeverCreateAnotherPreview(t *testing.T) {
 
 func TestPreparedProposalPersistenceFailureReturnsNoCapability(t *testing.T) {
 	rig, _, broker, _ := preparedTestRig(t)
-	path := rig.server.orderJournal.Path
-	db, err := sql.Open("sqlite", filepath.Join(filepath.Dir(path), "authority", filepath.Base(path)+".db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
-	// Fail only the new preparation insert, after the ordinary preview succeeds.
-	if _, err := db.Exec(`CREATE TRIGGER reject_test_preparation BEFORE INSERT ON state_documents
- WHEN NEW.kind='prepared_proposal_v1' BEGIN SELECT RAISE(ABORT, 'synthetic persistence failure'); END`); err != nil {
-		t.Fatal(err)
+	// Fail only the preparation's retention, after the ordinary preview has
+	// succeeded and been journaled: the preparation authority no longer
+	// matches the order authority, so it is not written. The daemon owns its
+	// store alone; a second connection cannot inject a write failure.
+	other := openTestCoreStore(t, filepath.Join(privateTestDir(t), "other.db"))
+	t.Cleanup(func() { _ = other.Close() })
+	preview := rig.server.orderPreviewWhatIf
+	rig.server.orderPreviewWhatIf = func(ctx context.Context, draft rpc.OrderDraft) (rpc.OrderWhatIfResult, error) {
+		out, err := preview(ctx, draft)
+		rig.server.coreStore = other
+		return out, err
 	}
 	prop := rig.engine.Snapshot(false).Proposals[0]
 	out, err := rig.engine.Prepare(t.Context(), rpc.TradeProposalPreviewParams{Key: prop.Key, Revision: prop.Revision})

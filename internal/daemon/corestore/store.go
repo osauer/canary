@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"modernc.org/sqlite"
@@ -112,19 +113,13 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 		return nil, fmt.Errorf("close authority file: %w", err)
 	}
 
-	dsn := sqliteDSN(path, timeout, false)
-	db, err := sql.Open("sqlite", dsn)
+	db, err := openAuthorityDB(ctx, path, timeout)
 	if err != nil {
-		return nil, fmt.Errorf("open sqlite authority: %w", err)
+		return nil, fmt.Errorf("connect sqlite authority: %w", err)
 	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
 	fail := func(err error) (*Store, error) {
 		_ = db.Close()
 		return nil, err
-	}
-	if err := db.PingContext(ctx); err != nil {
-		return fail(fmt.Errorf("connect sqlite authority: %w", err))
 	}
 	if err := verifyPragmas(ctx, db, timeout); err != nil {
 		return fail(err)
@@ -136,6 +131,9 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 		return fail(fmt.Errorf("startup integrity check: %w", err))
 	} else if !report.OK() {
 		return fail(fmt.Errorf("%w: %w", ErrDamaged, integrityFailure(report)))
+	}
+	if err := requireIndexInMemory(path); err != nil {
+		return fail(err)
 	}
 	var preMigrationVersion int
 	if err := db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&preMigrationVersion); err != nil {
@@ -225,6 +223,110 @@ func ensurePrivateParent(parent string) error {
 	return nil
 }
 
+// openAuthorityDB opens path read-write on one connection with the store's
+// pragmas and enters WAL with the log's index in this process's memory.
+//
+// SQLite keeps the index in the heap only when the connection is in exclusive
+// locking mode before it first uses the log. It then holds an exclusive lock on
+// the database file for the life of the connection, creates no -shm file, and
+// any other opener, read-only or not, is refused as locked. With the index in a
+// shared -shm instead, any process that opened or rebuilt that file could hand
+// this connection an older snapshot than it had committed, which the store saw
+// as lost writes although every commit was intact in the log.
+//
+// The driver applies _pragma values with busy_timeout first and the rest in
+// alphabetical order, so journal_mode would run before locking_mode. The DSN
+// therefore carries locking_mode and every other setting, none of which reads
+// the file, and WAL is entered here once the connection exists. WAL is recorded
+// in the file header, so a connection the pool opens again is in WAL too.
+//
+// An index file left by an earlier build is removed first, unless another
+// process holds it. After WAL is entered no -shm may exist; that, not the
+// locking_mode pragma, proves the index is private.
+func openAuthorityDB(ctx context.Context, path string, busy time.Duration) (*sql.DB, error) {
+	if err := removeIdleSharedIndex(path); err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", sqliteDSN(path, busy, false))
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	var journal string
+	if err := db.QueryRowContext(ctx, `PRAGMA journal_mode=WAL`).Scan(&journal); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("enter WAL: %w", err)
+	}
+	if strings.ToLower(journal) != "wal" {
+		_ = db.Close()
+		return nil, fmt.Errorf("enter WAL: got %q", journal)
+	}
+	// Entering WAL on a new file does not yet open the log; a read does, and
+	// takes the exclusive lock with it.
+	var objects int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM main.sqlite_schema`).Scan(&objects); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open the WAL: %w", err)
+	}
+	if err := requireIndexInMemory(path); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+// requireIndexInMemory fails when path has a -shm file while this process
+// holds the authority open: the log's index is then shared, not private.
+func requireIndexInMemory(path string) error {
+	if _, err := os.Lstat(path + "-shm"); !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("the log's index is in a shared file, not in this process's memory: %s-shm (%v)", filepath.Base(path), err)
+	}
+	return nil
+}
+
+// shmDMSByte is SQLite's dead-man-switch byte in a -shm file,
+// (22+SQLITE_SHM_NLOCK)*4+SQLITE_SHM_NLOCK. Every connection that uses the
+// file holds it shared.
+const shmDMSByte = 128
+
+// removeIdleSharedIndex removes path's -shm when no other process uses it. A
+// build that kept the index in that file leaves it behind; nothing reads it
+// once the index lives in memory, and leaving it would look like an outside
+// opener. A file another process holds is refused instead: that process has
+// the authority open, and the exclusive open would fail as locked anyway.
+// F_GETLK never reports this process's own locks, so the caller must have no
+// other connection open on path.
+func removeIdleSharedIndex(path string) error {
+	shm := path + "-shm"
+	info, err := os.Lstat(shm)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect authority index file: %w", err)
+	}
+	if info.Mode().IsRegular() {
+		f, err := os.Open(shm)
+		if err != nil {
+			return fmt.Errorf("inspect authority index file: %w", err)
+		}
+		lock := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0, Start: shmDMSByte, Len: 1}
+		lockErr := syscall.FcntlFlock(f.Fd(), syscall.F_GETLK, &lock)
+		_ = f.Close()
+		if lockErr != nil {
+			return fmt.Errorf("inspect authority index file lock: %w", lockErr)
+		}
+		if lock.Type != syscall.F_UNLCK {
+			return fmt.Errorf("corestore: another process (pid %d) has the authority open", lock.Pid)
+		}
+	}
+	if err := os.Remove(shm); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove the earlier index file: %w", err)
+	}
+	return syncDir(filepath.Dir(path))
+}
+
 func sqliteDSN(path string, busy time.Duration, readOnly bool) string {
 	u := &url.URL{Scheme: "file", Path: path}
 	q := u.Query()
@@ -234,7 +336,8 @@ func sqliteDSN(path string, busy time.Duration, readOnly bool) string {
 		q.Add("_pragma", "busy_timeout("+strconv.FormatInt(busy.Milliseconds(), 10)+")")
 		q.Set("_dqs", "0")
 	} else {
-		q.Add("_pragma", "journal_mode(WAL)")
+		// journal_mode(WAL) is set by openAuthorityDB, after locking_mode.
+		q.Add("_pragma", "locking_mode(EXCLUSIVE)")
 		q.Add("_pragma", "synchronous(FULL)")
 		q.Add("_pragma", "fullfsync(ON)")
 		q.Add("_pragma", "checkpoint_fullfsync(ON)")
@@ -255,6 +358,13 @@ func verifyPragmas(ctx context.Context, db *sql.DB, busy time.Duration) error {
 	}
 	if strings.ToLower(journal) != "wal" {
 		return fmt.Errorf("verify journal mode: got %q, want wal", journal)
+	}
+	var locking string
+	if err := db.QueryRowContext(ctx, `PRAGMA main.locking_mode`).Scan(&locking); err != nil {
+		return fmt.Errorf("verify locking mode: %w", err)
+	}
+	if strings.ToLower(locking) != "exclusive" {
+		return fmt.Errorf("verify locking mode: got %q, want exclusive", locking)
 	}
 	var synchronous, foreignKeys, busyMS, fullfsync, checkpointFullfsync, journalLimit int64
 	if err := db.QueryRowContext(ctx, `PRAGMA synchronous`).Scan(&synchronous); err != nil || synchronous != 2 {
@@ -461,8 +571,9 @@ func (s *Store) latchCritical(err error) bool {
 }
 
 // LatchDamaged blocks critical mutations because the owning process saw the
-// authority's files damaged outside SQLite's own errors, such as its shared
-// memory reset under the open connection. Only a reopen clears it.
+// authority's files changed outside SQLite's own errors, such as another
+// process opening the file after this one lost its lock. Only a reopen clears
+// it.
 func (s *Store) LatchDamaged(code string, cause error) {
 	s.notifyLatch(s.latchNoticeFor(s.latchHealth(code), cause))
 }

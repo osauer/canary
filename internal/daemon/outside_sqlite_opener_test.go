@@ -15,9 +15,9 @@ import (
 	"github.com/osauer/canary/v2/internal/daemon/corestore"
 )
 
-// TestAccountDataOutsideOpenerHelper is the outside process of
-// TestOutsideSQLiteOpenerIsNamed: it holds a read-only SQLite connection on
-// the database the parent names until its stdin closes.
+// TestAccountDataOutsideOpenerHelper is the outside process of the tests
+// below: it holds a read-only SQLite connection on the database the parent
+// names until its stdin closes, or prints why it could not open it.
 func TestAccountDataOutsideOpenerHelper(t *testing.T) {
 	path := os.Getenv("CANARY_TEST_OUTSIDE_SQLITE_DB")
 	if path == "" {
@@ -30,28 +30,16 @@ func TestAccountDataOutsideOpenerHelper(t *testing.T) {
 	defer db.Close()
 	var version int
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
-		t.Fatal(err)
+		fmt.Println("refused:", err)
+		return
 	}
 	fmt.Println("ready")
 	_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 }
 
-func TestOutsideSQLiteOpenerIsNamed(t *testing.T) {
-	path := filepath.Join(privateTestDir(t), "daemon.db")
-	store, err := corestore.Open(context.Background(), corestore.Options{Path: path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	var logs bytes.Buffer
-	s := &Server{coreStore: store, coreStorePath: path, logger: NewLogger(&logs, "warn")}
-
-	// The daemon's own connection is never reported.
-	s.checkOutsideSQLiteOpeners(t.Context())
-	if logs.Len() != 0 {
-		t.Fatalf("own connection reported: %s", logs.String())
-	}
-
+// startOutsideOpener runs the helper against path and returns its first line.
+func startOutsideOpener(t *testing.T, path string) (*exec.Cmd, string) {
+	t.Helper()
 	helper := exec.Command(os.Args[0], "-test.run=^TestAccountDataOutsideOpenerHelper$")
 	helper.Env = append(os.Environ(), "CANARY_TEST_OUTSIDE_SQLITE_DB="+path)
 	stdin, err := helper.StdinPipe()
@@ -70,16 +58,99 @@ func TestOutsideSQLiteOpenerIsNamed(t *testing.T) {
 		_ = helper.Wait()
 	})
 	line, err := bufio.NewReader(stdout).ReadString('\n')
-	if err != nil || strings.TrimSpace(line) != "ready" {
-		t.Fatalf("helper did not open the database: %q %v", line, err)
+	if err != nil {
+		t.Fatalf("helper printed nothing: %v", err)
 	}
+	return helper, strings.TrimSpace(line)
+}
 
+func openWatchedStore(t *testing.T) (*Server, *corestore.Store, string, *bytes.Buffer) {
+	t.Helper()
+	path := filepath.Join(privateTestDir(t), "daemon.db")
+	store, err := corestore.Open(context.Background(), corestore.Options{Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	var logs bytes.Buffer
+	s := &Server{coreStore: store, coreStorePath: path, logger: NewLogger(&logs, "warn")}
 	s.checkOutsideSQLiteOpeners(t.Context())
+	if logs.Len() != 0 || !store.Health().Ready {
+		t.Fatalf("own connection reported: %s %+v", logs.String(), store.Health())
+	}
+	return s, store, path, &logs
+}
+
+// An outside SQLite opener is refused while the daemon holds the store, and
+// there is nothing for the watch to report.
+func TestOutsideSQLiteOpenerIsRefused(t *testing.T) {
+	s, store, path, logs := openWatchedStore(t)
+	if _, line := startOutsideOpener(t, path); !strings.HasPrefix(line, "refused:") || !strings.Contains(line, "locked") {
+		t.Fatalf("outside opener: %q, want refused as locked", line)
+	}
+	s.checkOutsideSQLiteOpeners(t.Context())
+	if logs.Len() != 0 || !store.Health().Ready {
+		t.Fatalf("refused opener reported: %s %+v", logs.String(), store.Health())
+	}
+}
+
+// Commits, a full checkpoint and an online backup keep the log the same file
+// and create no index file, so the watch stays quiet, and the store still
+// holds its lock afterwards.
+func TestNormalWorkKeepsTheWatchQuietAndTheLockHeld(t *testing.T) {
+	s, store, path, logs := openWatchedStore(t)
+	ctx := t.Context()
+	write := func(kind string) {
+		t.Helper()
+		if _, err := store.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{ScopeKey: "watch", Kind: kind, JSON: []byte(`{}`)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 5 {
+		write(fmt.Sprintf("k%d", i))
+	}
+	s.checkOutsideSQLiteOpeners(ctx)
+	if result, err := store.Checkpoint(ctx); err != nil || result.Busy != 0 {
+		t.Fatalf("checkpoint = %+v %v", result, err)
+	}
+	if info, err := os.Stat(path + "-wal"); err != nil || info.Size() != 0 {
+		t.Fatalf("log after a full checkpoint: %v %v", info, err)
+	}
+	if _, err := store.Backup(ctx, filepath.Join(privateTestDir(t), "backup.db")); err != nil {
+		t.Fatal(err)
+	}
+	write("after")
+	s.checkOutsideSQLiteOpeners(ctx)
+	if logs.Len() != 0 || !store.Health().Ready {
+		t.Fatalf("normal work reported: %s %+v", logs.String(), store.Health())
+	}
+	if _, line := startOutsideOpener(t, path); !strings.HasPrefix(line, "refused:") {
+		t.Fatalf("outside opener after normal work: %q, want refused", line)
+	}
+}
+
+// Closing a descriptor of daemon.db in the daemon drops its exclusive lock.
+// An opener that then gets in creates daemon.db-shm: the watch latches the
+// store fail-closed, once, and names the process.
+func TestOpenerAfterTheLockIsLostLatchesAndIsNamed(t *testing.T) {
+	s, store, path, logs := openWatchedStore(t)
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+	helper, line := startOutsideOpener(t, path)
+	if line != "ready" {
+		t.Fatalf("helper did not open the database after the lock was dropped: %q", line)
+	}
+	s.checkOutsideSQLiteOpeners(t.Context())
+	if got := store.Health(); got.Ready || got.Code != "outside_opener" {
+		t.Fatalf("health after an outside open = %+v, want latched outside_opener", got)
+	}
 	want := fmt.Sprintf("another process (pid %d ", helper.Process.Pid)
 	if !strings.Contains(logs.String(), want) {
 		t.Fatalf("outside opener not named; logs: %s", logs.String())
 	}
-	// Once per process.
 	before := logs.Len()
 	s.checkOutsideSQLiteOpeners(t.Context())
 	if logs.Len() != before {
@@ -136,66 +207,18 @@ func TestRetiredMoneyFileIsRemovedAtStart(t *testing.T) {
 	}
 }
 
-// shmResetReason is checked on plain files: truncating a -shm under a live
-// SQLite connection would fault the test process the way it faulted the
-// daemon on 2026-10-29.
-func TestShmResetReasonNamesTruncationRemovalAndReplacement(t *testing.T) {
-	dir := privateTestDir(t)
-	path := filepath.Join(dir, "daemon.db-shm")
-	if err := os.WriteFile(path, make([]byte, shmFirstRegion), 0o600); err != nil {
+// A log replaced under the daemon, as an opener that checkpoints and removes
+// it leaves it, latches the store fail-closed and names the cause.
+func TestReplacedLogLatchesTheStore(t *testing.T) {
+	s, store, path, _ := openWatchedStore(t)
+	if err := os.Rename(path+"-wal", path+"-wal.moved"); err != nil {
 		t.Fatal(err)
 	}
-	held, err := os.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = held.Close() })
-	if got := shmResetReason(held, path); got != "" {
-		t.Fatalf("intact shm reported %q", got)
-	}
-	if err := os.Rename(path, path+".old"); err != nil {
-		t.Fatal(err)
-	}
-	if got := shmResetReason(held, path); got != "was removed" {
-		t.Fatalf("removed shm reported %q", got)
-	}
-	if err := os.WriteFile(path, make([]byte, shmFirstRegion), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := shmResetReason(held, path); got != "was replaced" {
-		t.Fatalf("replaced shm reported %q", got)
-	}
-	if err := os.Truncate(path+".old", 3); err != nil {
-		t.Fatal(err)
-	}
-	if got := shmResetReason(held, path); got != "was truncated to 3 bytes" {
-		t.Fatalf("truncated shm reported %q", got)
-	}
-}
-
-// A shared memory replaced under the daemon latches the store fail-closed,
-// once, and names the cause.
-func TestReplacedShmLatchesTheStore(t *testing.T) {
-	path := filepath.Join(privateTestDir(t), "daemon.db")
-	store, err := corestore.Open(context.Background(), corestore.Options{Path: path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	var logs bytes.Buffer
-	s := &Server{coreStore: store, coreStorePath: path, logger: NewLogger(&logs, "warn")}
-	s.checkOutsideSQLiteOpeners(t.Context())
-	if !store.Health().Ready {
-		t.Fatalf("intact store latched: %+v", store.Health())
-	}
-	if err := os.Rename(path+"-shm", path+"-shm.moved"); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path+"-shm", make([]byte, shmFirstRegion), 0o600); err != nil {
+	if err := os.WriteFile(path+"-wal", nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s.checkOutsideSQLiteOpeners(t.Context())
-	if got := store.Health(); got.Ready || got.Code != "shm_reset" {
-		t.Fatalf("health after the shm was replaced = %+v, want latched shm_reset", got)
+	if got := store.Health(); got.Ready || got.Code != "outside_opener" {
+		t.Fatalf("health after the log was replaced = %+v, want latched outside_opener", got)
 	}
 }

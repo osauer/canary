@@ -2,8 +2,8 @@
 // figures for the account-data gate (scripts/check-no-account-data.sh). It
 // asks the running daemon over its socket and never starts one: a commit hook
 // must not open a broker session. Nor does it open daemon.db, which only the
-// daemon may: an outside SQLite opener resets a live daemon's shared memory
-// if the daemon's lock on it is lost (crash of 2026-10-29).
+// daemon may: the daemon holds it exclusively, so an outside SQLite opener is
+// refused as locked.
 //
 // Output, one row per line:
 //

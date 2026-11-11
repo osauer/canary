@@ -199,6 +199,10 @@ func TestRestartedDaemonManagesAStopItsPredecessorPlacedThroughTheOtherApp(t *te
 	if row := onlyStopRow(t, before.srv, "127.0.0.1:7497"); row.PermID != crossPermID {
 		t.Fatalf("predecessor's row perm = %d, want %d", row.PermID, crossPermID)
 	}
+	// The predecessor stops before its successor opens the same authority.
+	if err := before.srv.coreStore.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	r := newStopGuardRigIn(t, config.Trading{}, dir, "", 4002, false)
 	reported := ibkrlib.ReportedOwnOrder{PermID: crossPermID, Account: "DU1234567", OrderRef: "ord-prot"}

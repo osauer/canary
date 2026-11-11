@@ -119,12 +119,19 @@ func copyPrivate(src, dst string) error {
 // rebuildInto copies the preserved damaged file into a fresh database at
 // target and checks it, returning the rebuildable documents it left behind.
 func rebuildInto(ctx context.Context, damaged, target string, minimum AuthorityHead, rebuildable func(string) bool) (map[string]int, error) {
-	db, err := sql.Open("sqlite", sqliteDSN(target, 5*time.Second, false))
+	db, err := openAuthorityDB(ctx, target, 5*time.Second)
 	if err != nil {
 		return nil, err
 	}
 	defer db.Close()
-	db.SetMaxOpenConns(1)
+	// The preserved copy is read-only and nothing else opens it; exclusive
+	// locking would ask for a write lock on it. Without a schema name the
+	// pragma sets the default for databases attached from here on; main,
+	// whose log openAuthorityDB already opened with the index in memory,
+	// keeps its exclusive lock.
+	if _, err := db.ExecContext(ctx, `PRAGMA locking_mode=NORMAL`); err != nil {
+		return nil, err
+	}
 	if _, err := db.ExecContext(ctx, `ATTACH DATABASE ? AS old`, "file:"+damaged+"?mode=ro"); err != nil {
 		return nil, fmt.Errorf("open the damaged authority: %w", err)
 	}

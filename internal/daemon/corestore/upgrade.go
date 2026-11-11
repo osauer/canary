@@ -442,13 +442,8 @@ func QuiesceForReplacement(ctx context.Context, opts QuiesceOptions) (Inspection
 	if err := validateReplacementSidecarTypes(path); err != nil {
 		return Inspection{}, err
 	}
-	db, err := sql.Open("sqlite", sqliteDSN(path, defaultBusyTimeout, false))
+	db, err := openAuthorityDB(ctx, path, defaultBusyTimeout)
 	if err != nil {
-		return Inspection{}, fmt.Errorf("open replacement source: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
 		return Inspection{}, fmt.Errorf("open replacement source: %w", err)
 	}
 	expected := opts.ExpectedHead
@@ -1088,13 +1083,8 @@ func migrateAndPublishUpgradeCandidate(
 	if compactPath != "" {
 		defer cleanupBackupTemp(compactPath)
 	}
-	db, err := sql.Open("sqlite", sqliteDSN(workPath, defaultBusyTimeout, false))
+	db, err := openAuthorityDB(ctx, workPath, defaultBusyTimeout)
 	if err != nil {
-		return upgradeCandidateBuild{}, fmt.Errorf("open upgrade working snapshot: %w", err)
-	}
-	db.SetMaxOpenConns(1)
-	if err := db.PingContext(ctx); err != nil {
-		_ = db.Close()
 		return upgradeCandidateBuild{}, fmt.Errorf("open upgrade working snapshot: %w", err)
 	}
 	if err := verifyPragmas(ctx, db, defaultBusyTimeout); err != nil {

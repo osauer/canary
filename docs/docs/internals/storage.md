@@ -205,7 +205,8 @@ dashboards, and alternate files cannot replace this durable safety evidence.
 
 A running WAL database may contain committed changes outside the main file.
 Copying `daemon.db` alone can therefore produce an inconsistent artifact. Keep
-`sqlite3`, Grafana, notebooks, ORMs, and other services away from the live file.
+`sqlite3`, Grafana, notebooks, ORMs, and other services away from the live file;
+while the daemon runs, SQLite refuses them as `database is locked`.
 
 For a new dashboard or analysis, define scope, row meaning, time basis,
 freshness, eligibility, ordering, pagination, and redaction first. Then add a
@@ -219,6 +220,29 @@ The store uses WAL, foreign keys, `synchronous=FULL`, supported full-fsync
 controls, a bounded busy timeout, and one serialized connection. Serial access
 keeps writer ordering simple. It also means an unbounded read can delay a
 broker-critical write, so production reads need limits and indexes.
+
+The connection runs in SQLite's exclusive locking mode, set before it first
+uses the WAL. SQLite then keeps the WAL's index in the daemon's memory instead
+of a shared `daemon.db-shm` file, and holds an exclusive lock on `daemon.db`
+until the daemon stops. Any other SQLite opener, read-only or not, is refused as
+`database is locked`, so none can hand the daemon an older or rebuilt index.
+Only an `immutable=1` open still succeeds; it reads the main file alone,
+ignores the WAL, and changes nothing. A shared index file did
+exactly that: the daemon read a snapshot a few commits older than it had just
+committed, and latched `lost_write` although every commit was intact in the
+WAL. A `daemon.db-shm` left by an earlier build is removed at startup. If
+another process still holds it, that process has the database open: the daemon
+does not start, and the `start:` line names the process. A killed
+daemon leaves its WAL and no index; the next start rebuilds the index from the
+WAL and reads every commit.
+
+The exclusive lock is a POSIX lock, so it lasts only while no descriptor of
+`daemon.db` in the daemon is closed. Once a second the daemon checks for the
+traces an opener would leave if the lock were lost: a `daemon.db-shm` appears,
+or the WAL is removed or replaced. Either latches broker writes with
+`outside_opener` until a restart, the log names any process holding the index
+file, and the files are copied to `damaged/outside-opener-<time>/` as for a
+lost write below.
 
 SQLite's automatic checkpoint copies the WAL back into `daemon.db` every 1,000
 pages while the daemon runs. A `journal_size_limit` of 64 MiB then truncates
@@ -300,10 +324,11 @@ order-ID floors must agree before writes resume.
 `canary status` reads `daemon_storage_unavailable` with `lost_write`, and the
 daemon log has a `persistence latched fail-closed (lost_write)` line naming the
 document, or saying the commit counter went back. The daemon keeps running for
-reads and places nothing until it restarts. The latch copies the database, WAL,
-shared memory and watermark to `damaged/lost-write-<time>/`, and the log names
-the folder; the next open folds the WAL into the database, so that copy is the
-only record of the page images.
+reads and places nothing until it restarts. The latch copies the database, WAL
+and watermark to `damaged/lost-write-<time>/`, and the log names the folder;
+the next open folds the WAL into the database, so that copy is the only record
+of the page images. The WAL's index lives in the daemon's memory and is not in
+the copy.
 
 Read that copy only with `sqlite3 "file:daemon.db?immutable=1"`. Opening it any
 other way can fold and empty its WAL too. Never open the live `daemon.db` with `sqlite3`. Confirm the

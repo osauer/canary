@@ -41,9 +41,8 @@ var held = holdings{source: holdingsUnavailable}
 
 // loadHoldings reads the account-data gate's private copy of the daemon's
 // positions, refreshed whenever the gate runs. The monitor never opens
-// daemon.db itself: an outside SQLite opener resets a live daemon's shared
-// memory if the daemon's lock on it is lost (crash of 2026-10-29). Without
-// the copy the list is unavailable.
+// daemon.db itself: the daemon holds it exclusively and an outside SQLite
+// opener is refused. Without the copy the list is unavailable.
 func loadHoldings(cache string) holdings {
 	if tickers, ok := cacheHoldings(cache); ok {
 		return newHoldings(holdingsFromCache, tickers)

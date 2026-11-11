@@ -18,7 +18,7 @@ func TestLostWriteEvidenceKeepsTheFilesAsTheLatchFoundThem(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	kept, err := preserveAuthorityEvidence(context.Background(), path, time.Date(2026, 11, 6, 16, 41, 25, 0, time.UTC))
+	kept, err := preserveAuthorityEvidence(context.Background(), path, "lost_write", time.Date(2026, 11, 6, 16, 41, 25, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}

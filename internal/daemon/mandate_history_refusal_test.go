@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/daemon/corestore"
 	"github.com/osauer/canary/v2/internal/marketcal"
 	"github.com/osauer/canary/v2/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
@@ -26,8 +27,14 @@ func TestMandateHistoryPermissionRefusalIsFinalForTheSession(t *testing.T) {
 	refused := true
 	reads := 0
 	var logs bytes.Buffer
+	var prev *corestore.Store
 	newServer := func() *Server {
+		// A restart closes the store first; the store owns its file alone.
+		if prev != nil {
+			_ = prev.Close()
+		}
 		core := openTestCoreStore(t, db)
+		prev = core
 		t.Cleanup(func() { core.Close() })
 		srv := &Server{now: func() time.Time { return now }, coreStore: core, logger: NewLogger(&logs, "debug")}
 		srv.mandateHistoryFetchForTest = func(_ context.Context, p rpc.MarketHistoryParams, _ int, at time.Time) (*rpc.MarketHistoryResult, error) {

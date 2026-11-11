@@ -125,9 +125,8 @@ fi
 #    hashed: the ticker space is small enough to brute-force. It is the
 #    running daemon's positions, option roots and underlyings included, read
 #    through scripts/account-data, which asks the daemon over its socket and
-#    never starts one. Nothing here opens daemon.db: an outside SQLite opener
-#    resets a live daemon's shared memory if the daemon's lock on it is lost,
-#    and the daemon crashed so on 2026-10-29. A private copy cached outside
+#    never starts one. Nothing here opens daemon.db: the daemon holds it
+#    exclusively and an outside SQLite opener is refused. A private copy cached outside
 #    the repo stands in when no daemon or broker data is reachable. With
 #    neither a store nor the copy (CI, contributor machines) the check skips
 #    with a notice; a store with neither fails instead: the owner's machine

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,32 +14,30 @@ import (
 	"github.com/osauer/canary/v2/internal/xdgcache"
 )
 
-// Only the daemon opens daemon.db with SQLite. An outside opener that finds no
-// lock on the -shm's DMS byte resets the shared memory to 3 bytes, and a
-// daemon still mapping it dies with SIGBUS: live 2026-10-29 21:29:45 CET,
-// after which one committed risk-capital save was missing. The daemon names
-// any process it finds holding the database open, so the next one is known.
+// Only the daemon opens daemon.db with SQLite. The store keeps the log's index
+// in the daemon's memory and holds an exclusive lock on the file, so any other
+// SQLite opener is refused as locked and no daemon.db-shm exists. That lock is
+// a POSIX lock: closing any descriptor of daemon.db in this process drops it.
+// An opener that then gets in leaves a trace the watch can see: it creates
+// daemon.db-shm, or it checkpoints and removes the log the daemon writes to.
+// Either way the daemon's index no longer describes the file, so the watch
+// latches the store fail-closed and names the process holding the index file.
 const (
 	// A minute let one-shot openers slip between checks; a second also
-	// bounds how long the daemon writes on after its shared memory is reset.
+	// bounds how long the daemon writes on after its lock is lost.
 	outsideOpenerCheckEvery = time.Second
-	// shmFirstRegion is the size SQLite gives daemon.db-shm on first use; an
-	// outside first opener truncates it to 3 bytes before rebuilding.
-	shmFirstRegion = 32 << 10
 	// shmDMSByte is SQLite's dead-man-switch lock byte in the -shm file,
-	// (22+SQLITE_SHM_NLOCK)*4+SQLITE_SHM_NLOCK. Every open connection holds
-	// it shared.
+	// (22+SQLITE_SHM_NLOCK)*4+SQLITE_SHM_NLOCK. Every connection using the
+	// file holds it shared.
 	shmDMSByte = 128
 )
 
-// outsideOpenerWatch is touched only by its loop.
+// outsideOpenerWatch is touched only by its loop. It holds no descriptor of
+// the store's files.
 type outsideOpenerWatch struct {
-	// shm stays open for the life of the process: closing any descriptor of
-	// daemon.db-shm drops every POSIX lock this process holds on it,
-	// SQLite's included.
-	shm    *os.File
-	warned map[int]bool
-	reset  bool
+	wal     os.FileInfo // the log as first seen with the store open
+	warned  map[int]bool
+	latched bool
 }
 
 func (s *Server) startOutsideOpenerWatch(ctx context.Context) {
@@ -77,57 +76,53 @@ func (s *Server) removeRetiredMoneyFile() {
 	}
 }
 
-// checkOutsideSQLiteOpeners warns once per process found holding a lock on
-// daemon.db-shm. F_GETLK never reports this process's own locks, so any
-// holder is another process with daemon.db open.
+// checkOutsideSQLiteOpeners latches the store once when another process has
+// got past its exclusive lock, and warns once per process found holding
+// daemon.db-shm. F_GETLK never reports this process's own locks, and the
+// daemon holds none on that file, so any holder is another process.
 func (s *Server) checkOutsideSQLiteOpeners(ctx context.Context) {
 	if s.coreStore == nil || s.coreStorePath == "" {
 		return
 	}
 	w := &s.outsideOpeners
-	if w.shm == nil {
-		f, err := os.Open(s.coreStorePath + "-shm")
-		if err != nil {
-			return
-		}
-		w.shm = f
+	if w.warned == nil {
 		w.warned = map[int]bool{}
 	}
-	if reason := shmResetReason(w.shm, s.coreStorePath+"-shm"); reason != "" && !w.reset {
-		w.reset = true
-		s.coreStore.LatchDamaged("shm_reset", fmt.Errorf("daemon.db-shm %s under the daemon's open connection; its next checkpoint could write stale pages", reason))
+	reason := ""
+	wal, err := os.Stat(s.coreStorePath + "-wal")
+	switch {
+	case err == nil && w.wal == nil:
+		w.wal = wal
+	case errors.Is(err, fs.ErrNotExist) && w.wal != nil:
+		reason = "daemon.db-wal was removed"
+	case err == nil && !os.SameFile(w.wal, wal):
+		reason = "daemon.db-wal was replaced"
 	}
-	lock := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0, Start: shmDMSByte, Len: 1}
-	if err := syscall.FcntlFlock(w.shm.Fd(), syscall.F_GETLK, &lock); err != nil {
-		return
+	shmPath := s.coreStorePath + "-shm"
+	if _, err := os.Lstat(shmPath); err == nil {
+		reason = cmp.Or(reason, "daemon.db-shm appeared")
+		s.nameIndexHolder(ctx, shmPath)
 	}
-	pid := int(lock.Pid)
-	if lock.Type == syscall.F_UNLCK || pid <= 0 || w.warned[pid] {
-		return
+	if reason != "" && !w.latched {
+		w.latched = true
+		s.coreStore.LatchDamaged("outside_opener", fmt.Errorf("%s while the daemon holds daemon.db exclusively: another process opened it, so the daemon's in-memory index may no longer match the file", reason))
 	}
-	w.warned[pid] = true
-	name := procinfo.Names(ctx, []int{pid})[pid]
-	s.warnf("daemon.db: another process (pid %d %s) has it open with SQLite; only the daemon may, because an outside opener resets the daemon's shared memory if the daemon's lock on it is lost (crash of 2026-10-29). Read account data through canary commands", pid, nonEmptyString(name, "unknown"))
 }
 
-// shmResetReason reports how daemon.db-shm stopped being the shared memory the
-// daemon's connection maps: truncated below SQLite's first region, as an
-// outside first opener does, or removed or replaced at its path. Empty means
-// intact.
-func shmResetReason(held *os.File, path string) string {
-	info, err := held.Stat()
+// nameIndexHolder warns once per process holding a lock on daemon.db-shm.
+func (s *Server) nameIndexHolder(ctx context.Context, shmPath string) {
+	f, err := os.Open(shmPath)
 	if err != nil {
-		return ""
+		return
 	}
-	if info.Size() < shmFirstRegion {
-		return fmt.Sprintf("was truncated to %d bytes", info.Size())
+	lock := syscall.Flock_t{Type: syscall.F_WRLCK, Whence: 0, Start: shmDMSByte, Len: 1}
+	lockErr := syscall.FcntlFlock(f.Fd(), syscall.F_GETLK, &lock)
+	_ = f.Close()
+	pid := int(lock.Pid)
+	if lockErr != nil || lock.Type == syscall.F_UNLCK || pid <= 0 || s.outsideOpeners.warned[pid] {
+		return
 	}
-	current, err := os.Stat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "was removed"
-	}
-	if err == nil && !os.SameFile(info, current) {
-		return "was replaced"
-	}
-	return ""
+	s.outsideOpeners.warned[pid] = true
+	name := procinfo.Names(ctx, []int{pid})[pid]
+	s.warnf("daemon.db: another process (pid %d %s) has it open with SQLite; only the daemon may. Read account data through canary commands", pid, nonEmptyString(name, "unknown"))
 }

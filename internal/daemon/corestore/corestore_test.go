@@ -328,11 +328,12 @@ func TestPreviewTokenSingleWinnerAndMonotonicFloors(t *testing.T) {
 	s, path := openTestStore(t)
 	ctx := context.Background()
 	scope := testScope("paper-primary")
-	s2, err := Open(ctx, Options{Path: path})
-	if err != nil {
-		t.Fatal(err)
+	// One store owns the file: a second handle is refused, so the race runs
+	// between goroutines of the one store.
+	if s2, err := Open(ctx, Options{Path: path, BusyTimeout: 50 * time.Millisecond}); err == nil {
+		_ = s2.Close()
+		t.Fatal("a second store opened an open authority")
 	}
-	defer s2.Close()
 	head, _ := s.AuthorityHead(ctx)
 	tokenID := "preview-concurrency"
 	digest := HashPreviewTokenID(tokenID)
@@ -345,11 +346,7 @@ func TestPreviewTokenSingleWinnerAndMonotonicFloors(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			event := orderEvent(scope, fmt.Sprintf("attempt-%d", i), tokenID, int64(100+i))
-			store := s
-			if i%2 == 1 {
-				store = s2
-			}
-			_, err := store.StagePreTransmit(ctx, PreTransmitRequest{Scope: scope, TokenDigest: digest, AuthorityEpoch: head.AuthorityEpoch, SignerGeneration: head.SignerGeneration, RequestedOrderIDFloor: int64(100 + i), ReservedOrderID: int64(100 + i), Action: ActionPlace, Origin: OriginAgentCLI, Events: []OrderEventRecord{event}})
+			_, err := s.StagePreTransmit(ctx, PreTransmitRequest{Scope: scope, TokenDigest: digest, AuthorityEpoch: head.AuthorityEpoch, SignerGeneration: head.SignerGeneration, RequestedOrderIDFloor: int64(100 + i), ReservedOrderID: int64(100 + i), Action: ActionPlace, Origin: OriginAgentCLI, Events: []OrderEventRecord{event}})
 			if err == nil {
 				wins.Add(1)
 			} else if errors.Is(err, ErrPreviewTokenConsumed) {
@@ -442,13 +439,20 @@ func TestIntegrityForeignKeyRefusalAndHealthLatch(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer s.Close()
-		locker := rawDB(t, path)
-		defer locker.Close()
-		if _, err := locker.Exec(`BEGIN IMMEDIATE`); err != nil {
+		// No other connection can hold the store's file, so the busy error
+		// is the one an outside opener gets, failing a mutation as SQLite
+		// would.
+		locker, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = s.CompareAndSwapStateDocument(t.Context(), StateDocumentCAS{ScopeKey: "x", Kind: "y", JSON: []byte(`{}`)})
-		if err == nil {
+		defer locker.Close()
+		var version int
+		busy := locker.QueryRow(`PRAGMA user_version`).Scan(&version)
+		if code, _ := criticalSQLiteCode(busy); code != "busy" {
+			t.Fatalf("outside open err=%v, want busy", busy)
+		}
+		if err := s.criticalMutation(t.Context(), func(*sql.Tx) error { return busy }); err == nil {
 			t.Fatal("busy mutation succeeded")
 		}
 		health := s.Health()
@@ -458,7 +462,6 @@ func TestIntegrityForeignKeyRefusalAndHealthLatch(t *testing.T) {
 		if health.RecoveryEligible {
 			t.Fatal("critical busy failure must not be eligible for in-process recovery")
 		}
-		_, _ = locker.Exec(`ROLLBACK`)
 		if recovered, err := s.RecoverTransientHeadWatermark(t.Context()); recovered || !errors.Is(err, ErrRecoveryNotEligible) {
 			t.Fatalf("critical busy recovery=(%v,%v), want not eligible", recovered, err)
 		}
@@ -492,12 +495,8 @@ func stageWithToken(t *testing.T, s *Store, scope BrokerScope, tokenID, eventKey
 
 func rawDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", sqliteDSN(path, defaultBusyTimeout, false))
+	db, err := openAuthorityDB(t.Context(), path, defaultBusyTimeout)
 	if err != nil {
-		t.Fatal(err)
-	}
-	db.SetMaxOpenConns(1)
-	if err := db.Ping(); err != nil {
 		t.Fatal(err)
 	}
 	return db
