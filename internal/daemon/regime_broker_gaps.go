@@ -54,8 +54,7 @@ func (g *regimeGaps) refusal(sym string) error {
 // regimeGapRows says, for each input a broker may refuse, which row it feeds,
 // what kind of data it is and the row's name for a reader.
 //
-// DRAFT wording, 2026-11-08: the words regimeGapWarnings builds reach every
-// regime reader and are the owner's to approve before this ships.
+// Wording approved by the owner on 2026-11-12 05:09 CET.
 var regimeGapRows = map[string]struct{ scope, kind, row string }{
 	"VIX":            {"vix_term_structure", "index quotes", "VIX term structure"},
 	"VIX3M":          {"vix_term_structure", "index quotes", "VIX term structure"},

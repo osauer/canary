@@ -14,8 +14,7 @@ import (
 // about in plain words, as the regime names its missing inputs; any other
 // error, a fault to retry, keeps its own text, as every row always has.
 //
-// DRAFT wording, 2026-11-09: the words built here reach every overview
-// reader and are the owner's to approve before this ships. Modelled on
+// Wording approved by the owner on 2026-11-12 05:09 CET. Modelled on
 // regimeGapWarnings.
 func marketRowError(kind broker.Kind, row rpc.MarketInstrument, err error) string {
 	refusal := brokerRefusal(err)
