@@ -419,8 +419,7 @@ func TestBadConnectionReopensAndTheStoreKeepsItsFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	newest := f.head(t)
-	wal, err := os.Stat(f.store.path + "-wal")
-	if err != nil {
+	if _, err := os.Stat(f.store.path + "-wal"); err != nil {
 		t.Fatal(err)
 	}
 	if err := f.store.rawConn(t.Context(), func(any) error { return driver.ErrBadConn }); !errors.Is(err, driver.ErrBadConn) {
@@ -430,8 +429,11 @@ func TestBadConnectionReopensAndTheStoreKeepsItsFile(t *testing.T) {
 		t.Fatalf("the closed connection left its log: %v", err)
 	}
 	requireStoreStillOwnsItsFile(t, f, newest)
-	if now, err := os.Stat(f.store.path + "-wal"); err != nil || os.SameFile(wal, now) {
-		t.Fatalf("the reopened connection writes the old log (%v); this test no longer reaches a new log", err)
+	// The old log is gone, so a log that exists now is a new file. Comparing
+	// inodes would not show that: a file system may give the new log the
+	// number the deleted one just freed.
+	if _, err := os.Stat(f.store.path + "-wal"); err != nil {
+		t.Fatalf("the reopened connection has no log (%v); this test no longer reaches a new log", err)
 	}
 }
 
