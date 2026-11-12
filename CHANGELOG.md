@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.36.0 — 2026-11-12 05:10 CET
+
+### What's new
+
+**What changes for Interactive Brokers users.** Positions, quotes, the regime, the market overview, and previews and orders on US, Xetra and London listings work as before. Four things differ:
+
+- Orders on Tokyo, Sydney, Hong Kong, Singapore and China A-share listings follow their own market's hours.
+- Hong Kong and Singapore orders go to their own exchange as plain limit orders.
+- No other program can open `daemon.db` while the daemon runs.
+- A request with a field the daemon does not know is refused.
+
+**One cause of orders stopping with `lost_write` is removed.** Sending orders could stop with `lost_write` in `canary status` until a restart, while the daemon log said a saved change was missing or the commit counter went back. A helper file beside the database, `daemon.db-shm`, which indexes the database's write-ahead log, had been replaced by an older copy, so the daemon read an older state than the one it had just saved. In the one case traced end to end nothing was lost, and the restart recovered every saved change. What replaced the file was not identified. The daemon now keeps that index in its own memory and holds `daemon.db` exclusively while it runs, so there is no `daemon.db-shm` left to replace.
+
+Because the daemon holds the file exclusively, another program normally cannot open it: `sqlite3` and similar tools get `database is locked`, and the daemon carries on. Backup and sync tools that only copy the files do not disturb it. In the rare case another program does get in, the daemon stops sending orders and `canary status` shows `outside_opener` until a restart. Orders already at the broker stay there; change or cancel them in TWS meanwhile, as `canary status` advises. The daemon then keeps a copy of its database files in `damaged/outside-opener-<time>/` in its state folder (`~/.local/state/ibkr/` by default). That copy contains your account data, so delete it when you are done with it. To read the database yourself, use `canary` commands or stop the daemon first. If you go back to v3.35.0, it opens the database this release wrote, also after a daemon stopped without closing, with every saved change.
+
+**Hong Kong and Singapore orders on IBKR.** These orders have not been tested on a live account, only against a simulated broker, so check the exchange, the order type and the price in the preview before you confirm. An order for an SEHK or SGX share, preview included, now goes to that listing's own exchange, because IBKR's SMART router, which picks an exchange for you, does not reach these listings. They go as plain limit orders. IBKR's Adaptive order type, which works the price for you, runs only through SMART, so asking for it on these listings is refused with the reason. While the market is closed, lunch break included, a preview Canary prices from a live quote is refused before anything goes to the broker, and the refusal gives the next opening time. A cross-currency order in HKD or SGD is checked against your per-order limit with a live quote from IDEALPRO, IBKR's currency market. Where IDEALPRO lists no pair (HKD or SGD against NZD or CHF, SGD against CAD), the order is refused and the preview says why.
+
+**Experimental: more of Canary works on OpenD, in part.** This has been tested only against a simulated OpenD, not a live login. On a daemon set to OpenD, the regime reads HYG and SPY from OpenD, but OpenD has no VIX term structure, USD/JPY or gamma, so with those three inputs missing its headline always reads "Market state undefined — data incomplete". Portfolio stress now runs from that regime. Its rows cover only the stocks and ETFs Canary analyses through OpenD, and its market context lacks the same three inputs, so its input health shows as degraded. The market overview shows prices for your held names and the US ETF references, marks the index and futures rows as missing, and draws no price history for OpenD rows. When your login lacks a market-data permission (OpenD calls it a quote right), the regime says which. Orders still cannot be sent through OpenD. `canary status` and the brief no longer list the regime and the market overview under "Not on OpenD". [Canary with moomoo and Futu](docs/docs/start/moomoo-opend.md) has the details.
+
+### Changed
+
+- Orders on Tokyo, Sydney, Hong Kong, Singapore and China A-share listings follow that market's hours. Before, their previews were checked against New York's hours, so one could be refused while its own market was open. Other listings outside the US, apart from Xetra and London, keep New York's hours as before.
+- The daemon refuses a request that carries a field its method does not declare, with `bad_request` and "decode params: json: unknown field". Before, the field was dropped and the request ran without it, so a misspelt filter or limit was silently ignored. Update the `canary` command, the MCP plugin and the daemon together, and check any scripts of your own that call the daemon.
+- At its first start after the update, the daemon removes the `daemon.db-shm` an earlier version left. If another program still has that file open, the daemon does not start and its `start:` line gives that program's process id: close the program and start the daemon again.
+- On OpenD, adding a market, option setups and a bond lookup now say they need Interactive Brokers, instead of reporting the OpenD connection as unavailable. The MCP tools pass on the daemon's reason for every request OpenD does not serve.
+
+### Security
+
+- Canary is built with Go 1.27.4, which fixes GO-2026-6859: an HTTP/1 server in Go's `net/http` can crash from a race when a request body goes over its size limit. In Canary that server is `canary app`, the server the paired phone app talks to, which listens on all network interfaces at port 8765 by default, so a device on your network could crash it. The daemon and the MCP server do not serve HTTP. Go before 1.26.11 and Go 1.27.0 to 1.27.3 are affected; `go version $(command -v canary)` shows which Go built your copy. Update to get the fix.
+
 ## v3.35.0 — 2026-11-07 17:02 CET
 
 ### What's new

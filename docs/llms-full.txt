@@ -1,6 +1,17 @@
 # Canary full context
 
-Updated: 2026-11-07 17:02 CET
+Updated: 2026-11-12 05:10 CET
+
+Version 3.36 keeps the index to the database's write-ahead log in the daemon's
+memory and holds daemon.db exclusively while it runs, so an older copy of
+that index file can no longer stop orders with lost_write; another program's
+open of daemon.db gets "database is locked". SEHK and SGX orders go to their
+own exchange as plain limit orders, on their market's hours, tested so far
+against a simulated broker only. On OpenD, still experimental, the regime,
+portfolio stress and the market overview work in part and mark the inputs
+OpenD cannot supply. The daemon refuses a request field its method does not
+declare. Canary is built with Go 1.27.4, which fixes GO-2026-6859 in the HTTP
+server of canary app.
 
 Version 3.35 keeps the index hedge available when a book has used all of its
 loss room: one rule now decides a sale, on the 10% fall and the 10% rise. A
