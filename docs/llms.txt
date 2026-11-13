@@ -66,7 +66,10 @@ decides a trade on its own.
   https://osauer.dev/canary/docs/operate/app.html
 - Go: `github.com/osauer/canary/v2` is the daemon client, `canarytest` its
   test double, `pkg/ibkr` the TWS wire protocol. The module stays on `/v2`;
-  product v3 tags do not change it. https://pkg.go.dev/github.com/osauer/canary/v2
+  product v3 tags do not change it. Get it at the tag of the release the
+  daemon runs, `go get github.com/osauer/canary/v2@canary--vX.Y.Z`; `@latest`
+  resolves to an older v2 tag without the daemon client, and pkg.go.dev shows
+  that tag.
 
 ## Install
 
