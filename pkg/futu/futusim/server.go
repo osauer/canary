@@ -90,6 +90,7 @@ type Server struct {
 	userInfoDelay  time.Duration
 	onFundsRead    func(currency string)
 	refusals       map[uint32]int
+	snapshotCodes  []string
 	forbidden      int
 	closed         bool
 
@@ -341,6 +342,14 @@ func (s *Server) Refusals(protoID uint32) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.refusals[protoID]
+}
+
+// SnapshotCodes is every code a snapshot request named, in arrival order,
+// whether the simulator answered it or refused it.
+func (s *Server) SnapshotCodes() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.snapshotCodes)
 }
 
 // ForbiddenFrames is how many frames arrived that must never arrive.

@@ -7,16 +7,17 @@ import (
 	"testing"
 
 	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/futu"
 	"github.com/osauer/canary/v2/pkg/futu/futusim"
 )
 
 // Dispatched under an OpenD daemon, market.snapshot prices the held names in
 // Hong Kong, the US and Singapore and the US ETF references from OpenD, and
 // names the index and futures rows OpenD does not carry without asking OpenD
-// for them. The overview reads partial, not refused.
+// for them. The overview reads partial, not refused. The book lists HYG as
+// OpenD does, and the regime's own refresh runs first, so its requests are on
+// the simulator beside the overview's.
 func TestOpenDMarketOverviewPricesWhatOpenDCarriesAndNamesTheRest(t *testing.T) {
-	sim := futusim.Start(t, futusim.Options{})
+	sim := regimeSimWithHYG(t)
 	for _, etf := range []struct {
 		code, name string
 		start      float64
@@ -29,7 +30,12 @@ func TestOpenDMarketOverviewPricesWhatOpenDCarriesAndNamesTheRest(t *testing.T) 
 	srv, stop := startOpenDServer(t, sim, opendTestAccount)
 	defer stop()
 	waitOpenDReady(t, srv)
+	refreshRegimeFromOpenD(t, srv, sim)
+	if !slices.Contains(sim.SnapshotCodes(), "US.HYG") {
+		t.Fatalf("the regime acquisition asked no HYG snapshot: %v", sim.SnapshotCodes())
+	}
 
+	before := len(sim.SnapshotCodes())
 	res := dispatchRaw(t, srv, rpc.MethodMarketSnapshot, `{}`)
 	if !res.Ok || res.Error != nil {
 		t.Fatalf("market.snapshot under OpenD: %+v", res.Error)
@@ -87,10 +93,19 @@ func TestOpenDMarketOverviewPricesWhatOpenDCarriesAndNamesTheRest(t *testing.T) 
 	}
 
 	// No request named an index or a future: a reference row is read as one
-	// snapshot on OpenD, the simulator lists no index or future, and it would
-	// have refused the snapshot that asked.
-	if n := sim.Refusals(futu.ProtoQotGetSecuritySnapshot); n != 0 {
-		t.Errorf("%d snapshot refusals, so a request named an instrument OpenD does not list", n)
+	// snapshot on OpenD, and the simulator lists no index or future. Every
+	// code named while the overview was asked is one the book lists, and the
+	// ETF references are among them, so these are the overview's requests.
+	asked := sim.SnapshotCodes()[before:]
+	for _, code := range asked {
+		if _, err := sim.Book().Instrument(code); err != nil {
+			t.Errorf("a snapshot request named %s, which OpenD does not list", code)
+		}
+	}
+	for _, code := range []string{"US.DIA", "US.GLD", "US.QQQ", "US.SPY"} {
+		if !slices.Contains(asked, code) {
+			t.Errorf("the overview asked OpenD for no %s snapshot: %v", code, asked)
+		}
 	}
 	t.Logf("OpenD overview: %d ETF references and %d held names priced, %d rows named as missing: %s", len(etfs), len(held), len(named), strings.Join(named, ", "))
 }

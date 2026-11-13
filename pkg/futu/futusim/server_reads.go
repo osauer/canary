@@ -363,6 +363,11 @@ func (s *Server) answerBasicQuotes(conn *simConn, secs []*qotcommon.Security) pr
 }
 
 func (s *Server) answerSnapshot(secs []*qotcommon.Security) proto.Message {
+	s.mu.Lock()
+	for _, sec := range secs {
+		s.snapshotCodes = append(s.snapshotCodes, securityCode(sec))
+	}
+	s.mu.Unlock()
 	if refusal := s.quoteRefusal("get", secs); refusal != nil {
 		return refusal
 	}

@@ -122,19 +122,45 @@ func TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp(t *testing.T) {
 }
 
 // The tape joins on IBKR contract ids, so collecting it under OpenD would spend
-// history quota and warn on every pass. It does not start.
+// history quota and warn on every pass. It does not start. The collector
+// decides during Start, before the daemon serves, and a collector that starts
+// first marks its archive as collecting; under OpenD the archive stays not
+// started. The regime's own refresh does draw OpenD history meanwhile, and
+// that is not the tape's.
 func TestMarketTapeCollectionDoesNotStartUnderOpenD(t *testing.T) {
 	sim := futusim.Start(t, futusim.Options{})
 	srv, stop := startOpenDServer(t, sim, opendTestAccount)
 	defer stop()
 	waitOpenDReady(t, srv)
-	time.Sleep(time.Second)
-	load, err := srv.opend.Connector().RefreshLoad(t.Context())
+	if srv.coreStore == nil {
+		t.Fatal("no core store: the collector would stay off for that reason alone")
+	}
+	refreshRegimeFromOpenD(t, srv, sim)
+
+	status, err := readTapeArchiveStatus(t.Context(), srv.coreStore)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if load.HistoryUsed != 0 {
-		t.Errorf("history quota spent at start: %d", load.HistoryUsed)
+	if status.Status != "not_started" {
+		t.Errorf("tape archive under OpenD: %+v, want not started", status)
+	}
+	if srv.marketTapeCollecting.Load() {
+		t.Error("a tape collection pass is running under OpenD")
+	}
+}
+
+// refreshRegimeFromOpenD runs one regime acquisition now, as the daemon's
+// background refresh does, so a test sees the regime's OpenD requests whatever
+// the loop's timing. It fails unless the acquisition drew OpenD history.
+func refreshRegimeFromOpenD(t *testing.T, srv *Server, sim *futusim.Server) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	if _, _, _, err := srv.acquireRegimeSnapshot(ctx); err != nil {
+		t.Fatalf("regime acquisition under OpenD: %v", err)
+	}
+	if used, _, drawn := sim.Book().HistoryUsage(); used == 0 {
+		t.Fatalf("the regime acquisition drew no OpenD history: %v", drawn)
 	}
 }
 
