@@ -51,7 +51,18 @@ trading build can submit (preview kept in the standard build by owner
 decision, 2026-10-20 13:30 CEST). MCP has no preview or execution
 tools in either build (see [README §Safety](README.md#safety-and-privacy)). The daemon listens only on a Unix-domain
 socket in the user's runtime directory, never on a TCP port. It speaks to a
-locally-running IB Gateway or TWS over loopback. The project sends no telemetry
+locally-running IB Gateway or TWS over loopback. `canary app`, the server the
+paired phone app talks to, is a separate process that runs only if you start it
+or install it with `canary setup app`, and it does listen on the network: plain HTTP on every network interface at port 8765 by
+default, so that a phone on the same network can reach it. Its data routes
+answer only a paired device, and pairing can only be started from the machine
+it runs on. Any device on the network can still reach
+the port, and the traffic is not encrypted: anyone who can observe that network
+can read the account data it carries and reuse a paired session. Run it only on
+a network you trust. `canary app --addr
+127.0.0.1:8765` (or `CANARY_APP_ADDR`) keeps it to the machine itself, at the
+cost that a phone can no longer reach it directly; an app installed with
+`canary setup app` takes its address from that setup. The project sends no telemetry
 or account data to the maintainer, but configured features do make outbound
 requests: in particular, automatic earnings refresh can disclose held ticker
 symbols to Nasdaq, and optional remote access carries app traffic through the

@@ -1,6 +1,6 @@
 # Canary with moomoo and Futu: experimental support
 
-Updated: 2026-11-11 20:30 CET
+Updated: 2026-11-13 04:30 CET
 
 Canary is a local tool that reads a brokerage account and reports on its positions
 and risk. It normally works with Interactive Brokers. It can also read a moomoo or
@@ -47,6 +47,21 @@ policy files, not yours.
   they count as not measured, and the checks against your limits say they can't
   judge them.
 
+## What works in part
+
+These three have been tested only against the simulator described below.
+
+- **The regime.** It reads HYG and SPY from OpenD. OpenD has no VIX term
+  structure, USD/JPY or gamma, so with those three inputs missing the headline
+  always reads "Market state undefined — data incomplete". When your login lacks a
+  quote right, the regime says which.
+- **Portfolio stress.** It runs from that regime. Its rows cover only the stocks
+  and ETFs Canary analyses through OpenD, and its market context lacks the same
+  three inputs, so its input health shows as degraded.
+- **The market overview.** It shows prices for your held names and the US ETF
+  references, marks the index and futures rows as missing, and draws no price
+  history for OpenD rows.
+
 ## What you don't get
 
 Placing orders, daily P&L, Edge (the review of past decisions), statement reporting
@@ -65,6 +80,7 @@ and reconciliation, the market tape and technical analysis, among others.
 | Quotes from any other market | Not tested with a quote right |
 | Reading balances, holdings, order and fill history | Simulator only |
 | Currency conversion | Simulator only; never compared with a real rate |
+| The regime, portfolio stress and the market overview | Simulator only |
 | Futu accounts, and moomoo accounts in Singapore and Hong Kong | Simulator only |
 
 Canary isn't affiliated with or endorsed by moomoo or Futu.

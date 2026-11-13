@@ -8,5 +8,7 @@ up to 20 — source: internal/rpc/watchlist.go WatchlistLimit = 20
 1, 5 and 20 sessions — source: internal/cli/edge.go horizons []int{1, 5, 20}
 15 idle minutes — source: internal/config/config.go IdleTimeout default 15m
 50- and 200-day averages — source: internal/breadth/spx/types.go WindowSize, WindowSize200
-19-rule — source: internal/risk/rulebook_margin.go (rule 19 is the last rule)
-19 rules — source: internal/risk/rulebook_margin.go (rule 19 is the last rule)
+20-rule — source: internal/risk/rulebook.go RuleIDs (rule 20, earnings_premium_freeze, is the last rule)
+20 rules — source: internal/risk/rulebook.go RuleIDs (rule 20, earnings_premium_freeze, is the last rule)
+twenty rules — source: internal/risk/rulebook.go RuleIDs (rule 20, earnings_premium_freeze, is the last rule)
+twenty discipline checks — source: internal/risk/rulebook.go RuleIDs (rule 20, earnings_premium_freeze, is the last rule)

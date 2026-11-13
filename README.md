@@ -147,9 +147,12 @@ cover your whole account.
 Holdings outside the account's base currency are converted at a rate worked out
 from OpenD's own account totals, not a quoted rate; where that is not possible they
 are not measured, and the checks against your limits report that they cannot judge
-them. Many features
-are not available, among them daily P&L, the regime, portfolio stress, Edge, statement
-reporting, the market overview, the market tape and technical analysis; `canary
+them. The regime,
+portfolio stress and the market overview answer in part, tested only against that
+stand-in: OpenD has no VIX term
+structure, USD/JPY or gamma, so the regime's headline always reads "Market state
+undefined — data incomplete". Many features are not available, among them daily
+P&L, Edge, statement reporting, the market tape and technical analysis; `canary
 status` lists most of them. [Canary with moomoo and Futu](docs/docs/start/moomoo-opend.md)
 has the details.
 

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Updated: 2026-11-07 07:48 CET
+Updated: 2026-11-13 04:30 CET
 
 Each section below starts from a symptom, names the cause and gives the fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected. For missing or degraded inputs, run `canary data health`.
 
@@ -183,6 +183,51 @@ It is not supposed to. The daemon takes a non-blocking exclusive `flock` on `ibk
 A socket file left behind by a crashed daemon is not a problem either. The new daemon dial-probes it: no answer means stale, and it is removed automatically. A live answer while the lock is held is the impossible case, and it fails loudly with `socket PATH already serving despite holding lock; refusing to evict`.
 
 To replace a running daemon deliberately, use `canary restart`. It stops the old process, starts a new one from the current binary, and reports gateway health.
+
+## `daemon authoritative storage reported lost_write; broker writes are blocked`
+
+`canary trading status` and order commands report `daemon_storage_unavailable`
+with this message; the code in it is `lost_write` or `outside_opener`. `canary
+status` shows `Subsystem issue: storage unavailable: authoritative persistence
+is latched fail-closed`. The daemon found that its database no longer matched
+what it had just saved, or that another program had opened the database, and it
+stopped sending orders rather than act on a state it cannot trust. Reading still
+works.
+
+- `lost_write`: the daemon saved a change and then read back an older state.
+- `outside_opener`: another program got past the daemon's lock on `daemon.db`,
+  which is rare.
+
+Either way, the stop holds until a restart:
+
+1. Orders already at the broker stay there. Change or cancel them in TWS or
+   another IBKR app meanwhile.
+2. Close any other program that has `daemon.db` open, such as a database browser
+   or a script.
+3. The daemon copies its database files to a folder under `damaged/` in its
+   state folder (`~/.local/state/ibkr/` by default). Wait until the daemon log,
+   `ibkr-daemon.log` in the same state folder, names that folder: a restart
+   before then loses the copy.
+4. Run `canary restart`, then `canary status`.
+
+The copy contains your account data, so delete it when you are done with it.
+[Storage](../internals/storage.md) explains both checks.
+
+## `database is locked` when another program opens `daemon.db`
+
+This is expected. The daemon holds `daemon.db` exclusively while it runs, so
+`sqlite3` and similar tools are refused and the daemon carries on. Backup and
+sync tools that only copy the files do not disturb it. To read the database
+yourself, use `canary` commands with `--json`, or stop the daemon first with
+`canary stop --daemon`.
+
+## `bad_request` with `decode params: json: unknown field`
+
+The daemon refuses a request that carries a field its method does not declare;
+the message names the field. The usual causes are a `canary` command or MCP
+plugin from a different version than the daemon, or a misspelt field in a script
+of your own that calls the daemon. Update the command, the plugin and the daemon
+together, run `canary restart`, and correct the field in your script.
 
 ## `CLI version X does not match daemon version Y`
 
