@@ -84,7 +84,7 @@ after past decisions, and how much evidence supports each row._
 | Ask an agent about the account | The MCP Bundle, or `canary mcp` from any local framework that can launch a stdio MCP server | Read-only tools; the MCP server has no order or preview tool |
 | Work in a terminal or script | `canary brief`, `canary positions --by underlying`, and `--json` | Every reading as text or JSON, from the same source as the app and the MCP tools |
 | Check the desk from a phone | `canary app`, then `canary app pair` | A paired web app on your phone; local by default, remote access optional |
-| Read Canary from your own Go program | `github.com/osauer/canary/v2`, the daemon client | The daemon's read methods over its local socket; its one submit method is served by a trading daemon only |
+| Read Canary from your own Go program | `github.com/osauer/canary/v2`, the daemon client, at your release's tag ([how](#go-wire-protocol-library)) | The daemon's read methods over its local socket; its one submit method is served by a trading daemon only |
 | Build directly on the TWS protocol | `github.com/osauer/canary/v2/pkg/ibkr` | A low-level transport; it carries no policy, authorisation or journal, those stay in your program |
 
 ## MCP hosts
@@ -170,6 +170,23 @@ broker requests only. Its API reference is on
 [pkg.go.dev](https://pkg.go.dev/github.com/osauer/canary/v2/pkg/ibkr), and its
 statement coverage is updated on each push to main as a
 [line-by-line report](https://osauer.dev/canary/coverage/pkg-ibkr.html).
+
+To use the daemon client or the current `pkg/ibkr` from your own Go program,
+get the module at the tag of the release your daemon runs (for `pkg/ibkr`
+alone, any current release tag), for example:
+
+```sh
+go get github.com/osauer/canary/v2@canary--v3.36.1
+```
+
+Use the `canary--` tag; Go refuses the plain `v3.36.1` tag for a `/v2` module.
+Your `go.mod` then records a version of the form `v2.8.5-0.<date>-<commit>`,
+which is expected. Take the client from the same release as the daemon: the
+daemon refuses a request with a field it does not know, so a newer client can
+be refused. `@latest` and `go get -u` move the module to the newest v2 tag,
+which is older than the daemon client and does not contain it. pkg.go.dev shows
+that older version too, so its `pkg/ibkr` reference describes v2.8.5, not your
+release.
 
 `go install github.com/osauer/canary/v2/cmd/canary@latest`
 installs the v2 CLI, not the current v3 release; use the installer for the

@@ -116,7 +116,10 @@ reconciliation are the caller's job. Start with the
 To read a running Canary instead, import the module root
 `github.com/osauer/canary/v2`. It runs the same read-only tool catalogue over
 the daemon socket, and `canarytest` serves the wire types on a temporary socket
-for tests. The Go module is on `/v2`. Canary itself ships as signed v3
+for tests. Get the module at the tag of the release your daemon runs,
+`go get github.com/osauer/canary/v2@canary--vX.Y.Z`: a client newer than the
+daemon can be refused, and `@latest` or `go get -u` moves the module to an older
+v2 tag that does not contain the client. The Go module is on `/v2`. Canary itself ships as signed v3
 binaries, so `go install github.com/osauer/canary/v2/cmd/canary@latest`
 installs the v2 CLI, not the current release ([Install](../start/install.md)).
 

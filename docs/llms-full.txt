@@ -270,7 +270,9 @@ canary setup claude-desktop
 
 The public Go module intentionally remains `github.com/osauer/canary/v2`: its
 root package is the daemon client, `canarytest` its test double, and `pkg/ibkr`
-the TWS wire protocol. Its semantic-version authority is the maintained v2 tag
+the TWS wire protocol. A Go program gets the client at the tag of the release
+its daemon runs, `go get github.com/osauer/canary/v2@canary--vX.Y.Z`, because
+the newest v2 tag is older than the client and does not contain it. The module's semantic versions come from the maintained v2 tag
 line. `go install github.com/osauer/canary/v2/cmd/canary@latest`
 therefore installs the newest compatible v2 module tag, not a root product v3
 tag. Product v3 users should use the installer or signed release assets.
