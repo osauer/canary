@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.36.1 — 2026-11-13 04:37 CET
+
+### What's new
+
+The documentation catches up with v3.36.0; the `canary` program behaves as it did in v3.36.0. Troubleshooting now covers orders stopped by a storage fault (`lost_write`, `outside_opener`), `database is locked` from another program, and a request refused for an unknown field. The README and the moomoo and Futu guide say that the regime, portfolio stress and the market overview answer in part on OpenD. SECURITY.md says that `canary app` listens on your network in unencrypted HTTP, and how to keep it to the machine itself.
+
+### Changed
+
+- Documentation only: troubleshooting, the README, the moomoo and Futu guide and SECURITY.md describe what v3.36.0 changed. No command, tool or setting behaves differently.
+
 ## v3.36.0 — 2026-11-12 05:10 CET
 
 ### What's new
