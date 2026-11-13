@@ -228,9 +228,15 @@ type mandateCut struct {
 	// leg's Euler share of the variance and riskCut the volatility the cut
 	// removes; gapLoss and gapCap a gap row's figures; sessions an expiry
 	// row's sessions to expiry.
-	loss         float64
-	value        float64
-	relief       float64
+	loss   float64
+	value  float64
+	relief float64
+	// paid is a bought option's premium at risk as the Rulebook counts the
+	// line, the higher of the price paid and its value: the cut order's
+	// measure of what the line has cost against what it is worth (owner
+	// 2026-11-03 10:51 CET). Zero for shares, and for an option whose
+	// figure cannot be read, which then ranks on its loss.
+	paid         float64
 	lossCut      float64
 	contribution float64
 	gapLoss      *float64
@@ -917,6 +923,8 @@ func (e *proposalEngine) mandateCandidates(policy protectionPolicy, in mandateRe
 		c := &mandateCut{id: leg.ID, leg: leg, row: row, full: full, step: 1}
 		if leg.Kind == mandate.KindStock {
 			c.step = mandateShareLot(full)
+		} else if paid, _, ok, _ := risk.PremiumAtRiskLeg(mandateOptionPremiumInput(row, in.Input.BaseCurrency)); ok {
+			c.paid = paid
 		}
 		out[leg.ID] = c
 	}
@@ -1036,7 +1044,7 @@ func mandateSizeBatchBy(verdictBook mandate.Input, candidates map[string]*mandat
 			// pass re-reads c.loss as what is left of the leg, which must not
 			// move its place (3 Nov: a leg cut in the gap phase and re-read
 			// as its remainder ranked last).
-			c.relief = mandateRelief(c.loss, c.value)
+			c.relief = mandateRelief(max(c.loss, c.paid), c.value)
 		}
 	}
 	for id := range candidates {
@@ -1208,17 +1216,30 @@ func (z *mandateSizer) sizeMain() {
 }
 
 // cheapestPremium picks the next premium cut: the leg still reducible that
-// removes the most of the loss measure per unit of market value given up
+// gives the cheapest relief per unit of market value given up
 // (owner 2026-11-03 10:51 CET; it replaces the 27 Oct order
 // of the largest premium per name). The batch then sells its cuts nearest
 // expiry first (mandateCheaperFirst). A deep out-of-the-money option, whose
 // premium at risk is its price paid while it is worth little, goes first;
 // a dated option worth about what it cost next; shares, whose loss to the
 // stop is a fraction of their value, last. Ties go to the larger loss.
+//
+// Since 2026-11-13 the loss measure counts an option at its value, so every
+// option removes its own value from the measure and that ratio no longer
+// tells one from another. The order therefore keeps the figure it was decided
+// on, the option's premium at risk over its value (mandateCut.paid), read
+// once on the verdict; a share line keeps its loss to the stop over its
+// value as it stands after each cut.
 func (z *mandateSizer) cheapestPremium(v mandate.Verdict, exhausted map[string]bool) *mandateCut {
 	legLoss, legValue := map[string]float64{}, map[string]float64{}
 	for _, rep := range v.Legs {
 		legLoss[rep.ID], legValue[rep.ID] = rep.LossBase, math.Abs(rep.ValueBase)
+	}
+	relief := func(c *mandateCut) float64 {
+		if c.paid > 0 {
+			return c.relief
+		}
+		return mandateRelief(legLoss[c.id], legValue[c.id])
 	}
 	var top *mandateCut
 	for _, id := range z.ids {
@@ -1226,7 +1247,11 @@ func (z *mandateSizer) cheapestPremium(v mandate.Verdict, exhausted map[string]b
 		if c.units >= c.full || exhausted[c.id] || legLoss[c.id] <= mandateReductionEpsilon {
 			continue
 		}
-		if top == nil || mandateCheaper(legLoss[c.id], legValue[c.id], legLoss[top.id], legValue[top.id]) {
+		if top == nil {
+			top = c
+			continue
+		}
+		if rc, rt := relief(c), relief(top); rc > rt || rc == rt && legLoss[c.id] > legLoss[top.id] {
 			top = c
 		}
 	}
@@ -1775,6 +1800,9 @@ func (e *proposalEngine) mandateReductionRow(policy protectionPolicy, status rpc
 			mandateOwnerStopSentence(v.OwnerStop, ccy), mandateSleeveName(c.sleeve), mandateMoney(v.OwnerStop.TargetUseBase, ccy), c.contribution)
 	default:
 		why = fmt.Sprintf("the cheapest relief left, %s in %s: %s of the loss measure for %s of value", c.leg.Underlying, mandateSleeveName(c.sleeve), mandateMoney(c.loss, ccy), mandateMoney(c.value, ccy))
+		if c.paid > 0 {
+			why = fmt.Sprintf("the cheapest relief left, %s in %s: premium at risk %s against %s of value", c.leg.Underlying, mandateSleeveName(c.sleeve), mandateMoney(c.paid, ccy), mandateMoney(c.value, ccy))
+		}
 	}
 	reason := fmt.Sprintf("%s; %s: %s; the full plan projects the loss measure to %s if all planned units fill", risk, why, order, mandateMoney(batch.lossAfter, ccy))
 	if batch.reached {

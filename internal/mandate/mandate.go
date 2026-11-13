@@ -90,14 +90,21 @@ type Leg struct {
 	// position row carries none): Evaluate fills it from Input.LineISINs.
 	ISIN string `json:"isin,omitempty"`
 	// LossPerUnitBase is the leg's share of the loss measure per unit held,
-	// in base currency (owner decision 2026-10-27 19:50 CET):
-	// for a bought option the premium at risk per contract, the higher of
-	// the price paid and today's value (rule 2's line figure); for a share
-	// line with an armed stop the cash loss to the stop per share. Zero for
-	// a short option and for shares without a stop, whose loss the measure
-	// does not bound. The daemon fills it from the position row and the
-	// open-order inventory.
+	// in base currency (owner decisions 2026-10-27 19:50 CET and 2026-11-13
+	// 05:00 CET): for a bought option today's value per contract, what the
+	// line can still lose (the loss already taken sits in the drawdown that
+	// shrank the room; the Rulebook's premium budget keeps the higher of
+	// the price paid and the value); for a share line with an armed stop
+	// the cash loss to the stop per share. Zero for a short option and for
+	// shares without a stop, whose loss the measure does not bound. The
+	// daemon fills it from the position row and the open-order inventory.
 	LossPerUnitBase float64 `json:"loss_per_unit_base,omitempty"`
+	// Protection marks a hedge-listed long put (owner decision 2026-11-13
+	// 05:00 CET): its value is reported as the measure's ProtectionBase and
+	// is not part of the loss measure, so a hedge never forces a sale of
+	// what it hedges. The hedge's own size rules and the premium budget
+	// still bound it.
+	Protection bool `json:"protection,omitempty"`
 	// LossUnknown says why a bought option's premium cannot be measured; set,
 	// the verdict is unknown.
 	LossUnknown string `json:"loss_unknown,omitempty"`
@@ -115,13 +122,16 @@ type Leg struct {
 // LossMeasure is the mandate's headline: what the book can
 // lose, as the owner measures it, against the loss the mandate still allows.
 type LossMeasure struct {
-	// TotalBase is PremiumBase + StopLossBase + IndexHedgeBase: the premium
-	// at risk on every bought option, the cash loss to the stop on every
-	// share line with an armed stop, and the loss of every held index future
-	// in the 10% index move against it, in base currency.
+	// TotalBase is PremiumBase + StopLossBase + IndexHedgeBase: today's
+	// value of every bought option that is not protection, the cash loss to
+	// the stop on every share line with an armed stop, and the loss of every
+	// held index future in the 10% index move against it, in base currency.
 	TotalBase    float64 `json:"total_base"`
 	PremiumBase  float64 `json:"premium_base"`
 	StopLossBase float64 `json:"stop_loss_base"`
+	// ProtectionBase is today's value of the hedge-listed long puts, named
+	// beside the measure and left out of TotalBase (Leg.Protection).
+	ProtectionBase float64 `json:"protection_base,omitempty"`
 	// IndexHedgeBase is the loss of the held index futures (the Reduce
 	// hedge) when the index moves IndexShockPct against them: a short loses
 	// in the rise, a long in the fall. A hedge spends loss room like every
@@ -227,6 +237,14 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 			reasons = append(reasons, fmt.Sprintf("%s: index hedge loss unmeasured: %s", l.Symbol, l.LossUnknown))
 			continue
 		}
+		if l.Kind == KindOption && l.Quantity > 0 && l.Protection {
+			// Named beside the measure, never in it; an unmeasured hedge
+			// leaves the measure of the rest known.
+			if l.LossUnknown == "" {
+				out.ProtectionBase += l.Quantity * l.LossPerUnitBase
+			}
+			continue
+		}
 		if l.Kind == KindOption && l.Quantity > 0 && l.LossUnknown != "" {
 			reasons = append(reasons, fmt.Sprintf("%s: premium at risk unmeasured: %s", l.Symbol, l.LossUnknown))
 			continue
@@ -276,6 +294,8 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 // legLoss is one leg's part of the loss measure, as measureLoss counts it.
 func legLoss(l Leg) float64 {
 	switch {
+	case l.Kind == KindOption && l.Protection:
+		return 0
 	case l.Kind == KindOption && l.Quantity > 0 && l.LossUnknown == "":
 		return l.Quantity * l.LossPerUnitBase
 	case l.Kind == KindStock:
@@ -421,8 +441,8 @@ type LegReport struct {
 	ContributionPct float64 `json:"contribution_pct"`
 	// Unknown names why the leg could not be priced; empty when it was.
 	Unknown string `json:"unknown,omitempty"`
-	// LossBase is the leg's part of the loss measure: its premium at risk,
-	// or the cash loss to its armed stop.
+	// LossBase is the leg's part of the loss measure: a bought option's
+	// value today, or the cash loss to its armed stop; zero for protection.
 	LossBase float64 `json:"loss_base,omitempty"`
 }
 

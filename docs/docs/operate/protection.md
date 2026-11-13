@@ -298,8 +298,11 @@ A reduction to budget is a discretionary-scale action, not a stop.
 
 When the risk policy carries a `[mandate]` table, the daemon compares the
 book's loss measure with the loss room the mandate still allows
-(`canary mandate`). The loss measure is the premium at risk on every bought
-option (the higher of the price paid and today's value, protection included),
+(`canary mandate`). The loss measure is today's value of every bought option,
+what it can still lose; a hedge-listed long put is protection, named beside
+the measure and left out of it, so a hedge never forces the sale of what it
+hedges (the Rulebook's premium budget still counts every bought option at the
+higher of the price paid and its value, protection included),
 plus the cash loss to the stop of every share line a working stop or trail
 covers, plus a held index-hedge future's loss in a 10% index move against it
 (or to its stop, when a working stop covers the whole line). A share line
@@ -323,9 +326,10 @@ Until the second verdict lands, the `mandate_reduction` status reads
 **Size.** Each verdict sizes the batch afresh, on the book that verdict
 measured. Canary cuts step by step and measures the book again after each
 cut: first a losing line of a name over its gap cap, then the premium at risk
-that is left. Each time it picks the cheapest relief, the cut that removes the
-most of the loss measure per unit of market value given up, so a deep
-out-of-the-money option goes before a dated one and both go before shares.
+that is left. Each time it picks the cheapest relief: the option whose premium
+at risk (the higher of the price paid and its value) is largest against what
+it is worth today, so a deep out-of-the-money option goes before a dated one,
+and both go before shares, whose loss to the stop is a fraction of their value.
 Each cut is the smallest whole step (contracts, or share lots) that takes the
 loss measure to 95% of the loss room with every gap cap met; the 5% margin
 keeps the next verdict from reading over by a hair. An in-the-money long

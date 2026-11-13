@@ -169,8 +169,8 @@ func mandateTestUngrouped(synaShares float64) *rpc.PositionsResult {
 // mandateTestPositionsOverLoss is the small stock fixture with bought calls
 // on two names, each line priced at its mark with the price paid beside it:
 // 18 SYNB calls (36,000 EUR of value, 32,400 paid) and 18 SYNA calls
-// (32,400 EUR of value, 35,640 EUR paid, in USD at 0.9), 71,640 EUR of
-// premium at risk against the 69,000 EUR loss room (30% of the 230,000 EUR
+// (35,640 EUR of value, 32,400 EUR paid, in USD at 0.9), 71,640 EUR at
+// today's value against the 69,000 EUR loss room (30% of the 230,000 EUR
 // budget base at full room). With the gap room at 100% no name breaches
 // its gap cap, so the loss measure alone reads reduce.
 func mandateTestPositionsOverLoss() *rpc.PositionsResult {
@@ -178,13 +178,13 @@ func mandateTestPositionsOverLoss() *rpc.PositionsResult {
 	iv := 0.3
 	fx := 0.9
 	bmv := 18 * 100 * 20.0
-	amv := 18 * 100 * 20.0 * fx
+	amv := 18 * 100 * 22.0 * fx
 	pos.Options = append(pos.Options,
 		rpc.PositionView{Symbol: "SYNB", SecType: rpc.SecTypeOption, ConID: 9005, Currency: "EUR", Quantity: 18, Multiplier: 100, Mark: 20, AvgCost: 1800,
 			MarketValue: bmv, MarketValueBase: &bmv, Expiry: "20270115", Strike: 80, Right: "C", IV: &iv, Underlying: new(80.0),
 			Delta: new(0.6), Gamma: new(0.02), Theta: new(-0.05), Vega: new(0.3)},
-		rpc.PositionView{Symbol: "SYNA", SecType: rpc.SecTypeOption, ConID: 9007, Currency: "USD", Quantity: 18, Multiplier: 100, Mark: 20, AvgCost: 2200, FXRate: &fx,
-			MarketValue: 18 * 100 * 20, MarketValueBase: &amv, Expiry: "20270115", Strike: 100, Right: "C", IV: &iv, Underlying: new(100.0),
+		rpc.PositionView{Symbol: "SYNA", SecType: rpc.SecTypeOption, ConID: 9007, Currency: "USD", Quantity: 18, Multiplier: 100, Mark: 22, AvgCost: 2000, FXRate: &fx,
+			MarketValue: 18 * 100 * 22, MarketValueBase: &amv, Expiry: "20270115", Strike: 100, Right: "C", IV: &iv, Underlying: new(100.0),
 			Delta: new(0.6), Gamma: new(0.02), Theta: new(-0.05), Vega: new(0.3)})
 	return mandateTestGrouped(pos)
 }
@@ -226,7 +226,7 @@ func TestMandateGateRefusesAdditionsOverBudget(t *testing.T) {
 	if math.Abs(res.Verdict.Loss.TotalBase-71640) > 1e-6 || math.Abs(res.Verdict.Loss.RoomBase-69000) > 1e-6 || res.Verdict.Loss.PremiumBase != res.Verdict.Loss.TotalBase {
 		t.Fatalf("loss %+v, want 71,640 EUR of premium against the 69,000 EUR room", res.Verdict.Loss)
 	}
-	if res.Gate == nil || !res.Gate.RefusesAdditions || !strings.Contains(res.Gate.Reason, "the loss measure 71,640 EUR (premium at risk 71,640 EUR, stop loss 0 EUR) is over the mandate's loss room 69,000 EUR (104%)") {
+	if res.Gate == nil || !res.Gate.RefusesAdditions || !strings.Contains(res.Gate.Reason, "the loss measure 71,640 EUR (options at today's value 71,640 EUR, stop loss 0 EUR) is over the mandate's loss room 69,000 EUR (104%)") {
 		t.Fatalf("gate %+v", res.Gate)
 	}
 	if nm := res.Verdict.NotModelled; len(nm) != 2 || !strings.Contains(nm[0], "bill") || !strings.Contains(nm[1], "share stops unread") || !strings.Contains(nm[1], "every share line counts as unstopped") {

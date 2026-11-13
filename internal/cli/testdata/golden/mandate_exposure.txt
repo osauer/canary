@@ -1,8 +1,9 @@
 # canary mandate · COLUMNS=80 · colour off
 Mandate  REDUCE
 Since · Sat 5 Sep 12:58 TZ · 1h 02m
-Loss · 131,000 EUR = premium at risk 48,000 EUR + loss to armed stops 83,000
-  EUR · 204% of the loss room 64,101 EUR · unstopped, counting nothing: SYNB
+Loss · 131,000 EUR = options at today's value 48,000 EUR + loss to armed stops
+  83,000 EUR · 204% of the loss room 64,101 EUR · unstopped, counting nothing:
+  SYNB
 Volatility · 95,880 EUR a year · 1-day swing 6,040 EUR · 99% expected
   shortfall 16,480 EUR · 299% of the sizing budget 32,050 EUR
 Loss room · 30% × 230,000 EUR at room 93% · loss 2% of the 30% maximum from
@@ -76,8 +77,9 @@ The mandate refuses stock and ETF additions while the loss measure is over the
 # canary mandate · COLUMNS=80 · colour on, ESC written as \x1b
 \x1b[1mMandate\x1b[0m  \x1b[31m\x1b[1mREDUCE\x1b[0m\x1b[0m
 Since · Sat 5 Sep 12:58 TZ · 1h 02m
-Loss · 131,000 EUR = premium at risk 48,000 EUR + loss to armed stops 83,000
-  EUR · 204% of the loss room 64,101 EUR · unstopped, counting nothing: SYNB
+Loss · 131,000 EUR = options at today's value 48,000 EUR + loss to armed stops
+  83,000 EUR · 204% of the loss room 64,101 EUR · unstopped, counting nothing:
+  SYNB
 Volatility · 95,880 EUR a year · 1-day swing 6,040 EUR · 99% expected
   shortfall 16,480 EUR · 299% of the sizing budget 32,050 EUR
 Loss room · 30% × 230,000 EUR at room 93% · loss 2% of the 30% maximum from

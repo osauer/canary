@@ -5,18 +5,20 @@ import (
 	"sort"
 )
 
-// Premium at risk is the one measure of what a long option book can lose:
-// per leg the higher of the price paid and today's value (rule 2's line
+// Premium at risk is the Rulebook's measure of what a long option book has
+// put at stake: per leg the higher of the price paid and today's value (rule 2's line
 // figure), summed per underlying and over the book, protection legs counted
 // since the owner's decision of 2026-10-27 19:52 CET ("Count it")
 // with their share named beside (rule 2's hedge tier and rule 12
 // still govern the hedge's own band). Rule 3 measures the book's total
 // against the premium budget; since the owner's decision of 2026-10-23
 // 18:22 CEST the same figures gate option additions (option_name_act_pct per
-// name, the premium budget's act level for the book), are served per name
-// on the mandate's exposure view and, since 2026-10-27, are the premium
-// part of the mandate's loss measure, so the gate, the page and the verdict
-// never disagree.
+// name, the premium budget's act level for the book) and are served per name
+// on the mandate's exposure view. From 2026-10-27 they were also the premium
+// part of the mandate's loss measure; since the owner's decision of
+// 2026-11-13 05:00 CET the loss measure counts an option at today's value
+// and leaves protection out (daemon mandate_loss.go), while the budget and
+// the buy gates keep these figures: a loss frees no room to buy.
 
 // PremiumAtRiskLeg is one long leg's premium at risk in base currency and
 // the note rule 3 carries for it. ok is false, with why, when the figure

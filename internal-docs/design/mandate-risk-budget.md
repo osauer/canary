@@ -1328,6 +1328,19 @@ loss measure against the maximum loss, not the
 book's yearly volatility against a volatility budget; and protection's
 premium counts in the premium budget ("Count it").
 
+Owner decision 2026-11-13 05:00 CET, on the review of that morning: the loss
+measure counts a bought option at today's value, and a hedge-listed long put
+is protection, named beside the measure (`loss.protection_base`,
+`mandate.Leg.Protection`) and left out of it. The price paid above the value
+is a loss already taken, so it sat in the drawdown that shrank the room and
+in the measure at once; and the puts' premium, which the reduction never
+sells, could exceed the room alone, so the batch sold every call well before
+the maximum loss. The premium budget, rule 2 and the option buy gates keep
+`risk.PremiumAtRiskLeg` with protection counted: a loss frees no room to
+buy. The cut order keeps the figure it was decided on, an option's premium
+at risk over its value (`mandateCut.paid`). The bullet below describes the
+measure as built on 2026-10-27.
+
 - **The loss measure** (`mandate.LossMeasure`, `verdict.loss`): every
   bought option at its premium at risk, the higher of the price paid and
   today's value in base currency, as rule 2 measures a line

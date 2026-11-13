@@ -90,10 +90,16 @@ func TestMandatePremiumGateCapsTheBook(t *testing.T) {
 	if e.Book.PremiumAtRiskBase == nil || math.Abs(*e.Book.PremiumAtRiskBase-103150) > 1e-6 || e.Book.HedgePremiumBase == nil || math.Abs(*e.Book.HedgePremiumBase-3150) > 1e-6 || e.Book.PremiumOver {
 		t.Fatalf("book premium %+v", e.Book)
 	}
-	// The verdict reads the same premium as its loss measure: over the
-	// 69,000 EUR loss room, so it reads reduce.
-	if v := res.Verdict; v.Status != mandate.StatusReduce || v.Loss == nil || math.Abs(v.Loss.PremiumBase-103150) > 1e-6 {
+	// The loss measure reads the calls at today's value, over the 69,000 EUR
+	// loss room, so the verdict reads reduce; the hedge put is protection,
+	// named beside the measure at its value and left out of it (owner,
+	// 2026-11-13 05:00 CET), while the premium budget above still counts it
+	// at the price paid.
+	if v := res.Verdict; v.Status != mandate.StatusReduce || v.Loss == nil || math.Abs(v.Loss.PremiumBase-100000) > 1e-6 || math.Abs(v.Loss.TotalBase-100000) > 1e-6 || math.Abs(v.Loss.ProtectionBase-3000) > 1e-6 {
 		t.Fatalf("verdict %s loss %+v", res.Verdict.Status, res.Verdict.Loss)
+	}
+	if !strings.Contains(res.Gate.Reason, "the loss measure 100,000 EUR (options at today's value 100,000 EUR, stop loss 0 EUR; protection 3,000 EUR is not counted)") {
+		t.Fatalf("gate reason %q", res.Gate.Reason)
 	}
 	names := map[string]rpc.MandateExposureRow{}
 	for _, n := range e.Names {

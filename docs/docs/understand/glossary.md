@@ -162,8 +162,8 @@ wider industry uses a word differently, the entry says so.
   IWM at dated, embedded weights and pools every other fund as
   "Funds (no look-through)". See [Concepts](concepts.md#portfolio-allocation).
 - **Loss measure:** what the book stands to lose by the mandate's count: the
-  premium at risk on every bought option (the higher of the price paid and
-  today's value, protection included), plus the cash loss to the stop of every
+  today's value of every bought option, what it can still lose (a hedge-listed
+  long put is protection: its value is named beside the measure and left out), plus the cash loss to the stop of every
   share line a working stop or trail covers, plus a held index-hedge future's
   loss in a 10% index move against it (or to its stop, when a working stop
   covers the whole line). A share line without a stop counts nothing and is

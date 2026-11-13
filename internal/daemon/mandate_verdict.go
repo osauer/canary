@@ -342,6 +342,7 @@ func (s *Server) evaluateMandate(ctx context.Context, refreshAccount bool) *rpc.
 		evidence.PositionsAsOf = pos.AsOf
 		var reasons []string
 		in.Legs, in.NotModelled, in.FXNow, reasons = mandateLegsFromPositions(pos, base, now)
+		mandateMarkProtection(in.Legs, s.rulebookPolicy())
 		// The share lines' stops, for the loss measure (mandate_loss.go).
 		stops, stopsWhy := s.mandateArmedStops(ctx, pos, scope)
 		var stopNote string
@@ -669,10 +670,15 @@ func mandateStatusSentence(v *mandate.Verdict, ccy string) string {
 }
 
 // mandateLossSentence states the loss measure against the loss room: "the
-// loss measure 140,000 EUR (premium at risk 120,000 EUR, stop loss 20,000
-// EUR) is over the mandate's loss room 69,000 EUR (203%)".
+// loss measure 140,000 EUR (options at today's value 120,000 EUR, stop loss
+// 20,000 EUR; protection 9,000 EUR is not counted) is over the mandate's
+// loss room 69,000 EUR (203%)".
 func mandateLossSentence(l *mandate.LossMeasure, ccy string) string {
-	sentence := fmt.Sprintf("the loss measure %s (premium at risk %s, stop loss %s) is over the mandate's loss room %s", mandateMoney(l.TotalBase, ccy), mandateMoney(l.PremiumBase, ccy), mandateMoney(l.StopLossBase, ccy), mandateMoney(l.RoomBase, ccy))
+	parts := fmt.Sprintf("options at today's value %s, stop loss %s", mandateMoney(l.PremiumBase, ccy), mandateMoney(l.StopLossBase, ccy))
+	if l.ProtectionBase > 0 {
+		parts += fmt.Sprintf("; protection %s is not counted", mandateMoney(l.ProtectionBase, ccy))
+	}
+	sentence := fmt.Sprintf("the loss measure %s (%s) is over the mandate's loss room %s", mandateMoney(l.TotalBase, ccy), parts, mandateMoney(l.RoomBase, ccy))
 	if l.RoomBase > 0 && !math.IsInf(l.RatioToRoom, 0) {
 		sentence += fmt.Sprintf(" (%.0f%%)", l.RatioToRoom*100)
 	} else if !(l.RoomBase > 0) {

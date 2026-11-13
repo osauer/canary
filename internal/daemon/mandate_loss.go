@@ -12,14 +12,23 @@ import (
 	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
 )
 
-// The loss measure's inputs (owner decision 2026-10-27
-// 19:50–19:52 CET): every bought option counts at its premium at risk, the
-// higher of the price paid and today's value as rule 2 measures a line
-// (risk.PremiumAtRiskLeg), protection included (the owner: "Count it"); a
-// share line counts at the cash loss to its stop while a stop or trail works
-// for it at the broker, and is named as unstopped otherwise. The evaluator
-// sums the figures per leg (mandate.Leg.LossPerUnitBase) and judges them
-// against the loss room; nothing here reads the broker on the order path.
+// The loss measure's inputs (owner decisions 2026-10-27 19:50–19:52 CET and
+// 2026-11-13 05:00 CET): every bought option counts at today's value, what
+// it can still lose; a share line counts at the cash loss to its stop while
+// a stop or trail works for it at the broker, and is named as unstopped
+// otherwise. A hedge-listed long put is protection: its value is named
+// beside the measure and stays out of it (mandateMarkProtection). The
+// evaluator sums the figures per leg (mandate.Leg.LossPerUnitBase) and
+// judges them against the loss room; nothing here reads the broker on the
+// order path.
+//
+// Until 2026-11-13 an option counted at the higher of the price paid and its
+// value, protection included. The loss already taken then counted twice,
+// once in the drawdown that shrank the room and again in the measure, and
+// the puts' premium alone could exceed the room, so the forced reduction
+// sold every call well before the maximum loss. The Rulebook's premium
+// budget and the option buy gates keep the price-paid figure
+// (risk.PremiumAtRiskLeg): a loss frees no room to buy.
 
 // mandateArmedStop is one working stop or trail on a share line as the
 // open-order inventory shows it: the price it triggers at, in the line's
@@ -53,19 +62,35 @@ func mandateOptionPremiumInput(row rpc.PositionView, base string) risk.LegInput 
 	return leg
 }
 
-// mandateOptionLoss fills a bought option's loss per contract from its row;
-// a short leg carries none. An unmeasurable premium is named on the leg and
-// makes the verdict unknown: nothing passes unmeasured.
+// mandateOptionLoss fills a bought option's loss per contract from its row:
+// its value today. A short leg carries none. A row without a value counts at
+// the price paid, since a worthless line and an unmarked one read alike. An
+// unmeasurable figure is named on the leg and makes the verdict unknown:
+// nothing passes unmeasured.
 func mandateOptionLoss(leg *mandate.Leg, row rpc.PositionView, base string) {
 	if row.Quantity <= 0 {
 		return
 	}
-	atRisk, _, ok, why := risk.PremiumAtRiskLeg(mandateOptionPremiumInput(row, base))
+	in := mandateOptionPremiumInput(row, base)
+	loss, _, ok, why := risk.PremiumAtRiskLeg(in)
 	if !ok {
 		leg.LossUnknown = why
 		return
 	}
-	leg.LossPerUnitBase = atRisk / row.Quantity
+	if value := math.Abs(in.MarketValueBase); value > 0 {
+		loss = value
+	}
+	leg.LossPerUnitBase = loss / row.Quantity
+}
+
+// mandateMarkProtection marks every hedge-listed long put as protection, the
+// puts the forced reduction never sells (mandateHedgePut): the loss measure
+// names their value beside it and leaves it out.
+func mandateMarkProtection(legs []mandate.Leg, pol risk.RulebookPolicy) {
+	for i := range legs {
+		l := &legs[i]
+		l.Protection = l.Kind == mandate.KindOption && l.Quantity > 0 && l.Right == "P" && pol.IsHedgeSymbol(l.Underlying)
+	}
 }
 
 // mandateArmedStops reads the stops that bound the held share lines from
