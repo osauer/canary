@@ -49,7 +49,8 @@ protection policy writes `bills_exempt_from_trading_max_notional = true`, and
 then only up to the sweep's own order cap in force, for a same-currency bill
 with no conversion ([Reserve and order sizing](../operate/cash.md#reserve-and-order-sizing)).
 A close or reduction that lowers the absolute net delta of its underlying and
-of the whole book, and leaves no short option uncovered, passes the notional
+of the book (measured without its hedge-listed long puts, unless the order
+sells one), and leaves no short option uncovered, passes the notional
 cap and the option-contract cap: the daemon measures every equity and option leg with the position
 deltas its risk verdicts use, at preview and again at admission, reads the
 open-order inventory so the order and every other working order in its

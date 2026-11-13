@@ -923,12 +923,12 @@ func TestMandateReductionSellsTheNearestExpiryFirst(t *testing.T) {
 	}
 }
 
-// An option cut is held to [order_limits].max_option_contracts like the
-// money caps: the order gate admits more only as a delta-reducing exit, and
-// selling long calls in a book that leans short raises its absolute delta,
-// so a cut sized to the money caps alone was refused at every send
-// (2026-11-03 16:39 CET: 18 contracts against the cap of 5). A kept order
-// above the contract cap is not kept.
+// An option cut the order gate does not admit as a delta-reducing exit (here
+// no gate test is given) is held to [order_limits].max_option_contracts like
+// the money caps: a cut sized to the money caps alone was refused at every
+// send (2026-11-03 16:39 CET: 18 contracts against the cap of 5). A kept
+// order above the contract cap is not kept. The admitted case is
+// TestMandateCycleQuantityFollowsTheOrderGate.
 func TestMandateCycleQuantityHoldsAnOptionToTheContractCap(t *testing.T) {
 	t.Parallel()
 	row := mandateReductionCall("SYNA", 9701, 150, 100, 100, 10, "20270115")

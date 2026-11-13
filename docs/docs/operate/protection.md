@@ -335,9 +335,12 @@ loss measure to 95% of the loss room with every gap cap met; the 5% margin
 keeps the next verdict from reading over by a hair. An in-the-money long
 option within three sessions of expiry is cut first only when its exercise
 alone would push the planned book over the room. Every row is held to the
-order caps in force (`[order_limits]` and `[buckets.risk_reduction]
-max_order_notional`, and `[order_limits].max_option_contracts` for an option);
-what a cap holds back goes in the next cycle.
+money caps in force (`[order_limits]` and `[buckets.risk_reduction]
+max_order_notional`). An option row is held to
+`[order_limits].max_option_contracts` as well unless the order gate would pass
+it as an [order that reduces delta](../understand/policy.md#order-limits),
+which a sale of a bought call normally is; what a cap holds back goes in the
+next cycle.
 
 **What it never does.** It never buys back a short option, and never sells
 the shares that cover one: a covered position needs your hand, and the status
@@ -778,8 +781,9 @@ order cap and the short check refuse the stop. A modify that only lowers the qua
 stop is exempt on the same terms without the third condition, because it can
 only shrink what is already working. Every other order keeps the short
 re-read. The notional cap and `[order_limits].max_option_contracts` also pass
-any close or reduction that lowers its underlying's absolute delta, a stock
-sale, an option close or a strategy close alike
+any close or reduction that lowers the absolute delta of its underlying and of
+the book without its protection puts, a stock sale, an option close or a
+strategy close alike
 ([Order limits](../understand/policy.md#order-limits)); an order
 whose delta cannot be measured keeps both caps.
 

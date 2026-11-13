@@ -90,9 +90,11 @@ type PolicyCheckPosition struct {
 // uncovered; deltaReductionEvidence.judge), whether that can be known at
 // all (every line of the book needs a measured delta, else the gate fails
 // closed and so does this), and the reason when it does not pass or cannot
-// be known, in the gate's own words. The working-order inventory, a
+// be known, in the gate's own words. As at the gate, the book leaves pol's
+// protection puts out unless the line is one of them (owner decision
+// 2026-11-13 12:27 CET, delta_reduction.go). The working-order inventory, a
 // point-in-time matter, is not part of the check.
-func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units float64) (lowers, known bool, why string) {
+func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units float64, pol risk.RulebookPolicy) (lowers, known bool, why string) {
 	const unmeasured = "its delta, or that of another line in the book, cannot be measured"
 	if b == nil || p.Underlying == "" || p.ConID <= 0 || p.Quantity == 0 || units <= 0 {
 		return false, false, unmeasured
@@ -100,12 +102,20 @@ func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units f
 	if len(b.UnmeasuredLines) > 0 {
 		return false, false, b.UnmeasuredLines[0]
 	}
+	protection := func(q PolicyCheckPosition) bool {
+		return q.Kind == policyCheckKindOption && q.Quantity > 0 && q.Right == "P" && pol.IsHedgeSymbol(q.Underlying)
+	}
+	sellsProtection := protection(p)
 	ev := deltaReductionEvidence{Underlying: p.Underlying, BaseCurrency: b.BaseCurrency, Legs: map[int]deltaReductionLeg{}, Cover: deltaCoverage{Shares: map[int]float64{}}}
 	for _, q := range b.Positions {
 		if q.DollarDeltaBase == nil || q.Quantity == 0 {
 			return false, false, unmeasured
 		}
-		ev.BookBefore += *q.DollarDeltaBase
+		if !sellsProtection && protection(q) {
+			ev.ProtectionLeftOut += *q.DollarDeltaBase
+		} else {
+			ev.BookBefore += *q.DollarDeltaBase
+		}
 		if q.Underlying != p.Underlying {
 			continue
 		}

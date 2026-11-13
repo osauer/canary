@@ -276,7 +276,7 @@ func deltaTestPositions() *rpc.PositionsResult {
 func TestMeasureDeltaReductionReadsTheDaemonsDeltas(t *testing.T) {
 	t.Parallel()
 	sell := deltaTestStockDraft(rpc.OrderActionSell, 400)
-	ev := measureDeltaReduction(deltaTestPositions(), deltaTestScope, sell)
+	ev := measureDeltaReduction(deltaTestPositions(), deltaTestScope, sell, risk.RulebookPolicy{})
 	if !ev.Current || ev.NetBefore != 110400 || ev.BaseCurrency != "EUR" || ev.Legs[deltaTestStock] != (deltaReductionLeg{Quantity: 1000, UnitBase: 120}) {
 		t.Fatalf("measurement = %+v, want net 110,400 EUR and the stock leg", ev)
 	}
@@ -284,7 +284,7 @@ func TestMeasureDeltaReductionReadsTheDaemonsDeltas(t *testing.T) {
 		t.Fatalf("stock sale: exempt %v %q, want exempt", ok, why)
 	}
 	puts := deltaTestOptionDraft(deltaTestLongPuts, "P", rpc.OrderActionSell, 10)
-	ev = measureDeltaReduction(deltaTestPositions(), deltaTestScope, puts)
+	ev = measureDeltaReduction(deltaTestPositions(), deltaTestScope, puts, risk.RulebookPolicy{})
 	if !ev.Current || ev.Legs[deltaTestLongPuts] != (deltaReductionLeg{Quantity: 10, UnitBase: -4800}) {
 		t.Fatalf("put measurement = %+v", ev)
 	}
@@ -322,7 +322,7 @@ func TestMeasureDeltaReductionReadsTheDaemonsDeltas(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			pos := deltaTestPositions()
 			tc.edit(pos)
-			ev := measureDeltaReduction(pos, deltaTestScope, tc.draft)
+			ev := measureDeltaReduction(pos, deltaTestScope, tc.draft, risk.RulebookPolicy{})
 			if ev.Current || !strings.Contains(ev.Reason, tc.reason) {
 				t.Fatalf("measurement = %+v, want not current with %q", ev, tc.reason)
 			}
@@ -331,7 +331,7 @@ func TestMeasureDeltaReductionReadsTheDaemonsDeltas(t *testing.T) {
 			}
 		})
 	}
-	if ev := measureDeltaReduction(nil, deltaTestScope, sell); ev.Current || ev.Reason != "Canary has no current positions; preview again" {
+	if ev := measureDeltaReduction(nil, deltaTestScope, sell, risk.RulebookPolicy{}); ev.Current || ev.Reason != "Canary has no current positions; preview again" {
 		t.Fatalf("nil positions = %+v", ev)
 	}
 }
@@ -350,7 +350,7 @@ func TestMeasureDeltaReductionGroupsBySymbolAsTheDaemonDoes(t *testing.T) {
 	}
 	puts := deltaTestOptionDraft(deltaTestLongPuts, "P", rpc.OrderActionSell, 10)
 	puts.Contract.Symbol = "SYNC1"
-	ev := measureDeltaReduction(pos, deltaTestScope, puts)
+	ev := measureDeltaReduction(pos, deltaTestScope, puts, risk.RulebookPolicy{})
 	// Options alone: −48,000 + 38,400 + 48,000 − 48,000 = −9,600.
 	if !ev.Current || ev.Underlying != "SYNC1" || ev.NetBefore != -9600 {
 		t.Fatalf("adjusted-option measurement = %+v, want the option lines alone at −9,600 EUR", ev)
@@ -360,7 +360,7 @@ func TestMeasureDeltaReductionGroupsBySymbolAsTheDaemonDoes(t *testing.T) {
 	}
 	stock := deltaTestStockDraft(rpc.OrderActionSell, 400)
 	stock.Contract.Symbol = "SYNC"
-	if ev := measureDeltaReduction(pos, deltaTestScope, stock); !ev.Current || ev.NetBefore != 120000 {
+	if ev := measureDeltaReduction(pos, deltaTestScope, stock, risk.RulebookPolicy{}); !ev.Current || ev.NetBefore != 120000 {
 		t.Fatalf("stock measurement = %+v, want the stock alone at 120,000 EUR", ev)
 	}
 }
@@ -423,7 +423,7 @@ func deltaTestLimits() risk.OrderLimitsInForce {
 // deltaTestGate measures draft against pos and judges it as the gate does,
 // with a clean open-order inventory.
 func deltaTestGate(pos *rpc.PositionsResult, draft rpc.OrderDraft, position rpc.OrderPositionImpact, notional float64) error {
-	ev := measureDeltaReduction(pos, deltaTestScope, draft)
+	ev := measureDeltaReduction(pos, deltaTestScope, draft, risk.RulebookPolicy{})
 	return validateOrderRiskAuthority(deltaTestLimits(), draft, position, protectiveExitTestNotional(notional), "EUR", deltaTestInventory, ev)
 }
 
@@ -478,7 +478,7 @@ func TestDeltaRuleJudgesTheWholeBookToo(t *testing.T) {
 	defunct := deltaTestPositions()
 	defunct.Stocks = append(defunct.Stocks, rpc.PositionView{Symbol: "DEFN", SecType: rpc.SecTypeStock, ConID: 7004, Currency: "EUR", Quantity: 10, Multiplier: 1,
 		Stale: true, StaleReason: "zero-value portfolio row; likely inactive or defunct", WarningDetails: []rpc.DataWarning{{Code: zeroValueStockPositionCode, Scope: "DEFN"}}})
-	ev := measureDeltaReduction(defunct, deltaTestScope, sell)
+	ev := measureDeltaReduction(defunct, deltaTestScope, sell, risk.RulebookPolicy{})
 	if !ev.Current || ev.BookBefore != 135400 || ev.NetBefore != 110400 {
 		t.Fatalf("a zero-value defunct row and a bond row must count as zero: %+v", ev)
 	}
@@ -486,7 +486,7 @@ func TestDeltaRuleJudgesTheWholeBookToo(t *testing.T) {
 		t.Fatalf("the sale must still pass beside a defunct row and a bond: %v", err)
 	}
 	defunct.Stocks = append(defunct.Stocks, rpc.PositionView{Symbol: "EUR.USD", SecType: "CASH", ConID: 7801, Currency: "USD", Quantity: 20000, Multiplier: 1, Mark: 1.1, MarketValue: 22000})
-	if ev := measureDeltaReduction(defunct, deltaTestScope, sell); !ev.Current || ev.BookBefore != 135400 {
+	if ev := measureDeltaReduction(defunct, deltaTestScope, sell, risk.RulebookPolicy{}); !ev.Current || ev.BookBefore != 135400 {
 		t.Fatalf("a conversion row must count as zero too: %+v", ev)
 	}
 }

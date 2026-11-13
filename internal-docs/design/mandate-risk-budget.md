@@ -354,12 +354,19 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   risk, the risk the cut takes off and the risk after the batch.
 - **Order caps.** One order is held to the lower of
   `[buckets.risk_reduction].max_order_notional` and the `[order_limits]` cap
-  in force, at the row's mark, and an option order to
-  `[order_limits].max_option_contracts` as well, whether or not the exit
-  would reduce delta (owner, 2026-11-03 20:47 CET: a cut of long calls in a
-  book that leans short raises its absolute delta, so an order sized past
-  the contract cap was refused at every send); `mandate.units` keeps the
-  whole cut and the status `plan` both numbers. After the fill the next verdict measures the
+  in force, at the row's mark. An option order is held to
+  `[order_limits].max_option_contracts` as well unless the order gate would
+  pass it as a delta-reducing exit: the planner asks the gate's own test
+  (`deltaExitPlan`), with the cycle's earlier rows applied, and falls back
+  to the contract cap when the test fails or the positions are not current
+  (owner, 2026-11-13 12:27 CET, amending the blanket hold of 2026-11-03
+  20:47 CET: that hold answered a cut refused at every send in a book the
+  index puts made lean short; the gate now measures the book without its
+  protection, risk-policy.md, so the cut passes and a large line no longer
+  goes five contracts an order). An order last held within the contract cap is sized
+  again once the gate lifts it, which starts a new veto clock for the
+  larger size; `mandate.units` keeps the whole cut and the status `plan`
+  both numbers. After the fill the next verdict measures the
   book as it then is and sizes the remainder. As in the governor, an order
   is never held below one unit: one contract or share above a cap is the
   order gate's to judge, and it passes only as a delta-reducing exit.

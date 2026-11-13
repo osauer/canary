@@ -330,6 +330,23 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    and the cap applies (fail closed). An exit that would leave a short option
    uncovered keeps the cap (owner decision 2026-10-07 09:51 CEST, "Keep the
    cap"; item 9 below).
+   **Protection is left out of the book** (owner decision 2026-11-13 12:27
+   CET, "Leave protection out", amending "Both"): the book's net delta is
+   measured without the hedge-listed long puts (`mandateHedgePut`, the lines
+   the mandate's loss measure leaves out too), unless the order sells one of
+   them, which is judged against the whole book as before. The underlying's
+   own test is unchanged. Why: index puts sized for the book made it lean
+   short once the first calls were sold, and from then every sale of a long
+   call raised the whole book's absolute delta and kept the cap, so the
+   forced reduction went five contracts an order and a budget cut sized to
+   the money cap was refused at send. What still bounds it: the puts are
+   bought, so the short lean they leave can lose no more than their premium,
+   which the premium budget counts; a sale of protection, and any exit in a
+   book short for another reason, keeps the whole test; the planners still
+   size unattended rows to the money caps. Worst case: a pre-authorised
+   bucket sells one order of each planned line at the money cap after one
+   notice and veto window. The policy check judges with the same book
+   (`exitLowersAbsoluteDelta`).
 2. **The measure.** `positionDollarDelta` (handlers.go), which rule 15's net
    exposure (`mapRuleNames` → `GroupDollarDeltaBase`) and the portfolio reduce
    sweep (`netPortfolioDollarDelta`) already read: shares × mark for a stock

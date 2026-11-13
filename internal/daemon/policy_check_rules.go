@@ -536,7 +536,7 @@ func checkLotAboveTradingMax(c *policyCheckContext) []policyCheckHit {
 		// whatever its size (owner decision 2026-10-07 08:13 CEST); a line
 		// whose single-contract close does not, or cannot be measured, stays
 		// unexitable through Canary.
-		lowers, known, why := c.book.exitLowersAbsoluteDelta(p, 1)
+		lowers, known, why := c.book.exitLowersAbsoluteDelta(p, 1, c.rulebook)
 		if known && lowers {
 			continue
 		}
@@ -694,7 +694,7 @@ func checkOrderCapSplits(c *policyCheckContext) []policyCheckHit {
 			if p.Kind != policyCheckKindOption || p.Quantity == 0 {
 				continue
 			}
-			lowers, known, why := c.book.exitLowersAbsoluteDelta(p, math.Abs(p.Quantity))
+			lowers, known, why := c.book.exitLowersAbsoluteDelta(p, math.Abs(p.Quantity), c.rulebook)
 			if known && lowers {
 				continue
 			}

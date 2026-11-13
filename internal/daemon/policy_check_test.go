@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v2/internal/config"
+	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
 
@@ -600,11 +601,11 @@ func TestPolicyCheckBookFromAccount(t *testing.T) {
 	if p := b.Positions[3]; p.DollarDeltaBase != nil {
 		t.Fatalf("an option without its FX rate was measured from the account's rate: %+v", p)
 	}
-	if lowers, known, why := b.exitLowersAbsoluteDelta(b.Positions[1], 1); known || lowers || why != "its delta, or that of another line in the book, cannot be measured" {
+	if lowers, known, why := b.exitLowersAbsoluteDelta(b.Positions[1], 1, risk.RulebookPolicy{}); known || lowers || why != "its delta, or that of another line in the book, cannot be measured" {
 		t.Fatalf("an underlying with an unmeasured line must read unknown: %v %v %q", lowers, known, why)
 	}
 	b.Positions = b.Positions[:2]
-	if lowers, known, why := b.exitLowersAbsoluteDelta(b.Positions[1], 1); !known || !lowers || why != "" {
+	if lowers, known, why := b.exitLowersAbsoluteDelta(b.Positions[1], 1, risk.RulebookPolicy{}); !known || !lowers || why != "" {
 		t.Fatalf("closing the long call on a net-long underlying must lower its absolute delta: %v %v %q", lowers, known, why)
 	}
 	// A futures row carries delta the gate does not measure: the book names
@@ -615,7 +616,7 @@ func TestPolicyCheckBookFromAccount(t *testing.T) {
 		t.Fatalf("unmeasured lines = %v", withFuture.UnmeasuredLines)
 	}
 	withFuture.Positions = withFuture.Positions[:2]
-	if _, known, why := withFuture.exitLowersAbsoluteDelta(withFuture.Positions[1], 1); known || !strings.Contains(why, "SYNF FUTURE line") {
+	if _, known, why := withFuture.exitLowersAbsoluteDelta(withFuture.Positions[1], 1, risk.RulebookPolicy{}); known || !strings.Contains(why, "SYNF FUTURE line") {
 		t.Fatalf("a futures row must keep every exit unknown and be named: %v %q", known, why)
 	}
 	// The check's verdict is the gate's: the same evidence and arithmetic.

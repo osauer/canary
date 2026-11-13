@@ -91,6 +91,10 @@ type mandateReductionInput struct {
 	MaxOrderNotional   float64
 	OrderCapBase       float64
 	MaxOptionContracts int
+	// Exits is the order gate's delta test for the planner: an option cut
+	// the gate admits as a delta-reducing exit is sized by the money caps
+	// alone. Nil admits nothing, and the contract cap holds every option cut.
+	Exits *deltaExitPlan
 	// Ignored reports a row key the owner ignored; its leg leaves the batch.
 	Ignored func(key string) bool
 	// WorkingOrder reports a same-side order working at the broker for a
@@ -149,6 +153,7 @@ func (e *proposalEngine) mandateReductionInput(ctx context.Context, policy prote
 	}
 	if limits := s.orderLimitsInForce(protectionCoverageBaseCurrency(pos)); limits.Complete {
 		in.OrderCapBase, in.MaxOptionContracts = limits.CapBase, limits.MaxOptionContracts
+		in.Exits = &deltaExitPlan{pos: pos, pol: s.rulebookPolicy()}
 	}
 	in.LocksUnknown = "the locked holdings cannot be read without a request context"
 	if ctx != nil {
@@ -393,6 +398,7 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 		if qty <= 0 {
 			continue
 		}
+		in.Exits.record(c.row, mandateAction(c.row), qty)
 		if qty < c.units {
 			partialOrders++
 		}
@@ -1676,24 +1682,12 @@ func mandateSessionsToExpiry(expiryYMD string, now time.Time) (int, bool) {
 	return sessions, true
 }
 
-// mandateOrderLimit is the most units one order may carry under the caps
-// in force at the row's mark: max_order_notional as the issuer trim and the
-// governor apply it, the [order_limits] cap in base currency when the
-// row's rate is known, and for an option max_option_contracts. Never below
-// one, as the governor's: one unit above a cap is the order gate's to judge,
-// which admits it only as a delta-reducing exit. Zero when nothing bounds it.
-// The contract cap binds whether or not the exit would reduce delta: selling
-// long calls in a book that leans short raises its absolute delta, and an
-// order sized past the cap was refused at every send (2026-11-03 16:39 CET).
-func mandateOrderLimit(row rpc.PositionView, base string, maxOrderNotional, capBase float64, maxContracts int) int {
-	limit := mandateMoneyOrderLimit(row, base, maxOrderNotional, capBase)
-	if maxContracts > 0 && positionWireSecType(row.SecType) == "OPT" && (limit == 0 || maxContracts < limit) {
-		limit = maxContracts
-	}
-	return limit
-}
-
-// mandateMoneyOrderLimit is mandateOrderLimit under the money caps alone.
+// mandateMoneyOrderLimit is the most units one order may carry under the
+// money caps in force at the row's mark: max_order_notional as the issuer
+// trim and the governor apply it, and the [order_limits] cap in base
+// currency when the row's rate is known. Never below one, as the governor's:
+// one unit above a cap is the order gate's to judge, which admits it only as
+// a delta-reducing exit. Zero when nothing bounds it.
 func mandateMoneyOrderLimit(row rpc.PositionView, base string, maxOrderNotional, capBase float64) int {
 	mark := math.Abs(row.Mark)
 	if mark <= 0 {
@@ -1723,20 +1717,32 @@ func mandateMoneyOrderLimit(row rpc.PositionView, base string, maxOrderNotional,
 // mandateCycleQuantity is this cycle's order for a planned cut: no more
 // shares than are free of cover with the short options as they are held now
 // (a buyback goes first and must fill before the shares it frees are sold),
-// held to the order caps; a kept cut keeps its order while the caps still
-// admit it, so a moving mark does not re-size it. waits says why the order
-// is below the cut, and names the order as it is kept, not the cap of the
+// held to the money caps, and an option to max_option_contracts as well
+// unless the order gate would pass it as a delta-reducing exit (in.Exits,
+// the gate's own test; owner decision 2026-11-13 12:27 CET, which amends the
+// blanket hold of 2026-11-03 20:47 CET: a cut the gate does not admit past
+// the contract cap was refused at every send, so that one keeps the cap).
+// A kept cut keeps its order while the caps still admit it, so a moving
+// mark does not re-size it; an order last held within the contract cap is
+// sized again once the gate lifts that cap. waits says why the order is
+// below the cut, and names the order as it is kept, not the cap of the
 // cycle that set it (2026-10-19: a kept order under a cap that no longer
 // binds read "the batch asks for 150; " with nothing after, and one kept at
 // 110 under a cap now at 111 named the 111).
 func mandateCycleQuantity(c *mandateCut, in mandateReductionInput, base string) (int, string) {
 	qty := c.units
-	limit := mandateOrderLimit(c.row, base, in.MaxOrderNotional, in.OrderCapBase, in.MaxOptionContracts)
-	capped := limit > 0 && qty > limit
-	if capped {
-		qty = limit
+	limit := mandateMoneyOrderLimit(c.row, base, in.MaxOrderNotional, in.OrderCapBase)
+	if limit > 0 {
+		qty = min(qty, limit)
 	}
-	kept := c.units == c.prevUnits && c.prevQty > 0 && c.prevQty < qty
+	lifted := false
+	if contracts := in.MaxOptionContracts; contracts > 0 && positionWireSecType(c.row.SecType) == "OPT" && qty > contracts {
+		if lifted = in.Exits.admits(c.row, mandateAction(c.row), qty); !lifted {
+			limit, qty = contracts, contracts
+		}
+	}
+	capped := limit > 0 && c.units > limit
+	kept := c.units == c.prevUnits && c.prevQty > 0 && c.prevQty < qty && !(lifted && c.prevQty <= in.MaxOptionContracts)
 	if kept {
 		qty = c.prevQty
 	}

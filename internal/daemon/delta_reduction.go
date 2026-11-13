@@ -43,6 +43,21 @@ import (
 // inventory the cap applies too, so two exits of one line cannot both pass
 // and together flip it.
 //
+// Protection is left out of the book (owner decision 2026-11-13 12:27 CET,
+// "Leave protection out"; it amends "Both" of 2026-10-07 09:51 CEST): the
+// book's net delta is measured without the hedge-listed long puts
+// (mandateHedgePut, the lines the mandate's loss measure leaves out too),
+// unless the order sells one of them, which is judged against the whole
+// book as before. Index puts sized for the book made it lean short as soon
+// as the first calls were sold, and from then every sale of a long call
+// raised the whole book's absolute delta and kept the cap: forced cuts went
+// five contracts an order and a budget cut sized to the money cap was
+// refused at send. The underlying's own test is unchanged and still counts
+// its puts. What bounds it: the puts are bought, so the short lean they
+// leave can lose no more than their premium, which the premium budget
+// counts; a sale of protection itself, and any exit in a book short for
+// another reason, keeps today's test.
+//
 // Every other gate stays as it is: freeze, account and route pins, previews
 // and WhatIf, the sell-as-short re-read, origin gating, owner approval, the
 // drawdown brake, sell-only and the governor. The protective stock exit
@@ -125,6 +140,10 @@ type deltaReductionEvidence struct {
 	// BookBefore is the signed net dollar delta of the whole book in base
 	// currency before the order, from the same per-row measure.
 	BookBefore float64
+	// ProtectionLeftOut is the net dollar delta of the hedge-listed long
+	// puts BookBefore leaves out; zero when the book holds none or the order
+	// sells one, and BookBefore is then the whole book.
+	ProtectionLeftOut float64
 	// Legs holds the measurement of each contract the order touches, by
 	// ConID.
 	Legs map[int]deltaReductionLeg
@@ -271,8 +290,9 @@ func deltaLegBase(row rpc.PositionView, isOption bool, baseCcy string) (float64,
 // book from one positions read: every held equity and option leg, in base
 // currency, with the deltas the daemon's risk verdicts use, in one pass.
 // Any line that cannot be measured leaves the evidence not current, saying
-// which line.
-func measureDeltaReduction(pos *rpc.PositionsResult, scope brokerStateScope, draft rpc.OrderDraft) deltaReductionEvidence {
+// which line. The book leaves pol's protection puts out unless the order
+// sells one (owner decision 2026-11-13 12:27 CET, in the rule above).
+func measureDeltaReduction(pos *rpc.PositionsResult, scope brokerStateScope, draft rpc.OrderDraft, pol risk.RulebookPolicy) deltaReductionEvidence {
 	underlying := strings.ToUpper(strings.TrimSpace(draft.Contract.Symbol))
 	ev := deltaReductionEvidence{Underlying: underlying, Legs: map[int]deltaReductionLeg{}, Cover: deltaCoverage{Shares: map[int]float64{}}}
 	changes := deltaReductionChanges(draft, rpc.OrderPositionImpact{})
@@ -296,6 +316,10 @@ func measureDeltaReduction(pos *rpc.PositionsResult, scope brokerStateScope, dra
 	for _, change := range changes {
 		wanted[change.ConID] = struct{}{}
 	}
+	sellsProtection := slices.ContainsFunc(pos.Options, func(row rpc.PositionView) bool {
+		_, want := wanted[row.ConID]
+		return want && mandateHedgePut(pol, row)
+	})
 	visit := func(row rpc.PositionView, isOption bool) string {
 		if row.Quantity == 0 {
 			return ""
@@ -304,7 +328,11 @@ func measureDeltaReduction(pos *rpc.PositionsResult, scope brokerStateScope, dra
 		if why != "" {
 			return deltaReductionLegDesc(row, isOption) + " " + why
 		}
-		ev.BookBefore += base
+		if isOption && !sellsProtection && mandateHedgePut(pol, row) {
+			ev.ProtectionLeftOut += base
+		} else {
+			ev.BookBefore += base
+		}
 		if !strings.EqualFold(strings.TrimSpace(row.Symbol), underlying) {
 			return ""
 		}
@@ -509,8 +537,12 @@ func (ev deltaReductionEvidence) judge(name string, changes []deltaChange) (bool
 	}
 	bookAfter := ev.BookBefore + (after - ev.NetBefore)
 	if !lowersAbsoluteDelta(ev.BookBefore, bookAfter) {
-		return false, fmt.Sprintf("; the exit does not lower the absolute delta of the whole book (%s before, %s after), so the cap applies",
-			risk.FormatOrderMoney(math.Abs(ev.BookBefore), ev.BaseCurrency), risk.FormatOrderMoney(math.Abs(bookAfter), ev.BaseCurrency))
+		book := "the whole book"
+		if ev.ProtectionLeftOut != 0 {
+			book = "the book without its protection puts"
+		}
+		return false, fmt.Sprintf("; the exit does not lower the absolute delta of %s (%s before, %s after), so the cap applies",
+			book, risk.FormatOrderMoney(math.Abs(ev.BookBefore), ev.BaseCurrency), risk.FormatOrderMoney(math.Abs(bookAfter), ev.BaseCurrency))
 	}
 	// Never leave a short leg uncovered: the order keeps the cap when, after
 	// it, a short of a right is uncovered, the uncovered count has not fallen,
@@ -640,5 +672,76 @@ func (s *Server) captureDeltaReductionEvidence(ctx context.Context, status rpc.T
 	if err != nil {
 		return deltaReductionEvidence{Underlying: underlying, Reason: "Canary cannot read the positions right now; preview again"}
 	}
-	return measureDeltaReduction(pos, recordScope(status.Broker, status.Account, status.Mode), draft)
+	return measureDeltaReduction(pos, recordScope(status.Broker, status.Account, status.Mode), draft, s.rulebookPolicy())
+}
+
+// deltaExitPlan answers the order gate's own question for a planner that
+// sizes exits ahead of the send: would this sale or buy-back pass the
+// option-contract cap as a delta-reducing exit, once the orders the cycle
+// has already sized are filled? The forced reduction sizes by it, so a row
+// is never larger than the gate admits (2026-11-03: a cut sized past the
+// cap was refused at every send) and never held to the contract cap where
+// the gate would lift it. A nil plan, positions that are not current and
+// any line without a delta admit nothing, and the contract cap then holds.
+type deltaExitPlan struct {
+	pos *rpc.PositionsResult
+	pol risk.RulebookPolicy
+	// sold is the base dollar delta the cycle's earlier orders take off
+	// each underlying, signed as the change.
+	sold map[string]float64
+}
+
+// measure is the gate's evidence and quantity change for an exit of qty of
+// row, with the cycle's earlier orders applied.
+func (x *deltaExitPlan) measure(row rpc.PositionView, action string, qty int) (deltaReductionEvidence, []deltaChange, bool) {
+	if x == nil || x.pos == nil || x.pos.Authority == nil || qty <= 0 {
+		return deltaReductionEvidence{}, nil, false
+	}
+	after := row.Quantity - float64(qty)
+	if strings.EqualFold(action, rpc.OrderActionBuy) {
+		after = row.Quantity + float64(qty)
+	}
+	draft := rpc.OrderDraft{Action: action, Quantity: qty,
+		Contract: rpc.ContractParams{ConID: row.ConID, Symbol: row.Symbol, SecType: positionWireSecType(row.SecType)}}
+	position := rpc.OrderPositionImpact{Before: row.Quantity, After: after, Effect: classifyPositionEffect(row.Quantity, after)}
+	if !deltaReductionCandidate(draft, position) {
+		return deltaReductionEvidence{}, nil, false
+	}
+	scope := x.pos.Authority.Scope
+	ev := measureDeltaReduction(x.pos, brokerStateScope{Account: scope.AccountID, Mode: scope.AccountMode}, draft, x.pol)
+	if !ev.Current {
+		return ev, nil, false
+	}
+	for underlying, change := range x.sold {
+		ev.BookBefore += change
+		if strings.EqualFold(underlying, ev.Underlying) {
+			ev.NetBefore += change
+		}
+	}
+	return ev, deltaReductionChanges(draft, position), true
+}
+
+// admits reports whether the gate's delta test passes an exit of qty of row.
+func (x *deltaExitPlan) admits(row rpc.PositionView, action string, qty int) bool {
+	ev, changes, ok := x.measure(row, action, qty)
+	if !ok {
+		return false
+	}
+	ok, _ = ev.judge(ev.Underlying, changes)
+	return ok
+}
+
+// record notes an order the cycle sends, so the next row is judged against
+// the book as this one leaves it.
+func (x *deltaExitPlan) record(row rpc.PositionView, action string, qty int) {
+	ev, changes, ok := x.measure(row, action, qty)
+	if !ok {
+		return
+	}
+	if after, failed := ev.netAfter(changes); failed == nil {
+		if x.sold == nil {
+			x.sold = map[string]float64{}
+		}
+		x.sold[ev.Underlying] += after - ev.NetBefore
+	}
 }

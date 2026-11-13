@@ -354,8 +354,11 @@ Three exemptions stand against the cap in force:
 
 An order reduces delta when it only closes or shrinks a position you hold,
 never opening, adding or flipping to the other side, and it lowers the
-absolute net delta of both its underlying and your whole book. Canary measures
-that with the same position deltas its risk verdicts use: shares at their
+absolute net delta of both its underlying and your book. The book is measured
+without its protection, the bought puts on a hedge-listed index, unless the
+order sells that protection: index puts sized for the whole book would
+otherwise make it lean short and hold every sale of a bought call to the caps.
+Canary measures both with the same position deltas its risk verdicts use: shares at their
 mark, option contracts at their delta, multiplier and model spot, all in the
 account base currency. A hand exit, an option buy-to-close or sell-to-close, a
 strategy close, a reduction proposal or a budget-governor cut above the cap
