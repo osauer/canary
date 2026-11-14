@@ -63,7 +63,14 @@ Status: implemented locally; execution parameters approved
   whole book outranks that default (2026-09-18): a hedge-listed put the
   Rulebook economic-role classifier finds `directional` is exit-managed as a
   directional position, and the record says so; a `protection` or unclassified
-  role keeps the hedge and produces no exit row. A long call is a hedge only
+  role keeps the hedge and produces no exit row. The preview follows the
+  same rule (`optionExitPurposeStandsAtPreview`, owner decision 2026-11-14
+  06:18 CET, "No, measured role"): until then it asked for a declaration the
+  row never needed, so the exit card of a put measured as directional could
+  not be sent. What still bounds the sale: the role re-measured as
+  directional on fresh complete evidence in the same scope, the unchanged
+  policy fingerprint, the exact-contract quote and order gates, and the
+  owner's confirmation, since no sale of a hedge-listed put is automatic. A long call is a hedge only
   where there is something it can cover: a short stock of its own underlying,
   or, for an index call, a short stock anywhere in the book; a short elsewhere
   is unrelated exposure. No owner declaration settles purpose. Expired

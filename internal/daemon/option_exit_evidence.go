@@ -661,6 +661,36 @@ func (e *proposalEngine) revalidateOptionExitEconomics(ctx context.Context, prop
 	return e.checkOptionExitEconomics(ctx, prop, preview, true)
 }
 
+// optionExitPurposeStandsAtPreview reports whether the purpose that produced
+// an exit row of a hedge-listed put still stands, by the rule that produced it
+// (optionExitPurpose): the owner's current declaration for the contract, or
+// the standing index-put default, under which the measured whole-book role
+// decides and the caller requires it to read directional on fresh complete
+// evidence (owner decision 2026-11-14 06:18 CET, "No, measured role"; the
+// design's rule of 2026-09-18). Until then the preview asked for a
+// declaration the row never needed, so a put measured as directional got an
+// exit card whose preview was always refused. An expired or future
+// declaration still stops the exit, as it stops the row, and a contract no
+// longer held admits nothing.
+func optionExitPurposeStandsAtPreview(cfg protectionTrailOptionPolicy, conID int, pos *rpc.PositionsResult, legs map[int]bool, ambiguous map[string]bool, pol risk.RulebookPolicy, now time.Time) bool {
+	if pos == nil || conID <= 0 {
+		return false
+	}
+	for _, row := range pos.Options {
+		if row.ConID != conID {
+			continue
+		}
+		switch optionExitPurpose(cfg, row, pos, legs, ambiguous, pol, now) {
+		case "directional":
+			return true
+		case "protection":
+			return cfg.DefaultIndexPutsProtection && pol.IsHedgeSymbol(row.Symbol)
+		}
+		return false
+	}
+	return false
+}
+
 // checkOptionExitEconomics only binds a fresh proof while creating a preview.
 // A prepared submission must keep its original token, evidence and expiry.
 func (e *proposalEngine) checkOptionExitEconomics(ctx context.Context, prop rpc.TradeProposal, preview *rpc.OrderPreviewResult, bindPreview bool) []rpc.TradingBlocker {
@@ -680,10 +710,8 @@ func (e *proposalEngine) checkOptionExitEconomics(ctx context.Context, prop rpc.
 	}
 	pos = e.server.analysisPositions(pos, e.clock())
 	policy, status := e.server.protectionPolicies.Active()
-	intents := directionalOptionIntents(policy.Buckets.TrailingStop.Options)
-	intent, ok := intents[prop.Contract.ConID]
-	legs, ambiguous := optionExitStrategyScope(pos, intents, e.clock())
-	if (!reduction && (!ok || e.clock().Before(intent.ApprovedAt) || !e.clock().Before(intent.ExpiresAt))) ||
+	legs, ambiguous := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), e.clock())
+	if (!reduction && !optionExitPurposeStandsAtPreview(policy.Buckets.TrailingStop.Options, prop.Contract.ConID, pos, legs, ambiguous, e.rulebookPolicy(), e.clock())) ||
 		status.Fingerprint != prop.PolicyFingerprint || len(status.Blockers) > 0 || legs[prop.Contract.ConID] || ambiguous[prop.Symbol] {
 		return blocked()
 	}

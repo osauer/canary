@@ -85,10 +85,15 @@ policy carries a `[mandate]` table:
   rounded stop must retain at least 5% over cost after spread and tick floors.
   Possible hedges, multi-leg strategies, stale/delayed quotes and wide spreads
   remain blocked. The profit trail needs at least 14 DTE; the loss exit keeps
-  working to expiry. A hedge-listed index put needs all three: your
-  exact intent, a current directional Rulebook role, and exact-ConID
-  Greeks evidence; symbol, option shape, and shared-cache Greeks never prove
-  intent. Missing or invalid exact-ConID evidence keeps the role unclassified.
+  working to expiry. A hedge-listed index put needs a current directional
+  Rulebook role, measured on the whole book with exact-ConID Greeks
+  evidence, at the proposal and again at the preview. Under
+  `default_index_puts_protection` that measurement settles its purpose and
+  no declaration is asked for; a declaration you wrote for the contract
+  still applies while it is current, and stops the exit once it has
+  expired. Symbol, option shape, and shared-cache Greeks never prove a role.
+  Missing or invalid exact-ConID evidence keeps the role unclassified. Such
+  a sale is never pre-authorised: it waits for your confirmation.
 - **Option expiry close** (`option_expiry_close`) proposes a DAY limit close of
   an in-the-money standalone long option from the Rulebook's expiry act level
   (7 DTE), so nothing is exercised by accident. It is never pre-authorised.

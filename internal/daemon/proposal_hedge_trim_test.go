@@ -219,9 +219,8 @@ func TestDeskMandateNeverSellsAHedgeListedPut(t *testing.T) {
 }
 
 // The trim stays its own card beside an exit of the same put. That exit is
-// for the whole line and leads by size, and its preview needs the owner's
-// declaration for the contract, so covering the trim would hide the card the
-// owner can send behind one that may not preview.
+// for the whole line and leads by size, so covering the trim would leave the
+// owner one choice, selling every put, where the trim keeps the band's share.
 func TestHedgeTrimIsNotCoveredByAnExitOfTheSamePut(t *testing.T) {
 	hedge := risk.DefaultRulebookPolicy().HedgeSymbols[0]
 	contract := rpc.ContractParams{ConID: hedgeTrimFar, Symbol: hedge, SecType: "OPT", Right: "P", Expiry: "20270115", Strike: 400, Multiplier: 100}

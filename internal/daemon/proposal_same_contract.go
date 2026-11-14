@@ -118,9 +118,8 @@ func sameContractMergeable(p rpc.TradeProposal) bool {
 	}
 	// Rule 12's trim of index protection stays its own card. An exit row on
 	// the same put (a loss exit once the put measures as directional) is for
-	// the whole line, so it would cover the trim, and its preview needs the
-	// owner's declaration for the contract (checkOptionExitEconomics): the
-	// card the owner can send would be hidden behind one that may not preview.
+	// the whole line, so it would cover the trim and leave the owner one
+	// choice, selling every put, where the trim keeps the band's share.
 	// Working orders still net the two at dispatch.
 	if hedgeTrimProposal(p) {
 		return false

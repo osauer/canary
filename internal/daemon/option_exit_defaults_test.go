@@ -226,3 +226,47 @@ func TestOptionExitStandingPolicyFingerprintAndExactOverride(t *testing.T) {
 		t.Fatal("standing hedge default replaced explicit current override")
 	}
 }
+
+// At preview an exit of a hedge-listed put needs what its row needed: the
+// owner's current declaration, or the standing index-put default with the
+// measured role deciding. It no longer needs a declaration the row never did.
+func TestOptionExitPreviewPurposeFollowsTheRowsRule(t *testing.T) {
+	now := optionExitTestTime()
+	pol := risk.DefaultRulebookPolicy()
+	row := optionExitTestRow()
+	row.Symbol, row.Right = pol.HedgeSymbols[0], "P"
+	pos := &rpc.PositionsResult{Options: []rpc.PositionView{row}}
+	stands := func(cfg protectionTrailOptionPolicy, conID int) bool {
+		return optionExitPurposeStandsAtPreview(cfg, conID, pos, nil, nil, pol, now)
+	}
+	standing := standingOptionExitPolicy().Buckets.TrailingStop.Options
+	if !standing.DefaultIndexPutsProtection || len(standing.DirectionalIntents) != 0 {
+		t.Fatalf("fixture: want the standing index-put default and no declaration: %+v", standing)
+	}
+	if !stands(standing, row.ConID) {
+		t.Fatal("a put under the standing default was refused for want of a declaration")
+	}
+	declared := standing
+	declared.DirectionalIntents = []protectionOptionDirectionalIntent{{ConID: row.ConID, Reason: "synthetic", ApprovedAt: now.Add(-time.Hour), ExpiresAt: now.Add(time.Hour)}}
+	if !stands(declared, row.ConID) {
+		t.Fatal("a current declaration was refused")
+	}
+	// An expired declaration still stops the exit, as it stops the row.
+	declared.DirectionalIntents[0].ExpiresAt = now.Add(-time.Minute)
+	if stands(declared, row.ConID) {
+		t.Fatal("an expired declaration admitted the exit")
+	}
+	// Neither a declaration nor the default: nothing settles the purpose.
+	bare := standing
+	bare.DefaultIndexPutsProtection, bare.DefaultLongCallsDirectional = false, false
+	if stands(bare, row.ConID) {
+		t.Fatal("a put with no declaration and no standing default was admitted")
+	}
+	if stands(standing, row.ConID+1) {
+		t.Fatal("a contract that is not held was admitted")
+	}
+	// A leg of a strategy is not an ordinary contract.
+	if optionExitPurposeStandsAtPreview(standing, row.ConID, pos, map[int]bool{row.ConID: true}, nil, pol, now) {
+		t.Fatal("a strategy leg was admitted under the standing default")
+	}
+}
