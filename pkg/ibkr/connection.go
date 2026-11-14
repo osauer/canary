@@ -268,7 +268,11 @@ type Connection struct {
 	marketDataModeEpoch   uint64
 	marketDataModeDirty   bool
 
-	displayChanged       func()
+	displayChanged func()
+	// readerLoad is the reader goroutine's share of the time spent processing
+	// frames; lastInboundMsgID names the frame it is processing.
+	readerLoad           readerLoad
+	lastInboundMsgID     atomic.Int32
 	displayAccount       string
 	displayAccountValues map[string]string
 	accountValueTimes    map[string]time.Time // guarded by accountMu
@@ -2147,8 +2151,14 @@ func (c *Connection) readMessages() {
 				return
 			}
 
-			// Process the message
+			// Process the message, and keep the reader's own share of the
+			// time (reader_load.go).
+			began := time.Now()
 			c.processMessageAtEpoch(msgBytes, epoch)
+			done := time.Now()
+			if rolled, load := c.readerLoad.observe(int(c.lastInboundMsgID.Load()), done.Sub(began), done); rolled && load.BusyPct() >= readerBusyWarnPct {
+				ibkrLogger.Warnf("[cid=%d] %s; answers from IBKR queue behind them", c.config.ClientID, load)
+			}
 
 			// Receipt freshness belongs to the exact socket that delivered the
 			// frame. A retired reader must not make its successor look healthy.
@@ -2175,6 +2185,7 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		return
 	}
 
+	c.lastInboundMsgID.Store(int32(msgID))
 	if c.wireTap != nil {
 		c.wireTap.RecordInbound(msgID, msgBytes, fields)
 	}

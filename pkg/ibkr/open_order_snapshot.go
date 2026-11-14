@@ -216,7 +216,13 @@ func (c *Connector) runOpenOrderSnapshotFlight(flight *openOrderSnapshotFlight) 
 			Generation: generation,
 		}, snapshotErr, false)
 	case <-timer.C:
-		err := fmt.Errorf("%w: no same-epoch openOrderEnd before protocol deadline", ErrOpenOrderSnapshotPoisoned)
+		// The reader's load says where the answer is late: a reader that
+		// was mostly waiting on the socket was not sent it.
+		load := ReaderLoad{}
+		if flight.binding.conn != nil {
+			load = flight.binding.conn.readerLoad.snapshot(time.Now())
+		}
+		err := fmt.Errorf("%w: no same-epoch openOrderEnd before protocol deadline; %s", ErrOpenOrderSnapshotPoisoned, load)
 		orders, generation := flight.collector.snapshot()
 		c.completeOpenOrderSnapshotFlight(flight, OpenOrderSnapshot{
 			Complete:   false,

@@ -13,6 +13,16 @@ import (
 // when an uncancelled diagnostic may still occupy one broker subscription.
 var ErrAccountSummaryProbeCancelUncertain = errors.New("account summary diagnostic cancellation uncertain; only one ordinary subscription available")
 
+// ErrAccountSummaryBusy refuses an account-summary read that found both of
+// IBKR's subscriptions for this client taken for the whole wait. The read
+// failed here; nothing was sent.
+var ErrAccountSummaryBusy = errors.New("both account summary subscriptions are in use")
+
+// maxAccountSummarySubscriptions is IBKR's own limit for one client: a third
+// reqAccountSummary is refused with code 322. It is the broker's number, not
+// a policy.
+const maxAccountSummarySubscriptions = 2
+
 // AccountSettlementProbe is a value-free result of a SettledCash-only request.
 // It is never parsed into an account snapshot or admitted as cash authority.
 type AccountSettlementProbe struct {
@@ -35,6 +45,10 @@ type accountSummarySchedule struct {
 	uncertainProbe         bool
 	uncertainCurrencyProbe bool
 	probe                  *summaryProbeFlight
+	// freed is closed when a subscription ends, to wake a read waiting for
+	// one; admitWait bounds that wait (zero: defaultAccountSummaryTimeout).
+	freed     chan struct{}
+	admitWait time.Duration
 }
 
 // Ordinary subscriptions retain their lease until their cancellation is sent.
@@ -62,9 +76,37 @@ func (s *accountSummarySchedule) enterOrdinary(ctx context.Context, reqID int, e
 		s.mu.Unlock()
 		return err
 	}
-	if s.uncertainProbe && len(s.ordinary) >= 2 {
+	// IBKR refuses a third subscription (code 322), so a read that finds both
+	// taken waits for one to end: a cancel sent, or a new socket. The wait is
+	// bounded, because a subscription whose cancel cannot be sent stays open.
+	var expired <-chan time.Time
+	for len(s.ordinary) >= maxAccountSummarySubscriptions {
+		if s.uncertainProbe {
+			s.mu.Unlock()
+			return ErrAccountSummaryProbeCancelUncertain
+		}
+		if expired == nil {
+			wait := s.admitWait
+			if wait <= 0 {
+				wait = defaultAccountSummaryTimeout
+			}
+			timer := time.NewTimer(wait)
+			defer timer.Stop()
+			expired = timer.C
+		}
+		if s.freed == nil {
+			s.freed = make(chan struct{})
+		}
+		freed := s.freed
 		s.mu.Unlock()
-		return ErrAccountSummaryProbeCancelUncertain
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-expired:
+			return ErrAccountSummaryBusy
+		case <-freed:
+		}
+		s.mu.Lock()
 	}
 	if _, exists := s.ordinary[reqID]; exists {
 		s.mu.Unlock()
@@ -86,6 +128,15 @@ func (s *accountSummarySchedule) leaveOrdinary(reqID int, epoch uint64) {
 		if len(s.stranded) == 0 {
 			s.uncertainProbe = false
 		}
+		s.wakeLocked()
+	}
+}
+
+// wakeLocked wakes the reads waiting for a subscription. The caller holds mu.
+func (s *accountSummarySchedule) wakeLocked() {
+	if s.freed != nil {
+		close(s.freed)
+		s.freed = nil
 	}
 }
 
@@ -128,6 +179,7 @@ func (s *accountSummarySchedule) reset() {
 	defer s.mu.Unlock()
 	clear(s.ordinary)
 	clear(s.stranded)
+	s.wakeLocked()
 	s.uncertainProbe = false
 	s.uncertainCurrencyProbe = false
 	if s.probe != nil {
