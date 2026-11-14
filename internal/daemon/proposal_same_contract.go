@@ -116,6 +116,15 @@ func sameContractMergeable(p rpc.TradeProposal) bool {
 	if p.Mandate != nil && p.Mandate.Held {
 		return false
 	}
+	// Rule 12's trim of index protection stays its own card. An exit row on
+	// the same put (a loss exit once the put measures as directional) is for
+	// the whole line, so it would cover the trim, and its preview needs the
+	// owner's declaration for the contract (checkOptionExitEconomics): the
+	// card the owner can send would be hidden behind one that may not preview.
+	// Working orders still net the two at dispatch.
+	if hedgeTrimProposal(p) {
+		return false
+	}
 	// A strategy row served for the owner's review (the entry holds; the
 	// sale to zero its frozen month wants) is the owner's alone: it must
 	// not stand for a forced reduction of the line, which the mandate may
@@ -327,6 +336,9 @@ func sameContractRule(p rpc.TradeProposal) string {
 		}
 		return "the trailing stop"
 	case rpc.TradeProposalBucketRiskReduction:
+		if hedgeTrimProposal(p) {
+			return "the protection trim"
+		}
 		return "the issuer trim"
 	case rpc.TradeProposalBucketBudgetReduction:
 		return "the budget governor"

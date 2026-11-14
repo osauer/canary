@@ -775,7 +775,11 @@ func (e *proposalEngine) generateBookWithStrategies(ctx context.Context, policy 
 		}
 	}
 	if policy.Buckets.RiskReduction.Enabled {
-		for _, p := range e.riskReductionProposals(ctx, policy, status, acct, pos, sources, now) {
+		trims := e.riskReductionProposals(ctx, policy, status, acct, pos, sources, now)
+		// Rule 12's trim of over-sized index protection shares the bucket
+		// (proposal_hedge_trim.go).
+		trims = append(trims, e.hedgeTrimProposals(ctx, policy, status, acct, pos, sources, now)...)
+		for _, p := range trims {
 			applyMarketEventFlagsToProposal(&p, marketEvents)
 			if !e.isIgnored(scope, p.Key) {
 				out = append(out, p)

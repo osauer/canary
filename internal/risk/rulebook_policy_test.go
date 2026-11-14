@@ -161,7 +161,7 @@ func TestRulebookFingerprintCoversNetExposureLimits(t *testing.T) {
 func TestOverhedgeMultipleMovesRule12AndTheProtectionBoundary(t *testing.T) {
 	in := healthyInputs() // gross long 455,000; one SPY put line of 40 contracts on 752
 	in.RegimeStage, in.RegimeStageAsOf = RegimeBucketCalm, in.AsOf
-	in.Names[3].Legs[0].Delta = new(-0.10) // about 60–66% of gross long against the calm 25–35% band
+	in.Names[3].Legs[0].Delta = new(-0.10) // about 60% of gross long in base currency against the calm 25–35% band
 	pol := DefaultRulebookPolicy()
 	if row := rowByID(t, EvaluateRulebook(in, pol), RuleHedgeIntegrity); row.Status != RuleStatusWatch {
 		t.Fatalf("default multiple: %s (%s)", row.Status, row.Evidence)
@@ -171,7 +171,7 @@ func TestOverhedgeMultipleMovesRule12AndTheProtectionBoundary(t *testing.T) {
 		t.Fatalf("multiple 1.5 left an over-hedge at %s (%s)", row.Status, row.Evidence)
 	}
 
-	in.Names[3].Legs[0].Delta = new(-0.15) // 99% of gross long
+	in.Names[3].Legs[0].Delta = new(-0.166) // 99% of gross long in base currency
 	if role := classifyIndexPutRoles(in, DefaultRulebookPolicy()).Names[3].Legs[0].IndexPutRole; role != IndexPutRoleProtection {
 		t.Fatalf("default multiple: role %s", role)
 	}

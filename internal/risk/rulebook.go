@@ -588,7 +588,7 @@ func classifyIndexPutRoles(in RuleInputs, pol RulebookPolicy) RuleInputs {
 		}
 		for _, l := range n.Legs {
 			if indexPutRoleEligible(l) {
-				indexPutShort[ni] += math.Abs(*l.Delta * l.Quantity * l.Multiplier * *l.Underlying)
+				indexPutShort[ni] += indexPutShortBase(l)
 			}
 		}
 	}
@@ -1824,7 +1824,7 @@ func (c *ruleContext) hedgeIntegrity() RuleRow {
 		}
 		for _, l := range n.Legs {
 			if rule12HedgeLeg(l) {
-				short := math.Abs(*l.Delta * l.Quantity * l.Multiplier * *l.Underlying)
+				short := indexPutShortBase(l)
 				hedgeShort += short
 				hedgeLegs = append(hedgeLegs, RuleOffender{Symbol: n.Symbol, Leg: l.Desc, Observed: round1(short), Note: "portfolio protection"})
 			} else if l.IndexPutRole == IndexPutRoleDirectional {

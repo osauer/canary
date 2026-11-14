@@ -110,6 +110,19 @@ policy carries a `[mandate]` table:
   watch level the proposal says so. The levels live in `rulebook-policy.toml`: the
   retired `single_name_target_pct_nlv` key is ignored with a note if a file
   still carries it.
+
+  The same bucket trims index protection that has outgrown the book (rule
+  12). The forced reduction sells long positions and never a hedge-listed
+  put, so after it the puts can be worth more than what is left to protect.
+  Once their short delta passes the over-hedge line, `overhedge_multiple`
+  times the top of the hedge band in force, Canary proposes selling puts
+  back to the band top, nearest expiry first, in whole contracts rounded
+  down so the hedge never ends below the top. Each order is held to the
+  order caps, and the rest waits for the next cycle. The proposal appears
+  only when every line of the book is measured, and it is never
+  pre-authorised: no sale of a put on a hedge-listed index is sent without
+  your confirmation, whichever bucket proposes it. A regime reading that is
+  stale or missing applies the higher band, which keeps more protection.
 - **Budget reduction** (`budget_reduction`) brings long option premium back inside a declared share
   of the risk constitution's declared risk capital while the constitution's
   drawdown brake is engaged. Its caps are your numbers: the file Canary
@@ -346,8 +359,8 @@ next cycle.
 the shares that cover one: a covered position needs your hand, and the status
 names it. It never cuts shares below what the long puts on them would deliver
 at exercise. It never sells protection, a hedge-listed long put included,
-whatever that put measures as; the put's premium still counts in the measure,
-so the reduction alone may not bring the book back inside the room. It never
+whatever that put measures as; when the puts outgrow what is left, the risk
+reduction bucket proposes their trim for your confirmation. It never
 sells a holding on your keep list (`canary locks`, below). A short index hedge never
 makes it sell: the cuts are sized on the book without its short hedges. When
 the episode ends, orders already at the broker are never cancelled.

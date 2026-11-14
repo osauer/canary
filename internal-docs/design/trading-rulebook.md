@@ -702,6 +702,25 @@ Semantics notes:
   configured protection band, they are directional short exposure.
   Directional positions receive no protection exemptions. Missing delta,
   underlying price, or stock-leg mark provenance leaves the role unclassified.
+  The puts' short delta is converted to the base currency before it is
+  compared with the long book, which is summed in base (`indexPutShortBase`,
+  2026-11-14: rule 12 and the advisory classifier divided dollars by a
+  base-currency sum, so a EUR account read its protection larger by the
+  EUR/USD rate and crossed both lines early; the complete-book classifier
+  already converted).
+- Rule 12's trim (owner decision 2026-11-14 05:45 CET, "Trim card for my
+  tap"): past the over-hedge line the risk-reduction bucket offers the sale of
+  index puts back to the band top (`risk.PlanHedgeTrim`,
+  `proposal_hedge_trim.go`), nearest expiry first, whole contracts rounded
+  down, sized on every eligible put whatever role it then measures as, and
+  on no book with an incomplete name. A carried regime stage reads the
+  higher top of its set and the calm one, a stage never observed the highest
+  of all three. It amends "flatten to hedges" (2026-10-14) and the rule of
+  2026-11-04 21:04 CET, that a hedge-listed put is never sold, for a sale the
+  owner confirms on the device; every unattended sale of a hedge-listed put
+  stays refused: by the pre-authorised scheduler in every bucket and by
+  Desk's standing mandate. No plan is made without a long book, or on a
+  positions read that is not current and complete.
 - Rule 16 exempts only the portion of net-short index delta carried by
   protection-classified legs, capped at the name's net-short exposure and
   disclosed in `Exempt`. Any residual, unclassified, or directional short is

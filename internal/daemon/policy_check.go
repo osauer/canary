@@ -51,11 +51,14 @@ type PolicyCheckBook struct {
 	Positions      []PolicyCheckPosition
 	PositionsKnown bool
 	// UnmeasuredLines names, in plain words, the held lines that are neither
-	// stock, ETF nor option and carry delta Canary does not measure
-	// (futures, indexes, CFDs, funds, warrants); bills, bonds and conversions
-	// are not among them. While one exists the delta-reducing exit rule
+	// stock, ETF nor option and carry delta Canary does not measure (futures
+	// other than the index future, indexes, CFDs, funds, warrants); bills,
+	// bonds and conversions are not among them. While one exists the delta-reducing exit rule
 	// cannot judge any exit, as the gate fails closed on it.
 	UnmeasuredLines []string
+	// IndexFutureDeltaBase is the base dollar delta of the held index
+	// future, which the gate counts in the book (indexFutureDeltaBase).
+	IndexFutureDeltaBase float64
 }
 
 // PolicyCheckPosition is one held line, measured in base currency.
@@ -106,7 +109,7 @@ func (b *PolicyCheckBook) exitLowersAbsoluteDelta(p PolicyCheckPosition, units f
 		return q.Kind == policyCheckKindOption && q.Quantity > 0 && q.Right == "P" && pol.IsHedgeSymbol(q.Underlying)
 	}
 	sellsProtection := protection(p)
-	ev := deltaReductionEvidence{Underlying: p.Underlying, BaseCurrency: b.BaseCurrency, Legs: map[int]deltaReductionLeg{}, Cover: deltaCoverage{Shares: map[int]float64{}}}
+	ev := deltaReductionEvidence{Underlying: p.Underlying, BaseCurrency: b.BaseCurrency, BookBefore: b.IndexFutureDeltaBase, Legs: map[int]deltaReductionLeg{}, Cover: deltaCoverage{Shares: map[int]float64{}}}
 	for _, q := range b.Positions {
 		if q.DollarDeltaBase == nil || q.Quantity == 0 {
 			return false, false, unmeasured
@@ -195,8 +198,15 @@ func PolicyCheckBookFrom(acct *rpc.AccountResult, pos *rpc.PositionsResult) *Pol
 		for _, row := range rows {
 			kind := policyCheckPositionKind(row.SecType)
 			if kind == "" {
-				// A future, index, CFD, fund or warrant carries delta the
-				// gate does not measure; bills, bonds and conversions none.
+				if dd, why, ok := indexFutureDeltaBase(row, base); ok && row.Quantity != 0 {
+					if why != "" {
+						b.UnmeasuredLines = append(b.UnmeasuredLines, why)
+					}
+					b.IndexFutureDeltaBase += dd
+					continue
+				}
+				// Any other future, an index, CFD, fund or warrant carries delta
+				// the gate does not measure; bills, bonds and conversions none.
 				if row.Quantity != 0 && !ibkrlib.IsBillOrBond(row.SecType) && !strings.EqualFold(strings.TrimSpace(row.SecType), "CASH") {
 					b.UnmeasuredLines = append(b.UnmeasuredLines, fmt.Sprintf("the %s %s line is not a stock, ETF or option, so Canary has no delta for it",
 						strings.ToUpper(strings.TrimSpace(row.Symbol)), strings.ToUpper(strings.TrimSpace(row.SecType))))

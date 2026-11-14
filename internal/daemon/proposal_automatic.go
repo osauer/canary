@@ -466,8 +466,18 @@ func automaticBucketFor(p rpc.TradeProposal) string {
 // out the core sleeve's contract, so a protection sale cannot lower the
 // holding the next decision would buy back. The mandate's forced reduction
 // still covers it, and its rows are still served for the owner's hand.
+//
+// A sale of a put on a hedge-listed index is never automatic, whatever bucket
+// names it and whatever the owner pre-authorised (the owner's rule of
+// 2026-11-04 21:04 CET, that a hedge-listed put is never sold; 2026-11-14
+// 05:45 CET: protection is sold on the device only). Until then only the list of
+// pre-authorised buckets kept a put measured as directional from an
+// unattended exit.
 func (e *proposalEngine) automaticBucket(p rpc.TradeProposal) string {
 	bucket := automaticBucketFor(p)
+	if bucket != "" && hedgePutSale(e.rulebookPolicy(), p) {
+		return ""
+	}
 	if len(e.budgetHoldingLockBlockers(context.Background(), p)) > 0 {
 		return ""
 	}

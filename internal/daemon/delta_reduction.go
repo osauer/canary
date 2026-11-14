@@ -286,12 +286,33 @@ func deltaLegBase(row rpc.PositionView, isOption bool, baseCcy string) (float64,
 	return base, ""
 }
 
+// indexFutureDeltaBase measures a held index future, the one future Canary
+// trades and models (the hedge of index-hedge.md), as a line of the book: its
+// contract value in base currency, the delta the mandate and the reduce plan
+// read (owner decision 2026-11-14 05:45 CET, "Measure it, same test"; until
+// then the row left the book unmeasured, so one hedge contract held every
+// forced cut to the option contract cap). ok is false for any other row; why
+// says what is missing when the future cannot be measured. An order on the
+// future itself is not judged here: the hedge's sale and its buy-back have
+// their own admission.
+func indexFutureDeltaBase(row rpc.PositionView, baseCcy string) (base float64, why string, ok bool) {
+	if !positionIsIndexFuture(row) {
+		return 0, "", false
+	}
+	base, why = deltaLegBase(row, false, baseCcy)
+	if why != "" {
+		why = "the " + mandateFutureSymbol(row) + " future line " + why
+	}
+	return base, why, true
+}
+
 // measureDeltaReduction measures a candidate order's underlying and the whole
 // book from one positions read: every held equity and option leg, in base
 // currency, with the deltas the daemon's risk verdicts use, in one pass.
-// Any line that cannot be measured leaves the evidence not current, saying
-// which line. The book leaves pol's protection puts out unless the order
-// sells one (owner decision 2026-11-13 12:27 CET, in the rule above).
+// A held index future counts in the book at its contract value. Any line
+// that cannot be measured leaves the evidence not current, saying which
+// line. The book leaves pol's protection puts out unless the order sells one
+// (owner decision 2026-11-13 12:27 CET, in the rule above).
 func measureDeltaReduction(pos *rpc.PositionsResult, scope brokerStateScope, draft rpc.OrderDraft, pol risk.RulebookPolicy) deltaReductionEvidence {
 	underlying := strings.ToUpper(strings.TrimSpace(draft.Contract.Symbol))
 	ev := deltaReductionEvidence{Underlying: underlying, Legs: map[int]deltaReductionLeg{}, Cover: deltaCoverage{Shares: map[int]float64{}}}
@@ -355,14 +376,22 @@ func measureDeltaReduction(pos *rpc.PositionsResult, scope brokerStateScope, dra
 			continue // bills, bonds and conversions carry no equity delta (owner decision 2026-10-07 09:51 CEST)
 		}
 		if !rpc.PositionQuotesAsStock(row) {
-			// A future, index, CFD, fund or warrant row carries delta the
-			// daemon does not measure: it keeps the cap and is named.
-			if row.Quantity != 0 {
-				ev.Reason = fmt.Sprintf("the %s %s line is not a stock, ETF or option, so Canary has no delta for it",
-					strings.ToUpper(strings.TrimSpace(row.Symbol)), strings.ToUpper(strings.TrimSpace(row.SecType)))
-				return ev
+			if row.Quantity == 0 {
+				continue
 			}
-			continue
+			if base, why, ok := indexFutureDeltaBase(row, ev.BaseCurrency); ok && !strings.EqualFold(strings.TrimSpace(row.Symbol), underlying) {
+				if why != "" {
+					ev.Reason = why
+					return ev
+				}
+				ev.BookBefore += base
+				continue
+			}
+			// Any other future, an index, CFD, fund or warrant row carries
+			// delta the daemon does not measure: it keeps the cap and is named.
+			ev.Reason = fmt.Sprintf("the %s %s line is not a stock, ETF or option, so Canary has no delta for it",
+				strings.ToUpper(strings.TrimSpace(row.Symbol)), strings.ToUpper(strings.TrimSpace(row.SecType)))
+			return ev
 		}
 		if why := visit(row, false); why != "" {
 			ev.Reason = why

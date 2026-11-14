@@ -354,11 +354,20 @@ was refused or had to be split, and a tighter cap made that worse. Implemented
    for an option, converted to base with `positionBaseRate`. The underlying
    is the order's contract symbol; its legs are every held equity row that
    quotes as a stock and every option row with that symbol. Bills, bonds and
-   conversions carry no equity delta and are neither legs nor candidates;
-   any other non-equity row the positions file among the stocks (a future,
-   index, CFD, fund or warrant) carries delta the daemon does not measure, so
-   it keeps the cap and the refusal names the line (the policy check's book
-   lists it as an unmeasured line and judges no exit while one exists). No
+   conversions carry no equity delta and are neither legs nor candidates.
+   A held index future, the one future Canary trades and models
+   (index-hedge.md), counts in the book at its contract value, the delta
+   `positionDollarDelta` already gives it (owner decision 2026-11-14 05:45
+   CET, "Measure it, same test": until then one hedge contract left the book
+   unmeasured and held every forced cut to the option contract cap). The
+   test is unchanged, so the cap lifts while the book with the hedge is
+   still net long and stays once the hedge has tipped it short; an order on
+   the future itself is not judged here, and a hedge without a price or a
+   rate keeps the cap. Any other non-equity row the positions file among
+   the stocks (another future, an index, CFD, fund or warrant) carries delta
+   the daemon does not measure, so it keeps the cap and the refusal names
+   the line (the policy check's book lists it as an unmeasured line and
+   judges no exit while one exists). No
    second kind of delta is computed: `deltaLegBase` is the one per-row
    measurement, and the policy check's book reads it too, with no fallback
    the gate lacks (a row without its own FX rate is unmeasured for both).

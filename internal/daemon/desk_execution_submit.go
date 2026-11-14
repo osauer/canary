@@ -41,6 +41,9 @@ const (
 	// no served path yet; only proposal rows are sent.
 	deskBlockerIntentNotServed    = "intent_not_served"
 	deskBlockerJournalUnavailable = "execution_journal_unavailable"
+	// deskBlockerProtectionOwnerOnly: a sale of a put on a hedge-listed
+	// index, which only the owner sends.
+	deskBlockerProtectionOwnerOnly = "protection_owner_only"
 )
 
 // deskExecutionGrant is the request-scoped fact the write gate checks for
@@ -145,6 +148,12 @@ func (e *proposalEngine) deskSubmitBlockers(prop rpc.TradeProposal, grant *deskE
 	}
 	if class := deskExecutionClass(prop); class == "" || class != grant.Class {
 		return []rpc.TradingBlocker{{Code: rpc.DeskBlockerClassMismatch, Message: fmt.Sprintf("Canary classifies this row as %q, not %q; nothing was sent", nonEmptyString(class, "no automatic class"), grant.Class)}}
+	}
+	// Protection is the owner's to sell: a put on a hedge-listed index goes
+	// on the owner's confirmation only, never under the standing mandate
+	// (owner decision 2026-11-14 05:45 CET).
+	if hedgePutSale(e.rulebookPolicy(), prop) {
+		return []rpc.TradingBlocker{{Code: deskBlockerProtectionOwnerOnly, Message: "a put on a hedge-listed index is sold on your confirmation only; nothing was sent", Action: "Confirm the row on your device."}}
 	}
 	if want := deskExecutionStrategyEpisode(prop); want != "" && want != episode {
 		return []rpc.TradingBlocker{{Code: deskBlockerEpisodeMismatch, Message: fmt.Sprintf("a strategy row's item names the row's session episode %q; this item names %q", want, episode)}}

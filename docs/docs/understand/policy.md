@@ -374,9 +374,11 @@ Some exits keep the cap:
   book, or buying back a short stock in one, raises the book's.
 - Any order keeps it while a line anywhere in your book has a stale quote or
   no delta, spot or FX rate, because an unknown delta never exempts. Bills,
-  bonds and a defunct zero-value row count as zero and do not block it; a
-  future, index, CFD, fund or warrant line, whose delta Canary does not
-  measure, keeps the cap and is named.
+  bonds and a defunct zero-value row count as zero and do not block it. A
+  held index-hedge future counts at its contract value, so the cap lifts
+  while the book with the hedge is still net long and stays once the hedge
+  has tipped it short. Any other future, an index, CFD, fund or warrant
+  line, whose delta Canary does not measure, keeps the cap and is named.
 - An exit that would leave a short option uncovered keeps the cap. After the
   order, short calls need long shares or long calls, and short puts need short
   shares or long puts; a long option counts as cover only if it expires on or

@@ -1,9 +1,6 @@
 package risk
 
-import (
-	"math"
-	"slices"
-)
+import "math"
 
 // ClassifyCompleteIndexPutRoles applies the existing Rulebook economic-role
 // bands to a complete measured book. The caller must establish exact broker
@@ -14,17 +11,14 @@ func ClassifyCompleteIndexPutRoles(in RuleInputs, pol RulebookPolicy) (RuleInput
 	if !in.Positions.Healthy || in.BaseCurrency == "" || len(in.Names) == 0 {
 		return RuleInputs{}, false
 	}
-	normalized := in
-	normalized.Names = slices.Clone(in.Names)
 	gross := 0.0
-	for ni, n := range in.Names {
+	for _, n := range in.Names {
 		if !n.ExposureBaseComplete || !optionExitFinite(n.ExposureBase) {
 			return RuleInputs{}, false
 		}
 		gross += math.Max(n.ExposureBase, 0)
-		normalized.Names[ni].Legs = slices.Clone(n.Legs)
 		shortPut := 0.0
-		for li, l := range n.Legs {
+		for _, l := range n.Legs {
 			if !optionExitFinite(l.Quantity) || l.Quantity == 0 || math.Trunc(l.Quantity) != l.Quantity ||
 				!optionExitFinite(l.Multiplier) || l.Multiplier <= 0 || l.Delta == nil || !optionExitFinite(*l.Delta) || math.Abs(*l.Delta) > 1.05 ||
 				l.Underlying == nil || !optionExitFinite(*l.Underlying) || *l.Underlying <= 0 || l.UnderlyingSource == UnderlyingSourceStockLegMark ||
@@ -32,13 +26,11 @@ func ClassifyCompleteIndexPutRoles(in RuleInputs, pol RulebookPolicy) (RuleInput
 				(!isPut(l.Right) && !isCall(l.Right)) || (isPut(l.Right) && *l.Delta > 0) || (isCall(l.Right) && *l.Delta < 0) {
 				return RuleInputs{}, false
 			}
-			baseSpot := *l.Underlying * *l.FXToBase
-			if !optionExitFinite(baseSpot * l.Multiplier * l.Quantity) {
+			if !optionExitFinite(*l.Underlying * *l.FXToBase * l.Multiplier * l.Quantity) {
 				return RuleInputs{}, false
 			}
-			normalized.Names[ni].Legs[li].Underlying = &baseSpot
-			if indexPutRoleEligible(normalized.Names[ni].Legs[li]) {
-				shortPut += math.Abs(*l.Delta * l.Quantity * l.Multiplier * baseSpot)
+			if indexPutRoleEligible(l) {
+				shortPut += indexPutShortBase(l)
 				if !optionExitFinite(shortPut) {
 					return RuleInputs{}, false
 				}
@@ -48,12 +40,7 @@ func ClassifyCompleteIndexPutRoles(in RuleInputs, pol RulebookPolicy) (RuleInput
 	if !optionExitFinite(gross) {
 		return RuleInputs{}, false
 	}
-	classified := classifyIndexPutRoles(normalized, pol)
-	// Only the classification changes; callers retain quote-currency spots.
-	for ni := range classified.Names {
-		for li := range classified.Names[ni].Legs {
-			classified.Names[ni].Legs[li].Underlying = in.Names[ni].Legs[li].Underlying
-		}
-	}
-	return classified, true
+	// classifyIndexPutRoles converts each put with its own rate
+	// (indexPutShortBase), so the inputs go in as they are.
+	return classifyIndexPutRoles(in, pol), true
 }

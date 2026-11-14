@@ -333,6 +333,11 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   them never flips the line; those options are protection and never sold
   (the budget governor's test, `budgetLegIsProtection`, which also keeps
   hedge-listed puts and legs the option policy derives as protection).
+  What the reduction leaves can be puts worth more than the calls they
+  protect. Rule 12's trim offers their sale back to the band top, for the
+  owner's device only (`proposal_hedge_trim.go`, owner decision 2026-11-14
+  05:45 CET); no sale of a hedge-listed put is ever automatic
+  (`automaticBucket`).
   Every order the batch may send alone lowers the book's risk.
 - **Expiry.** An in-the-money long option within three US option sessions
   of expiry is cut ahead of the batch only where its exercise, as delivered
@@ -1230,7 +1235,7 @@ option book's loss was bounded by its premium):
    set in force (rule 3, 35% in every set by default) applies as it does
    today. An option buy that would breach either is refused with the figure,
    the limit and the name (`mandate_premium`: "with this order the premium at
-   risk in SYNA would be 46,800 EUR, 15.6% of net liquidation 300,000 EUR,
+   risk in SYNA would be 50,400 EUR, 16.8% of net liquidation 300,000 EUR,
    over the 15.0% limit for one name (now 0.0%)"; "the book's premium at risk
    would be 107,200 EUR, 35.7% of net liquidation 300,000 EUR, over the 35.0%
    premium budget of the calm set (now 33.3%)"), and the action names the
