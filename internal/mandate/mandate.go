@@ -105,6 +105,15 @@ type Leg struct {
 	// what it hedges. The hedge's own size rules and the premium budget
 	// still bound it.
 	Protection bool `json:"protection,omitempty"`
+	// ProtectionExcess is how many units of a protection leg the book has
+	// outgrown: the contracts past the top of the Rulebook's hedge band once
+	// the puts pass its over-hedge line, which the daemon fills from rule
+	// 12's trim. They count in the loss measure at today's value like any
+	// bought option (owner decision 2026-11-14 06:49 CET, "Count the
+	// excess"): what is left of the book no longer loses what they pay for,
+	// so they are a position, not a hedge. The forced reduction neither
+	// sells them nor sizes its cuts on them.
+	ProtectionExcess float64 `json:"protection_excess,omitempty"`
 	// LossUnknown says why a bought option's premium cannot be measured; set,
 	// the verdict is unknown.
 	LossUnknown string `json:"loss_unknown,omitempty"`
@@ -132,6 +141,9 @@ type LossMeasure struct {
 	// ProtectionBase is today's value of the hedge-listed long puts, named
 	// beside the measure and left out of TotalBase (Leg.Protection).
 	ProtectionBase float64 `json:"protection_base,omitempty"`
+	// ProtectionExcessBase is the part of PremiumBase that is protection the
+	// book has outgrown (Leg.ProtectionExcess).
+	ProtectionExcessBase float64 `json:"protection_excess_base,omitempty"`
 	// IndexHedgeBase is the loss of the held index futures (the Reduce
 	// hedge) when the index moves IndexShockPct against them: a short loses
 	// in the rise, a long in the fall. A hedge spends loss room like every
@@ -238,12 +250,18 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 			continue
 		}
 		if l.Kind == KindOption && l.Quantity > 0 && l.Protection {
-			// Named beside the measure, never in it; an unmeasured hedge
-			// leaves the measure of the rest known.
-			if l.LossUnknown == "" {
-				out.ProtectionBase += l.Quantity * l.LossPerUnitBase
+			// Named beside the measure and left out of it, but for the
+			// contracts the book has outgrown; an unmeasured hedge leaves the
+			// measure of the rest known.
+			if l.LossUnknown != "" {
+				continue
 			}
-			continue
+			counted := protectionCounted(l)
+			out.ProtectionBase += (l.Quantity - counted) * l.LossPerUnitBase
+			out.ProtectionExcessBase += counted * l.LossPerUnitBase
+			if counted == 0 {
+				continue
+			}
 		}
 		if l.Kind == KindOption && l.Quantity > 0 && l.LossUnknown != "" {
 			reasons = append(reasons, fmt.Sprintf("%s: premium at risk unmeasured: %s", l.Symbol, l.LossUnknown))
@@ -291,11 +309,23 @@ func measureLoss(in Input, legs []Leg) (*LossMeasure, []string) {
 	return out, reasons
 }
 
+// protectionCounted is how many units of a protection leg count in the loss
+// measure: its excess, never more than the line holds.
+func protectionCounted(l Leg) float64 {
+	if !l.Protection || !(l.ProtectionExcess > 0) || l.Quantity <= 0 {
+		return 0
+	}
+	return math.Min(l.ProtectionExcess, l.Quantity)
+}
+
 // legLoss is one leg's part of the loss measure, as measureLoss counts it.
 func legLoss(l Leg) float64 {
 	switch {
 	case l.Kind == KindOption && l.Protection:
-		return 0
+		if l.Quantity <= 0 || l.LossUnknown != "" {
+			return 0
+		}
+		return protectionCounted(l) * l.LossPerUnitBase
 	case l.Kind == KindOption && l.Quantity > 0 && l.LossUnknown == "":
 		return l.Quantity * l.LossPerUnitBase
 	case l.Kind == KindStock:

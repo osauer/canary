@@ -445,10 +445,16 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 	return out, st
 }
 
-// mandateBookWithoutShortHedges is the book with its held short index futures
-// taken out.
+// mandateBookWithoutShortHedges is the book the cuts are sized on: its held
+// short index futures taken out, and no protection counted as outgrown. Both
+// are in the verdict's measure and neither is the reduction's to sell, so
+// sizing on them would sell calls to offset a hedge, which leaves the hedge
+// larger still against what remains.
 func mandateBookWithoutShortHedges(book mandate.Input) mandate.Input {
 	book.Legs = slices.DeleteFunc(slices.Clone(book.Legs), func(l mandate.Leg) bool { return mandate.IsIndexFuture(l) && l.Quantity < 0 })
+	for i := range book.Legs {
+		book.Legs[i].ProtectionExcess = 0
+	}
 	return book
 }
 

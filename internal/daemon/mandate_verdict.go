@@ -343,6 +343,14 @@ func (s *Server) evaluateMandate(ctx context.Context, refreshAccount bool) *rpc.
 		var reasons []string
 		in.Legs, in.NotModelled, in.FXNow, reasons = mandateLegsFromPositions(pos, base, now)
 		mandateMarkProtection(in.Legs, s.rulebookPolicy())
+		// Protection the book has outgrown counts in the measure: the
+		// contracts rule 12's trim names (proposal_hedge_trim.go).
+		if engine := s.tradeProposals; engine != nil && capital.Known && capital.EquityBase > 0 {
+			acct := &rpc.AccountResult{NetLiquidation: capital.EquityBase, BaseCurrency: base}
+			if plan, pol, _, ok := engine.hedgeTrimPlan(ctx, acct, pos, now); ok {
+				mandateMarkProtectionExcess(in.Legs, pos, pol, plan)
+			}
+		}
 		// The share lines' stops, for the loss measure (mandate_loss.go).
 		stops, stopsWhy := s.mandateArmedStops(ctx, pos, scope)
 		var stopNote string
@@ -675,6 +683,9 @@ func mandateStatusSentence(v *mandate.Verdict, ccy string) string {
 // loss room 69,000 EUR (203%)".
 func mandateLossSentence(l *mandate.LossMeasure, ccy string) string {
 	parts := fmt.Sprintf("options at today's value %s, stop loss %s", mandateMoney(l.PremiumBase, ccy), mandateMoney(l.StopLossBase, ccy))
+	if l.ProtectionExcessBase > 0 {
+		parts += fmt.Sprintf(", of which %s is index puts past the hedge band", mandateMoney(l.ProtectionExcessBase, ccy))
+	}
 	if l.ProtectionBase > 0 {
 		parts += fmt.Sprintf("; protection %s is not counted", mandateMoney(l.ProtectionBase, ccy))
 	}

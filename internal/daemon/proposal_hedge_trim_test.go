@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -243,5 +244,43 @@ func TestHedgeTrimIsNotCoveredByAnExitOfTheSamePut(t *testing.T) {
 	mergeSameContractProposals(rows, nil)
 	if rows[1].CoveredBy != exit.Key {
 		t.Fatalf("an issuer trim was not covered by the larger exit: %+v", rows[1])
+	}
+}
+
+// The loss measure counts the contracts the trim names, on the plan the card
+// is built from, and the forced reduction sizes its cuts without them.
+func TestMandateCountsTheProtectionTheTrimNames(t *testing.T) {
+	engine := &proposalEngine{server: &Server{}}
+	acct, pos := hedgeTrimBook(50000)
+	plan, pol, base, ok := engine.hedgeTrimPlan(context.Background(), acct, pos, mandateTestNow)
+	if !ok || base != "EUR" {
+		t.Fatalf("no plan for an over-hedged book: %+v", plan)
+	}
+	legs, _, _, _ := mandateLegsFromPositions(pos, "EUR", mandateTestNow)
+	mandateMarkProtection(legs, pol)
+	mandateMarkProtectionExcess(legs, pos, pol, plan)
+	excess := map[string]float64{}
+	for _, l := range legs {
+		if l.ProtectionExcess != 0 && !l.Protection {
+			t.Fatalf("excess on a leg that is not protection: %+v", l)
+		}
+		excess[l.ID] = l.ProtectionExcess
+	}
+	if excess[mandateLegID(pos.Options[2])] != 2 || excess[mandateLegID(pos.Options[1])] != 13 || excess[mandateLegID(pos.Options[0])] != 0 {
+		t.Fatalf("excess by leg: %v, want both near puts, 13 far puts and no calls", excess)
+	}
+	sizing := mandateBookWithoutShortHedges(mandate.Input{Legs: legs})
+	for _, l := range sizing.Legs {
+		if l.ProtectionExcess != 0 {
+			t.Fatalf("the cuts are sized on outgrown protection: %+v", l)
+		}
+	}
+	if legs[1].ProtectionExcess == 0 && legs[2].ProtectionExcess == 0 {
+		t.Fatal("sizing changed the verdict's own legs")
+	}
+	// Inside the over-hedge line there is no plan and nothing is marked.
+	acct, pos = hedgeTrimBook(100000)
+	if _, _, _, ok := engine.hedgeTrimPlan(context.Background(), acct, pos, mandateTestNow); ok {
+		t.Fatal("a plan inside the over-hedge line")
 	}
 }

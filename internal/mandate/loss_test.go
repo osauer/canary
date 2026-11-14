@@ -188,3 +188,43 @@ func TestMeasureLossMatchesTheVerdict(t *testing.T) {
 		t.Fatal("an unmeasured premium must make the measure unknown")
 	}
 }
+
+// Protection the book has outgrown counts: the contracts past the hedge band
+// are in the measure at today's value, the ones the band allows stay beside
+// it (owner decision 2026-11-14 06:49 CET, "Count the excess"; it amends
+// "Leave it out" of 2026-11-13 05:00 CET for that part).
+func TestLossMeasureCountsProtectionPastTheBand(t *testing.T) {
+	iv := 0.35
+	calls := Leg{ID: "1", Symbol: "SYNA 100 C", Underlying: "SYNA", Kind: KindOption, Quantity: 5, Multiplier: 100, Currency: "USD", Spot: 100,
+		Right: "C", Strike: 100, TimeToExpiryYears: 0.25, IV: &iv, LossPerUnitBase: 4000}
+	puts := Leg{ID: "2", Symbol: "SYNX 90 P", Underlying: "SYNX", Kind: KindOption, Quantity: 20, Multiplier: 100, Currency: "USD", Spot: 100,
+		Right: "P", Strike: 90, TimeToExpiryYears: 0.25, IV: &iv, LossPerUnitBase: 3000, Protection: true}
+
+	v := Evaluate(lossTestInput(t, []Leg{calls, puts}))
+	if v.Loss == nil || v.Loss.TotalBase != 20000 || v.Loss.ProtectionBase != 60000 || v.Loss.ProtectionExcessBase != 0 || v.Loss.RatioToRoom >= 1 {
+		t.Fatalf("protection inside the band: %+v status %s, want 20,000 counted, inside the room, and 60,000 beside it", v.Loss, v.Status)
+	}
+	// Seventeen of the twenty are past the band: 51,000 joins the measure,
+	// 9,000 stays beside it, and the book reads reduce.
+	puts.ProtectionExcess = 17
+	v = Evaluate(lossTestInput(t, []Leg{calls, puts}))
+	if v.Loss.TotalBase != 71000 || v.Loss.PremiumBase != 71000 || v.Loss.ProtectionExcessBase != 51000 || v.Loss.ProtectionBase != 9000 || v.Loss.RatioToRoom <= 1 {
+		t.Fatalf("protection past the band: %+v status %s, want 71,000 counted, over the room, with 51,000 of it excess", v.Loss, v.Status)
+	}
+	for _, l := range v.Legs {
+		if l.ID == "2" && l.LossBase != 51000 {
+			t.Fatalf("the put leg carries %g of the measure, want 51,000", l.LossBase)
+		}
+	}
+	// Never more than the line holds, and nothing for a leg that is not
+	// protection.
+	puts.ProtectionExcess = 99
+	if v = Evaluate(lossTestInput(t, []Leg{calls, puts})); v.Loss.ProtectionExcessBase != 60000 || v.Loss.ProtectionBase != 0 {
+		t.Fatalf("excess beyond the line: %+v", v.Loss)
+	}
+	calls.ProtectionExcess = 3
+	puts.ProtectionExcess = 0
+	if v = Evaluate(lossTestInput(t, []Leg{calls, puts})); v.Loss.TotalBase != 20000 || v.Loss.ProtectionExcessBase != 0 {
+		t.Fatalf("excess on a leg that is not protection: %+v", v.Loss)
+	}
+}

@@ -1343,7 +1343,17 @@ premium counts in the premium budget ("Count it").
 Owner decision 2026-11-13 05:00 CET, on the review of that morning: the loss
 measure counts a bought option at today's value, and a hedge-listed long put
 is protection, named beside the measure (`loss.protection_base`,
-`mandate.Leg.Protection`) and left out of it. The price paid above the value
+`mandate.Leg.Protection`) and left out of it, but for the contracts the book
+has outgrown (owner decision 2026-11-14 06:49 CET, "Count the excess", which
+amends "Leave it out" for that part): the contracts rule 12's trim names
+count at today's value (`Leg.ProtectionExcess`, `loss.protection_excess_base`,
+filled from the plan the trim card is built from), because what is left of
+the book no longer loses what they pay for. Without it the verdict could
+read within while the puts alone exceeded the loss room. The reduction
+neither sells them nor sizes its cuts on them
+(`mandateBookWithoutShortHedges`), so the verdict reads reduce until the
+owner trims; with no trim plan (inside the over-hedge line, no long book, or
+a book not wholly measured) nothing is counted. The price paid above the value
 is a loss already taken, so it sat in the drawdown that shrank the room and
 in the measure at once; and the puts' premium, which the reduction never
 sells, could exceed the room alone, so the batch sold every call well before

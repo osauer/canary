@@ -322,7 +322,11 @@ book's loss measure with the loss room the mandate still allows
 (`canary mandate`). The loss measure is today's value of every bought option,
 what it can still lose; a hedge-listed long put is protection, named beside
 the measure and left out of it, so a hedge never forces the sale of what it
-hedges (the Rulebook's premium budget still counts every bought option at the
+hedges. Protection the book has outgrown is the exception: once the puts
+pass the over-hedge line, the contracts the trim proposal names count at
+today's value like any bought option, and the puts the hedge band still
+allows stay out. The verdict then reads reduce until you trim them; the
+forced reduction neither sells them nor sizes its cuts on them (the Rulebook's premium budget still counts every bought option at the
 higher of the price paid and its value, protection included),
 plus the cash loss to the stop of every share line a working stop or trail
 covers, plus a held index-hedge future's loss in a 10% index move against it

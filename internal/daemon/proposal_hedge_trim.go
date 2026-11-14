@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/risk"
 	"github.com/osauer/canary/v2/internal/rpc"
 )
@@ -37,30 +38,61 @@ import (
 
 // hedgeTrimProposals offers rule 12's trim on the book as read.
 func (e *proposalEngine) hedgeTrimProposals(ctx context.Context, policy protectionPolicy, status rpc.ProtectionPolicyStatus, acct *rpc.AccountResult, pos *rpc.PositionsResult, sources rpc.TradeProposalSourceFingerprints, now time.Time) []rpc.TradeProposal {
-	// A positions read that is not current and whole can have lost its long
-	// lines, which reads as an over-sized hedge (2026-11-04).
-	if pos == nil || !currentPortfolioAuthority(pos.Authority) || !pos.Authority.PortfolioComplete {
-		return nil
-	}
-	in, pol, ok := e.issuerConcentrationInputs(ctx, acct, pos, now)
+	plan, pol, base, ok := e.hedgeTrimPlan(ctx, acct, pos, now)
 	if !ok {
 		return nil
 	}
 	sizing := mandateReductionInput{MaxOrderNotional: policy.Buckets.RiskReduction.MaxOrderNotional}
 	if e != nil && e.server != nil {
-		if st, carried := e.server.rulebookRegimeStage(pol, now); st.Bucket != "" {
-			in.RegimeStage, in.RegimeStageAsOf, in.RegimeStageCarried = st.Bucket, st.AsOf, carried
-		}
-		if limits := e.server.orderLimitsInForce(in.BaseCurrency); limits.Complete {
+		if limits := e.server.orderLimitsInForce(base); limits.Complete {
 			sizing.OrderCapBase, sizing.MaxOptionContracts = limits.CapBase, limits.MaxOptionContracts
 			sizing.Exits = &deltaExitPlan{pos: pos, pol: pol}
 		}
 	}
-	plan, ok := risk.PlanHedgeTrim(in, pol)
-	if !ok {
-		return nil
+	return hedgeTrimRows(policy, status, sources, now, pos, pol, plan, sizing, base)
+}
+
+// hedgeTrimPlan is rule 12's trim on the book as read, for the card and for
+// the mandate's loss measure, which counts the contracts it names
+// (mandateMarkProtectionExcess): one measurement, so the card and the
+// measure never disagree about how much protection is too much.
+func (e *proposalEngine) hedgeTrimPlan(ctx context.Context, acct *rpc.AccountResult, pos *rpc.PositionsResult, now time.Time) (risk.HedgeTrimPlan, risk.RulebookPolicy, string, bool) {
+	// A positions read that is not current and whole can have lost its long
+	// lines, which reads as an over-sized hedge (2026-11-04).
+	if pos == nil || !currentPortfolioAuthority(pos.Authority) || !pos.Authority.PortfolioComplete {
+		return risk.HedgeTrimPlan{}, risk.RulebookPolicy{}, "", false
 	}
-	return hedgeTrimRows(policy, status, sources, now, pos, pol, plan, sizing, in.BaseCurrency)
+	in, pol, ok := e.issuerConcentrationInputs(ctx, acct, pos, now)
+	if !ok {
+		return risk.HedgeTrimPlan{}, pol, "", false
+	}
+	if e != nil && e.server != nil {
+		if st, carried := e.server.rulebookRegimeStage(pol, now); st.Bucket != "" {
+			in.RegimeStage, in.RegimeStageAsOf, in.RegimeStageCarried = st.Bucket, st.AsOf, carried
+		}
+	}
+	plan, ok := risk.PlanHedgeTrim(in, pol)
+	return plan, pol, in.BaseCurrency, ok
+}
+
+// mandateMarkProtectionExcess writes onto the protection legs how many
+// contracts the book has outgrown: the ones rule 12's trim would sell (owner
+// decision 2026-11-14 06:49 CET, "Count the excess"). The loss measure counts
+// them; the puts the band still allows stay beside it. With no plan nothing
+// is marked, which is the measure as it was.
+func mandateMarkProtectionExcess(legs []mandate.Leg, pos *rpc.PositionsResult, pol risk.RulebookPolicy, plan risk.HedgeTrimPlan) {
+	for _, line := range plan.Lines {
+		row, found := hedgeTrimRow(pos, pol, line)
+		if !found {
+			continue
+		}
+		id := mandateLegID(row)
+		for i := range legs {
+			if legs[i].ID == id && legs[i].Protection {
+				legs[i].ProtectionExcess = line.Sell
+			}
+		}
+	}
 }
 
 // hedgeTrimRows turns the plan into one sale per put line, each held to the
