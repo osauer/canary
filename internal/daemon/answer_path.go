@@ -34,8 +34,11 @@ type answerPathLane struct {
 	// recovery's outcome is still to be said.
 	snapshotRedialedAt  time.Time
 	snapshotQuietWarned bool
-	snapshotPoisonedAt  time.Time
-	snapshotDropped     *ibkrlib.Connector
+	// snapshotOutageSaid records that a poison during a lost TWS-to-IBKR
+	// link was said.
+	snapshotOutageSaid bool
+	snapshotPoisonedAt time.Time
+	snapshotDropped    *ibkrlib.Connector
 }
 
 type answerPathSupervisor struct {
@@ -174,6 +177,15 @@ func (s *Server) superviseAnswerPaths(now time.Time) {
 // most once per answerPathRedialQuiet, says once when a redialled session is
 // poisoned again, never drops the session under brokerWriteMu, and logs
 // through the logging schedule.
+//
+// While TWS itself has no connection to IBKR (code 1100) it answers no
+// open-order read on any socket, so a redial cannot help: the session is left
+// alone and the line says what is true. Once the link is back the read is
+// redialled at once, whatever the last redial's age. On 2026-11-09, 10 and 13
+// TWS lost that link for hours inside the US session; the one redial was
+// spent in the first minute, the log said the Gateway needed a restart, and
+// after the link returned the open orders stayed unread for up to an hour,
+// with every reduction row blocked on them.
 func (s *Server) redialPoisonedOpenOrderSnapshot(c *ibkrlib.Connector, now time.Time) {
 	poisonedFn := (*ibkrlib.Connector).OpenOrderSnapshotPoisoned
 	if s.snapshotPoisonedFn != nil {
@@ -187,6 +199,11 @@ func (s *Server) redialPoisonedOpenOrderSnapshot(c *ibkrlib.Connector, now time.
 	if s.gatewayLogRequired(since, now) {
 		logf = s.warnf
 	}
+	linkFn := (*ibkrlib.Connector).BackendLink
+	if s.backendLinkFn != nil {
+		linkFn = s.backendLinkFn
+	}
+	link := linkFn(c)
 	s.answerPath.mu.Lock()
 	lane := s.answerPath.lane(rpc.AnswerPathLanePrimary)
 	if c == lane.snapshotDropped {
@@ -195,7 +212,20 @@ func (s *Server) redialPoisonedOpenOrderSnapshot(c *ibkrlib.Connector, now time.
 		s.answerPath.mu.Unlock()
 		return
 	}
-	if !lane.snapshotRedialedAt.IsZero() && now.Sub(lane.snapshotRedialedAt) < answerPathRedialQuiet {
+	if link.Down {
+		say := !lane.snapshotOutageSaid
+		lane.snapshotOutageSaid = true
+		s.answerPath.mu.Unlock()
+		if say {
+			logf("open orders cannot be read while TWS has no connection to IBKR (lost at %s); Canary reads them again when it returns", localTimeOnly(link.ChangedAt))
+		}
+		return
+	}
+	lane.snapshotOutageSaid = false
+	// The link came back since the last redial: what poisoned the read has
+	// changed, so the hour's quiet does not hold this one.
+	restored := !link.ChangedAt.IsZero() && link.ChangedAt.After(lane.snapshotRedialedAt)
+	if !restored && !lane.snapshotRedialedAt.IsZero() && now.Sub(lane.snapshotRedialedAt) < answerPathRedialQuiet {
 		warn := !lane.snapshotQuietWarned
 		lane.snapshotQuietWarned = true
 		redialedAt := lane.snapshotRedialedAt

@@ -619,6 +619,61 @@ func TestPoisonedOpenOrderSnapshotRedialsThePrimarySession(t *testing.T) {
 	}
 }
 
+// While TWS has no connection to IBKR a redial cannot bring the open orders
+// back, so none is spent and the line says what is true. When the link
+// returns the read is redialled at once, also inside the hour after an
+// earlier redial. On 2026-11-13 the link was down for more than five hours of
+// the US session and the open orders stayed unread for 45 minutes after it
+// returned.
+func TestPoisonedOpenOrderSnapshotWaitsForTheBackendLink(t *testing.T) {
+	f := startFakeTWS(t)
+	s, out := sessionLossServer(t, f, "2026-10-07T18:00:00Z")
+	c := s.gatewayConnectorForTest()
+	now := s.now()
+	s.snapshotPoisonedFn = func(*ibkrlib.Connector) (time.Time, error, bool) {
+		return now.Add(-40 * time.Second), errors.New("synthetic: no openOrderEnd"), true
+	}
+	// An earlier redial stands inside its quiet hour.
+	s.answerPath.mu.Lock()
+	s.answerPath.lane(rpc.AnswerPathLanePrimary).snapshotRedialedAt = now.Add(-10 * time.Minute)
+	s.answerPath.mu.Unlock()
+
+	link := ibkrlib.BackendLinkReport{Down: true, ChangedAt: now.Add(-time.Minute)}
+	s.backendLinkFn = func(*ibkrlib.Connector) ibkrlib.BackendLinkReport { return link }
+	mark := len(out.String())
+	s.redialPoisonedOpenOrderSnapshot(c, now)
+	s.redialPoisonedOpenOrderSnapshot(c, now.Add(30*time.Second))
+	time.Sleep(50 * time.Millisecond)
+	if !c.IsReady() {
+		t.Fatal("the session was redialled while TWS has no connection to IBKR")
+	}
+	lines := logLinesAt(settledLog(out, mark), "WARN")
+	if len(lines) != 1 || !strings.Contains(lines[0], "while TWS has no connection to IBKR") || strings.Contains(lines[0], "Gateway restarts") {
+		t.Fatalf("want one line naming the lost link, got:\n%s", strings.Join(lines, "\n"))
+	}
+
+	// The link returns: the read is redialled although the hour is not over.
+	link = ibkrlib.BackendLinkReport{ChangedAt: now.Add(time.Minute)}
+	s.redialPoisonedOpenOrderSnapshot(c, now.Add(90*time.Second))
+	waitSessionLost(t, c)
+	reconnectForTest(t, s)
+	fresh := s.gatewayConnectorForTest()
+	if fresh == nil || fresh == c || !fresh.IsReady() {
+		t.Fatal("the read was not redialled when the link returned")
+	}
+	// That redial is the one the returned link earned; a poison after it
+	// keeps the hour.
+	mark = len(out.String())
+	s.redialPoisonedOpenOrderSnapshot(fresh, now.Add(3*time.Minute))
+	time.Sleep(50 * time.Millisecond)
+	if !fresh.IsReady() {
+		t.Fatal("a second redial for the same return of the link")
+	}
+	if again := snapshotLines(logLinesAt(settledLog(out, mark), "WARN")); len(again) != 1 || !strings.Contains(again[0], "poisoned again") {
+		t.Fatalf("want the poisoned-again line after the earned redial, got:\n%s", strings.Join(again, "\n"))
+	}
+}
+
 func snapshotLines(lines []string) []string {
 	var out []string
 	for _, line := range lines {

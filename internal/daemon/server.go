@@ -428,7 +428,9 @@ type Server struct {
 	// snapshotPoisonedFn replaces Connector.OpenOrderSnapshotPoisoned in
 	// tests; openOrderSnapshotProtocolTimeout shortens a real poisoning's
 	// 15 s protocol deadline for the connectors this daemon builds.
-	snapshotPoisonedFn               func(*ibkrlib.Connector) (time.Time, error, bool)
+	snapshotPoisonedFn func(*ibkrlib.Connector) (time.Time, error, bool)
+	// backendLinkFn replaces Connector.BackendLink in tests of the same.
+	backendLinkFn                    func(*ibkrlib.Connector) ibkrlib.BackendLinkReport
 	openOrderSnapshotProtocolTimeout time.Duration
 	// orderSnapshotFn is the open-order snapshot seam for the reconcile
 	orderSnapshotFn func(context.Context) (ibkrlib.OpenOrderSnapshot, error)
