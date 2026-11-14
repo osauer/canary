@@ -221,7 +221,10 @@ row names the cap that selected it, the measured line and total, the excess,
 its place in the order and the order used, under `budget` in JSON and on a
 `Budget:` line in `canary proposals list --details`. `max_order_notional`
 bounds one order exactly as `risk_reduction.max_order_notional` does; the next
-cycle measures what is left. A stale mark blocks the row with
+cycle measures what is left. An order is also held to the `[order_limits]`
+cap, and to `max_option_contracts` unless the order gate would pass the sale
+as a delta-reducing exit, so no row asks for more than the gate admits; the
+row names which cap holds it. A stale mark blocks the row with
 `fresh_option_quote_required`; a leg of a multi-leg unit is measured but
 routes to the strategy workflow. Rows are close or reduce only, like every
 proposal.

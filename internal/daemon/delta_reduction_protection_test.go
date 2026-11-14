@@ -210,3 +210,59 @@ func TestPolicyCheckExitLeavesProtectionOutOfTheBook(t *testing.T) {
 		t.Fatalf("protection exit that lowers the whole book: lowers %v known %v %q", lowers, known, why)
 	}
 }
+
+// The budget governor sizes an order as the order gate will judge it. Sized
+// by max_order_notional alone, a card asked for more contracts than
+// max_option_contracts admits and was refused at the send wherever the gate
+// did not pass the sale as a delta-reducing exit.
+func TestBudgetOrderSizeFollowsTheOrderGate(t *testing.T) {
+	t.Parallel()
+	pol := risk.DefaultRulebookPolicy()
+	limits := deltaTestLimits()
+	gateOf := func(pos *rpc.PositionsResult, pol risk.RulebookPolicy) *budgetGate {
+		return newBudgetGate(budgetGovernorInput{Rulebook: pol, OrderCapBase: limits.CapBase, MaxOptionContracts: limits.MaxOptionContracts}, pos)
+	}
+	send := func(pos *rpc.PositionsResult, pol risk.RulebookPolicy, row rpc.PositionView, qty int) error {
+		draft, position := protectionTestDraft(row, qty)
+		return validateOrderRiskAuthority(limits, draft, position, protectiveExitTestNotional(float64(qty)*300), "EUR", deltaTestInventory, measureDeltaReduction(pos, deltaTestScope, draft, pol))
+	}
+
+	// 300 EUR a contract: the bucket's 30,000 would allow 100, the 12,000 EUR
+	// order cap allows 40, and the gate passes 40 because the sale lowers
+	// the book's delta.
+	pos := protectionTestBook()
+	calls := pos.Options[0]
+	limit, heldBy := gateOf(pos, pol).size(calls, 100, 30000)
+	if limit != 40 || heldBy != "the order cap in force" {
+		t.Fatalf("order the gate admits: %d held by %q, want 40 by the order cap", limit, heldBy)
+	}
+	if err := send(pos, pol, calls, limit); err != nil {
+		t.Fatalf("the gate refuses the governor's own order: %v", err)
+	}
+	// Where the gate does not pass the sale, the contract cap holds the order.
+	none := risk.RulebookPolicy{}
+	limit, heldBy = gateOf(pos, none).size(calls, 100, 30000)
+	if limit != 5 || heldBy != "max_option_contracts 5" {
+		t.Fatalf("order the gate does not admit: %d held by %q, want the contract cap", limit, heldBy)
+	}
+	if err := send(pos, none, calls, 40); err == nil {
+		t.Fatal("the gate must refuse 40 contracts where the governor held 5")
+	}
+	// The bucket's own cap still holds an order below the others.
+	if limit, heldBy = gateOf(pos, pol).size(calls, 100, 900); limit != 3 || heldBy != "max_order_notional 900" {
+		t.Fatalf("order under the bucket cap: %d held by %q", limit, heldBy)
+	}
+	// Without order limits the bucket's cap is the only one, as before.
+	if limit, _ = newBudgetGate(budgetGovernorInput{Rulebook: pol}, pos).size(calls, 100, 30000); limit != 100 {
+		t.Fatalf("order without limits in force: %d, want 100", limit)
+	}
+	// The second line is judged against the book as the first leaves it.
+	short := protectionTestBook(rpc.PositionView{Symbol: "SYNC", SecType: rpc.SecTypeStock, ConID: protectionTestShort, Currency: "EUR", Quantity: -6500, Multiplier: 1, Mark: 100, MarketValue: -650000})
+	g := gateOf(short, pol)
+	if limit, _ = g.size(short.Options[0], 100, 30000); limit != 40 {
+		t.Fatalf("first line: %d, want 40", limit)
+	}
+	if limit, _ = g.size(short.Options[1], 60, 30000); limit != 5 {
+		t.Fatalf("second line after the first has taken the book short: %d, want the contract cap", limit)
+	}
+}

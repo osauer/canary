@@ -244,7 +244,15 @@ governor the owner armed is unwanted. It restates the decision of 2026-09-28
     cap. A line already trimmed by the per-line pass can be trimmed further.
   - `max_order_notional` caps one generated order exactly as
     `risk_reduction.max_order_notional` does; the remainder waits for the next
-    cycle, which re-evaluates from the position as it then is. The row's
+    cycle, which re-evaluates from the position as it then is. Since
+    2026-11-14 (owner instruction 06:36 CET) an order is also sized with the
+    order gate's own test (`budgetGate`, as the forced reduction's since
+    2026-11-13 12:27 CET): held to the `[order_limits]` cap, and to
+    `max_option_contracts` unless the gate would pass the sale as a
+    delta-reducing exit, each line judged against the book as the lines
+    ranked before it leave it. Until then a card could ask for more
+    contracts than the gate admits and was refused at the send. This only
+    ever lowers a row's size: no cap is lifted. The row's
     reason asks to sell exactly the order's quantity; a held order also names
     the plan's number and the limit that held it (`budget.contracts_*` keep
     the plan's cuts), and the status `plan` lists the held remainder as

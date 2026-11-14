@@ -59,6 +59,11 @@ type budgetGovernorInput struct {
 	// policy, nil when none is current. The ranking reads from it which open
 	// rules each line offends; the governor never re-measures them.
 	Rules *rpc.RulesResult
+	// OrderCapBase and MaxOptionContracts are the [order_limits] caps in
+	// force, zero while they are incomplete: the governor sizes an order
+	// with the order gate's own test (budgetGate).
+	OrderCapBase       float64
+	MaxOptionContracts int
 	// Ignored reports a governor row key the owner ignored: the plan passes
 	// over that line to the next candidate.
 	Ignored func(key string) bool
@@ -106,6 +111,9 @@ func (e *proposalEngine) budgetGovernorInput(acct *rpc.AccountResult, now time.T
 	if e != nil && e.server != nil {
 		stage, carried := e.server.rulebookRegimeStage(in.Rulebook, now)
 		in.RegimeStage, in.RegimeStageCarried = stage.Bucket, carried
+		if limits := e.server.orderLimitsInForce(in.AccountBaseCurrency); limits.Complete {
+			in.OrderCapBase, in.MaxOptionContracts = limits.CapBase, limits.MaxOptionContracts
+		}
 	}
 	if e == nil || e.server == nil || e.server.riskPolicies == nil || e.server.riskCapital == nil {
 		return in
@@ -137,6 +145,10 @@ type budgetLine struct {
 	perLineCut int
 	totalCut   int
 	order      int
+	// limit is the most one order of the line may sell this cycle, and
+	// heldBy what sets it (budgetGate.size); zero before the plan is laid out.
+	limit  int
+	heldBy string
 	// relief is the open Rulebook rules this line or its issuer offends,
 	// timeValuePct its extrinsic value as a percent of its value (nil when
 	// unknown), rank its place in the ranking (0 when it cannot be sold), and
@@ -184,6 +196,54 @@ type budgetPlan struct {
 	// carries while the Rulebook policy in force is not a reviewed owner
 	// file; empty otherwise.
 	reviewNote string
+}
+
+// budgetGate sizes one governor order as the order gate will judge it (owner
+// instruction 2026-11-14 06:36 CET, "Fix all three"; the forced reduction got
+// the same test on 2026-11-13 12:27 CET). Until then the governor sized by
+// max_order_notional alone, so a card could ask for more contracts than
+// [order_limits] max_option_contracts admits, and the gate refused it at the
+// send. The money caps hold every order; an option order past the contract
+// cap stands only where the gate would pass it as a delta-reducing exit, each
+// line judged against the book as the lines ranked before it leave it.
+type budgetGate struct {
+	base      string
+	capBase   float64
+	contracts int
+	exits     *deltaExitPlan
+}
+
+func newBudgetGate(input budgetGovernorInput, pos *rpc.PositionsResult) *budgetGate {
+	g := &budgetGate{base: protectionCoverageBaseCurrency(pos), capBase: input.OrderCapBase, contracts: input.MaxOptionContracts}
+	if g.capBase > 0 || g.contracts > 0 {
+		g.exits = &deltaExitPlan{pos: pos, pol: input.Rulebook}
+	}
+	return g
+}
+
+// size is the most contracts one order of row may sell toward want, and the
+// words for what holds it there.
+func (g *budgetGate) size(row rpc.PositionView, want int, maxOrderNotional float64) (int, string) {
+	limit, heldBy := budgetOrderLimit(row, maxOrderNotional), fmt.Sprintf("max_order_notional %.0f", maxOrderNotional)
+	if g == nil {
+		return limit, heldBy
+	}
+	// A row without its exchange rate cannot be held to a cap in the base
+	// currency; the gate judges that order itself.
+	if _, rated := positionBaseRate(row, g.base); rated && g.capBase > 0 {
+		if byCap := mandateMoneyOrderLimit(row, g.base, 0, g.capBase); byCap > 0 && (limit <= 0 || byCap < limit) {
+			limit, heldBy = byCap, "the order cap in force"
+		}
+	}
+	qty := want
+	if limit > 0 {
+		qty = min(qty, limit)
+	}
+	if g.contracts > 0 && positionWireSecType(row.SecType) == "OPT" && qty > g.contracts && !g.exits.admits(row, rpc.OrderActionSell, qty) {
+		limit, heldBy, qty = g.contracts, fmt.Sprintf("max_option_contracts %d", g.contracts), g.contracts
+	}
+	g.exits.record(row, rpc.OrderActionSell, qty)
+	return limit, heldBy
 }
 
 const budgetMoneyEpsilon = 1e-6
@@ -314,7 +374,7 @@ func budgetMeasurePlan(policy protectionPolicy, input budgetGovernorInput, pos *
 		remaining -= float64(line.perLineCut) * line.unitBase
 	}
 	budgetTotalPass(plan.lines, plan.ranked, remaining-plan.totalCap, budgetLineUnitValue)
-	budgetPlanOrders(&plan, bucket.MaxOrderNotional)
+	budgetPlanOrders(&plan, bucket.MaxOrderNotional, newBudgetGate(input, pos))
 	if totalExcess := plan.total - plan.totalCap; totalExcess > budgetMoneyEpsilon {
 		st.TotalExcessBase = new(totalExcess)
 	}
@@ -603,7 +663,7 @@ func budgetRulebookPlan(policy protectionPolicy, input budgetGovernorInput, pos 
 		st.PremiumExcessBase = new(plan.excess)
 		budgetTotalPass(plan.lines, plan.ranked, plan.excess-cut, budgetLineUnitAtRisk)
 	}
-	budgetPlanOrders(&plan, policy.Buckets.BudgetReduction.MaxOrderNotional)
+	budgetPlanOrders(&plan, policy.Buckets.BudgetReduction.MaxOrderNotional, newBudgetGate(input, pos))
 	if overLine || plan.excess > budgetMoneyEpsilon {
 		st.State = rpc.BudgetStateOverBudget
 	} else {
@@ -727,7 +787,13 @@ func budgetReductionRow(policy protectionPolicy, status rpc.ProtectionPolicyStat
 	bucket := policy.Buckets.BudgetReduction
 	row := line.row
 	qty := cut
-	if limit := budgetOrderLimit(row, bucket.MaxOrderNotional); limit > 0 {
+	limit := line.limit
+	if line.heldBy == "" {
+		// A line the plan did not lay out (budgetPlanOrders ranks the sellable
+		// ones) keeps the bucket's own cap.
+		limit, line.heldBy = budgetOrderLimit(row, bucket.MaxOrderNotional), fmt.Sprintf("max_order_notional %.0f", bucket.MaxOrderNotional)
+	}
+	if limit > 0 {
 		qty = min(qty, limit)
 	}
 	qty = max(1, min(qty, line.contracts))
@@ -771,15 +837,15 @@ func budgetReductionRow(policy protectionPolicy, status rpc.ProtectionPolicyStat
 		reason = fmt.Sprintf("premium line is %.1f%% of declared risk capital, above the %.1f%% per-line cap (%d %s), and total premium at risk is %.1f%%, above the %.1f%% cap (%s in the reduction order: %s; %d %s); %s",
 			linePct, bucket.PerLinePctOfRiskCapital, line.perLineCut, pluralNoun(line.perLineCut, "contract"),
 			totalPct, bucket.PremiumAtRiskPctOfRiskCapital, budgetOrdinal(line.order), budgetRankingText(plan), line.totalCut, pluralNoun(line.totalCut, "contract"),
-			budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
+			budgetSellClause(qty, cut, line.contracts, line.heldBy, ""))
 	case line.perLineCut > 0:
 		budget.Cap = "per_line"
 		reason = fmt.Sprintf("premium line is %.1f%% of declared risk capital, above the %.1f%% per-line cap; %s",
-			linePct, bucket.PerLinePctOfRiskCapital, budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, " to the cap"))
+			linePct, bucket.PerLinePctOfRiskCapital, budgetSellClause(qty, cut, line.contracts, line.heldBy, " to the cap"))
 	default:
 		budget.Cap = "total"
 		reason = fmt.Sprintf("total premium at risk is %.1f%% of declared risk capital, above the %.1f%% cap; %s in the reduction order (%s): %s",
-			totalPct, bucket.PremiumAtRiskPctOfRiskCapital, budgetOrdinal(line.order), budgetRankingText(plan), budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
+			totalPct, bucket.PremiumAtRiskPctOfRiskCapital, budgetOrdinal(line.order), budgetRankingText(plan), budgetSellClause(qty, cut, line.contracts, line.heldBy, ""))
 	}
 	details = append(details, fmt.Sprintf("line %s (%.1f%%) · per-line cap %s (%.1f%% of %s declared)",
 		formatBudgetMoney(line.valueBase, base), linePct, formatBudgetMoney(plan.perLineCap, base), bucket.PerLinePctOfRiskCapital, formatBudgetMoney(plan.declared, base)))
@@ -789,7 +855,7 @@ func budgetReductionRow(policy protectionPolicy, status rpc.ProtectionPolicyStat
 		details = append(details, fmt.Sprintf("unrealised %s", formatBudgetMoney(*line.pnlBase, base)))
 	}
 	if qty < cut {
-		details = append(details, fmt.Sprintf("order held to %d %s by max_order_notional %.0f; the next cycle measures the remainder", qty, pluralNoun(qty, "contract"), bucket.MaxOrderNotional))
+		details = append(details, fmt.Sprintf("order held to %d %s by %s; the next cycle measures the remainder", qty, pluralNoun(qty, "contract"), line.heldBy))
 	}
 	if effect == rpc.OrderPositionEffectClose {
 		details = append(details, "full close: the cap leaves no whole contract to keep")
@@ -809,7 +875,6 @@ func budgetReductionRow(policy protectionPolicy, status rpc.ProtectionPolicyStat
 // budgetRulebookRow builds one governor row measured against the Rulebook's
 // limits. The quantity is already bounded by the order notional cap.
 func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, plan budgetPlan, line budgetLine, cut, qty int, effect string) rpc.TradeProposal {
-	bucket := policy.Buckets.BudgetReduction
 	base := plan.status.BaseCurrency
 	linePct := line.atRiskBase / plan.nlv * 100
 	totalPct := plan.total / plan.nlv * 100
@@ -838,15 +903,15 @@ func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 		reason = fmt.Sprintf("the line puts %.1f%% of NLV at risk, above the Rulebook's %.1f%% line limit (%d %s), and %s (%s in the reduction order: %s; %d %s); %s",
 			linePct, plan.status.PerLinePctOfNLV, line.perLineCut, pluralNoun(line.perLineCut, "contract"),
 			budgetText, budgetOrdinal(line.order), budgetRankingText(plan), line.totalCut, pluralNoun(line.totalCut, "contract"),
-			budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
+			budgetSellClause(qty, cut, line.contracts, line.heldBy, ""))
 	case line.perLineCut > 0:
 		budget.Cap = "per_line"
 		reason = fmt.Sprintf("the line puts %.1f%% of NLV at risk, above the Rulebook's %.1f%% line limit; %s",
-			linePct, plan.status.PerLinePctOfNLV, budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, " to the limit"))
+			linePct, plan.status.PerLinePctOfNLV, budgetSellClause(qty, cut, line.contracts, line.heldBy, " to the limit"))
 	default:
 		budget.Cap = "total"
 		reason = fmt.Sprintf("%s; %s in the reduction order (%s): %s",
-			budgetText, budgetOrdinal(line.order), budgetRankingText(plan), budgetSellClause(qty, cut, line.contracts, bucket.MaxOrderNotional, ""))
+			budgetText, budgetOrdinal(line.order), budgetRankingText(plan), budgetSellClause(qty, cut, line.contracts, line.heldBy, ""))
 	}
 	details := []string{
 		fmt.Sprintf("line %s at risk (%.1f%% of NLV; the higher of price paid and value) · line limit %s (%.1f%% of %s NLV)",
@@ -861,7 +926,7 @@ func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 		details = append(details, fmt.Sprintf("unrealised %s", formatBudgetMoney(*line.pnlBase, base)))
 	}
 	if qty < cut {
-		details = append(details, fmt.Sprintf("order held to %d %s by max_order_notional %.0f; the next cycle measures the remainder", qty, pluralNoun(qty, "contract"), bucket.MaxOrderNotional))
+		details = append(details, fmt.Sprintf("order held to %d %s by %s; the next cycle measures the remainder", qty, pluralNoun(qty, "contract"), line.heldBy))
 	}
 	if effect == rpc.OrderPositionEffectClose {
 		details = append(details, "full close: the limit leaves no whole contract to keep")
@@ -888,12 +953,12 @@ func budgetRulebookRow(policy protectionPolicy, status rpc.ProtectionPolicyStatu
 // and the reason then names both numbers and the limit, so the sentence never
 // disagrees with the row's quantity. tail finishes an unheld clause (" to the
 // cap"); a held order does not reach the cap, so it drops the tail.
-func budgetSellClause(qty, cut, contracts int, maxOrderNotional float64, tail string) string {
+func budgetSellClause(qty, cut, contracts int, heldBy, tail string) string {
 	if qty >= cut {
 		return fmt.Sprintf("sell %d of %d %s%s", qty, contracts, pluralNoun(contracts, "contract"), tail)
 	}
-	return fmt.Sprintf("sell %d of %d %s now (the plan calls for %d; max_order_notional %.0f holds one order to %d, and the next cycle measures the rest)",
-		qty, contracts, pluralNoun(contracts, "contract"), cut, maxOrderNotional, qty)
+	return fmt.Sprintf("sell %d of %d %s now (the plan calls for %d; %s holds one order to %d, and the next cycle measures the rest)",
+		qty, contracts, pluralNoun(contracts, "contract"), cut, heldBy, qty)
 }
 
 // budgetOrderLimit is the most contracts one order may sell under
@@ -914,8 +979,9 @@ func budgetOrderLimit(row rpc.PositionView, maxOrderNotional float64) int {
 // lines' cuts in rank order, each split into orders of at most what
 // max_order_notional allows. A line's first order is this cycle's row; the
 // rest follow one cycle at a time, each re-measured from the position as it
-// then is. The status carries the plan and the first three candidates.
-func budgetPlanOrders(plan *budgetPlan, maxOrderNotional float64) {
+// then is. The status carries the plan and the first three candidates. gate
+// holds each line's order to what the order gate admits.
+func budgetPlanOrders(plan *budgetPlan, maxOrderNotional float64, gate *budgetGate) {
 	st := &plan.status
 	for n, i := range plan.ranked {
 		line := plan.lines[i]
@@ -930,7 +996,8 @@ func budgetPlanOrders(plan *budgetPlan, maxOrderNotional float64) {
 			}
 			st.Candidates = append(st.Candidates, c)
 		}
-		limit := budgetOrderLimit(line.row, maxOrderNotional)
+		limit, heldBy := gate.size(line.row, min(line.perLineCut+line.totalCut, line.contracts), maxOrderNotional)
+		plan.lines[i].limit, plan.lines[i].heldBy = limit, heldBy
 		for left, cycle := min(line.perLineCut+line.totalCut, line.contracts), 1; left > 0; cycle++ {
 			contracts := left
 			if limit > 0 {
