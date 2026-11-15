@@ -2,6 +2,54 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.37.0 — 2026-11-15 13:16 CET
+
+### What's new
+
+**The mandate's loss measure counts a bought option at what it is worth today.** The mandate is Canary's whole-book risk budget: it compares what the book can still lose (the loss measure) with how much it may lose (the loss room). Before, a bought option counted at whichever was higher, its purchase price or its current value. A loss already taken out of the loss room was therefore counted a second time in the measure.
+
+**Index protection is shown beside the measure until it outgrows the book.** A long put on an index from your hedge list is protection. `canary mandate` shows its value beside the measure, not in it. The forced reduction, which sells positions to bring the book back under the loss room, sells calls and shares but never these puts. After it has sold enough, the puts can protect more than is left. Your policy sets a hedge band for how large the protection may be, and an over-hedge line at `overhedge_multiple` times the band's top. Puts past that line count in the measure, and `canary mandate` names them. With no long position left, every such put counts. A put with no delta, price or exchange rate makes the verdict unknown, and an unknown verdict refuses orders that add risk. Option buys and the premium budget still count protection in full, so a loss on the puts frees no room to buy more.
+
+**`canary proposals` offers to trim protection that has outgrown the book.** The offer sits among the risk-reduction proposals. It sells puts back down to the band's top, nearest expiry first, in whole contracts rounded down, and each order is held to your usual order caps. It is never sent without your confirmation, including by orders you have pre-authorised. It appears only when the positions read is current and complete, every position has a value, and some long positions remain.
+
+**Forced reductions are no longer held to the option contract cap by your own hedge.** The order gate lifts the money and contract caps for a sale that lowers the book's net delta. Index puts made the book net short after the first calls were sold. From then on, each further call sale raised the book's absolute net delta, so the cap applied and the reduction went out a few contracts at a time. The gate now judges such a sale against the book without the hedge-list puts; a sale of one of those puts is still judged against the whole book. The forced reduction, the budget governor and the policy check size each order with the gate's own test, so none asks for more than the gate admits. What still bounds these sales: orders sent without your confirmation stay within the money caps and carry a limit price, and you can veto each one before it goes. The short lean the puts leave can lose no more than what the puts cost.
+
+**Open orders are read again once TWS's link to IBKR returns.** When TWS loses its connection to IBKR, it answers no request for open orders. Before, the daemon spent its one reconnect an hour in the first minute of the outage, then left open orders unread for the rest of the hour, which blocked every reduction. It now waits out the outage and reconnects once the link is back. This has been tested against simulated outages, not yet during a live one.
+
+### Added
+
+- `canary mandate` and `canary_mandate`:
+  - `verdict.loss.protection_base`: the hedge-list puts' value, shown beside the measure.
+  - `verdict.loss.protection_excess_base`: the part past the over-hedge line, counted in the measure.
+  - The loss line names both.
+- The offer to trim protection, among the risk-reduction proposals (`canary proposals`, `canary_proposals`).
+- `pkg/ibkr`:
+  - `ErrAccountSummaryBusy`.
+  - `ReaderLoad` and `ReaderLoadMessage`: the share of time the reader spends processing messages from TWS.
+  - `BackendLinkReport.Broken`: TWS reported its link to IBKR broken (code 2110).
+  - `MarketData.Currency`: the currency of a subscription's prices.
+
+### Changed
+
+- When both of IBKR's account-summary subscriptions (two per client) are in use, a third read now waits for one to end, within its own timeout. Before, IBKR refused it with code 322.
+- The daemon warns when its reader spends more than half of a minute processing messages. An open-order read that times out reports that share, so the log shows whether late answers queued in TWS or in Canary.
+- An index put can now be offered for exit without a declaration, when your whole book shows it is not working as a hedge. Before, the preview of that exit asked for a declaration, so the exit could not be sent. A declaration you made that has since expired still stops the exit.
+- The order gate counts a held index future at its contract value. Before, a single hedge future left the book without a value, and every forced cut was held to the option contract cap.
+- The README and the protocol page explain how to get the Go module at a release tag (`canary--vX.Y.Z`).
+
+### Fixed
+
+- A share held in Hong Kong or Singapore, quoted by its bare symbol, returned its local price labelled USD. The quote now names the price's own currency. This has not been tested on a live account holding such a share.
+- Index puts in an account whose base currency differs from the option's were measured too large or too small by the exchange rate.
+- An account-summary read could wait for a free subscription longer than its caller's timeout: up to about 8 seconds for a 3-second read on the order path.
+- When the puts past the over-hedge line made up the loss measure, the reduction status named an index future you did not hold. It now names the puts and the offer to trim them.
+- The forced reduction could size an order that the order gate then refused, because it counted an earlier put sale against a book measured without puts. The gate refused those orders, so none was sent oversized.
+- On OpenD (experimental):
+  - Every price was marked live, however old it was. A price not updated for 15 minutes now reads as frozen, so a closed market's last price no longer passes for a live one.
+  - The regime's daily price history was shared with an IBKR daemon using the same state folder, so one broker's history could answer for the other. Each broker now keeps its own.
+- The portfolio stress row for the index tape said "No direct SPY/VIX overnight tape shock" even when VIX was never read, as on OpenD. It now says that VIX was not read.
+- Suppose orders had stopped because a database write could not be confirmed, and another program opened `daemon.db` in the meantime. Orders could resume once the write was confirmed. They now stay stopped until a restart, just as they do when another program opens the file at any other time.
+
 ## v3.36.1 — 2026-11-13 04:37 CET
 
 ### What's new

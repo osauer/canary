@@ -1,6 +1,17 @@
 # Canary full context
 
-Updated: 2026-11-12 05:10 CET
+Updated: 2026-11-15 13:03 CET
+
+Version 3.37 counts a bought option in the mandate's loss measure at what it
+is worth today. A long put on a hedge-listed index is protection, shown in
+`verdict.loss.protection_base` beside the measure; the contracts past the
+over-hedge line count, in `verdict.loss.protection_excess_base`, and so does
+every such put once no long book is left. The risk-reduction bucket offers a
+offer to trim that excess back to the hedge band, sent only on your
+confirmation. The order gate judges an exit against the book without the
+hedge puts, so a forced reduction is no longer held to the option contract
+cap by its own hedge. Open orders are read again as soon as TWS's link to
+IBKR returns.
 
 Version 3.36 keeps the index to the database's write-ahead log in the daemon's
 memory and holds daemon.db exclusively while it runs, so an older copy of
