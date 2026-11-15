@@ -1,6 +1,13 @@
 # Canary full context
 
-Updated: 2026-11-15 13:03 CET
+Updated: 2026-11-15 20:07 CET
+
+Version 3.38 moves the Go module to `github.com/osauer/canary/v3`. Every
+release tag is now a Go module version, so `go get
+github.com/osauer/canary/v3@latest` and pkg.go.dev give the current daemon
+client and `pkg/ibkr`. The `/v2` path ends at v2.8.5; a program on it
+changes its import paths to `/v3`, and some `pkg/ibkr` scanner calls were
+removed after v2.8.5. The `canary` program behaves as in v3.37.
 
 Version 3.37 counts a bought option in the mandate's loss measure at what it
 is worth today. A long put on a hedge-listed index is protection, shown in
@@ -202,7 +209,7 @@ Canary is a local risk desk for a brokerage account, built as a Go daemon, a
 shell CLI, a read-only stdio MCP server, a Claude Desktop MCPB, a Claude Code
 plugin, a paired app, and a clean-room TWS protocol library. It works with
 Interactive Brokers today (IB Gateway or TWS); the broker layer is a separate
-Go package, `github.com/osauer/canary/v2/pkg/ibkr`, so other platforms can
+Go package, `github.com/osauer/canary/v3/pkg/ibkr`, so other platforms can
 follow. The daemon owns the broker connection, account scope, runtime state,
 data-source health, market sensors, rulebook, protection proposals, and
 option-exercise opportunities. Other surfaces adapt that typed authority rather
@@ -279,14 +286,13 @@ curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh | sh
 canary setup claude-desktop
 ```
 
-The public Go module intentionally remains `github.com/osauer/canary/v2`: its
-root package is the daemon client, `canarytest` its test double, and `pkg/ibkr`
-the TWS wire protocol. A Go program gets the client at the tag of the release
-its daemon runs, `go get github.com/osauer/canary/v2@canary--vX.Y.Z`, because
-the newest v2 tag is older than the client and does not contain it. The module's semantic versions come from the maintained v2 tag
-line. `go install github.com/osauer/canary/v2/cmd/canary@latest`
-therefore installs the newest compatible v2 module tag, not a root product v3
-tag. Product v3 users should use the installer or signed release assets.
+The public Go module is `github.com/osauer/canary/v3` from v3.38.0: its root
+package is the daemon client, `canarytest` its test double, and `pkg/ibkr` the
+TWS wire protocol. Every release tag is a Go module version, so a Go program
+gets the client at the release its daemon runs,
+`go get github.com/osauer/canary/v3@vX.Y.Z`, and `@latest` is the newest
+release. The `/v2` path ends at v2.8.5. Use the installer or signed release
+assets for the binary.
 
 The updater stays within the installed product major. Stable v2 maintenance is
 cut from `release/2.x`; product v3 and later are cut from `main`.

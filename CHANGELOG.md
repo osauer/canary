@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.38.0 — 2026-11-15 20:09 CET
+
+### What's new
+
+**The Go module is now `github.com/osauer/canary/v3`, so `go get` returns the current code.** The module path was `/v2`, but releases have been tagged v3 since v3.0.0. Go accepts only v2 tags on a `/v2` module, so `go get github.com/osauer/canary/v2@latest` and pkg.go.dev kept serving v2.8.5 from August 2026, which has `pkg/ibkr` but not the daemon client, and `/v3` did not resolve at all. From this release, every release tag is also a Go module version: `go get github.com/osauer/canary/v3@latest` gives the daemon client and `pkg/ibkr` as released, and pkg.go.dev shows them. The `canary` program, its commands and the MCP tools behave as they did in v3.37.0.
+
+### Changed
+
+- The module path is `github.com/osauer/canary/v3`. A Go program that imports `github.com/osauer/canary/v2/...` must change its import paths to `/v3` to move past v2.8.5. Several exported names in `pkg/ibkr` were removed after v2.8.5, among them the market scanner calls, so check your build after switching.
+- The `/v2` path ends at v2.8.5 and receives no further releases.
+- Install the `canary` binary with the signed installer. `go install github.com/osauer/canary/v3/cmd/canary@latest` also builds it, unsigned, without a release stamp and without the trading capability.
+- The module needs Go 1.27.4 or later; an older `go` command downloads that toolchain or stops with an error.
+
 ## v3.37.0 — 2026-11-15 13:16 CET
 
 ### What's new
