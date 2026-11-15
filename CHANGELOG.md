@@ -33,7 +33,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 - When both of IBKR's account-summary subscriptions (two per client) are in use, a third read now waits for one to end, within its own timeout. Before, IBKR refused it with code 322.
 - The daemon warns when its reader spends more than half of a minute processing messages. An open-order read that times out reports that share, so the log shows whether late answers queued in TWS or in Canary.
-- An index put can now be offered for exit without a declaration, when your whole book shows it is not working as a hedge. Before, the preview of that exit asked for a declaration, so the exit could not be sent. A declaration you made that has since expired still stops the exit.
+- Canary offers to exit an index put that your whole book shows is not working as a hedge, with no declaration from you. The preview of that exit still asked for one, so the exit could not be sent. The preview now follows the same rule as the offer. A declaration you made that has since expired still stops the exit.
 - The order gate counts a held index future at its contract value. Before, a single hedge future left the book without a value, and every forced cut was held to the option contract cap.
 - The README and the protocol page explain how to get the Go module at a release tag (`canary--vX.Y.Z`).
 

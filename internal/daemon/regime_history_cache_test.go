@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -29,5 +30,38 @@ func TestRegimeHistoryOfOneBrokerDoesNotAnswerForTheOther(t *testing.T) {
 	e, ok := again.get("USD.JPY", 14)
 	if !ok || len(e.Bars) != 1 || e.Bars[0].Close != 150 {
 		t.Fatalf("IBKR's series = %+v, %v; want its own close of 150", e, ok)
+	}
+}
+
+// The same on the core store, where a production daemon keeps the series: the
+// OpenD scope is accepted and read back, and IBKR's entry is untouched.
+func TestRegimeHistoryBrokersStayApartOnTheCoreStore(t *testing.T) {
+	store := openTestCoreStore(t, filepath.Join(privateTestDir(t), "daemon.db"))
+	now := time.Now()
+	day := now.Format("20060102")
+	viaIB := newRegimeHistoryCache(t.TempDir(), nil)
+	viaOpenD := newRegimeHistoryCache(t.TempDir(), nil)
+	viaOpenD.opend = true
+	for _, c := range []*regimeHistoryCache{viaIB, viaOpenD} {
+		if err := c.UseCoreStore(store); err != nil {
+			t.Fatal(err)
+		}
+	}
+	viaIB.put("USD.JPY", 14, []ibkrlib.HistoricalBar{{Date: day, Close: 150}}, now)
+	viaOpenD.put("USD.JPY", 14, []ibkrlib.HistoricalBar{{Date: day, Close: 151}}, now)
+
+	for _, tc := range []struct {
+		opend bool
+		close float64
+	}{{false, 150}, {true, 151}} {
+		fresh := newRegimeHistoryCache(t.TempDir(), nil)
+		fresh.opend = tc.opend
+		if err := fresh.UseCoreStore(store); err != nil {
+			t.Fatal(err)
+		}
+		e, ok := fresh.get("USD.JPY", 14)
+		if !ok || len(e.Bars) != 1 || e.Bars[0].Close != tc.close {
+			t.Fatalf("opend=%v: %+v, %v; want its own close %v", tc.opend, e, ok, tc.close)
+		}
 	}
 }
