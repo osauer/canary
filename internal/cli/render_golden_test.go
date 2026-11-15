@@ -813,6 +813,12 @@ func goldenMandateExposure() rpc.MandateRiskResult {
 // two rows, pre-authorised, the daemon placing both after the veto window.
 func goldenMandateReducing() rpc.MandateRiskResult {
 	res := goldenMandate(mandate.StatusReduce)
+	// Index puts the book has outgrown count among the options; the rest of
+	// the protection stays beside the measure.
+	l := res.Verdict.Loss
+	l.PremiumBase, l.ProtectionExcessBase, l.ProtectionBase = 9000, 9000, 4500
+	l.TotalBase += 9000
+	l.RatioToRoom = l.TotalBase / l.RoomBase
 	res.Reduction = &rpc.MandateReductionView{State: rpc.MandateReductionReducing, Rows: 2, Pending: 2, VetoUntil: goldenAt.Add(30 * time.Minute), PreAuthorised: true,
 		Reason: "the verdict reads reduce (the loss measure 83,000 EUR is 129% of the loss room 64,101 EUR); 2 cuts sized to take the loss measure to 60,100 EUR, inside the 60,896 EUR target",
 		Orders: []rpc.MandateReductionOrder{

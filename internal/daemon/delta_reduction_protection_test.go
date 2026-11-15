@@ -266,3 +266,23 @@ func TestBudgetOrderSizeFollowsTheOrderGate(t *testing.T) {
 		t.Fatalf("second line after the first has taken the book short: %d, want the contract cap", limit)
 	}
 }
+
+// A sale of protection the cycle sized earlier changes the whole book, not
+// the book a later call sale is judged against, which leaves the puts out.
+// Added to it, the planner read 1,550,000 EUR where the gate reads 800,000
+// EUR, and could size a row the gate refuses at send.
+func TestDeltaExitPlanKeepsAProtectionSaleOutOfTheBookWithoutIt(t *testing.T) {
+	t.Parallel()
+	pol := risk.DefaultRulebookPolicy()
+	pos := protectionTestBook()
+	calls, puts := pos.Options[0], pos.Options[2]
+	plan := &deltaExitPlan{pos: pos, pol: pol}
+	plan.record(puts, rpc.OrderActionSell, 30)
+	ev, _, ok := plan.measure(calls, rpc.OrderActionSell, 10)
+	if !ok || ev.BookBefore != 800000 {
+		t.Fatalf("a call sale after a protection sale is judged on %v EUR (ok %v), want the gate's 800,000 EUR", ev.BookBefore, ok)
+	}
+	if ev, _, ok = plan.measure(puts, rpc.OrderActionSell, 5); !ok || ev.BookBefore != 550000 {
+		t.Fatalf("a further protection sale is judged on %v EUR (ok %v), want the whole book after the first, 550,000 EUR", ev.BookBefore, ok)
+	}
+}

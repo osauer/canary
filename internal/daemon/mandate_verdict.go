@@ -347,8 +347,9 @@ func (s *Server) evaluateMandate(ctx context.Context, refreshAccount bool) *rpc.
 		// contracts rule 12's trim names (proposal_hedge_trim.go).
 		if engine := s.tradeProposals; engine != nil && capital.Known && capital.EquityBase > 0 {
 			acct := &rpc.AccountResult{NetLiquidation: capital.EquityBase, BaseCurrency: base}
-			if plan, pol, _, ok := engine.hedgeTrimPlan(ctx, acct, pos, now); ok {
-				mandateMarkProtectionExcess(in.Legs, pos, pol, plan)
+			a, pol, _ := engine.hedgeTrimAssessment(ctx, acct, pos, now)
+			if why := mandateApplyHedgeTrim(in.Legs, pos, a, pol); why != "" {
+				in.Reasons = append(in.Reasons, why)
 			}
 		}
 		// The share lines' stops, for the loss measure (mandate_loss.go).

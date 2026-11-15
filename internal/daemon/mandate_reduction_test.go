@@ -974,3 +974,33 @@ func TestMandateBookDriftReadsASplitHoldingAsOneLine(t *testing.T) {
 		t.Fatalf("unchanged book with a split allocation: state=%s rows=%d reason=%s", after.State, len(got), after.Reason)
 	}
 }
+
+// Outgrown index puts count in the measure but stay out of the sizing book,
+// as the index future's rise loss does. The status said the gap was "the
+// index hedge's loss in a rise, which goes when it is bought back" although
+// no future was held; it names the puts and the trim that sells them.
+func TestMandateReductionNamesOutgrownProtectionNotTheFuture(t *testing.T) {
+	put := mandateReductionCall("SPY", 7301, 20, 550, 600, 30, "20261218")
+	put.Right = "P"
+	pos := mandateReductionBook(mandateReductionStock("SYNA", 7201, 1000, 100), put)
+	in := mandateReductionFixture(t, pos, 1.6, 200000, 2)
+	for i := range in.Input.Legs {
+		if in.Input.Legs[i].Underlying == "SPY" && in.Input.Legs[i].Kind == mandate.KindOption {
+			in.Input.Legs[i].Protection, in.Input.Legs[i].ProtectionExcess = true, 20
+		}
+	}
+	in = mandateReductionVerdict(*in.Input, 2)
+	if v := in.Result.Verdict; v.Status != mandate.StatusReduce || v.Loss.ProtectionExcessBase <= 0 {
+		t.Fatalf("fixture: want a reduce verdict carried by outgrown puts, got %s %+v", v.Status, v.Loss)
+	}
+	_, st := mandateReductionRun(t, in, pos)
+	if st == nil {
+		t.Fatal("no reduction status")
+	}
+	if strings.Contains(st.Reason, "index hedge's loss in a rise") {
+		t.Fatalf("the status blames an index future that is not held: %s", st.Reason)
+	}
+	if !strings.Contains(st.Reason, "index puts past the hedge band") || !strings.Contains(st.Reason, "hedge trim") {
+		t.Fatalf("the status does not name the outgrown puts and the trim: %s", st.Reason)
+	}
+}

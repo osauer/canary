@@ -267,6 +267,9 @@ func renderMandateLoss(env *Env, l *mandate.LossMeasure, ccy string) {
 		sum += fmt.Sprintf(" + index hedge in a %g%% move against it ", mandate.IndexShockPct) + mandateAmount(l.IndexHedgeBase, ccy)
 	}
 	parts := []string{sum, room}
+	if l.ProtectionExcessBase > 0 {
+		parts = append(parts, "of the options, index puts past the hedge band "+mandateAmount(l.ProtectionExcessBase, ccy))
+	}
 	if l.ProtectionBase > 0 {
 		parts = append(parts, "protection "+mandateAmount(l.ProtectionBase, ccy)+" is not counted")
 	}

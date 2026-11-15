@@ -718,6 +718,10 @@ type deltaExitPlan struct {
 	// sold is the base dollar delta the cycle's earlier orders take off
 	// each underlying, signed as the change.
 	sold map[string]float64
+	// soldProtection is the part of sold that sales of hedge-listed long
+	// puts take off the book. A row that sells no protection is judged
+	// against the book without those puts, so their sale is no part of it.
+	soldProtection float64
 }
 
 // measure is the gate's evidence and quantity change for an exit of qty of
@@ -747,6 +751,9 @@ func (x *deltaExitPlan) measure(row rpc.PositionView, action string, qty int) (d
 			ev.NetBefore += change
 		}
 	}
+	if !mandateHedgePut(x.pol, row) {
+		ev.BookBefore -= x.soldProtection
+	}
 	return ev, deltaReductionChanges(draft, position), true
 }
 
@@ -772,5 +779,8 @@ func (x *deltaExitPlan) record(row rpc.PositionView, action string, qty int) {
 			x.sold = map[string]float64{}
 		}
 		x.sold[ev.Underlying] += after - ev.NetBefore
+		if mandateHedgePut(x.pol, row) {
+			x.soldProtection += after - ev.NetBefore
+		}
 	}
 }

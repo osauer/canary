@@ -360,6 +360,14 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 	sizing := mandateBookWithoutShortHedges(*in.Input)
 	alone := mandate.Evaluate(sizing)
 	hedgeLoss := max(0, mandateLoss(*v)-mandateLoss(alone))
+	// The sizing book also leaves out the protection the book has outgrown
+	// (Leg.ProtectionExcess): that part is the trim's to sell, not a short
+	// hedge to buy back, and the reason names each for what it is.
+	excessLoss := 0.0
+	if v.Loss != nil {
+		excessLoss = min(hedgeLoss, v.Loss.ProtectionExcessBase)
+	}
+	futureLoss := hedgeLoss - excessLoss
 	if hedgeLoss > 0 && !stopOver && alone.Status == mandate.StatusWithin {
 		candidates = nil
 	}
@@ -377,8 +385,11 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 	if len(batch.cuts) == 0 && len(closes) == 0 {
 		st.State = rpc.MandateReductionNothingReducible
 		st.Reason = fmt.Sprintf("%s, but no held leg can be reduced", mandateBreachSentence(v, batch.budget, ccy))
-		if hedgeLoss > 0 {
-			st.Reason += fmt.Sprintf("; %s of the measure is the index hedge's loss in a rise, which goes when it is bought back", mandateMoney(hedgeLoss, ccy))
+		if futureLoss > 0 {
+			st.Reason += fmt.Sprintf("; %s of the measure is the index hedge's loss in a rise, which goes when it is bought back", mandateMoney(futureLoss, ccy))
+		}
+		if excessLoss > 0 {
+			st.Reason += fmt.Sprintf("; %s of the measure is index puts past the hedge band, which the hedge trim offers to sell for your confirmation", mandateMoney(excessLoss, ccy))
 		}
 		if len(batch.leftOut) > 0 {
 			st.Reason += ": " + strings.Join(batch.leftOut, "; ")
@@ -398,12 +409,17 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 		if qty <= 0 {
 			continue
 		}
-		in.Exits.record(c.row, mandateAction(c.row), qty)
+		staleOption := c.row.Stale && strings.EqualFold(positionWireSecType(c.row.SecType), "OPT")
+		if !staleOption {
+			// A row blocked here is not sent, so the later rows are judged
+			// against the book without it.
+			in.Exits.record(c.row, mandateAction(c.row), qty)
+		}
 		if qty < c.units {
 			partialOrders++
 		}
 		p := e.mandateReductionRow(policy, status, sources, now, in, st, batch, c, qty, waits, ccy)
-		if c.row.Stale && strings.EqualFold(positionWireSecType(c.row.SecType), "OPT") {
+		if staleOption {
 			budgetBlock(&p, rpc.TradingBlocker{Code: "fresh_option_quote_required", Message: "the position mark is stale, so the order cannot be priced from it", Action: "Refresh during the options session (09:30-16:00 ET) so the mark is current before acting."})
 		}
 		enrichProposalPositionContext(&p, c.row, acct)
@@ -424,8 +440,11 @@ func (e *proposalEngine) mandateReductionProposals(policy protectionPolicy, stat
 	if len(closes) > 0 {
 		st.Reason += fmt.Sprintf("; the index hedge is more than the book needs, so %d of its contracts are bought back", mandateHedgeCloseUnits(closes))
 	}
-	if hedgeLoss > 0 {
-		st.Reason += fmt.Sprintf("; %s of the measure is the index hedge's loss in a rise, which no call sale takes off", mandateMoney(hedgeLoss, ccy))
+	if futureLoss > 0 {
+		st.Reason += fmt.Sprintf("; %s of the measure is the index hedge's loss in a rise, which no call sale takes off", mandateMoney(futureLoss, ccy))
+	}
+	if excessLoss > 0 {
+		st.Reason += fmt.Sprintf("; %s of the measure is index puts past the hedge band, which the hedge trim offers to sell for your confirmation", mandateMoney(excessLoss, ccy))
 	}
 	switch {
 	case len(batch.cuts) == 0:

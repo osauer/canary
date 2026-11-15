@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v2/internal/mandate"
 	"github.com/osauer/canary/v2/internal/risk"
@@ -275,12 +276,96 @@ func TestMandateCountsTheProtectionTheTrimNames(t *testing.T) {
 			t.Fatalf("the cuts are sized on outgrown protection: %+v", l)
 		}
 	}
-	if legs[1].ProtectionExcess == 0 && legs[2].ProtectionExcess == 0 {
+	if legs[1].ProtectionExcess == 0 || legs[2].ProtectionExcess == 0 {
 		t.Fatal("sizing changed the verdict's own legs")
 	}
 	// Inside the over-hedge line there is no plan and nothing is marked.
 	acct, pos = hedgeTrimBook(100000)
 	if _, _, _, ok := engine.hedgeTrimPlan(context.Background(), acct, pos, mandateTestNow); ok {
 		t.Fatal("a plan inside the over-hedge line")
+	}
+}
+
+// The verdict hands the trim the broker's rows and the card the analysis
+// view, which leaves out a stock reviewed as cancelled. Its zero mark would
+// make the raw book unmeasured; the Rulebook inputs drop the reviewed name
+// (rulebookEconomicNames), so the measure and the card plan the same trim.
+func TestHedgeTrimPlanLeavesOutAReviewedDeadStock(t *testing.T) {
+	const deadConID = 900301
+	base := mandateTestNow
+	record := earningsTerminalRecord{Contract: earningsTerminalContract{ConID: deadConID, Symbol: "SYNTHDEAD", SecType: "STK"}, Classification: earningsTerminalClassEquityCancelled,
+		EffectiveDate: "2026-08-01", VerifiedAt: base.Add(-time.Hour), RevalidateAfter: base.Add(24 * time.Hour)}
+	server := &Server{earningsTerminal: &earningsTerminalStore{revision: 2, reviewedAt: base, byConID: map[int]earningsTerminalStored{deadConID: {record: record, fingerprint: earningsTerminalRecordFingerprint(record)}}}}
+	engine := &proposalEngine{server: server}
+	acct, pos := hedgeTrimBook(50000)
+	dead := rpc.PositionView{Symbol: "SYNTHDEAD", SecType: "STK", ConID: deadConID, Exchange: "SMART", Currency: "USD", FXRate: new(0.5), Quantity: 100, Mark: 0, MarketValue: 0, MarketValueBase: new(0.0)}
+	pos.Stocks = append(pos.Stocks, dead)
+	pos.ByUnderlying = append(pos.ByUnderlying, rpc.PositionGroup{Underlying: "SYNTHDEAD", Stock: &dead, GroupDollarDeltaBase: new(0.0), GroupMarketValueBase: new(0.0)})
+	raw, _, _, rawOK := engine.hedgeTrimPlan(context.Background(), acct, pos, base)
+	card, _, _, cardOK := engine.hedgeTrimPlan(context.Background(), acct, server.analysisPositions(pos, base), base)
+	if !cardOK || !rawOK {
+		t.Fatalf("plan on the broker rows ok=%v, on the analysis view ok=%v: the measure and the card disagree", rawOK, cardOK)
+	}
+	if len(raw.Lines) != len(card.Lines) {
+		t.Fatalf("the measure plans %d lines and the card %d", len(raw.Lines), len(card.Lines))
+	}
+	for i := range raw.Lines {
+		if raw.Lines[i].Sell != card.Lines[i].Sell {
+			t.Fatalf("line %d: the measure counts %v and the card sells %v", i, raw.Lines[i].Sell, card.Lines[i].Sell)
+		}
+	}
+}
+
+// Owner decision 2026-11-14 09:45 CET, "Count them, fail closed": with no
+// long book left the puts protect nothing and count whole, and a put the
+// trim cannot measure makes the verdict unknown. Before, both read as no
+// plan and the puts stayed out, so the verdict could read within while they
+// alone could lose more than the loss room.
+func TestMandateCountsPutsThatProtectNothingAndRefusesUnmeasuredOnes(t *testing.T) {
+	engine := &proposalEngine{server: &Server{}}
+	legsFor := func(pos *rpc.PositionsResult, pol risk.RulebookPolicy) []mandate.Leg {
+		legs, _, _, _ := mandateLegsFromPositions(pos, "EUR", mandateTestNow)
+		mandateMarkProtection(legs, pol)
+		return legs
+	}
+
+	acct, pos := hedgeTrimBook(0)
+	pos.Options = pos.Options[1:] // the calls are sold
+	pos.ByUnderlying = pos.ByUnderlying[1:]
+	a, pol, _ := engine.hedgeTrimAssessment(context.Background(), acct, pos, mandateTestNow)
+	if a.State != risk.HedgeTrimNoLongBook {
+		t.Fatalf("puts with no long book assess as %s (%s)", a.State, a.Reason)
+	}
+	legs := legsFor(pos, pol)
+	if why := mandateApplyHedgeTrim(legs, pos, a, pol); why != "" {
+		t.Fatalf("a measured book got a reason: %s", why)
+	}
+	m, _ := mandate.MeasureLoss(mandate.Input{Legs: legs, Capital: mandate.Capital{Known: true}})
+	if m == nil || m.ProtectionBase != 0 || m.ProtectionExcessBase <= 0 || m.PremiumBase != m.ProtectionExcessBase {
+		t.Fatalf("puts that protect nothing are not counted whole: %+v", m)
+	}
+
+	acct, pos = hedgeTrimBook(50000)
+	pos.Options[1].Delta = nil
+	pos.ByUnderlying[1].Options[0].Delta = nil
+	a, pol, _ = engine.hedgeTrimAssessment(context.Background(), acct, pos, mandateTestNow)
+	if a.State != risk.HedgeTrimPutUnmeasured {
+		t.Fatalf("a put without delta assesses as %s", a.State)
+	}
+	if why := mandateApplyHedgeTrim(legsFor(pos, pol), pos, a, pol); !strings.Contains(why, "index protection cannot be measured") {
+		t.Fatalf("an unmeasured put gives no reason, so the verdict would stay known: %q", why)
+	}
+
+	// Inside the over-hedge line nothing changes.
+	acct, pos = hedgeTrimBook(100000)
+	a, pol, _ = engine.hedgeTrimAssessment(context.Background(), acct, pos, mandateTestNow)
+	legs = legsFor(pos, pol)
+	if why := mandateApplyHedgeTrim(legs, pos, a, pol); why != "" || a.State != risk.HedgeTrimInside {
+		t.Fatalf("inside the line: state %s, reason %q", a.State, why)
+	}
+	for _, l := range legs {
+		if l.ProtectionExcess != 0 {
+			t.Fatalf("inside the line a leg counts: %+v", l)
+		}
 	}
 }

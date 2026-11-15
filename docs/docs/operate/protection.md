@@ -325,7 +325,9 @@ the measure and left out of it, so a hedge never forces the sale of what it
 hedges. Protection the book has outgrown is the exception: once the puts
 pass the over-hedge line, the contracts the trim proposal names count at
 today's value like any bought option, and the puts the hedge band still
-allows stay out. The verdict then reads reduce until you trim them; the
+allows stay out. Puts left with no long position to protect count whole, and
+a put Canary cannot measure (no delta, price or exchange rate) makes the
+verdict unknown. The verdict then reads reduce until you trim them; the
 forced reduction neither sells them nor sizes its cuts on them (the Rulebook's premium budget still counts every bought option at the
 higher of the price paid and its value, protection included),
 plus the cash loss to the stop of every share line a working stop or trail

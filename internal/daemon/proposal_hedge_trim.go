@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -57,22 +58,55 @@ func (e *proposalEngine) hedgeTrimProposals(ctx context.Context, policy protecti
 // (mandateMarkProtectionExcess): one measurement, so the card and the
 // measure never disagree about how much protection is too much.
 func (e *proposalEngine) hedgeTrimPlan(ctx context.Context, acct *rpc.AccountResult, pos *rpc.PositionsResult, now time.Time) (risk.HedgeTrimPlan, risk.RulebookPolicy, string, bool) {
+	a, pol, base := e.hedgeTrimAssessment(ctx, acct, pos, now)
+	return a.Plan, pol, base, a.State == risk.HedgeTrimPlanned
+}
+
+// hedgeTrimAssessment is hedgeTrimPlan with the reason there is no plan, for
+// the loss measure (mandateApplyHedgeTrim).
+func (e *proposalEngine) hedgeTrimAssessment(ctx context.Context, acct *rpc.AccountResult, pos *rpc.PositionsResult, now time.Time) (risk.HedgeTrimAssessment, risk.RulebookPolicy, string) {
 	// A positions read that is not current and whole can have lost its long
 	// lines, which reads as an over-sized hedge (2026-11-04).
 	if pos == nil || !currentPortfolioAuthority(pos.Authority) || !pos.Authority.PortfolioComplete {
-		return risk.HedgeTrimPlan{}, risk.RulebookPolicy{}, "", false
+		return risk.HedgeTrimAssessment{State: risk.HedgeTrimBookIncomplete, Reason: "the positions read is not current and complete"}, risk.RulebookPolicy{}, ""
 	}
 	in, pol, ok := e.issuerConcentrationInputs(ctx, acct, pos, now)
 	if !ok {
-		return risk.HedgeTrimPlan{}, pol, "", false
+		return risk.HedgeTrimAssessment{State: risk.HedgeTrimBookIncomplete, Reason: "the account value is unknown"}, pol, ""
 	}
 	if e != nil && e.server != nil {
 		if st, carried := e.server.rulebookRegimeStage(pol, now); st.Bucket != "" {
 			in.RegimeStage, in.RegimeStageAsOf, in.RegimeStageCarried = st.Bucket, st.AsOf, carried
 		}
 	}
-	plan, ok := risk.PlanHedgeTrim(in, pol)
-	return plan, pol, in.BaseCurrency, ok
+	return risk.AssessHedgeTrim(in, pol), pol, in.BaseCurrency
+}
+
+// mandateApplyHedgeTrim carries rule 12's measurement into the loss measure
+// (owner decisions 2026-11-14 06:49 CET, "Count the excess", and 09:45 CET,
+// "Count them, fail closed"): the contracts the trim names count; with no
+// long book left every protection leg counts whole, as it protects nothing;
+// a put the trim cannot measure returns a reason, which makes the verdict
+// unknown. Inside the over-hedge line, or on a book incomplete for another
+// reason, nothing is counted. Every path only adds to the measure: the
+// forced reduction sizes without the excess and sells no put.
+func mandateApplyHedgeTrim(legs []mandate.Leg, pos *rpc.PositionsResult, a risk.HedgeTrimAssessment, pol risk.RulebookPolicy) string {
+	if !slices.ContainsFunc(legs, func(l mandate.Leg) bool { return l.Protection && l.Quantity > 0 }) {
+		return ""
+	}
+	switch a.State {
+	case risk.HedgeTrimPlanned:
+		mandateMarkProtectionExcess(legs, pos, pol, a.Plan)
+	case risk.HedgeTrimNoLongBook:
+		for i := range legs {
+			if legs[i].Protection && legs[i].Quantity > 0 {
+				legs[i].ProtectionExcess = legs[i].Quantity
+			}
+		}
+	case risk.HedgeTrimPutUnmeasured:
+		return "index protection cannot be measured against the book: " + a.Reason
+	}
+	return ""
 }
 
 // mandateMarkProtectionExcess writes onto the protection legs how many

@@ -77,14 +77,52 @@ func indexPutShortBase(l LegInput) float64 {
 // Whole contracts only, rounded down, so the hedge never ends under the band
 // top.
 func PlanHedgeTrim(in RuleInputs, pol RulebookPolicy) (HedgeTrimPlan, bool) {
+	a := AssessHedgeTrim(in, pol)
+	return a.Plan, a.State == HedgeTrimPlanned
+}
+
+// HedgeTrimState is what the trim's measurement found.
+type HedgeTrimState string
+
+const (
+	// HedgeTrimPlanned: the puts are past the over-hedge line; Plan names
+	// the sale.
+	HedgeTrimPlanned HedgeTrimState = "planned"
+	// HedgeTrimInside: no hedge-listed long put, or the puts are inside the
+	// over-hedge line.
+	HedgeTrimInside HedgeTrimState = "inside"
+	// HedgeTrimNoLongBook: hedge-listed long puts and no long exposure left
+	// for them to protect.
+	HedgeTrimNoLongBook HedgeTrimState = "no_long_book"
+	// HedgeTrimPutUnmeasured: a hedge-listed long put lacks its delta,
+	// price or exchange rate; Reason names it.
+	HedgeTrimPutUnmeasured HedgeTrimState = "put_unmeasured"
+	// HedgeTrimBookIncomplete: the positions read is unhealthy or another
+	// name's exposure or deltas are incomplete, so no ratio is built.
+	HedgeTrimBookIncomplete HedgeTrimState = "book_incomplete"
+)
+
+// HedgeTrimAssessment is the trim's measurement with what it found.
+type HedgeTrimAssessment struct {
+	State  HedgeTrimState
+	Reason string
+	Plan   HedgeTrimPlan
+}
+
+// AssessHedgeTrim is PlanHedgeTrim with the reason there is no plan, which
+// the mandate's loss measure needs (owner decision 2026-11-14 09:45 CET,
+// "Count them, fail closed"): puts with no long book left count whole, and a
+// put the trim cannot measure makes the verdict unknown.
+func AssessHedgeTrim(in RuleInputs, pol RulebookPolicy) HedgeTrimAssessment {
 	c := newRuleContext(in, pol)
 	if !c.in.Positions.Healthy {
-		return HedgeTrimPlan{}, false
+		return HedgeTrimAssessment{State: HedgeTrimBookIncomplete, Reason: "the positions read is not healthy"}
 	}
 	var plan HedgeTrimPlan
+	incomplete, unmeasured := "", ""
 	for _, n := range c.in.Names {
-		if c.greeksGapMaterial(n) || !n.ExposureBaseComplete {
-			return HedgeTrimPlan{}, false
+		if (c.greeksGapMaterial(n) || !n.ExposureBaseComplete) && incomplete == "" {
+			incomplete = n.Symbol + "'s exposure is incomplete"
 		}
 		if n.ExposureBase > 0 {
 			plan.GrossLongBase += n.ExposureBase
@@ -95,19 +133,41 @@ func PlanHedgeTrim(in RuleInputs, pol RulebookPolicy) (HedgeTrimPlan, bool) {
 			}
 			held := math.Floor(l.Quantity + 1e-9)
 			if !indexPutRoleEligible(l) || held <= 0 || l.FXToBase == nil || !(*l.FXToBase > 0) {
-				return HedgeTrimPlan{}, false
+				if unmeasured == "" {
+					unmeasured = n.Symbol + " " + l.Desc + " has no delta, price or exchange rate"
+				}
+				continue
 			}
 			per := indexPutShortBase(l) / l.Quantity
 			if !(per > 0) || math.IsInf(per, 0) {
-				return HedgeTrimPlan{}, false
+				if unmeasured == "" {
+					unmeasured = n.Symbol + " " + l.Desc + " has no short delta"
+				}
+				continue
 			}
 			plan.ShortBase += per * l.Quantity
 			plan.Lines = append(plan.Lines, HedgeTrimLine{Symbol: n.Symbol, Leg: l.Desc, Expiry: l.Expiry, Held: held, ShortPerContractBase: per})
 		}
 	}
-	if len(plan.Lines) == 0 || !(plan.GrossLongBase > 0) {
-		return HedgeTrimPlan{}, false
+	switch {
+	case unmeasured != "":
+		return HedgeTrimAssessment{State: HedgeTrimPutUnmeasured, Reason: unmeasured}
+	case incomplete != "":
+		return HedgeTrimAssessment{State: HedgeTrimBookIncomplete, Reason: incomplete}
+	case len(plan.Lines) == 0:
+		return HedgeTrimAssessment{State: HedgeTrimInside}
+	case !(plan.GrossLongBase > 0):
+		return HedgeTrimAssessment{State: HedgeTrimNoLongBook}
 	}
+	plan, ok := sizeHedgeTrim(c, plan)
+	if !ok {
+		return HedgeTrimAssessment{State: HedgeTrimInside}
+	}
+	return HedgeTrimAssessment{State: HedgeTrimPlanned, Plan: plan}
+}
+
+// sizeHedgeTrim applies the band to a measured book.
+func sizeHedgeTrim(c *ruleContext, plan HedgeTrimPlan) (HedgeTrimPlan, bool) {
 	sets := []string{RegimeBucketCalm, RegimeBucketEarlyWarning, RegimeBucketConfirmed}
 	if stage := c.in.RegimeStage; stage != "" {
 		sets = []string{regimeSetBucket(stage)}

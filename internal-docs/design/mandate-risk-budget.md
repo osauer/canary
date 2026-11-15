@@ -1352,8 +1352,12 @@ the book no longer loses what they pay for. Without it the verdict could
 read within while the puts alone exceeded the loss room. The reduction
 neither sells them nor sizes its cuts on them
 (`mandateBookWithoutShortHedges`), so the verdict reads reduce until the
-owner trims; with no trim plan (inside the over-hedge line, no long book, or
-a book not wholly measured) nothing is counted. The price paid above the value
+owner trims. Owner decision 2026-11-14 09:45 CET, "Count them, fail
+closed": with no long book left every hedge-listed put counts whole, since it
+protects nothing, and a put the trim cannot measure (no delta, price or
+exchange rate) makes the verdict unknown (`risk.AssessHedgeTrim`,
+`mandateApplyHedgeTrim`). Inside the over-hedge line, or on a book incomplete
+for another reason, nothing is counted. The price paid above the value
 is a loss already taken, so it sat in the drawdown that shrank the room and
 in the measure at once; and the puts' premium, which the reduction never
 sells, could exceed the room alone, so the batch sold every call well before
