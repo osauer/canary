@@ -1307,7 +1307,7 @@ func stressTapeShockRow(p StressPortfolioSummary, m StressMarketSummary) StressR
 		if spyDrop || vixSpike {
 			return stressRow("Index tape shock", "", risk.SeverityObserve, stressTapeDemotedGuidance(m), evidence)
 		}
-		return stressRow("Index tape shock", "", risk.SeverityObserve, "No direct SPY/VIX overnight tape shock.", evidence)
+		return stressRow("Index tape shock", "", risk.SeverityObserve, stressTapeQuiet(m), evidence)
 	}
 	confirmed := (spyDrop && vixSpike) || m.EligibleRedClusters >= 1
 	switch {
@@ -1322,8 +1322,21 @@ func stressTapeShockRow(p StressPortfolioSummary, m StressMarketSummary) StressR
 	case spyDrop || vixSpike:
 		return stressRow("Index tape shock", risk.DirectionDefensive, risk.SeverityWatch, "Freeze new risk; direct SPY/VIX tape is flashing early stress but not enough for defensive action alone.", evidence)
 	default:
-		return stressRow("Index tape shock", "", risk.SeverityObserve, "No direct SPY/VIX overnight tape shock.", evidence)
+		return stressRow("Index tape shock", "", risk.SeverityObserve, stressTapeQuiet(m), evidence)
 	}
+}
+
+// stressTapeQuiet is the quiet row's guidance, naming only the tape that was
+// read: on a broker that quotes no VIX the row said the VIX tape was quiet
+// (found 2026-11-14 on OpenD).
+func stressTapeQuiet(m StressMarketSummary) string {
+	switch {
+	case m.VIXChangePct == nil:
+		return "No direct SPY overnight tape shock; VIX was not read, so a volatility spike cannot confirm or rule out stress."
+	case m.SPYChangePct == nil:
+		return "No direct VIX overnight tape shock; SPY was not read."
+	}
+	return "No direct SPY/VIX overnight tape shock."
 }
 
 func stressExposureRow(p StressPortfolioSummary, m StressMarketSummary) StressRow {

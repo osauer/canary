@@ -664,12 +664,21 @@ func (s *Store) latchCorruptRead(err error) error {
 }
 
 // latchHealth records a permanent latch that only an explicit reopen clears.
-// It reports whether this call moved the store from Ready to blocked.
+// It reports whether this call changed the store's health: Ready to blocked,
+// or a recoverable latch made permanent. A permanent cause that arrives while
+// the head-watermark latch waits for its proof replaces it; dropped, the proof
+// reopened writes over it (2026-11-14: an outside opener seen during that
+// latch was forgotten five seconds later).
 func (s *Store) latchHealth(code string) bool {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
 	if !s.health.Ready {
-		return false
+		if !s.health.RecoveryEligible {
+			return false
+		}
+		s.health.Code, s.health.RecoveryEligible = code, false
+		s.recoveryMinimumHead = AuthorityHead{}
+		return true
 	}
 	s.health = Health{Ready: false, Code: code, BlockedAt: time.Now().UTC()}
 	s.recoveryMinimumHead = AuthorityHead{}

@@ -35,6 +35,11 @@ type regimeHistoryCache struct {
 	freshFor       time.Duration
 	maxFallbackAge time.Duration
 	logWarnf       func(format string, args ...any)
+	// opend keeps a moomoo OpenD daemon's bars apart from IBKR's. One root
+	// can run either broker; without its own namespace a series one broker
+	// saved answered for the other, under the other's label (found
+	// 2026-11-14: an IBKR USD/JPY series read as current on OpenD).
+	opend bool
 }
 
 type regimeHistoryCacheEntry struct {
@@ -148,7 +153,7 @@ func (c *regimeHistoryCache) cachedUsable(sym string, days int, now time.Time, r
 }
 
 func (c *regimeHistoryCache) get(sym string, days int) (regimeHistoryCacheEntry, bool) {
-	key := regimeHistoryCacheKey(sym, days)
+	key := c.key(sym, days)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if entry, ok := c.mem[key]; ok {
@@ -167,7 +172,7 @@ func (c *regimeHistoryCache) put(sym string, days int, bars []ibkrlib.Historical
 		return
 	}
 	entry := regimeHistoryCacheEntry{
-		Key:       regimeHistoryCacheKey(sym, days),
+		Key:       c.key(sym, days),
 		Symbol:    sym,
 		Days:      days,
 		FetchedAt: fetchedAt,
@@ -180,12 +185,12 @@ func (c *regimeHistoryCache) put(sym string, days int, bars []ibkrlib.Historical
 }
 
 func (c *regimeHistoryCache) loadLocked(sym string, days int) (regimeHistoryCacheEntry, error) {
-	key := regimeHistoryCacheKey(sym, days)
+	key := c.key(sym, days)
 	var data []byte
 	if c.authority != nil {
 		var ok bool
 		var err error
-		data, ok, err = loadMarketState(c.authority, regimeHistoryAuthorityScope(sym, days), regimeHistoryStateKind)
+		data, ok, err = loadMarketState(c.authority, c.scope(sym, days), regimeHistoryStateKind)
 		if err != nil {
 			return regimeHistoryCacheEntry{}, fmt.Errorf("read regime HMDS authority for %s: %w", key, err)
 		}
@@ -210,6 +215,7 @@ func (c *regimeHistoryCache) loadLocked(sym string, days int) (regimeHistoryCach
 }
 
 func (c *regimeHistoryCache) saveLocked(entry regimeHistoryCacheEntry) error {
+	source, method := c.source()
 	if c.authority != nil {
 		payload, err := json.Marshal(entry)
 		if err != nil {
@@ -224,14 +230,14 @@ func (c *regimeHistoryCache) saveLocked(entry regimeHistoryCacheEntry) error {
 			Method    string    `json:"method"`
 		}{
 			Version: 1, Symbol: entry.Symbol, Days: entry.Days,
-			FetchedAt: entry.FetchedAt, BarCount: len(entry.Bars), Method: "IBKR HMDS daily bars",
+			FetchedAt: entry.FetchedAt, BarCount: len(entry.Bars), Method: method,
 		})
 		if err != nil {
 			return err
 		}
-		scope := regimeHistoryAuthorityScope(entry.Symbol, entry.Days)
+		scope := c.scope(entry.Symbol, entry.Days)
 		return saveMarketState(c.authority, scope, regimeHistoryStateKind, corestore.ObservationInput{
-			ScopeKey: scope, Source: regimeHistorySource, Kind: regimeHistoryObservationKind,
+			ScopeKey: scope, Source: source, Kind: regimeHistoryObservationKind,
 			ObservedAt: entry.FetchedAt, ContentType: "application/json",
 			Payload: payload, MetadataJSON: metadata, DecisionEligible: true,
 		})
@@ -255,8 +261,31 @@ func regimeHistoryAuthorityScope(sym string, days int) string {
 	return "market/regime/hmds/" + regimeHistoryCacheKey(sym, days)
 }
 
+// key is the entry's name: IBKR's as it always was, OpenD's under its own
+// prefix.
+func (c *regimeHistoryCache) key(sym string, days int) string {
+	if c.opend {
+		return "opend-" + regimeHistoryCacheKey(sym, days)
+	}
+	return regimeHistoryCacheKey(sym, days)
+}
+
+func (c *regimeHistoryCache) scope(sym string, days int) string {
+	if c.opend {
+		return "market/regime/opend/" + regimeHistoryCacheKey(sym, days)
+	}
+	return regimeHistoryAuthorityScope(sym, days)
+}
+
+func (c *regimeHistoryCache) source() (source, method string) {
+	if c.opend {
+		return "futu.opend", "moomoo OpenD daily bars"
+	}
+	return regimeHistorySource, "IBKR HMDS daily bars"
+}
+
 func (c *regimeHistoryCache) path(sym string, days int) string {
-	return filepath.Join(c.dir, sanitizeRegimeSeriesID(regimeHistoryCacheKey(sym, days))+".json")
+	return filepath.Join(c.dir, sanitizeRegimeSeriesID(c.key(sym, days))+".json")
 }
 
 func regimeHistoryCacheKey(sym string, days int) string {

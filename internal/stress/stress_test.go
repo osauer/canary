@@ -523,3 +523,17 @@ func TestStressRegimeSourceHealthTypesInheritance(t *testing.T) {
 		t.Fatalf("healthy derived_from = %v, want empty", healthy.DerivedFrom)
 	}
 }
+
+// The quiet tape row names only the tape that was read. A broker that quotes
+// no VIX left the row saying the VIX tape was quiet (2026-11-14, OpenD).
+func TestQuietTapeRowSaysVIXWasNotRead(t *testing.T) {
+	flat := 0.1
+	row := stressTapeShockRow(StressPortfolioSummary{}, StressMarketSummary{SPYChangePct: &flat})
+	if row.Severity != risk.SeverityObserve || !strings.Contains(row.Guidance, "VIX was not read") || strings.Contains(row.Guidance, "SPY/VIX") {
+		t.Fatalf("row = %+v", row)
+	}
+	row = stressTapeShockRow(StressPortfolioSummary{}, StressMarketSummary{SPYChangePct: &flat, VIXChangePct: &flat})
+	if row.Guidance != "No direct SPY/VIX overnight tape shock." {
+		t.Fatalf("both read: %+v", row)
+	}
+}

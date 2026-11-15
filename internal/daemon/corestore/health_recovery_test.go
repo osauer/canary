@@ -263,3 +263,28 @@ func TestHeadReadTimeoutLatchSharesTheRecoveryProof(t *testing.T) {
 		t.Fatalf("recovery transition=%+v", seen[1])
 	}
 }
+
+// A permanent latch that arrives while the store waits in the recoverable
+// head-watermark latch replaces it. It used to be dropped, because a latch
+// only moved a Ready store, and the watermark proof then reopened writes over
+// an outside opener the daemon had seen (found 2026-11-14).
+func TestAPermanentLatchReplacesTheRecoverableOne(t *testing.T) {
+	f := openRecoveryFixture(t)
+	committed, _ := f.latchByObserverFailure(t, 1)
+	requireEligibleHeadWatermarkLatch(t, f.store, committed)
+
+	f.store.LatchDamaged("outside_opener", errors.New("daemon.db-shm appeared"))
+	if h := f.store.Health(); h.Ready || h.Code != "outside_opener" || h.RecoveryEligible {
+		t.Fatalf("health after the outside opener = %+v, want a permanent outside_opener latch", h)
+	}
+	seen := f.recorder.transitions(t, 2)
+	if seen[1].health.Code != "outside_opener" {
+		t.Fatalf("second transition = %+v, want the outside opener announced", seen[1])
+	}
+	if recovered, err := f.store.RecoverTransientHeadWatermark(t.Context()); recovered {
+		t.Fatalf("the watermark proof reopened a permanent latch (err %v)", err)
+	}
+	if err := f.mutate(t, "after"); !errors.Is(err, ErrBlocked) {
+		t.Fatalf("mutation after the outside opener = %v, want ErrBlocked", err)
+	}
+}

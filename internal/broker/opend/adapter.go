@@ -534,7 +534,7 @@ func (a *Adapter) Snapshot() map[string]*broker.Quote {
 	cache := a.conn.QuoteCache()
 	out := make(map[string]*broker.Quote, len(cache))
 	for code, quote := range cache {
-		out[code] = quoteOf(quote)
+		out[code] = quoteOf(quote, a.now())
 	}
 	return out
 }
@@ -546,7 +546,7 @@ func (a *Adapter) ReadSnapshots(ctx context.Context, codes []string) (map[string
 	rows, err := a.conn.Snapshots(ctx, codes...)
 	out := make(map[string]*broker.Quote, len(rows))
 	for _, row := range rows {
-		out[row.Code] = quoteOf(row)
+		out[row.Code] = quoteOf(row, a.now())
 	}
 	return out, err
 }
@@ -572,7 +572,7 @@ func (a *Adapter) BriefQuote(ctx context.Context, in broker.Instrument, _ []stri
 	q := rows[0]
 	seen := broker.BriefQuote{
 		Bid: q.Bid, Ask: q.Ask, Last: q.Last, Mark: q.Last, Close: q.PrevClose, Week52High: q.Week52High,
-		FeedType:   1,
+		FeedType:   openDFeedType(q.At, a.now()),
 		ObservedAt: q.At,
 	}
 	if done != nil {
@@ -624,10 +624,27 @@ func (a *Adapter) FrontContract(_ context.Context, in broker.Instrument, _ time.
 	return broker.Instrument{}, fmt.Errorf("%w: %w: %s", broker.ErrNotSupplied, ErrNotServed, strings.ToUpper(strings.TrimSpace(in.Symbol))+"/FUT")
 }
 
-func quoteOf(q futu.Quote) *broker.Quote {
+// openDLiveFor is how old OpenD's last update may be and still read as live.
+// OpenD names no feed state; a snapshot of a closed market, or one that has
+// stopped updating, carries an old update time and was typed live whatever
+// its age (found 2026-11-14: a 4 November SPY price read as live on a
+// Saturday). A name that has not traded for longer reads frozen, which keeps
+// its price and stops it passing for a live one.
+const openDLiveFor = 15 * time.Minute
+
+// openDFeedType is the IBKR feed number for an OpenD price updated at: 1,
+// live, when recent; 2, frozen, when older or of unknown age.
+func openDFeedType(at, now time.Time) int {
+	if at.IsZero() || now.Sub(at) > openDLiveFor {
+		return 2
+	}
+	return 1
+}
+
+func quoteOf(q futu.Quote, now time.Time) *broker.Quote {
 	out := &broker.Quote{
 		Symbol:         q.Code,
-		FeedType:       1,
+		FeedType:       openDFeedType(q.At, now),
 		Delivery:       string(q.Delivery),
 		Timestamp:      q.At,
 		LastAt:         q.At,

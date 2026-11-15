@@ -964,6 +964,7 @@ func (s *Server) installRegimeHistoryCache() {
 		return
 	}
 	s.regimeHistory = newRegimeHistoryCache(dir, s.warnf)
+	s.regimeHistory.opend = s.opend != nil
 }
 
 // infof / warnf are nil-safe wrappers around s.logger. The tests that

@@ -415,3 +415,26 @@ func TestResolveNamesTheTypeOpenDReports(t *testing.T) {
 		t.Fatalf("resolved %+v", got)
 	}
 }
+
+// OpenD names no feed state, so the age of its last update decides it: a
+// price that stopped updating, a closed market's snapshot among them, reads
+// frozen rather than live (on 2026-11-14 a 4 November SPY price read as live).
+func TestAnOldOpenDPriceReadsFrozen(t *testing.T) {
+	sim := futusim.Start(t, futusim.Options{})
+	fresh := connected(t, sim, simAccount)
+	ctx := context.Background()
+	snap, err := fresh.ReadSnapshots(ctx, []string{"US.AAPL"})
+	if err != nil || snap["US.AAPL"] == nil || snap["US.AAPL"].FeedType != 1 {
+		t.Fatalf("a current snapshot: %+v %v", snap["US.AAPL"], err)
+	}
+
+	later := New(fresh.Connector(), func() time.Time { return sim.Book().Clock.Now().Add(openDLiveFor + time.Minute) })
+	snap, err = later.ReadSnapshots(ctx, []string{"US.AAPL"})
+	if err != nil || snap["US.AAPL"] == nil || snap["US.AAPL"].FeedType != 2 || snap["US.AAPL"].Last <= 0 {
+		t.Fatalf("an old snapshot: %+v %v", snap["US.AAPL"], err)
+	}
+	brief, err := later.BriefQuote(ctx, broker.Instrument{Symbol: "AAPL", Venue: "NASDAQ"}, nil, time.Second, nil)
+	if err != nil || brief.FeedType != 2 {
+		t.Fatalf("an old brief quote: %+v %v", brief, err)
+	}
+}
