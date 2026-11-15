@@ -48,3 +48,23 @@ func TestReaderLoadSeparatesAnIdleReaderFromABusyOne(t *testing.T) {
 		t.Fatalf("the turned window dropped the minute before it: %+v", got)
 	}
 }
+
+// A reader stuck inside one handler is the case the figure exists for: it
+// must read busy while it is stuck, not only after the frame returns.
+func TestReaderLoadCountsTheFrameStillBeingProcessed(t *testing.T) {
+	start := time.Date(2026, 11, 12, 14, 0, 0, 0, time.UTC)
+	var l readerLoad
+	l.observe(msgTickPrice, time.Millisecond, start)
+	l.begin(start.Add(10 * time.Second))
+	got := l.snapshot(start.Add(30 * time.Second))
+	if got.Running != 20*time.Second || got.BusyPct() < 60 {
+		t.Fatalf("a reader 20 s into one frame read as %.0f%% busy, running %s", got.BusyPct(), got.Running)
+	}
+	if !strings.Contains(got.String(), "the frame in hand has been processing for 20s") {
+		t.Fatalf("the load line does not name the stuck frame: %s", got)
+	}
+	l.observe(msgOpenOrder, 20*time.Second, start.Add(30*time.Second))
+	if got = l.snapshot(start.Add(31 * time.Second)); got.Running != 0 {
+		t.Fatalf("a finished frame still reads as running: %+v", got)
+	}
+}

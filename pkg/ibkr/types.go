@@ -24,6 +24,9 @@ type MarketData struct {
 	MarkAt    time.Time `json:"mark_at,omitzero"`
 	Symbol    string    `json:"symbol"`
 	Timestamp time.Time `json:"timestamp"`
+	// Currency is the currency these prices are in: the one the request was
+	// sent in, after the read route settled the listing. Empty when unknown.
+	Currency string `json:"currency,omitempty"`
 
 	Last float64 `json:"last"`
 	Bid  float64 `json:"bid"`

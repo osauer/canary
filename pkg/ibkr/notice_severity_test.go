@@ -406,3 +406,15 @@ func TestRepeat354ForOneInstrumentIsInfoAfterTheLineIsReleased(t *testing.T) {
 		t.Fatalf("354 after a restart, want INFO: %v", lines)
 	}
 }
+
+// A socket that connects while TWS has lost IBKR hears 2110, not 1100, so
+// the latch reads up; the report's Broken still says the link is down.
+func TestBackendLinkReportCountsA2110Break(t *testing.T) {
+	c := NewConnector(&ConnectorConfig{})
+	c.conn.rateLimiter.Stop()
+	at := time.Date(2026, 11, 13, 15, 0, 0, 0, time.UTC)
+	c.recordDataFarmNotice(2110, "Connectivity between Trader Workstation and server is broken. It will be restored automatically.", at)
+	if link := c.BackendLink(); link.Down || !link.Broken {
+		t.Fatalf("after a 2110 alone the report reads %+v, want Broken without the 1100 latch", link)
+	}
+}

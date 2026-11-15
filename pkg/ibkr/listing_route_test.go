@@ -303,6 +303,24 @@ func TestReadsOfAHeldListingFollowTheBrokerWhenTheCallerSaysSMART(t *testing.T) 
 		}
 		assertFields(t, g.framesByID(reqHistoricalData)[0], []fieldAssertion{{2, "4243", "conID"}, {9, "SEHK", "exchange"}, {11, "HKD", "currency"}})
 	})
+	// The quote by bare symbol prices the held listing in its own currency,
+	// and the snapshot says so: the caller's label was the symbol's USD
+	// default, which put an HKD price under a USD heading.
+	t.Run("a bare-symbol quote of a held listing names its currency", func(t *testing.T) {
+		c, conn, g := histTFixture(t)
+		c.contractMu.Lock()
+		c.contractCache["SYNH"] = ContractDetailsLite{Symbol: "SYNH", PrimaryExch: "SEHK", ConID: 4243, LocalSymbol: "SYNH"}
+		c.contractMu.Unlock()
+		g.script(heldListingBroker(t, c, conn, "SYNH", "SEHK", "HKD", "SEHK", false))
+		if _, err := c.EnsureMarketDataSubscription(t.Context(), "SYNH", nil, 0); err != nil {
+			t.Fatal(err)
+		}
+		frames := g.waitFramesByID(t, reqMktData, 1)
+		assertFields(t, frames[0], []fieldAssertion{{3, "4243", "conID"}, {12, "HKD", "currency"}})
+		if got := c.MarketDataSnapshot()["SYNH"]; got == nil || got.Currency != "HKD" {
+			t.Fatalf("snapshot = %+v, want currency HKD", got)
+		}
+	})
 }
 
 // The broker is asked once per contract, and only about a listing that might

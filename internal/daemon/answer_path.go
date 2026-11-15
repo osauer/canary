@@ -37,6 +37,10 @@ type answerPathLane struct {
 	// snapshotOutageSaid records that a poison during a lost TWS-to-IBKR
 	// link was said.
 	snapshotOutageSaid bool
+	// snapshotOutageSeen records that a poisoned tick saw the link down since
+	// the last redial, on whichever session; the next poison with the link up
+	// is then redialled at once.
+	snapshotOutageSeen bool
 	snapshotPoisonedAt time.Time
 	snapshotDropped    *ibkrlib.Connector
 }
@@ -212,9 +216,10 @@ func (s *Server) redialPoisonedOpenOrderSnapshot(c *ibkrlib.Connector, now time.
 		s.answerPath.mu.Unlock()
 		return
 	}
-	if link.Down {
+	if link.Down || link.Broken {
 		say := !lane.snapshotOutageSaid
 		lane.snapshotOutageSaid = true
+		lane.snapshotOutageSeen = true
 		s.answerPath.mu.Unlock()
 		if say {
 			logf("open orders cannot be read while TWS has no connection to IBKR (lost at %s); Canary reads them again when it returns", localTimeOnly(link.ChangedAt))
@@ -223,8 +228,11 @@ func (s *Server) redialPoisonedOpenOrderSnapshot(c *ibkrlib.Connector, now time.
 	}
 	lane.snapshotOutageSaid = false
 	// The link came back since the last redial: what poisoned the read has
-	// changed, so the hour's quiet does not hold this one.
-	restored := !link.ChangedAt.IsZero() && link.ChangedAt.After(lane.snapshotRedialedAt)
+	// changed, so the hour's quiet does not hold this one. Either this
+	// session saw the restore, or a poisoned tick saw the outage since the
+	// last redial: a session dialled during the outage starts with the latch
+	// up and hears only 2110, so its restore never moves ChangedAt.
+	restored := lane.snapshotOutageSeen || (!link.ChangedAt.IsZero() && link.ChangedAt.After(lane.snapshotRedialedAt))
 	if !restored && !lane.snapshotRedialedAt.IsZero() && now.Sub(lane.snapshotRedialedAt) < answerPathRedialQuiet {
 		warn := !lane.snapshotQuietWarned
 		lane.snapshotQuietWarned = true
@@ -246,6 +254,7 @@ func (s *Server) redialPoisonedOpenOrderSnapshot(c *ibkrlib.Connector, now time.
 	}
 	s.answerPath.mu.Lock()
 	lane.snapshotRedialedAt, lane.snapshotQuietWarned, lane.snapshotPoisonedAt, lane.snapshotDropped = now, false, since, c
+	lane.snapshotOutageSeen = false
 	s.answerPath.mu.Unlock()
 	logf("IBKR open-order snapshot poisoned at %s (%v); open orders cannot be read on this connection, so it is redialled", localTimeOnly(since), cause)
 	s.triggerReconnect()

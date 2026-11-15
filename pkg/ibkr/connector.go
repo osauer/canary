@@ -418,6 +418,11 @@ type Subscription struct {
 	// Option readers share one line until the final matching reader leaves.
 	optionReaders int
 	optionSession ConnectorSessionBinding
+	// readCurrency is the currency a symbol subscription was sent in, after
+	// the read route settled it (routeListingForRead): a held Hong Kong
+	// listing quoted by bare symbol prices in HKD, whatever the symbol's
+	// default said.
+	readCurrency string
 	// replaySpec records the wire form of this subscription so the 1101
 	// backend-recovery path can re-issue it: IBKR code 1101 means the
 	// TWS<->IBKR link was restored with server-side subscriptions LOST,
@@ -2312,7 +2317,11 @@ func (c *Connector) recordBackendConnectivity(down bool, at time.Time, restoreCo
 // LossesInMaintenance counts the subset of Losses that began inside a
 // configured broker maintenance window — expected, not incident evidence.
 type BackendLinkReport struct {
-	Down                bool
+	Down bool
+	// Broken is Down, or the 2110 connectivity break TWS reports to a socket
+	// that connects while its own link to IBKR is already lost: the latch
+	// starts up on every new session and only a 1100 sets it.
+	Broken              bool
 	ChangedAt           time.Time
 	Losses              int
 	LossesInMaintenance int
@@ -2327,8 +2336,7 @@ func (c *Connector) BackendLink() BackendLinkReport {
 		return BackendLinkReport{}
 	}
 	c.backendConnMu.Lock()
-	defer c.backendConnMu.Unlock()
-	return BackendLinkReport{
+	report := BackendLinkReport{
 		Down:                c.backendConnDown,
 		ChangedAt:           c.backendConnAt,
 		Losses:              c.backendConnLosses,
@@ -2336,6 +2344,9 @@ func (c *Connector) BackendLink() BackendLinkReport {
 		LastOutage:          c.backendConnLastOutage,
 		LongestOutage:       c.backendConnLongestOutage,
 	}
+	c.backendConnMu.Unlock()
+	report.Broken = report.Down || c.backendLinkBroken()
+	return report
 }
 
 func (c *Connector) backendConnectivityDown() (bool, time.Time) {
@@ -4963,6 +4974,7 @@ func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol str
 	defer c.subMu.Unlock()
 
 	// Helper to (re)request from IBKR, mapping reqID
+	var sentCurrency string
 	request := func() (int, error) {
 		if !c.IsReady() {
 			return 0, fmt.Errorf("IBKR connection not ready")
@@ -4985,6 +4997,7 @@ func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol str
 			return 0, fmt.Errorf("contract details pending for %s", symbol)
 		}
 		contract = c.routeListingForRead(contract)
+		sentCurrency = contract.Currency
 
 		var (
 			reqID int
@@ -5040,6 +5053,7 @@ func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol str
 				return false, err
 			}
 			sub.ReqID = reqID
+			sub.readCurrency = sentCurrency
 			sub.LastTime = time.Now()
 			marketDataLogger.Debugf("%s: Refreshed market data subscription for %s (ReqID: %d)", c.name, symbol, reqID)
 			return true, nil
@@ -5067,6 +5081,8 @@ func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol str
 		Fields:   fields,
 		LastTime: time.Now(),
 		RejectCh: make(chan SubscriptionRejection, 1),
+
+		readCurrency: sentCurrency,
 	}
 	c.subscriptions[symbol] = sub
 	marketDataLogger.Debugf("%s: Subscribed to market data for %s (ReqID: %d)", c.name, symbol, reqID)
@@ -9523,6 +9539,7 @@ func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 		data[symbol] = &MarketData{
 			FeedType:        dataType,
 			Symbol:          symbol,
+			Currency:        subscriptionCurrency(sub),
 			Bid:             sub.Bid,
 			Ask:             sub.Ask,
 			Last:            sub.LastPrice,
@@ -9561,6 +9578,18 @@ func (c *Connector) MarketDataSnapshot() map[string]*MarketData {
 	}
 
 	return data
+}
+
+// subscriptionCurrency is the currency a subscription's prices are in: the
+// contract it was sent with, as the read route left it. Empty when unknown.
+func subscriptionCurrency(sub *Subscription) string {
+	switch {
+	case sub.readCurrency != "":
+		return sub.readCurrency
+	case sub.replaySpec != nil && sub.replaySpec.contract.Currency != "":
+		return sub.replaySpec.contract.Currency
+	}
+	return sub.exactContract.Currency
 }
 
 func isNumeric(value string) bool {

@@ -262,7 +262,10 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 	}
 	defer conn.discardRequestIDReservation(reqID)
 
-	if err := conn.requestAccountSummaryForAccountContext(ctx, reqID, accountSummaryTags, string(expectedAccount)); err != nil {
+	// One budget for the wait for a free subscription and the answer, so a
+	// caller's timeout bounds both.
+	started := time.Now()
+	if err := conn.requestAccountSummaryForAccountContext(ctx, reqID, accountSummaryTags, string(expectedAccount), timeout); err != nil {
 		return nil, "", fmt.Errorf("request account summary: %w", err)
 	}
 
@@ -282,7 +285,7 @@ func (c *Connector) RequestAccountSummaryWithProvenance(ctx context.Context, tim
 		}
 	}()
 
-	raw, observation, err := conn.awaitAccountSummarySnapshotContext(ctx, reqID, timeout)
+	raw, observation, err := conn.awaitAccountSummarySnapshotContext(ctx, reqID, max(timeout-time.Since(started), time.Millisecond))
 	if err != nil {
 		return nil, "", fmt.Errorf("await account summary end: %w", err)
 	}

@@ -2154,6 +2154,7 @@ func (c *Connection) readMessages() {
 			// Process the message, and keep the reader's own share of the
 			// time (reader_load.go).
 			began := time.Now()
+			c.readerLoad.begin(began)
 			c.processMessageAtEpoch(msgBytes, epoch)
 			done := time.Now()
 			if rolled, load := c.readerLoad.observe(int(c.lastInboundMsgID.Load()), done.Sub(began), done); rolled && load.BusyPct() >= readerBusyWarnPct {
@@ -7213,10 +7214,12 @@ func (c *Connection) RequestAccountSummary(reqID int, tags string) error {
 // still receives group "All" because account codes are not account-group
 // names; every row must match expectedAccount before publication.
 func (c *Connection) RequestAccountSummaryForAccount(reqID int, tags, expectedAccount string) error {
-	return c.requestAccountSummaryForAccountContext(context.Background(), reqID, tags, expectedAccount)
+	return c.requestAccountSummaryForAccountContext(context.Background(), reqID, tags, expectedAccount, 0)
 }
 
-func (c *Connection) requestAccountSummaryForAccountContext(ctx context.Context, reqID int, tags, expectedAccount string) error {
+// requestAccountSummaryForAccountContext opens the summary subscription.
+// admitBudget, when positive, bounds the wait for a free subscription.
+func (c *Connection) requestAccountSummaryForAccountContext(ctx context.Context, reqID int, tags, expectedAccount string, admitBudget time.Duration) error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to IBKR")
 	}
@@ -7231,7 +7234,7 @@ func (c *Connection) requestAccountSummaryForAccountContext(ctx context.Context,
 	}
 	epoch := c.BrokerSessionEpoch()
 	c.cancelStrandedSummaries(ctx, epoch)
-	if err := c.summarySchedule.enterOrdinary(ctx, reqID, epoch); err != nil {
+	if err := c.summarySchedule.enterOrdinaryWithin(ctx, reqID, epoch, admitBudget); err != nil {
 		return err
 	}
 	if err := c.claimRequestID(reqID); err != nil {

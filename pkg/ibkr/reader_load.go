@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -38,6 +39,10 @@ type readerLoad struct {
 	mu        sync.Mutex
 	start     time.Time
 	cur, prev readerWindow
+	// inFlight is when the frame being processed began (unix nanoseconds,
+	// zero between frames), so a reader stuck inside one handler reads as
+	// busy while it is stuck, not only once the frame is done.
+	inFlight atomic.Int64
 }
 
 // ReaderLoad is the reader's work over the running window and the finished
@@ -45,6 +50,9 @@ type readerLoad struct {
 type ReaderLoad struct {
 	Span, Busy time.Duration
 	Frames     int
+	// Running is how long the frame being processed has taken so far; it is
+	// counted in Busy.
+	Running time.Duration
 	// Top are the commonest inbound message ids with their frame counts.
 	Top []ReaderLoadMessage
 }
@@ -75,12 +83,19 @@ func (r ReaderLoad) String() string {
 	if len(top) > 0 {
 		text += " (" + strings.Join(top, ", ") + ")"
 	}
+	if r.Running >= time.Second {
+		text += fmt.Sprintf("; the frame in hand has been processing for %s", r.Running.Round(time.Second))
+	}
 	return text
 }
+
+// begin marks the start of a frame's processing.
+func (l *readerLoad) begin(now time.Time) { l.inFlight.Store(now.UnixNano()) }
 
 // observe counts one processed frame. It reports the finished window when
 // this frame turned it.
 func (l *readerLoad) observe(msgID int, took time.Duration, now time.Time) (bool, ReaderLoad) {
+	l.inFlight.Store(0)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.start.IsZero() {
@@ -119,7 +134,14 @@ func (l *readerLoad) snapshot(now time.Time) ReaderLoad {
 			both.byType[id] += n
 		}
 	}
-	return both.load()
+	out := both.load()
+	if began := l.inFlight.Load(); began != 0 {
+		if running := now.Sub(time.Unix(0, began)); running > 0 {
+			out.Running = running
+			out.Busy += running
+		}
+	}
+	return out
 }
 
 func (w readerWindow) load() ReaderLoad {

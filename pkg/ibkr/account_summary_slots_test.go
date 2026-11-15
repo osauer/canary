@@ -77,3 +77,21 @@ func TestAccountSummarySlotWaitIsBounded(t *testing.T) {
 		t.Fatalf("a waiter was not admitted after the socket changed: %v", err)
 	}
 }
+
+// A caller's timeout bounds the wait for a free subscription: a 3 s caller
+// on the order path must not wait the schedule's whole default first.
+func TestAccountSummarySlotWaitKeepsTheCallersBudget(t *testing.T) {
+	var s accountSummarySchedule // admitWait zero: the 5 s default
+	for _, req := range []int{1, 2} {
+		if err := s.enterOrdinary(t.Context(), req, 1); err != nil {
+			t.Fatalf("slot %d: %v", req, err)
+		}
+	}
+	began := time.Now()
+	if err := s.enterOrdinaryWithin(t.Context(), 3, 1, 30*time.Millisecond); !errors.Is(err, ErrAccountSummaryBusy) {
+		t.Fatalf("a third read within budget = %v, want ErrAccountSummaryBusy", err)
+	}
+	if took := time.Since(began); took > time.Second {
+		t.Fatalf("the wait took %s against a 30 ms budget", took)
+	}
+}

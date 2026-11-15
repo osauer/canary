@@ -54,6 +54,13 @@ type accountSummarySchedule struct {
 // Ordinary subscriptions retain their lease until their cancellation is sent.
 // End marks a snapshot cutoff, but does not end an IBKR subscription.
 func (s *accountSummarySchedule) enterOrdinary(ctx context.Context, reqID int, epoch uint64) error {
+	return s.enterOrdinaryWithin(ctx, reqID, epoch, 0)
+}
+
+// enterOrdinaryWithin is enterOrdinary with the wait for a free subscription
+// held to budget as well (zero: no budget beyond the schedule's own), so a
+// caller's timeout bounds the wait and the answer together.
+func (s *accountSummarySchedule) enterOrdinaryWithin(ctx context.Context, reqID int, epoch uint64, budget time.Duration) error {
 	s.mu.Lock()
 	s.pending++
 	for s.probe != nil {
@@ -89,6 +96,9 @@ func (s *accountSummarySchedule) enterOrdinary(ctx context.Context, reqID int, e
 			wait := s.admitWait
 			if wait <= 0 {
 				wait = defaultAccountSummaryTimeout
+			}
+			if budget > 0 {
+				wait = min(wait, budget)
 			}
 			timer := time.NewTimer(wait)
 			defer timer.Stop()

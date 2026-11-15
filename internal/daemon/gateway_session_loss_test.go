@@ -674,6 +674,39 @@ func TestPoisonedOpenOrderSnapshotWaitsForTheBackendLink(t *testing.T) {
 	}
 }
 
+// A session dialled while TWS has already lost IBKR hears 2110, not 1100:
+// its latch reads up and its restore never moves ChangedAt. The outage a
+// poisoned tick saw still earns the redial once the link is back, also
+// inside the hour after an earlier redial.
+func TestPoisonedOpenOrderSnapshotOnASessionDialledDuringTheOutage(t *testing.T) {
+	f := startFakeTWS(t)
+	s, out := sessionLossServer(t, f, "2026-10-07T18:00:00Z")
+	c := s.gatewayConnectorForTest()
+	now := s.now()
+	s.snapshotPoisonedFn = func(*ibkrlib.Connector) (time.Time, error, bool) {
+		return now.Add(-40 * time.Second), errors.New("synthetic: no openOrderEnd"), true
+	}
+	s.answerPath.mu.Lock()
+	s.answerPath.lane(rpc.AnswerPathLanePrimary).snapshotRedialedAt = now.Add(-10 * time.Minute)
+	s.answerPath.mu.Unlock()
+
+	link := ibkrlib.BackendLinkReport{Broken: true}
+	s.backendLinkFn = func(*ibkrlib.Connector) ibkrlib.BackendLinkReport { return link }
+	mark := len(out.String())
+	s.redialPoisonedOpenOrderSnapshot(c, now)
+	time.Sleep(50 * time.Millisecond)
+	if !c.IsReady() {
+		t.Fatal("the session was redialled while TWS reports its link broken (2110)")
+	}
+	if lines := snapshotLines(logLinesAt(settledLog(out, mark), "WARN")); len(lines) != 0 {
+		t.Fatalf("a 2110 outage read as a poisoned-again session:\n%s", strings.Join(lines, "\n"))
+	}
+
+	link = ibkrlib.BackendLinkReport{}
+	s.redialPoisonedOpenOrderSnapshot(c, now.Add(90*time.Second))
+	waitSessionLost(t, c)
+}
+
 func snapshotLines(lines []string) []string {
 	var out []string
 	for _, line := range lines {

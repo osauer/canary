@@ -947,6 +947,7 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 	pollStarted := time.Now()
 	_ = pollMarketData(ctx, c, pollKey, pollStarted.Add(timeout), func(d *ibkrlib.MarketData) bool {
 		fillQuoteMarketData(&q, d)
+		labelQuoteCurrency(&q, d)
 		seen = true
 		ready := q.Bid != nil || q.Ask != nil || q.Last != nil
 		fallback := quoteFallbackReady(&q, pollStarted, timeout)
@@ -2155,6 +2156,7 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (res
 	pollStarted := time.Now()
 	if err := pollMarketData(ctx, c, pollKey, pollStarted.Add(timeout), func(d *ibkrlib.MarketData) bool {
 		fillQuoteMarketData(q, d)
+		labelQuoteCurrency(q, d)
 		ready := q.Bid != nil || q.Ask != nil || q.Last != nil
 		fallback := quoteFallbackReady(q, pollStarted, timeout)
 		if ready || fallback {
@@ -2614,6 +2616,20 @@ func fillQuoteMarketData(q *rpc.Quote, d *ibkrlib.MarketData) {
 	if !d.LastTradeTime.IsZero() {
 		q.PriceAt = d.LastTradeTime
 		q.QuotePriceAt = d.LastTradeTime
+	}
+}
+
+// labelQuoteCurrency puts a stock quote under the currency its prices are
+// in. A bare symbol defaults to USD, but the read follows a held listing to
+// its own exchange and currency (ibkr routeListingForRead), so a Hong Kong
+// holding quoted as "1299" prices in HKD. The subscription knows; the label
+// follows it. The order path keeps its exact contract and does not call this.
+func labelQuoteCurrency(q *rpc.Quote, d *ibkrlib.MarketData) {
+	if q == nil || d == nil {
+		return
+	}
+	if ccy := normCcy(d.Currency); ccy != "" {
+		q.Contract.Currency = ccy
 	}
 }
 
