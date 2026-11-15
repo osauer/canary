@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 type gammaOptionInputReader struct {

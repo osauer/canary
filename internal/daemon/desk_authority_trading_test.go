@@ -4,9 +4,9 @@ package daemon
 
 import (
 	"context"
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 	"strings"
 	"testing"
 	"time"

@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
+	"github.com/osauer/canary/v3/internal/broker"
 )
 
 // IBKR's account rows answer ExchangeRate 1 for every currency of this account

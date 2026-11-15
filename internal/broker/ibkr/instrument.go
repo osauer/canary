@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // Instrument maps an IBKR contract onto the neutral identity. The ConID

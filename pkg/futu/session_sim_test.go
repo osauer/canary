@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/pkg/futu"
-	"github.com/osauer/canary/v2/pkg/futu/futusim"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/common"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/notify"
+	"github.com/osauer/canary/v3/pkg/futu"
+	"github.com/osauer/canary/v3/pkg/futu/futusim"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/common"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/notify"
 )
 
 var record = flag.Bool("record", false, "re-record pkg/futu/testdata/frames from the simulator")

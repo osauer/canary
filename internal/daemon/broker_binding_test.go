@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v3/internal/broker/ibkr"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A neutral binding names one connector generation and one session epoch

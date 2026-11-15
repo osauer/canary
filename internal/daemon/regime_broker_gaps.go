@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // regimeGaps collects, during one fan-out, the regime inputs the broker

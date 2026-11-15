@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // cashInterestTestSide is an available broker credit rate for a sweep test.

@@ -14,16 +14,16 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v3/internal/broker/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 
-	"github.com/osauer/canary/v2/internal/breadth/spx"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	positionstrategy "github.com/osauer/canary/v2/internal/strategy"
+	"github.com/osauer/canary/v3/internal/breadth/spx"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	positionstrategy "github.com/osauer/canary/v3/internal/strategy"
 )
 
 // handleAccountSummary issues a one-shot reqAccountSummary and converts the

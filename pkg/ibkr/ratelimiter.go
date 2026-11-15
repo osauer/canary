@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/pkg/ibkr/internal/logging"
+	"github.com/osauer/canary/v3/pkg/ibkr/internal/logging"
 )
 
 var rateLimiterLogger = logging.Component("IBKR RateLimiter")

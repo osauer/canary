@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v3/internal/discover"
 )
 
 // CashLedger configures a supplemental broker cash source. It is disabled

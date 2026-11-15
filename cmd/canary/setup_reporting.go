@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/cli"
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/flexstmt"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/cli"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 func setupReporting(args []string) int {

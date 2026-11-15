@@ -7,13 +7,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/chainrec"
-	edgecore "github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/flexstmt"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/chainrec"
+	edgecore "github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // replayHistoryLeadDays is how far before the window the underlying history

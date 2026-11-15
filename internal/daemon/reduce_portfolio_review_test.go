@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func TestReducePortfolioReview(t *testing.T) {

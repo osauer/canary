@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/feedback"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/feedback"
 )
 
 // canary_feedback answers without a daemon: the server passes a nil

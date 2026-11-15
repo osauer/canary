@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The core row's due time (core-sleeve.md, "Window and order terms", "Due

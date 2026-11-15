@@ -6,7 +6,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The governor carries no default that acts: the embedded default has no

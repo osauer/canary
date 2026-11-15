@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v3/internal/dial"
 )
 
 func TestMCPPingCancelAndShutdownWhileDaemonUnavailable(t *testing.T) {

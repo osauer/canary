@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/update"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/update"
 )
 
 // A background reader arriving after the old daemon exits must wait for

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/osauer/canary/v2/pkg/futu"
+	"github.com/osauer/canary/v3/pkg/futu"
 )
 
 // Direction says which way a recorded frame travelled, as the simulator sees

@@ -7,8 +7,8 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // Two reductions of one line must never together sell more than is held

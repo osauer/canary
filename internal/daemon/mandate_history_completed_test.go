@@ -2,8 +2,8 @@ package daemon
 
 import (
 	"context"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
 	"testing"
 	"time"
 )

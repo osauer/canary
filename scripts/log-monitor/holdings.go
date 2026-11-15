@@ -8,7 +8,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/redact"
+	"github.com/osauer/canary/v3/internal/redact"
 )
 
 // holdingsSource says where the current-holdings list came from, so a report

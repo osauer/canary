@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The final wire guard reads the mandate gate on a risk-bound binding, after

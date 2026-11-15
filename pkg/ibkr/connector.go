@@ -17,8 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/logepisode"
-	"github.com/osauer/canary/v2/pkg/ibkr/internal/logging"
+	"github.com/osauer/canary/v3/internal/logepisode"
+	"github.com/osauer/canary/v3/pkg/ibkr/internal/logging"
 )
 
 var connectorLogger = logging.Component("IBKR Connector")

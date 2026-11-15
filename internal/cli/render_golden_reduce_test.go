@@ -3,7 +3,7 @@ package cli
 import (
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The reduce goldens are a synthetic book: SYNA 100 shares and a SYNB call,

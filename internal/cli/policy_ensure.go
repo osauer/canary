@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/daemon"
-	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v3/internal/daemon"
+	"github.com/osauer/canary/v3/internal/dial"
 )
 
 // RunPolicyLocal runs the policy subcommands that need no daemon: default

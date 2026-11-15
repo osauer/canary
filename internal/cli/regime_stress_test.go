@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 type riskReadConn struct {

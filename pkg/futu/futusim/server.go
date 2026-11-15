@@ -15,16 +15,16 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/osauer/canary/v2/pkg/futu"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/common"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/getglobalstate"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/getuserinfo"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/initconnect"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/keepalive"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/notify"
-	qotcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_common"
-	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
-	trdgetacclist "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_getacclist"
+	"github.com/osauer/canary/v3/pkg/futu"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/common"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/getglobalstate"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/getuserinfo"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/initconnect"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/keepalive"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/notify"
+	qotcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_common"
+	trdcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_common"
+	trdgetacclist "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_getacclist"
 )
 
 // unlockProto is OpenD's trade unlock. The simulator does not implement it:

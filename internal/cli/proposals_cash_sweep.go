@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func renderCashSweepEconomicsAdvice(env *Env, out io.Writer, advice *rpc.CashSweepEconomics) {

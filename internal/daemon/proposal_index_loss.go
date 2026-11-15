@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Canary's own proposals are priced for the index fall the way a planned

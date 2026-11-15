@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/futu"
-	"github.com/osauer/canary/v2/pkg/futu/futusim"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/pkg/futu"
+	"github.com/osauer/canary/v3/pkg/futu/futusim"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // An OpenD daemon that loses its session says so with the code every surface

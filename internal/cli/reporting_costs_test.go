@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // goldenReportingCosts is a synthetic month of fills: a Canary option buy and

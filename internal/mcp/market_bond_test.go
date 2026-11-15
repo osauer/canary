@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // canary_market with bond_identifier is the read-only bond check, parity

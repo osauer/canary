@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
+	"github.com/osauer/canary/v3/internal/broker"
 )
 
 // setupResolver is the broker surface for exact underlying identity.

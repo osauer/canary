@@ -18,8 +18,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/notify"
-	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/notify"
+	trdcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_common"
 )
 
 // fixtureClock is the instant the default simulator book starts at, the time

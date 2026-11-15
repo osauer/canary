@@ -4,7 +4,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // DetectWriteOrigin classifies this process for broker-write authorization.

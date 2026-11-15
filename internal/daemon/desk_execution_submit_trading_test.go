@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // A served row is sent exactly once under the standing mandate through the

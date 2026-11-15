@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // handshakeWaitBudget bounds how long `canary status` waits for the daemon's

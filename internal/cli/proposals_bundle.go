@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // A leveling repayment is approved once for all its conversions (owner

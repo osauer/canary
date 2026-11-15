@@ -9,10 +9,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	"github.com/osauer/canary/v2/internal/stress"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/stress"
 	"time"
 )
 

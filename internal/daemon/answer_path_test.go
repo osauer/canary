@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 
-	"github.com/osauer/canary/v2/internal/breadth/spx"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/breadth/spx"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A stalled lane is redialled once it has been stalled for ten minutes (owner

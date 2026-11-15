@@ -16,7 +16,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Handler answers one unary daemon method with a JSON result. An error made

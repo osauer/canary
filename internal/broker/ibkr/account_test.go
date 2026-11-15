@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // moneyFields are the account summary's pointer-typed money fields, the

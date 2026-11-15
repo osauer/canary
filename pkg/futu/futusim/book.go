@@ -16,7 +16,7 @@ import (
 	"time"
 	_ "time/tzdata" // the market session tables resolve their zones without the host's database
 
-	"github.com/osauer/canary/v2/pkg/futu"
+	"github.com/osauer/canary/v3/pkg/futu"
 )
 
 //go:embed testdata/book.json

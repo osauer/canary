@@ -7,8 +7,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/osauer/canary/v2"
-	"github.com/osauer/canary/v2/canarytest"
+	"github.com/osauer/canary/v3"
+	"github.com/osauer/canary/v3/canarytest"
 )
 
 func TestCashSweepPreferenceClientIsNarrowAndPreservesReceipts(t *testing.T) {

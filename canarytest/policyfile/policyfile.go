@@ -11,9 +11,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/osauer/canary/v2/canarytest"
-	"github.com/osauer/canary/v2/internal/daemon"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/canarytest"
+	"github.com/osauer/canary/v3/internal/daemon"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Serve answers policy.cash.get, policy.cash.check and policy.cash.apply on

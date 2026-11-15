@@ -3,7 +3,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A holding the broker reports as terminal and values at zero carries no

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/setups"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/setups"
 )
 
 func TestSetupCalendarSelectsTwentyPriorComparableSessions(t *testing.T) {

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 const performanceDayFormat = "2006-01-02"

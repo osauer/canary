@@ -22,20 +22,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/canary/v2/pkg/futu"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/pkg/futu"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 
-	"github.com/osauer/canary/v2/internal/breadth/spx"
-	"github.com/osauer/canary/v2/internal/broker"
-	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
-	brokerOpenD "github.com/osauer/canary/v2/internal/broker/opend"
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/discover"
-	"github.com/osauer/canary/v2/internal/logepisode"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/breadth/spx"
+	"github.com/osauer/canary/v3/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v3/internal/broker/ibkr"
+	brokerOpenD "github.com/osauer/canary/v3/internal/broker/opend"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/discover"
+	"github.com/osauer/canary/v3/internal/logepisode"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // maxFrameBytes caps each newline-delimited JSON-RPC request the daemon will

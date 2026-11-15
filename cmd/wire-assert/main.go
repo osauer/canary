@@ -23,9 +23,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // WireFrame mirrors pkg/ibkr.WireFrame's JSON shape. Kept as a separate

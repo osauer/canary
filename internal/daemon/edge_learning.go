@@ -5,8 +5,8 @@ import (
 	"math"
 	"strings"
 
-	edgecore "github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/rpc"
+	edgecore "github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func rpcEdgeDecisionPattern(in edgecore.DecisionPattern) rpc.EdgeDecisionPattern {

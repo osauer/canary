@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // Stock-add methods share the existing exact-order execution path. Planning

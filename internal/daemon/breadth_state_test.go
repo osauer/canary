@@ -3,8 +3,8 @@ package daemon
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/breadth/spx"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/breadth/spx"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The rpc breadth-failure vocabulary is filled by a type conversion from the

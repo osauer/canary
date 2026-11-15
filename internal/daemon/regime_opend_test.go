@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	"github.com/osauer/canary/v2/pkg/futu/futusim"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	"github.com/osauer/canary/v3/pkg/futu/futusim"
 )
 
 // Under OpenD the regime reads its listed inputs (HYG, SPY) from OpenD and

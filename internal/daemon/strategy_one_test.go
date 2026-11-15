@@ -3,7 +3,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/breadth/spx"
+	"github.com/osauer/canary/v3/internal/breadth/spx"
 )
 
 // A constituent's undated closes are laid on the sessions ending at its last

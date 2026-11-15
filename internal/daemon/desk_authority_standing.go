@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Standing authority for the daemon's own sends (owner, 2026-11-04 20:17 CET:

@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/register"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/register"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The core sleeve's monthly rows (internal-docs/design/core-sleeve.md, phase

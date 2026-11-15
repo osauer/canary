@@ -13,8 +13,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // Policy files (owner decision 2026-09-26). Canary always materializes its

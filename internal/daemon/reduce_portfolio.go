@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // maxBasketLegs bounds how many real orders one portfolio sweep can fan out

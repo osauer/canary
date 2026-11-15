@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/register"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/register"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The strategy register (internal-docs/design/strategy-register.md),

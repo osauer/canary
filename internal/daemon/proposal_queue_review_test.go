@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Witnesses of the #41 review of queued authorisations (2026-09-28).

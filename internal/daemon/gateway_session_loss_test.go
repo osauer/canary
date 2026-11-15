@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/discover"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/discover"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // fakeTWS speaks just enough of the TWS API for a daemon connector to reach

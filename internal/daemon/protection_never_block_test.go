@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A protection file written before the risk-reduction target moved to the

@@ -6,9 +6,9 @@ import (
 	"errors"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/app/push"
-	"github.com/osauer/canary/v2/internal/app/state"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/app/push"
+	"github.com/osauer/canary/v3/internal/app/state"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // SetAlertMode serializes a notification-mode change with confirmation and

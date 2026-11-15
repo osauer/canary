@@ -3,7 +3,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/mandate"
+	"github.com/osauer/canary/v3/internal/mandate"
 )
 
 func TestReviewHeldFutureMissingMultiplierUnknown(t *testing.T) {

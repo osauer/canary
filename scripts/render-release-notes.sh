@@ -67,7 +67,11 @@ awk -v ver="$version" -v major="$major" -v hf="$highlights" '
 		next
 	}
 	/__GO_INSTALL__/ {
+		# The module moved to /v3 at v3.38.0 (owner instruction 2026-11-15
+		# 20:03 CET); from then a release tag is also its Go module version.
+		split(substr(ver, 2), part, ".")
 		if (major == 2) print "- **`go install` (maintained v2 line)**: `go install github.com/osauer/canary/v2/cmd/canary@" ver "` (or `@latest`)."
+		else if (major > 3 || part[2] + 0 >= 38) print "- **Go module**: `go get github.com/osauer/canary/v3@" ver "` for the daemon client and `pkg/ibkr`. Install the binary with the signed installer or the release assets above."
 		else print "- **Go module and source-built CLI**: product v3 and later ship through the signed installer and release assets above. The public Go module remains on its maintained v2 line; `go install github.com/osauer/canary/v2/cmd/canary@latest` installs the newest v2 release, not this product release."
 		next
 	}

@@ -5,7 +5,7 @@ import (
 	"maps"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The optional v4 ledger extension commissions each source independently. Old

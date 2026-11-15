@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Presence is checked before defaults: schema 1 preserves historical omissions;

@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // This client negotiates at most protocol 203 (connection.go). IBKR's

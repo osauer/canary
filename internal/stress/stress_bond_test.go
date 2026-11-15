@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Bond risk phase 1: held bonds add a "Rates and credit" row that only

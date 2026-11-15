@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // cboePendingSnapshot is a regime snapshot whose Cboe files both end at a

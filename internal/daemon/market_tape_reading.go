@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // describeMarketTape uses only observations through the selected session. Its

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/futu/futusim"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/pkg/futu/futusim"
 )
 
 // These run the whole read path for the users OpenD exists to serve: a moomoo

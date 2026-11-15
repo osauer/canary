@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // PolicyUnreviewedMarker is the header line Canary writes at the top of every

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The cash sweep's order path (internal-docs/design/cash-sweep.md, Phase B).

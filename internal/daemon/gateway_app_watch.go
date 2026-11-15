@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v3/internal/discover"
 )
 
 // A refused dial to a local IBKR API port has two very different causes: no

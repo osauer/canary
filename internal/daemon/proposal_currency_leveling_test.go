@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Synthetic books for every leveling test (none of it is an account's): EUR

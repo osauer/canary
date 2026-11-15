@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // TestRenderGoldenLocalCurrency pins what a Hong Kong dollar or Singapore dollar
@@ -68,7 +68,7 @@ func goldenLocalCurrencyAccount(base string, exposure ...rpc.CurrencyExposure) r
 func goldenBriefSingapore() rpc.BriefResult {
 	res := goldenBrief(false)
 	review, ready := &res.Review, &res.Ready
-	review.SessionPnL.EquityBase, review.SessionPnL.DailyPnLBase, review.SessionPnL.BaseCurrency = new(182500.0), new(-1120.5), "SGD"
+	review.SessionPnL.EquityBase, review.SessionPnL.DailyPnLBase, review.SessionPnL.BaseCurrency = new(182530.0), new(-1120.5), "SGD"
 	review.LastSession.DailyPnLBase, review.LastSession.BaseCurrency = new(410.25), "SGD"
 	review.Attribution.Rows = []rpc.BriefMover{{Symbol: "D05", DailyPnLBase: -250}, {Symbol: "700", DailyPnLBase: 187}}
 	ready.Session.Market, ready.Session.State = "sg_sgx", "regular"

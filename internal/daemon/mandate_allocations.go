@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/register"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/register"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Allocations (internal-docs/design/mandate-risk-budget.md, "Risk allocations";

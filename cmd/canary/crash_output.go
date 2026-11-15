@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/osauer/canary/v2/internal/logrotate"
+	"github.com/osauer/canary/v3/internal/logrotate"
 )
 
 // crashLogMaxBytes caps the crash log at open time. One goroutine dump is a

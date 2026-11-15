@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/loglevel"
+	"github.com/osauer/canary/v3/internal/loglevel"
 )
 
 func TestPairingCredentialsStayOutOfRequestLogs(t *testing.T) {

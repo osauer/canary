@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // syntheticProtectionPolicy is a protection file with a few owner keys, an

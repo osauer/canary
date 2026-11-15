@@ -16,8 +16,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/cli"
-	"github.com/osauer/canary/v2/internal/mcp"
+	"github.com/osauer/canary/v3/internal/cli"
+	"github.com/osauer/canary/v3/internal/mcp"
 )
 
 const defaultOutput = "docs/docs/reference/cli.md"

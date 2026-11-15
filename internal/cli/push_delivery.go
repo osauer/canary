@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // pushReportStaleAfter is how long the daemon's copy of the app's proof may

@@ -7,14 +7,14 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
-	trdgethistoryorderfilllist "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_gethistoryorderfilllist"
-	trdgethistoryorderlist "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_gethistoryorderlist"
-	trdgetorderfilllist "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_getorderfilllist"
-	trdgetorderlist "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_getorderlist"
-	trdsubaccpush "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_subaccpush"
-	trdupdateorder "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_updateorder"
-	trdupdateorderfill "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_updateorderfill"
+	trdcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_common"
+	trdgethistoryorderfilllist "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_gethistoryorderfilllist"
+	trdgethistoryorderlist "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_gethistoryorderlist"
+	trdgetorderfilllist "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_getorderfilllist"
+	trdgetorderlist "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_getorderlist"
+	trdsubaccpush "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_subaccpush"
+	trdupdateorder "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_updateorder"
+	trdupdateorderfill "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_updateorderfill"
 )
 
 // Order is one order of the pinned account as OpenD reports it. Times are

@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // runOrderTWSControl cancels or changes an order placed by hand in TWS

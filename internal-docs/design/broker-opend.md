@@ -656,7 +656,7 @@ Go code with `protoc-gen-go` into one Go package per vendored file,
 and `S2C`, which a single Go package cannot hold. The vendored files stay
 byte-identical to upstream; their `go_package` points at a Futu path that
 does not resolve, so the generator is run with
-`--go_opt=module=github.com/osauer/canary/v2` and one
+`--go_opt=module=github.com/osauer/canary/v3` and one
 `--go_opt=M<File>.proto=<import path>` per vendored file (the imported
 `Common`, `Qot_Common` and `Trd_Common` included), derived from the
 vendored list. Generated code is committed. The `internal` path keeps every

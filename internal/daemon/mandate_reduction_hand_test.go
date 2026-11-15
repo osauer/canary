@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // When the owner trades by hand while a batch waits, the batch keeps only

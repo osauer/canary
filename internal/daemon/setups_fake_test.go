@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // setupTestClock is a settable daemon clock shared with request goroutines.

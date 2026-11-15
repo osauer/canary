@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/procinfo"
+	"github.com/osauer/canary/v3/internal/procinfo"
 )
 
 // IBKRApp identifies which Interactive Brokers desktop app — if any — is

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Synthetic config, protection policy and constitution: a sweep cap above

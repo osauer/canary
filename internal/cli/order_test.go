@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // `canary order --help` prints the command's help rather than failing as an

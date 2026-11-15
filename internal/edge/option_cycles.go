@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 // OptionCycles describes proven exact-contract positions opened and fully

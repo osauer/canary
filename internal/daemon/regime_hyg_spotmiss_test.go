@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // hygSpotMissDeps fabricates the observed overnight condition: the HYG spot

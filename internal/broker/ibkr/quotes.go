@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // errSessionChanged is the adapter's refusal for a binding that no longer

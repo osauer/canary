@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // riskTone only styles a served classification; it never classifies a value.

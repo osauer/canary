@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A scheduler must use the daemon's exchange facts, including DST, early closes

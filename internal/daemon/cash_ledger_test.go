@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/ibkrledger"
+	"github.com/osauer/canary/v3/internal/ibkrledger"
 )
 
 func TestCashLedgerCacheIsScopedAndDoesNotReviveFailedEvidence(t *testing.T) {

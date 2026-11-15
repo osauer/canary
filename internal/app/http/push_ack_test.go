@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
-	"github.com/osauer/canary/v2/internal/app/relay"
-	"github.com/osauer/canary/v2/internal/app/state"
-	"github.com/osauer/canary/v2/internal/rpc"
+	appalerts "github.com/osauer/canary/v3/internal/app/alerts"
+	"github.com/osauer/canary/v3/internal/app/relay"
+	"github.com/osauer/canary/v3/internal/app/state"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func TestPushReceiptIsWitnessedOnlyFromTheAuthenticatedDevice(t *testing.T) {

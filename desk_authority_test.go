@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2"
-	"github.com/osauer/canary/v2/canarytest"
+	"github.com/osauer/canary/v3"
+	"github.com/osauer/canary/v3/canarytest"
 )
 
 // The authority methods reach the daemon by name with their exact payloads,

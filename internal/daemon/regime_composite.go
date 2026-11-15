@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // composite-building logic. Mirrors the CLI's tallyComposite +

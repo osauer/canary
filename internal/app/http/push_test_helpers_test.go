@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/app/push"
-	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v3/internal/app/push"
+	"github.com/osauer/canary/v3/internal/app/state"
 )
 
 type routePushSender struct{}

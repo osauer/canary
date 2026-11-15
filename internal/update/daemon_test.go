@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/procinfo"
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/procinfo"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 // TestLooksLikeProductDaemon models a host on which only the Mac mini's Desk

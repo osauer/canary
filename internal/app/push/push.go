@@ -11,8 +11,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/app/state"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/app/state"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Sender transports one caller-selected, redacted payload and returns a

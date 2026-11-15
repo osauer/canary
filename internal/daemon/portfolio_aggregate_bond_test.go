@@ -3,7 +3,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A held bill or bond carries no equity delta. Its quantity is face (in the

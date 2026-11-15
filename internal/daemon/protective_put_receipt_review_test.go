@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // A completed external order is no longer in reqAllOpenOrders, and an

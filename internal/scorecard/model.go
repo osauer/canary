@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/flexstmt"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Schema, sleeve, horizon and estimation constants.

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/daemon"
+	"github.com/osauer/canary/v3/internal/daemon"
 )
 
 // The page lists every input and every capability with its methods.

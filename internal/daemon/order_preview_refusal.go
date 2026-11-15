@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Typed order-preview refusal codes. A preview that fails before a token is

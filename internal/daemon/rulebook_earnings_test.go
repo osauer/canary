@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // After a print the vendor answers "no date" until it publishes the next

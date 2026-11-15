@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/dial"
 )
 
 func TestDaemonStartHonorsStopBeforeOpeningAuthority(t *testing.T) {

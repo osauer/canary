@@ -11,8 +11,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // runLocks reads and edits the owner's keep list. A locked name is never

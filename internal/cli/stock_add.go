@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 func runAdd(ctx context.Context, env *Env, args []string) int {

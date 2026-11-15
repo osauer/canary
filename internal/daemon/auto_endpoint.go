@@ -3,8 +3,8 @@ package daemon
 import (
 	"time"
 
-	"github.com/osauer/canary/v2/internal/discover"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/discover"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // Brief broker resets should recover on their existing socket. An Auto

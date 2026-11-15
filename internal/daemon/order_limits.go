@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Order limits in force (owner decision 2026-10-05 19:56 CEST). The per-order

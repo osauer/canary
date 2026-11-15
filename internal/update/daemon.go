@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/procinfo"
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/procinfo"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 // Errors reported while locating or stopping the daemon process.

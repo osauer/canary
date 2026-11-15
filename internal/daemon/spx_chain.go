@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // pickedExpiration carries one (date, trading-class, strikes) tuple

@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/app/relay"
+	"github.com/osauer/canary/v3/internal/app/relay"
 )
 
 func newPreviewGrantHandler(t *testing.T) http.Handler {

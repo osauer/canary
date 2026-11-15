@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The v3.25.4 review's finding 4: canary_strategies kept only strategies,

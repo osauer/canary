@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // The owner sleeve's drawdown stop (internal-docs/design/mandate-risk-budget.md,

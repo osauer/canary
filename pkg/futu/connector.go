@@ -14,10 +14,10 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/common"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/notify"
-	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
-	trdgetacclist "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_getacclist"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/common"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/notify"
+	trdcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_common"
+	trdgetacclist "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_getacclist"
 )
 
 const (

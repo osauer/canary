@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
-	apphttp "github.com/osauer/canary/v2/internal/app/http"
+	appalerts "github.com/osauer/canary/v3/internal/app/alerts"
+	apphttp "github.com/osauer/canary/v3/internal/app/http"
 )
 
 func TestAppPushTestPostsTheLocalDiagnosticAndExplainsTheWitness(t *testing.T) {

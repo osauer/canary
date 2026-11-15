@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/discover"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/discover"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // offlineHealth is a disconnected daemon snapshot with the daemon's own

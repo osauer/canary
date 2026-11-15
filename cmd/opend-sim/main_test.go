@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/pkg/futu"
+	"github.com/osauer/canary/v3/pkg/futu"
 )
 
 func TestRunRefusesBadFlags(t *testing.T) {

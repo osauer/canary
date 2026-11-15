@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // Daemon method names are stable wire identifiers shared by every adapter.

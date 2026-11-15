@@ -15,10 +15,10 @@ import (
 	"time"
 	_ "time/tzdata" // Standalone binaries must work without system timezone packages.
 
-	"github.com/osauer/canary/v2/internal/cli"
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/productidentity"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/cli"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 var (

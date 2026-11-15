@@ -10,9 +10,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The rulebook's regime-conditional thresholds (rules 3, 4, 12, 15) consume a

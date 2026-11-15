@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // pollCadence is how often a brief look reads the line, as the daemon's

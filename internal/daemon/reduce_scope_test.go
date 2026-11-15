@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The owner's book on 2026-10-22: longs, and long index puts large enough to

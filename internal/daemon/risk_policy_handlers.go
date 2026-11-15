@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // Risk-constitution RPC handlers (internal-docs/design/risk-policy.md). The snapshot

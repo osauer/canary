@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // mandateTestNow is a Wednesday during the US session, so the last completed
@@ -1092,10 +1092,10 @@ func TestMandateGateFailsClosedOnUnpricedOptions(t *testing.T) {
 	if blocker, warning := srv.mandateBudgetJudgement(option(rpc.OrderActionBuy, "C", 12, 50, 40), mandateOpen); blocker != nil || warning == nil || !strings.Contains(warning.Message, "the risk could reach") {
 		t.Fatalf("twelve contracts: %+v %+v", blocker, warning)
 	}
-	// Thirteen: 46,800 EUR, 15.6% of net liquidation, over the 15% limit
+	// Fourteen: 50,400 EUR, 16.8% of net liquidation, over the 15% limit
 	// for one name: refused by the premium limits, naming the figures.
-	if blocker := srv.mandateBudgetGate(option(rpc.OrderActionBuy, "C", 13, 50, 40), mandateOpen); blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode || !strings.Contains(blocker.Message, "SYNA would be 46,800 EUR, 15.6% of net liquidation 300,000 EUR, over the 15.0% limit for one name (now 0.0%)") {
-		t.Fatalf("thirteen contracts: %+v", blocker)
+	if blocker := srv.mandateBudgetGate(option(rpc.OrderActionBuy, "C", 14, 50, 40), mandateOpen); blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode || !strings.Contains(blocker.Message, "SYNA would be 50,400 EUR, 16.8% of net liquidation 300,000 EUR, over the 15.0% limit for one name (now 0.0%)") {
+		t.Fatalf("fourteen contracts: %+v", blocker)
 	}
 	// The bound is above the evaluator's own figure where both apply: a
 	// call the IV solves for, measured both ways.

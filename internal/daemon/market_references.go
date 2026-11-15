@@ -1,6 +1,6 @@
 package daemon
 
-import "github.com/osauer/canary/v2/internal/rpc"
+import "github.com/osauer/canary/v3/internal/rpc"
 
 // marketReferences is shared by acquisition and required-feed coverage. A
 // failed resolution must retain the reference instead of shrinking the catalogue.

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func TestGammaTypedWarningsSurviveCacheRehydration(t *testing.T) {

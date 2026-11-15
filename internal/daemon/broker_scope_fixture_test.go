@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A persisted IBKR key, fingerprint or term must keep its bytes for as long as a

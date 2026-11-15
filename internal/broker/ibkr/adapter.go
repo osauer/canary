@@ -8,8 +8,8 @@ package ibkr
 import (
 	"sync"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // Adapter is one IBKR connector behind the broker seam. Generation is the

@@ -17,8 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/discover"
-	"github.com/osauer/canary/v2/pkg/futu/futusim"
+	"github.com/osauer/canary/v3/internal/discover"
+	"github.com/osauer/canary/v3/pkg/futu/futusim"
 )
 
 func main() {

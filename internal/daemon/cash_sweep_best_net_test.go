@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The sweep buys the listed bill that earns most over the cash it replaces;

@@ -3,7 +3,7 @@ package edge
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 // The scorecard's ledger must describe the same decisions Edge classifies:

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Use the same Unix socket boundary as the CLI, with synthetic daemon replies.

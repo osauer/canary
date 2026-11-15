@@ -237,7 +237,7 @@ compares the first and `futu-proto-check` the second);
 per vendored file, because every Futu definition declares its own
 `package` and most declare top-level `Request`, `Response`, `C2S` and
 `S2C`, which one package cannot hold (the generator is run with
-`--go_opt=module=github.com/osauer/canary/v2` and one
+`--go_opt=module=github.com/osauer/canary/v3` and one
 `--go_opt=M<File>.proto=<import path>` per vendored file, the imported
 `Common`, `Qot_Common` and `Trd_Common` included, derived from the
 vendored list, so the vendored files stay byte-identical to upstream and

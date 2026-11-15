@@ -10,8 +10,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/productidentity"
-	"github.com/osauer/canary/v2/internal/update"
+	"github.com/osauer/canary/v3/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/update"
 )
 
 // updateOptions is the parsed flag state for `canary update`. Carries

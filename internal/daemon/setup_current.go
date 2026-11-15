@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/setups"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/setups"
 )
 
 // setupCurrentBars is the latest current-session read of one contract. A

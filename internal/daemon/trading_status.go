@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/discover"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/discover"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func (s *Server) handleTradingStatus() *rpc.TradingStatus {

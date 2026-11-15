@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The premium budget governor (internal-docs/design/budget-governor.md).

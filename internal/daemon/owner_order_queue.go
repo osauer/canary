@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Owner decision 2026-10-10: exact owner orders use midpoint-at-send within

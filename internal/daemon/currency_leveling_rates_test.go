@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 // levelingStatementDay is one synthetic single-day statement: each

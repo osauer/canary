@@ -3,7 +3,7 @@ package daemon
 import (
 	"math"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // projectReducePortfolioReview only annotates the already-sized net preview

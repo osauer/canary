@@ -5,7 +5,7 @@ package daemon
 import (
 	"slices"
 
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 type conn struct{ account string }

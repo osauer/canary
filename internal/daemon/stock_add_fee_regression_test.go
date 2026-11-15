@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func TestStockAddQuantityDependentFees(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // No bill buys while any currency is borrowed (owner decision 2026-10-05

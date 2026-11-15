@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // One root can run either broker. A series the IBKR daemon saved must not

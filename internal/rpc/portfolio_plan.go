@@ -7,7 +7,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // MethodPortfolioPlan reads one next-action plan; it cannot reserve or trade.

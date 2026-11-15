@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // ProtocolVersion is the MCP spec revision we advertise. 2025-03-26 is the

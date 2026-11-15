@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 var nyfedMonth = regexp.MustCompile(`(?is)<td\b[^>]*class="ts-data-table-head"[^>]*>\s*<div\b[^>]*>([A-Za-z]+ [0-9]{4})</div>\s*</td>`)

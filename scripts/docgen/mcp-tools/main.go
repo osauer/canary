@@ -17,7 +17,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/mcp"
+	"github.com/osauer/canary/v3/internal/mcp"
 )
 
 const defaultOutput = "docs/docs/reference/mcp-tools.md"

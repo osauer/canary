@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/core"
-	edgecore "github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/register"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/core"
+	edgecore "github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/register"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The core sleeve's monthly rows (core-sleeve.md phase 2, option A),

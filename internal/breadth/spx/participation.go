@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/marketcal"
 )
 
 // Participation is an observed constituent comparison, not a risk verdict.

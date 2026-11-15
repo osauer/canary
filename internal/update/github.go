@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/productidentity"
-	"github.com/osauer/canary/v2/internal/xdgcache"
+	"github.com/osauer/canary/v3/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/xdgcache"
 	"golang.org/x/mod/semver"
 )
 

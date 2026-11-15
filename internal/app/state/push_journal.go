@@ -12,7 +12,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The push journal is the app's durable per-notice record of every Web Push

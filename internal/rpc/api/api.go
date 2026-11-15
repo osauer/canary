@@ -12,7 +12,7 @@ package api
 import (
 	"encoding/json"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The daemon's methods, in the order its dispatch serves them.

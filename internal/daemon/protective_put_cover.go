@@ -6,9 +6,9 @@ import (
 	"math"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The 2026-10-30 release review found that successive put buys could each

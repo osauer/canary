@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The reserve and order sizing (owner decisions 2026-10-05 18:35 CEST):

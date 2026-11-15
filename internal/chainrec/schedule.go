@@ -3,7 +3,7 @@ package chainrec
 import (
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/marketcal"
 )
 
 // Slot is one session's run: it starts SnapshotLead before the regular US

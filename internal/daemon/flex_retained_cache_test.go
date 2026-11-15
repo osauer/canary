@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 func TestRetainedFlexWarmReadsDoNotReparseUnchangedXML(t *testing.T) {

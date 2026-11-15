@@ -1,8 +1,8 @@
 package apphttp
 
 import (
-	"github.com/osauer/canary/v2/internal/app/daemonclient"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/app/daemonclient"
+	"github.com/osauer/canary/v3/internal/rpc"
 	nethttp "net/http"
 	"strconv"
 )

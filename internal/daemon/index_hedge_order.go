@@ -3,15 +3,15 @@ package daemon
 import (
 	"context"
 	"fmt"
-	"github.com/osauer/canary/v2/internal/mandate"
+	"github.com/osauer/canary/v3/internal/mandate"
 	"math"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The index hedge's order path (owner decisions 2026-10-28 13:17 and 20:07

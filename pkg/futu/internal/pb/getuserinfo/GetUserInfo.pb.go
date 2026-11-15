@@ -7,7 +7,7 @@
 package getuserinfo
 
 import (
-	_ "github.com/osauer/canary/v2/pkg/futu/internal/pb/common"
+	_ "github.com/osauer/canary/v3/pkg/futu/internal/pb/common"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"

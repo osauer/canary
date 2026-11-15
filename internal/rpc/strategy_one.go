@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/core"
+	"github.com/osauer/canary/v3/internal/core"
 )
 
 // MethodStrategyOne serves strategy one's screen (rule

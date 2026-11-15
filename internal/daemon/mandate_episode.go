@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The mandate's breach episodes and the hold on Fully armed (build B5, owner

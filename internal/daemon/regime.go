@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/breadth/spx"
-	"github.com/osauer/canary/v2/internal/broker"
-	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/breadth/spx"
+	"github.com/osauer/canary/v3/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v3/internal/broker/ibkr"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // handleRegimeSnapshot fans out fetches for all risk-regime

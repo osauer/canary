@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/osauer/canary/v2/internal/logrotate"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/logrotate"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // decisionLogFile sits beside daemon.db. daemon.db stays the record of

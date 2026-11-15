@@ -3,7 +3,7 @@ package daemon
 import (
 	"time"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // logGatewayUnavailable is the single warning owner for failed connection

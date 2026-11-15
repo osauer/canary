@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 // appLaunchAgentLabel matches the pre-rename LaunchAgent. It is intentionally

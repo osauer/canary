@@ -2,7 +2,7 @@
 Daily brief — 2026-09-05 14:00 TZ  sha256:000000000000…
 
 Review  (since the last close)
-  session P&L ok SGD 182,500.00 · day -SGD 1,120.50
+  session P&L ok SGD 182,530.00 · day -SGD 1,120.50
   last session close ok 2026-09-04 SGD 410.25
   Canary Edge ok No decision to review yet
   by underlying ok D05 -SGD 250.00 · 700 SGD 187.00
@@ -31,7 +31,7 @@ Ready  (today)
 Daily brief — 2026-09-05 14:00 TZ  sha256:000000000000…
 
 Review  (since the last close)
-  session P&L ok SGD 182,500.00 · day -SGD 1,120.50
+  session P&L ok SGD 182,530.00 · day -SGD 1,120.50
   last session close ok 2026-09-04 SGD 410.25
   Canary Edge ok No decision to review yet
   by underlying ok D05 -SGD 250.00 · 700 SGD 187.00

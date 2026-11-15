@@ -16,11 +16,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/chainrec"
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/chainrec"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 type platformSettingsStore struct {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // runStrategyOne prints strategy one's screen: the

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/marketcal"
 )
 
 // TradingDays answers whether a US equity date is a trading session. known is

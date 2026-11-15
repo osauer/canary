@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/app/live"
-	"github.com/osauer/canary/v2/internal/app/relay"
+	"github.com/osauer/canary/v3/internal/app/live"
+	"github.com/osauer/canary/v3/internal/app/relay"
 )
 
 // net.Pipe has no receive buffer: a peer that stops reading stalls the actual

@@ -3,7 +3,7 @@ package rpc
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // The stress read's net exposure is a projection of Rulebook rule 15

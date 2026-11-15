@@ -5,7 +5,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // budgetPlanIndent aligns the governor's candidates and plan under the value

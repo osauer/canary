@@ -3,8 +3,8 @@ package cli
 import (
 	"time"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // goldenCore is a synthetic core target on a Xetra line: the 31 August

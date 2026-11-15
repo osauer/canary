@@ -3,8 +3,8 @@ package daemon
 import (
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // observeCashSweepFunding consumes existing reads only. It does not invent

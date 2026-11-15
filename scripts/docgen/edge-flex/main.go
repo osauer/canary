@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 const defaultOutput = "docs/docs/reference/edge-flex.md"

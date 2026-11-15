@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	qotcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_common"
-	qotgetkl "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_getkl"
-	qotrequesthistorykl "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_requesthistorykl"
-	qotsub "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_sub"
+	qotcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_common"
+	qotgetkl "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_getkl"
+	qotrequesthistorykl "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_requesthistorykl"
+	qotsub "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_sub"
 )
 
 // BarPeriod is a candle's length.

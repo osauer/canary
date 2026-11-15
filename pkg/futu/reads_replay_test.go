@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	qotcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_common"
+	qotcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_common"
 )
 
 // FrameProtocol reads the protocol id out of a raw frame.

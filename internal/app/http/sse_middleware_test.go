@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/loglevel"
+	"github.com/osauer/canary/v3/internal/loglevel"
 	"github.com/osauer/hyperserve/v2"
 )
 

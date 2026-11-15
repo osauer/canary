@@ -7,10 +7,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 func (s *Server) placeProtectedStockAdd(ctx context.Context, p rpc.OrderPlaceParams, payload orderPreviewTokenPayload, binding brokerWriteTransactionBinding, status rpc.TradingStatus) (*rpc.OrderPlaceResult, error) {

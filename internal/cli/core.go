@@ -6,8 +6,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // runCore reads the daemon's core sleeve target

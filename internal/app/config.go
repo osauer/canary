@@ -6,7 +6,7 @@
 package app
 
 import (
-	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v3/internal/dial"
 	"os"
 	"path/filepath"
 	"strings"

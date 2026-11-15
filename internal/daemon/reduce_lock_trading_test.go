@@ -5,7 +5,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A reviewed basket never sells a line the owner locked after the review:

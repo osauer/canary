@@ -17,7 +17,7 @@
 
 set -eu
 
-module=github.com/osauer/canary/v2
+module=github.com/osauer/canary/v3
 pb=pkg/futu/internal/pb
 
 fail() {

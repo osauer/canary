@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2"
-	"github.com/osauer/canary/v2/canarytest"
-	"github.com/osauer/canary/v2/canarytest/policyfile"
+	"github.com/osauer/canary/v3"
+	"github.com/osauer/canary/v3/canarytest"
+	"github.com/osauer/canary/v3/canarytest/policyfile"
 )
 
 func TestCashPolicyClientKeepsTypesAndCodesAndStaysOutOfTheCatalogue(t *testing.T) {

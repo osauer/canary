@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Rule 20 is a canonical alert row: it rests on account, positions and

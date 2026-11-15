@@ -1,6 +1,6 @@
 package canary
 
-import "github.com/osauer/canary/v2/internal/rpc"
+import "github.com/osauer/canary/v3/internal/rpc"
 
 // LendingPosition is a statement-dated managed-stock-loan annotation.
 type LendingPosition = rpc.LendingPosition

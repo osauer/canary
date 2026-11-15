@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/procinfo"
-	"github.com/osauer/canary/v2/internal/xdgcache"
+	"github.com/osauer/canary/v3/internal/procinfo"
+	"github.com/osauer/canary/v3/internal/xdgcache"
 )
 
 // Only the daemon opens daemon.db with SQLite. The store keeps the log's index

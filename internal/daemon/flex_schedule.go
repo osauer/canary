@@ -3,7 +3,7 @@ package daemon
 import (
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/marketcal"
 )
 
 // Flex statement schedule: which completed New York date the daily broker

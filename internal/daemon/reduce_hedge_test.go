@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // hedgeServer keeps a mandate evaluation of rows (a EUR book) with a USD

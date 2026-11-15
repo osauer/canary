@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 func gatewayAPIHealth() *rpc.GatewayAPIHealth {

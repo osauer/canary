@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/pkg/futu"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/pkg/futu"
 )
 
 // generation is the adapter's only connector generation: the connector lives

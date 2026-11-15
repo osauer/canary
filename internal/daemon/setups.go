@@ -8,12 +8,12 @@ import (
 	"sort"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	"github.com/osauer/canary/v2/internal/setups"
+	"github.com/osauer/canary/v3/internal/broker"
+	brokerIBKR "github.com/osauer/canary/v3/internal/broker/ibkr"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/setups"
 )
 
 // setupBarSource is the broker surface a setup evaluation reads: the seam's

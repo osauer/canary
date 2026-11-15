@@ -14,8 +14,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // RulebookPolicyOwnerID names a policy written by the owner's edits.

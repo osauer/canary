@@ -25,7 +25,7 @@ Upgrading an existing install is covered in [Updating](updating.md).
 | --- | --- | --- |
 | Claude Desktop bundle | Open [`canary.mcpb`](https://github.com/osauer/canary/releases/latest/download/canary.mcpb) with Claude Desktop | Claude Desktop is your only host. The bundle carries its own macOS and Linux binaries. |
 | Shell installer | `curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh \| sh` | You want one shared binary for the terminal and for every MCP host. |
-| Public Go module / v2 CLI | `go install github.com/osauer/canary/v2/cmd/canary@latest` | You intentionally want the newest v2 release. This does not install v3. |
+| Go source build | `go install github.com/osauer/canary/v3/cmd/canary@latest` | You want the CLI built from source. It is unsigned, carries no release stamp and leaves out the trading capability. |
 | Release tarball | Download `canary-vX.Y.Z-<os>-<arch>.tar.gz`, verify it against `SHA256SUMS` | You verify downloads by hand, or you install to a managed location. |
 | Clone and build | `make install GO_TAGS=""` | You are working on the code. |
 
@@ -34,10 +34,9 @@ Plain `make install` and `make restart-daemon` use this repository's experimenta
 The [Claude Desktop install page](../../claude-desktop-interactive-brokers/index.html) walks through the bundle step by step. [Packaging and distribution](../internals/packaging.md) describes what each artifact contains.
 
 Version 3 installs through the signed installer, MCPB, or release tarballs. The
-public Go module remains `github.com/osauer/canary/v2`: Go ignores root v3 tags
-for that module path, so `/v2/...@latest` resolves the newest v2 tag. Existing
-library consumers and source-built v2 installations stay on v2 instead of
-crossing to v3 without asking.
+public Go module is `github.com/osauer/canary/v3` from v3.38.0, so every
+release tag is also a Go module version. The `/v2` path ends at v2.8.5; a
+program on `/v2` moves only by changing its import path.
 
 ## Current source and signed releases
 

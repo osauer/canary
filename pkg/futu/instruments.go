@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	qotcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_common"
-	qotgetstaticinfo "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_getstaticinfo"
+	qotcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_common"
+	qotgetstaticinfo "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_getstaticinfo"
 )
 
 // Instrument is what OpenD knows about one listed security.

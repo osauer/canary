@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // rule15 builds a measured rule 15 reading with the calm set's default bands.

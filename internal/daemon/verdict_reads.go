@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	"github.com/osauer/canary/v2/internal/stress"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/stress"
 )
 
 // handleStressSnapshot serves the portfolio Stress assessment composed in the

@@ -10,11 +10,11 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	qotcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_common"
-	qotgetbasicqot "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_getbasicqot"
-	qotgetsecuritysnapshot "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_getsecuritysnapshot"
-	qotsub "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_sub"
-	qotupdatebasicqot "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_updatebasicqot"
+	qotcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_common"
+	qotgetbasicqot "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_getbasicqot"
+	qotgetsecuritysnapshot "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_getsecuritysnapshot"
+	qotsub "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_sub"
+	qotupdatebasicqot "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_updatebasicqot"
 )
 
 // ErrInvalidCode is an instrument code that is not OpenD's market-prefixed

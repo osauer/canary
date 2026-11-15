@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The connector keeps a warned entitlement gap (code 354) at INFO for a day

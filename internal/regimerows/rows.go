@@ -8,7 +8,7 @@ package regimerows
 
 import (
 	"fmt"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 	"strings"
 	"time"
 )

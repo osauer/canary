@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The options calendar closes at 16:15 New York, the late close of SPY-style

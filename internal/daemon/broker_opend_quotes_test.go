@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/futu"
-	"github.com/osauer/canary/v2/pkg/futu/futusim"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/pkg/futu"
+	"github.com/osauer/canary/v3/pkg/futu/futusim"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // bookOfNames builds a book holding count names on the simulated account, plus the

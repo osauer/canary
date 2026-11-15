@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	qotgetsubinfo "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_getsubinfo"
-	qotrequesthistoryklquota "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_requesthistoryklquota"
+	qotgetsubinfo "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_getsubinfo"
+	qotrequesthistoryklquota "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_requesthistoryklquota"
 )
 
 // Load is OpenD's quota as this client last read it. Every figure is OpenD's

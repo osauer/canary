@@ -3,8 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 func runData(ctx context.Context, env *Env, args []string) int {

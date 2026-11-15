@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The mandate's forced reduction, witnessed on synthetic books: the daemon's

@@ -3,8 +3,8 @@ package daemon
 import (
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/breadth/spx"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/breadth/spx"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // Sector names follow GICS. Single stocks in the S&P 500 take the sector

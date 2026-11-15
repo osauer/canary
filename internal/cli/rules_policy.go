@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/daemon"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // runRulesPolicy shows the Rulebook limits in force (from the daemon) or,

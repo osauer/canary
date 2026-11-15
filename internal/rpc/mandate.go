@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/mandate"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/mandate"
 )
 
 // MethodMandateRisk serves the daemon-owned mandate risk verdict

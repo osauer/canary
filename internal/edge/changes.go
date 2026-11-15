@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 // PositionChange is one exact-contract position change derived from retained

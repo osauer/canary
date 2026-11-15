@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 func TestOptionCyclesRequireProvenFlatBoundaries(t *testing.T) {

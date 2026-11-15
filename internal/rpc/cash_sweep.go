@@ -4,7 +4,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // The cash sweep (internal-docs/design/cash-sweep.md) puts idle cash to work

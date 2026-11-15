@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A sweep buy that earns nothing over the cash it replaces is blocked (owner

@@ -18,7 +18,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/osauer/canary/v2/internal/app/state"
+	"github.com/osauer/canary/v3/internal/app/state"
 	"maps"
 	"math/big"
 	"strings"

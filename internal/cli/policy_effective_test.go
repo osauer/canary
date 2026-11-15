@@ -10,9 +10,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/osauer/canary/v2/internal/daemon"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/daemon"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // syntheticPolicyResult is a policy.snapshot answer whose effective view is

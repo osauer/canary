@@ -14,10 +14,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	edgecore "github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	edgecore "github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The exit replay's daily history (internal-docs/design/long-option-exits.md,

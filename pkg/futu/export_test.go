@@ -5,8 +5,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	qotcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_common"
-	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
+	qotcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_common"
+	trdcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_common"
 )
 
 // FixtureConfig is the client identity every frame fixture is recorded with.

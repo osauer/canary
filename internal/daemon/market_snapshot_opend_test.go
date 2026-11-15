@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/futu/futusim"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/pkg/futu/futusim"
 )
 
 // Dispatched under an OpenD daemon, market.snapshot prices the held names in

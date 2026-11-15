@@ -3,7 +3,7 @@ package rpc
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/risk"
 	"math"
 	"reflect"
 	"slices"

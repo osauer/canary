@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/publichttp"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/publichttp"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The USD bill universe: TreasuryDirect's public list of recently auctioned

@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/macrosource"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/macrosource"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // preSkipMacroRecord is the record shape persisted before publication feeds

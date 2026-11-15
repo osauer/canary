@@ -3,8 +3,8 @@ package scorecard
 import (
 	"context"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // Fetch reads the daemon's decision scorecard. The daemon evaluates it, so a

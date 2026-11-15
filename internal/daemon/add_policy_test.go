@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Owner, 2026-10-30 06:56 CET: the Add bands live in the policy file, the

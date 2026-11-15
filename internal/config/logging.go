@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/marketcal"
 )
 
 // GatewayLogMarkets resolves the configured operating baseline. Empty means

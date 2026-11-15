@@ -6,7 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 // Help is presentation metadata only. Handlers still own flags, parsing and gates.

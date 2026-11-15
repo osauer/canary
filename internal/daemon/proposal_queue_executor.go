@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The queued executor sends what the owner armed (proposal_queue.go). It runs

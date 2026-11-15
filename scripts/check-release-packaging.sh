@@ -94,10 +94,12 @@ notes_test_root="$work_root/notes"
 mkdir -p "$notes_test_root"
 ./scripts/render-release-notes.sh v2.8.4 CHANGELOG.md .github/release-notes-template.md "$notes_test_root/v2.md"
 ./scripts/render-release-notes.sh v3.0.0 CHANGELOG.md .github/release-notes-template.md "$notes_test_root/v3.md"
+./scripts/render-release-notes.sh v3.38.0 CHANGELOG.md .github/release-notes-template.md "$notes_test_root/v3-module.md"
+grep -Fq 'go get github.com/osauer/canary/v3@v3.38.0' "$notes_test_root/v3-module.md" || { echo "check-release-packaging: a /v3 release does not name its Go module version" >&2; exit 1; }
 grep -Fq 'github.com/osauer/canary/v2/cmd/canary@v2.8.4' "$notes_test_root/v2.md" || { echo "check-release-packaging: v2 Go install is not release-pinned" >&2; exit 1; }
 grep -Fq 'public Go module remains on its maintained v2 line' "$notes_test_root/v3.md" || { echo "check-release-packaging: v3 does not explain the v2 Go module" >&2; exit 1; }
 ! grep -Fq 'github.com/osauer/canary/v2/cmd/canary@v3.' "$notes_test_root/v3.md" || { echo "check-release-packaging: invalid cross-major Go install" >&2; exit 1; }
-! grep -Eq '__GO_INSTALL__|__VERSION__|__HIGHLIGHTS__' "$notes_test_root/v2.md" "$notes_test_root/v3.md" || { echo "check-release-packaging: unresolved notes marker" >&2; exit 1; }
+! grep -Eq '__GO_INSTALL__|__VERSION__|__HIGHLIGHTS__' "$notes_test_root/v2.md" "$notes_test_root/v3.md" "$notes_test_root/v3-module.md" || { echo "check-release-packaging: unresolved notes marker" >&2; exit 1; }
 grep -Fq 'blob/$version/PRIVACY.md' scripts/build-mcpb.sh || {
 	echo "check-release-packaging: MCP bundle privacy policy is not pinned to the release tag" >&2
 	exit 1

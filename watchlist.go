@@ -2,8 +2,8 @@ package canary
 
 import (
 	"context"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // Watchlist is Canary's accepted owner list and current receipt clock.

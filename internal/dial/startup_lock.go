@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/xdgcache"
+	"github.com/osauer/canary/v3/internal/xdgcache"
 )
 
 type startupLockKey struct{}

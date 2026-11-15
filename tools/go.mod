@@ -1,4 +1,4 @@
-module github.com/osauer/canary/v2/tools
+module github.com/osauer/canary/v3/tools
 
 go 1.27.4
 

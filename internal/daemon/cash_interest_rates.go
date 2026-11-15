@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Broker cash interest rates (rpc.CashInterestRates; owner decision

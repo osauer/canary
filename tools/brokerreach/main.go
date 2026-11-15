@@ -50,7 +50,7 @@ import (
 )
 
 const (
-	apiPath  = "github.com/osauer/canary/v2/internal/rpc/api"
+	apiPath  = "github.com/osauer/canary/v3/internal/rpc/api"
 	listPath = "internal/daemon/testdata/direct-ibkr-reads.txt"
 )
 
@@ -314,7 +314,7 @@ func reachable(graph *callgraph.Graph, roots []*ssa.Function, stops map[*ssa.Fun
 	return out
 }
 
-const modulePath = "github.com/osauer/canary/v2"
+const modulePath = "github.com/osauer/canary/v3"
 
 // inModule reports whether fn is Canary's own code, or a wrapper the compiler
 // made for it. The walk does not enter the standard library or other modules:

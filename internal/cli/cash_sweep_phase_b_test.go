@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The sweep section shows cash-like figures, the settled-cash source, the
 // resolved bill in the reason, and the evidence when no bill was named.
 func TestRenderCashSweepPhaseBFigures(t *testing.T) {
-	cash, eq, like, free := 60000.0, 9900.0, 69900.0, 55000.0
+	cash, eq, like, free := 60030.0, 9930.0, 69960.0, 55030.0
 	st := &rpc.TradeProposalCashSweepStatus{Mode: rpc.CashSweepModeActive, TaxReviewed: true, TaxReviewedAt: "2026-09-30", Currencies: []rpc.TradeProposalCashSweepCurrency{
 		{Currency: "USD", State: rpc.CashSweepStateInvest, Cash: &cash, CashEquivalents: &eq, CashLike: &like, Free: &free, SettledCashSource: rpc.CashSweepSettledSourceBroker,
 			Reason: "free cash is above min_tranche; the bill is CUSIP 912797ZZ3 maturing 2026-11-04 (35 days), quoted 99.6000 per 100 of face"},
@@ -25,7 +25,7 @@ func TestRenderCashSweepPhaseBFigures(t *testing.T) {
 	var buf bytes.Buffer
 	renderCashSweepSection(&Env{Stdout: &buf, Stderr: &buf}, &buf, st, nil)
 	out := buf.String()
-	for _, want := range []string{"tax reviewed 2026-09-30", "cash-like $ 69,900.00", "settled cash from broker", "CUSIP 912797ZZ3", "EUR  instrument unresolved", "DE000BU0ZZ19: matures 2026-10-10"} {
+	for _, want := range []string{"tax reviewed 2026-09-30", "cash-like $ 69,960.00", "settled cash from broker", "CUSIP 912797ZZ3", "EUR  instrument unresolved", "DE000BU0ZZ19: matures 2026-10-10"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("missing %q in:\n%s", want, out)
 		}

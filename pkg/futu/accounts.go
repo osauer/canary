@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
-	trdgetfunds "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_getfunds"
+	trdcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_common"
+	trdgetfunds "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_getfunds"
 )
 
 // ErrMarketNotAuthorised is a trade-class request for a market the pinned

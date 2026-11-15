@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func armedSelectionBook(shares float64) *rpc.PositionsResult {

@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Added-lot protection shares one inventory budget with existing protection.

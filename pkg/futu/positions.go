@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
-	trdgetpositionlist "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_getpositionlist"
+	trdcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_common"
+	trdgetpositionlist "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_getpositionlist"
 )
 
 // Position is one held line of the pinned account. A short line's quantity is

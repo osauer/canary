@@ -8,8 +8,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // Writing [order_limits] (owner decision 2026-10-05 19:56 CEST). The four

@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func renderMarketTapeHistory(env *Env, result *rpc.MarketTapeResult, explain bool) {

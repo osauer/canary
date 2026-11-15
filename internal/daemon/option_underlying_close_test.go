@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // An option-only underlying can supply close context when no model spot is

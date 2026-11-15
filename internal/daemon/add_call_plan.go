@@ -6,9 +6,9 @@ import (
 	"math"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 func (s *Server) handleAddCallPlan(ctx context.Context, req *rpc.Request) (*rpc.AddCallPlanResult, error) {

@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	apphttp "github.com/osauer/canary/v2/internal/app/http"
-	selfupdate "github.com/osauer/canary/v2/internal/update"
+	apphttp "github.com/osauer/canary/v3/internal/app/http"
+	selfupdate "github.com/osauer/canary/v3/internal/update"
 )
 
 const (

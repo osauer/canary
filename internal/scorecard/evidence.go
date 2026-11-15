@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Input is everything Evaluate needs; the daemon assembles it from the

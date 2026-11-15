@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	selfupdate "github.com/osauer/canary/v2/internal/update"
+	selfupdate "github.com/osauer/canary/v3/internal/update"
 )
 
 func TestRunUpdateCoreRefusesDevelopmentBuildAndStableDowngrades(t *testing.T) {

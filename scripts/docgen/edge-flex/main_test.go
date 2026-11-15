@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 func TestRenderContainsEveryCanonicalRequirement(t *testing.T) {

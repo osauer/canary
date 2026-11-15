@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/futu/futusim"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/pkg/futu/futusim"
 )
 
 // With OpenD up, no method says the broker is down. A read that needs the IBKR

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/flexstmt"
 )
 
 // Interest rates for currency leveling (internal-docs/design/currency-leveling.md,

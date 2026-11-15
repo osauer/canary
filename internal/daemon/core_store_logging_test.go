@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
 )
 
 // openLiveAuthorityForLogging opens a store through the Server's live options,

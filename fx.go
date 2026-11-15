@@ -1,6 +1,6 @@
 package canary
 
-import "github.com/osauer/canary/v2/internal/rpc"
+import "github.com/osauer/canary/v3/internal/rpc"
 
 // FXResult is the cached completed-day FX attribution returned by
 // canary_reporting_fx. It contains no account identity or position details.

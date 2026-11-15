@@ -10,11 +10,11 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/daemon"
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/logrotate"
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/daemon"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/logrotate"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 // daemonMacroSources is overridden only by the hermetic integration binary.

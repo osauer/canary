@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	edgecore "github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/scorecard"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	edgecore "github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/scorecard"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The decision scorecard (internal-docs/design/decision-scorecard.md): an

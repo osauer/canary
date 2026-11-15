@@ -3,8 +3,8 @@ package canary
 import (
 	"context"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // Proposal veto: the owner stops one pre-authorised submission before its

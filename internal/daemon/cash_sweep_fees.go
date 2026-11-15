@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // cashSweepFeeUpper uses only the exact draft's accepted broker WhatIf.

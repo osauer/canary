@@ -22,13 +22,13 @@ import (
 
 	hyperserve "github.com/osauer/hyperserve/v2"
 
-	"github.com/osauer/canary/v2/internal/app/alerts"
-	"github.com/osauer/canary/v2/internal/app/auth"
-	"github.com/osauer/canary/v2/internal/app/daemonclient"
-	"github.com/osauer/canary/v2/internal/app/live"
-	"github.com/osauer/canary/v2/internal/app/relay"
-	"github.com/osauer/canary/v2/internal/app/state"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/app/alerts"
+	"github.com/osauer/canary/v3/internal/app/auth"
+	"github.com/osauer/canary/v3/internal/app/daemonclient"
+	"github.com/osauer/canary/v3/internal/app/live"
+	"github.com/osauer/canary/v3/internal/app/relay"
+	"github.com/osauer/canary/v3/internal/app/state"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func routeOpenOrderView() rpc.OrderView {

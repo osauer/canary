@@ -4,7 +4,7 @@ import (
 	"context"
 	"math"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A mandate belongs to one owner-signed queue and its resulting broker order.

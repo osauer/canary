@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/marketcal"
 )
 
 func ny(t *testing.T, value string) time.Time {

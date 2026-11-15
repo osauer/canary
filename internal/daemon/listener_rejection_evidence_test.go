@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/discover"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/discover"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The typed evidence behind the phase travels with the status while the

@@ -15,9 +15,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/cli"
-	"github.com/osauer/canary/v2/internal/daemon"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/cli"
+	"github.com/osauer/canary/v3/internal/daemon"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // updateBundleContract rewrites the Desk contract goldens:

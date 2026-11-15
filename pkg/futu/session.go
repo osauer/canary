@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/common"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/getglobalstate"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/getuserinfo"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/initconnect"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/keepalive"
-	"github.com/osauer/canary/v2/pkg/futu/internal/pb/notify"
-	qotcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/qot_common"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/common"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/getglobalstate"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/getuserinfo"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/initconnect"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/keepalive"
+	"github.com/osauer/canary/v3/pkg/futu/internal/pb/notify"
+	qotcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/qot_common"
 )
 
 // MinServerVersion is the lowest OpenD serverVer this client accepts, in

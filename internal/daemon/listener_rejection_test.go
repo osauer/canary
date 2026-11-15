@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v3/internal/discover"
 )
 
 // serveLoopback serves loopback connections with behave until the test ends

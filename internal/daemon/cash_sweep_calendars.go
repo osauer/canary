@@ -5,7 +5,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Payment calendars are distinct from stock exchanges and bond trading hours.

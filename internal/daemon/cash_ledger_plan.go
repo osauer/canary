@@ -3,8 +3,8 @@ package daemon
 import (
 	"time"
 
-	"github.com/osauer/canary/v2/internal/ibkrledger"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/ibkrledger"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func cashSweepCashObservation(row rpc.CurrencyExposure, account *rpc.AccountResult, now time.Time) cashSweepLedgerRow {

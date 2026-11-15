@@ -6,8 +6,8 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/feedback"
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/feedback"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 // runFeedback composes the redacted diagnostic report and prints it with

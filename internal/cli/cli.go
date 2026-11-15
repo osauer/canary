@@ -16,9 +16,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/productidentity"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/rpc"
 	"golang.org/x/sys/unix"
 )
 

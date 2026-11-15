@@ -37,7 +37,7 @@ description: 把 Canary 接上盈透證券（Interactive Brokers）帳戶：連�
 | --- | --- | --- |
 | Claude Desktop 套件 | 以 Claude Desktop 開啟 [`canary.mcpb`](https://github.com/osauer/canary/releases/latest/download/canary.mcpb) | Claude Desktop 是你唯一的主機。套件自帶 macOS 和 Linux 二進位檔。 |
 | Shell 安裝程式 | `curl -fsSL https://raw.githubusercontent.com/osauer/canary/main/install.sh \| sh` | 你想要一個供終端機和每個 MCP 主機共用的二進位檔。 |
-| 公開 Go 模組 / v2 CLI | `go install github.com/osauer/canary/v2/cmd/canary@latest` | 你刻意要使用維護中的 v2 Go 系列。這不會安裝產品 v3。 |
+| 從 Go 原始碼構建 | `go install github.com/osauer/canary/v3/cmd/canary@latest` | 你想從原始碼構建 CLI。它未經簽署、不帶發行版標記，也不包含交易能力。 |
 | 發行版 tarball | 下載 `canary-vX.Y.Z-<os>-<arch>.tar.gz`，並對照 `SHA256SUMS` 核對 | 你手動核對下載檔案，或安裝到受管理的位置。 |
 | 複製並構建 | `make install GO_TAGS=""` | 你正在開發這份程式碼。 |
 
@@ -45,7 +45,7 @@ description: 把 Canary 接上盈透證券（Interactive Brokers）帳戶：連�
 
 [Claude Desktop 安裝頁面](../../claude-desktop-interactive-brokers/index.html)逐步講解套件的安裝。[打包與發佈](../internals/packaging.md)描述每個構件包含甚麼。
 
-產品 v3 及之後的版本使用已簽署的安裝程式、MCPB 或發行版 tarball。公開 Go 模組維持為 `github.com/osauer/canary/v2`：Go 會忽略該模組路徑的根 v3 標籤，所以 `/v2/...@latest` 會繼續解析為最新的有效 v2 標籤。這讓現有的函式庫使用者和從原始碼構建的 v2 安裝留在其維護中的主要版本上，而不會無聲地跨越產品邊界。
+產品 v3 及之後的版本使用已簽署的安裝程式、MCPB 或發行版 tarball。自 v3.38.0 起，公開 Go 模組為 `github.com/osauer/canary/v3`，所以每個發行版標籤同時也是 Go 模組版本。`/v2` 路徑止於 v2.8.5；使用 `/v2` 的程式只有改變匯入路徑才會轉換。
 
 ## 目前原始碼與已簽署的發行版 {#current-source-and-signed-releases}
 

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/publichttp"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/publichttp"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 	"golang.org/x/net/html"
 )
 

@@ -4,8 +4,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/scorecard"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/scorecard"
 )
 
 // goldenScorecard is a synthetic accruing scorecard: one owner sleeve with

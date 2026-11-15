@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // instrumentRequestMethods take an instrument in place of con_id, on the

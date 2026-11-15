@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The hedge plan counts working hedge sales as sold, as placement does:

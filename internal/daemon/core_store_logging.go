@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/logepisode"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/logepisode"
 )
 
 // authorityIncident is the single warning owner for a fail-closed authority

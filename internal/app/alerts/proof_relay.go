@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/app/state"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/app/state"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // ProofReporter delivers one push delivery proof to the daemon.

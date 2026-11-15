@@ -15,7 +15,7 @@ import (
 	"time"
 	"unicode/utf16"
 
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // syntheticISIN completes prefix (11 characters) with its check digit.

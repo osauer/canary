@@ -1,8 +1,8 @@
 package daemon
 
 import (
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func accountSettlementObservation(in *broker.SettlementObservation, provenance broker.Provenance) *rpc.AccountSettlementObservation {

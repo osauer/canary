@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/procinfo"
-	"github.com/osauer/canary/v2/internal/productidentity"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	"github.com/osauer/canary/v2/internal/update"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/procinfo"
+	"github.com/osauer/canary/v3/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/update"
 )
 
 type stopOptions struct {

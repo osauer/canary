@@ -13,8 +13,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/xdgcache"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/xdgcache"
 )
 
 // MembersFilename is the canonical filename for the runtime-refreshed

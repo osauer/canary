@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/canarytest"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/canarytest"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func answer(raw string) canarytest.Handler {

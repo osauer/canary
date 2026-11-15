@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
-	"github.com/osauer/canary/v2/internal/app/relay"
-	"github.com/osauer/canary/v2/internal/app/state"
+	appalerts "github.com/osauer/canary/v3/internal/app/alerts"
+	"github.com/osauer/canary/v3/internal/app/relay"
+	"github.com/osauer/canary/v3/internal/app/state"
 )
 
 func TestDiagnosticPushRouteIsLocalControlAndTheSafeTestNamesItsNotice(t *testing.T) {

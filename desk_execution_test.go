@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	canary "github.com/osauer/canary/v2"
-	"github.com/osauer/canary/v2/canarytest"
+	canary "github.com/osauer/canary/v3"
+	"github.com/osauer/canary/v3/canarytest"
 )
 
 // The Go client reaches desk.execution.submit privately, outside the MCP

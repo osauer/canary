@@ -10,8 +10,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/osauer/canary/v2/internal/procinfo"
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/procinfo"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 // LockPath returns the canonical instance-lock path co-located with the

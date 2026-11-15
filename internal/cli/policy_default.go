@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 
-	"github.com/osauer/canary/v2/internal/daemon"
+	"github.com/osauer/canary/v3/internal/daemon"
 )
 
 // runPolicyDefault prints Canary's default file for a policy: the same

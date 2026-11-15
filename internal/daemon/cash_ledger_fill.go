@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 var errCashLedgerFillUnknown = errors.New("cash ledger fill evidence is unavailable")

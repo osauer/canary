@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // cancelOnPeerCloseMethods are read-only requests whose broker work stops

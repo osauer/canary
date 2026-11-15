@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/marketcal"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/marketcal"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // accountSnapshotFreshFor lets the daemon's closely spaced Rulebook, Stress,

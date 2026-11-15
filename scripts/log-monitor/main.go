@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/redact"
+	"github.com/osauer/canary/v3/internal/redact"
 )
 
 const (

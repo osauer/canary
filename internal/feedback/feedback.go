@@ -12,9 +12,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/redact"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
+	"github.com/osauer/canary/v3/internal/redact"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
 )
 
 // Conn is the daemon read surface the collector needs; *dial.Conn and the

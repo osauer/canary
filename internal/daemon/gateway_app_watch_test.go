@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/discover"
+	"github.com/osauer/canary/v3/internal/discover"
 )
 
 // No daemon test shells out to ps: the package-wide process query reports

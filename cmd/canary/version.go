@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/cli"
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/cli"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 // versionInfo is the wire+text shape returned by collectVersionInfo.

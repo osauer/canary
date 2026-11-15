@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 func TestCashSweepHistoryProjectionPreservesUnknownsAndIsIdempotent(t *testing.T) {

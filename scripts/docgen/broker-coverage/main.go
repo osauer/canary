@@ -11,7 +11,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/daemon"
+	"github.com/osauer/canary/v3/internal/daemon"
 )
 
 const defaultOutput = "internal-docs/design/broker-coverage.md"

@@ -5,8 +5,8 @@ package daemon
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // The real submit path must re-read the keep list even when the scheduler

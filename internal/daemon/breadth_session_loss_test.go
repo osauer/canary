@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/breadth/spx"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/breadth/spx"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // TWS's 23:45 restart lands inside the breadth refresh that starts at 22:35.

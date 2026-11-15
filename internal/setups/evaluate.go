@@ -9,7 +9,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Session contains the calendar window and observed regular-session bars.

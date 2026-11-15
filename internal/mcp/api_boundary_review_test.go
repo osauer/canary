@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/dial"
+	"github.com/osauer/canary/v3/internal/dial"
 )
 
 func TestAPIBoundaryTradingToolCallsNeverDial(t *testing.T) {

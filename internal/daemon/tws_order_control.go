@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // TWS order control (owner decision "TWS B", 2026-10-11 19:36 CEST): an

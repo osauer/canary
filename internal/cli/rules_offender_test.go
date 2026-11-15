@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // `canary rules` shows each offender's own band and, for rule 1, what was

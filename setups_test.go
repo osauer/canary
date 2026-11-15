@@ -3,8 +3,8 @@ package canary_test
 import (
 	"context"
 	"encoding/json"
-	"github.com/osauer/canary/v2"
-	"github.com/osauer/canary/v2/canarytest"
+	"github.com/osauer/canary/v3"
+	"github.com/osauer/canary/v3/canarytest"
 	"testing"
 )
 

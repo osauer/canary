@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/financing"
-	"github.com/osauer/canary/v2/internal/flexstmt"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/financing"
+	"github.com/osauer/canary/v3/internal/flexstmt"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func TestLendingToolPreservesNetFeesAndReadOnlyBounds(t *testing.T) {

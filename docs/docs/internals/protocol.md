@@ -87,7 +87,7 @@ import (
     "context"
     "time"
 
-    "github.com/osauer/canary/v2/pkg/ibkr"
+    "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 func accountSummary(ctx context.Context, clientID int) (*ibkr.RawAccountSummary, error) {
@@ -115,14 +115,13 @@ reconciliation are the caller's job. Start with the
 ## Reading a running Canary from Go
 
 To read a running Canary instead, import the module root
-`github.com/osauer/canary/v2`. It runs the same read-only tool catalogue over
+`github.com/osauer/canary/v3`. It runs the same read-only tool catalogue over
 the daemon socket, and `canarytest` serves the wire types on a temporary socket
-for tests. Get the module at the tag of the release your daemon runs,
-`go get github.com/osauer/canary/v2@canary--vX.Y.Z`: a client newer than the
-daemon can be refused, and `@latest` or `go get -u` moves the module to an older
-v2 tag that does not contain the client. The Go module is on `/v2`. Canary itself ships as signed v3
-binaries, so `go install github.com/osauer/canary/v2/cmd/canary@latest`
-installs the v2 CLI, not the current release ([Install](../start/install.md)).
+for tests. Get the module at the release your daemon runs,
+`go get github.com/osauer/canary/v3@vX.Y.Z`, because a client newer than the
+daemon can be refused. Release tags from v3.38.0 on are Go module versions;
+the `/v2` path ends at v2.8.5. Install the `canary` binary itself with the
+signed installer ([Install](../start/install.md)).
 
 ## Semantic fingerprints
 

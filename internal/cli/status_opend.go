@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // renderOpenDRows prints OpenD's facts in place of the TWS and API rows.

@@ -18,7 +18,7 @@ import (
 
 	"github.com/osauer/hyperserve/v2/websocket"
 
-	appweb "github.com/osauer/canary/v2/web/app"
+	appweb "github.com/osauer/canary/v3/web/app"
 )
 
 // DefaultWorkerURL is the public relay origin used when WorkerOptions.BaseURL

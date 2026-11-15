@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	edgecore "github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/rpc"
+	edgecore "github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Every option row is reachable: pages of any size walk one canonical order

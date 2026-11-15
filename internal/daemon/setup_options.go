@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	brokerIBKR "github.com/osauer/canary/v2/internal/broker/ibkr"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/internal/rpc/api"
-	ibkr "github.com/osauer/canary/v2/pkg/ibkr"
+	brokerIBKR "github.com/osauer/canary/v3/internal/broker/ibkr"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc/api"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 func (s *Server) handleSetupOptions(ctx context.Context, req *rpc.Request) (*rpc.SetupOptionsResult, error) {

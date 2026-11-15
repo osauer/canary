@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/publichttp"
+	"github.com/osauer/canary/v3/internal/publichttp"
 )
 
 type regimeSeriesPoint struct {

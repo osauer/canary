@@ -6,9 +6,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/chainrec"
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/chainrec"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Every setting has a class the daemon judges by the write's origin, deny by

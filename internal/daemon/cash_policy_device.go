@@ -15,8 +15,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Canary's own check of the owner's device confirmation (owner decision

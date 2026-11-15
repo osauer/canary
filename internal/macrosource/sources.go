@@ -21,8 +21,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/osauer/canary/v2/internal/publichttp"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/publichttp"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Spec identifies one fixed public source, its parser and its polling policy.

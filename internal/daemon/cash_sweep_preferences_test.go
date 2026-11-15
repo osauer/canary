@@ -11,8 +11,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 const oldCashPreferenceSettings = `{"version":3,"trading_control_generation":9,"display":{"date_format":"eu"},"features":{"rulebook":{"enabled":false,"earnings_overrides":{"SYNTH":"2026-10-02"}}},"trading":{"freeze":true,"max_notional":300},"regime":{},"stress":{},"history":{}}`

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/futu"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/pkg/futu"
 )
 
 // opendRegimeCodes are the names the regime and the brief read every minute, after

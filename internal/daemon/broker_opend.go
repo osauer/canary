@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/broker"
-	brokerOpenD "github.com/osauer/canary/v2/internal/broker/opend"
-	"github.com/osauer/canary/v2/internal/config"
-	"github.com/osauer/canary/v2/internal/discover"
-	"github.com/osauer/canary/v2/internal/rpc"
-	"github.com/osauer/canary/v2/pkg/futu"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/broker"
+	brokerOpenD "github.com/osauer/canary/v3/internal/broker/opend"
+	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/discover"
+	"github.com/osauer/canary/v3/internal/rpc"
+	"github.com/osauer/canary/v3/pkg/futu"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // opendStatusPoll is how often the daemon re-reads OpenD's state and account

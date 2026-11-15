@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/setups"
+	"github.com/osauer/canary/v3/internal/setups"
 )
 
 // setupProfileCache holds complete, comparable prior sessions per contract,

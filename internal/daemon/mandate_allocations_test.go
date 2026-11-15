@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/register"
-	"github.com/osauer/canary/v2/internal/risk"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/register"
+	"github.com/osauer/canary/v3/internal/risk"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Allocations (internal-docs/design/mandate-risk-budget.md, "Risk allocations"; owner
@@ -223,11 +223,11 @@ func TestMandateGateBoundsAnUnpricedOptionBuyByItsAllocation(t *testing.T) {
 	if blocker != nil || warning == nil || !strings.Contains(warning.Message, "could") || !strings.Contains(warning.Message, "premium limits") {
 		t.Fatalf("twelve contracts: blocker %+v warning %+v", blocker, warning)
 	}
-	// Thirteen: 46,800 EUR, 15.6%, over the limit for one name.
-	option.Quantity = 13
+	// Fourteen: 50,400 EUR, 16.8%, over the limit for one name.
+	option.Quantity = 14
 	blocker, warning = srv.mandateBudgetJudgement(option, mandateOpen)
-	if blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode || warning != nil || !strings.Contains(blocker.Message, "premium at risk in SYNA would be 46,800 EUR, 15.6% of net liquidation 300,000 EUR, over the 15.0% limit for one name") {
-		t.Fatalf("thirteen contracts: blocker %+v warning %+v", blocker, warning)
+	if blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode || warning != nil || !strings.Contains(blocker.Message, "premium at risk in SYNA would be 50,400 EUR, 16.8% of net liquidation 300,000 EUR, over the 15.0% limit for one name") {
+		t.Fatalf("fourteen contracts: blocker %+v warning %+v", blocker, warning)
 	}
 }
 

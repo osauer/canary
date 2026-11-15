@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // A reduction token carries its admission rules through generic order.place,

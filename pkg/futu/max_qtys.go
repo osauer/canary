@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	trdcommon "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_common"
-	trdgetmaxtrdqtys "github.com/osauer/canary/v2/pkg/futu/internal/pb/trd_getmaxtrdqtys"
+	trdcommon "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_common"
+	trdgetmaxtrdqtys "github.com/osauer/canary/v3/pkg/futu/internal/pb/trd_getmaxtrdqtys"
 )
 
 // MaxQuantities is what OpenD says the pinned account could trade of one

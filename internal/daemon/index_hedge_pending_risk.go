@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/mandate"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/mandate"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // hedgeLineSale is a working sale of a line other than the hedge's future:

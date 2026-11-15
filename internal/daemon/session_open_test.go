@@ -1,7 +1,7 @@
 package daemon
 
 import (
-	"github.com/osauer/canary/v2/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/marketcal"
 	"testing"
 	"time"
 )

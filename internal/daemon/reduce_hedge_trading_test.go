@@ -5,7 +5,7 @@ package daemon
 import (
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // No order path carries a future: a hedge submit is refused past the write

@@ -3,8 +3,8 @@ package daemon
 import (
 	"context"
 	"encoding/json"
-	"github.com/osauer/canary/v2/internal/broker"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
 	"slices"
 	"strings"
 	"testing"

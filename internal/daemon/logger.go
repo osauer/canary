@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"sync/atomic"
 
-	"github.com/osauer/canary/v2/internal/daemon/corestore"
-	"github.com/osauer/canary/v2/internal/loglevel"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
+	"github.com/osauer/canary/v3/internal/loglevel"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // Logger is a tiny slog-backed front for the daemon. It also configures the

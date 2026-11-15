@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/procinfo"
+	"github.com/osauer/canary/v3/internal/procinfo"
 )
 
 // processScope contains only path identity, never credentials or broker data.

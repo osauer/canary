@@ -24,9 +24,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/mcp"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/mcp"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Options configures a Client. The zero value selects the canonical socket

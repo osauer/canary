@@ -25,7 +25,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/canary/v2/pkg/ibkr/internal/logging"
+	"github.com/osauer/canary/v3/pkg/ibkr/internal/logging"
 )
 
 // ConnectionStatus identifies the lifecycle state of a [Connection].

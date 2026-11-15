@@ -15,8 +15,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/core"
-	"github.com/osauer/canary/v2/internal/risk"
+	"github.com/osauer/canary/v3/internal/core"
+	"github.com/osauer/canary/v3/internal/risk"
 )
 
 // Form says which policy form a rule runs in: the core's [mandate.core], or

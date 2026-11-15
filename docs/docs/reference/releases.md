@@ -350,8 +350,9 @@ The normal install paths land on the standard build:
 - `install.sh` downloads `canary-<version>-<platform>.tar.gz` and nothing else.
 - `canary update` matches that exact filename, so it cannot install a trading build over your binary.
 - The MCP Bundles are assembled from the standard tarballs' binaries.
-- `go install github.com/osauer/canary/v2/cmd/canary@latest` stays on the
-  maintained v2 Go-module line and does not install product v3.
+- `go install github.com/osauer/canary/v3/cmd/canary@latest` builds an
+  unsigned, unstamped standard build from source, without the trading
+  capability.
 
 ## Verifying a download
 
@@ -418,11 +419,12 @@ Canary now has two related version contracts:
 
 - Product releases version the signed binaries, MCPB, plugin, app, daemon state,
   CLI, and MCP surface. Product v3 is a major reduction of those surfaces.
-- The public Go module remains `github.com/osauer/canary/v2`. A root `v3.0.0`
-  product tag is not a valid `/v2` module version, so Go ignores it for
-  `/v2/...@latest`; the newest maintained v2 tag remains the module and
-  source-built CLI release. Move to `/v3` only if the public Go API itself takes
-  another approved breaking change.
+- The public Go module is `github.com/osauer/canary/v3` from v3.38.0 (owner
+  instruction 2026-11-15 20:03 CET). Until then it stayed on `/v2`, where Go
+  ignored every v3 product tag, so `go get` and pkg.go.dev served v2.8.5 of
+  August 2026 while the code moved on; 13 exported names of v2.8.5 had been
+  removed since, a breaking change for its users. Product releases and module
+  versions are now one number. The `/v2` path ends at v2.8.5.
 
 `canary version` prints the version, commit, build date, and runtime, plus a trust line saying whether the binary is a stamped release build or something compiled locally.
 

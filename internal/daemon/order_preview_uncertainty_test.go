@@ -2,7 +2,7 @@ package daemon
 
 import (
 	"context"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 	"testing"
 	"time"
 )

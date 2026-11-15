@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/edge"
-	"github.com/osauer/canary/v2/internal/rpc"
+	"github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // History is the daily-close evidence behind the scores: each underlying by

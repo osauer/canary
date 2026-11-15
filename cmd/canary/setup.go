@@ -15,7 +15,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 func runSetup(args []string) int {

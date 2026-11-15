@@ -18,15 +18,15 @@ import (
 
 	"github.com/skip2/go-qrcode"
 
-	mobileapp "github.com/osauer/canary/v2/internal/app"
-	appalerts "github.com/osauer/canary/v2/internal/app/alerts"
-	"github.com/osauer/canary/v2/internal/app/auth"
-	apphttp "github.com/osauer/canary/v2/internal/app/http"
-	"github.com/osauer/canary/v2/internal/cli"
-	"github.com/osauer/canary/v2/internal/loglevel"
-	"github.com/osauer/canary/v2/internal/logrotate"
-	"github.com/osauer/canary/v2/internal/productidentity"
-	"github.com/osauer/canary/v2/internal/rpc"
+	mobileapp "github.com/osauer/canary/v3/internal/app"
+	appalerts "github.com/osauer/canary/v3/internal/app/alerts"
+	"github.com/osauer/canary/v3/internal/app/auth"
+	apphttp "github.com/osauer/canary/v3/internal/app/http"
+	"github.com/osauer/canary/v3/internal/cli"
+	"github.com/osauer/canary/v3/internal/loglevel"
+	"github.com/osauer/canary/v3/internal/logrotate"
+	"github.com/osauer/canary/v3/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func runApp(args []string) int {

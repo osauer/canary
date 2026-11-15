@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/osauer/canary/v2/internal/dial"
-	"github.com/osauer/canary/v2/internal/mcp"
-	"github.com/osauer/canary/v2/internal/productidentity"
+	"github.com/osauer/canary/v3/internal/dial"
+	"github.com/osauer/canary/v3/internal/mcp"
+	"github.com/osauer/canary/v3/internal/productidentity"
 )
 
 const (

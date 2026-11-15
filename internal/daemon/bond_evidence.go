@@ -15,8 +15,8 @@ import (
 	"time"
 	"unicode/utf16"
 
-	"github.com/osauer/canary/v2/internal/publichttp"
-	ibkrlib "github.com/osauer/canary/v2/pkg/ibkr"
+	"github.com/osauer/canary/v3/internal/publichttp"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // Bond issuer evidence (internal-docs/design/bond-orders.md). A bond buy the

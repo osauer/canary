@@ -1,6 +1,6 @@
 package daemon
 
-import "github.com/osauer/canary/v2/internal/rpc"
+import "github.com/osauer/canary/v3/internal/rpc"
 
 type ownerQueueAdmissionKey struct{}
 type ownerQueueAdmission struct {

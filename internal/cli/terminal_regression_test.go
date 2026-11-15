@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/osauer/canary/v2/internal/rpc"
-	selfupdate "github.com/osauer/canary/v2/internal/update"
+	"github.com/osauer/canary/v3/internal/rpc"
+	selfupdate "github.com/osauer/canary/v3/internal/update"
 )
 
 func TestNonTerminalCannotClaimHumanOriginOrApproveUpdate(t *testing.T) {
