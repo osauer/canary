@@ -288,10 +288,10 @@ func (s *Server) mandateHistorySeries(ctx context.Context, key string) *mandateH
 }
 
 // completedMandateSeries also sanitizes documents retained by older builds:
-// a bar dated after the last session completed at fetch time is not a close.
+// a bar dated after the last session settled at fetch time is not a close.
 // Keep the original persisted observation until the normal refresh replaces it.
 func completedMandateSeries(series *mandateHistorySeries) *mandateHistorySeries {
-	last, _, covered := mandateLastSessionsIn(series.FetchedAt, mandateSeriesMarket(series))
+	last, _, covered := mandateSettledSessionsIn(series.FetchedAt, mandateSeriesMarket(series))
 	if !covered {
 		return nil
 	}
@@ -372,6 +372,18 @@ func mandateLastSessionsIn(now time.Time, market marketcal.Market) (last, previo
 	return session.Date, before.Date, true
 }
 
+// mandateSettledSessionsIn is mandateLastSessionsIn for a broker read: a
+// session's daily bar is its close only once coreDecisionAfter has passed
+// since the scheduled close. Until then the closing auction may still run
+// and the bar carries the last continuous print, which the next read
+// replaces. The store therefore neither asks for a session's bar nor keeps
+// one before that, so a decision is never frozen on a close that changes
+// (2026-10-30: the core's London line read 40 seconds after the close at
+// 155.62, final 155.64, and the month held with core_target_drift).
+func mandateSettledSessionsIn(at time.Time, market marketcal.Market) (last, previous string, ok bool) {
+	return mandateLastSessionsIn(at.Add(-coreDecisionAfter), market)
+}
+
 // mandateSeriesMarket is the calendar a series' freshness is judged on:
 // the one its read named (the core sleeve's own series, core_target.go, on
 // its listing exchange's), else the US one every series the book reads is
@@ -401,13 +413,14 @@ func mandateSeriesStale(series *mandateHistorySeries, now time.Time) bool {
 	return newest < previous && newest != last
 }
 
-// mandateSeriesDue reports whether the series lacks the last completed
-// session, so a refresh is worth a broker read.
+// mandateSeriesDue reports whether the series lacks the last session whose
+// close has settled (mandateSettledSessionsIn), so a refresh is worth a
+// broker read.
 func mandateSeriesDue(series *mandateHistorySeries, now time.Time) bool {
 	if series == nil || len(series.Dates) == 0 {
 		return true
 	}
-	last, _, ok := mandateLastSessionsIn(now, mandateSeriesMarket(series))
+	last, _, ok := mandateSettledSessionsIn(now, mandateSeriesMarket(series))
 	return ok && series.Dates[len(series.Dates)-1] < last
 }
 
@@ -502,7 +515,7 @@ func (s *Server) refreshMandateSeries(ctx context.Context, c mandateHistorySessi
 	if market == "" {
 		market = marketcal.MarketUSEquity
 	}
-	completed, _, covered := mandateLastSessionsIn(now, market)
+	completed, _, covered := mandateSettledSessionsIn(now, market)
 	if !covered {
 		return
 	}
@@ -586,7 +599,7 @@ func (s *Server) noteMandateHistoryRefusal(ctx context.Context, need mandateHist
 	if market == "" {
 		market = marketcal.MarketUSEquity
 	}
-	completed, _, _ := mandateLastSessionsIn(now, market)
+	completed, _, _ := mandateSettledSessionsIn(now, market)
 	_, known := s.mandateHistoryRefusalFor(ctx, need.Key)
 	s.setMandateHistoryRefusal(ctx, need.Key, &mandateHistoryRefusal{At: now, Error: errText(err), Session: completed, Market: market})
 	if s.logger == nil {

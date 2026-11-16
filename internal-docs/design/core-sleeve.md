@@ -220,7 +220,12 @@ half an hour after its scheduled close (17:00 London, 18:00 Berlin, on a
 regular London or Xetra day; 13:00 London on 31 December), on closes up
 to and including it, and is then frozen for the month with the digest of
 its window (`core_target_drift` holds a later reading that differs). A
-running month is never decided.
+running month is never decided. The history store keeps the same half
+hour: it neither asks IBKR for a session's daily bar nor keeps one read
+earlier, because a bar read while the closing auction runs carries the
+last continuous print and the next read replaces it (on 2026-10-30 a read
+40 seconds after London's close kept 155.62 where the close was 155.64,
+and the November month held with `core_target_drift`; fixed 2026-11-16).
 
 Fixed input window (review S7): the last 253 calendar sessions to the
 decision day, 252 daily returns, for both volatilities and the month-ends.
