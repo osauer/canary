@@ -512,9 +512,9 @@ const drawdownBrakeCode = "drawdown_brake"
 // limits (owner decision 2026-10-09 18:46 CEST: an engaged brake is a block).
 // A latched or breached block tier refuses every risk-adding order, and so
 // does stale capital evidence, because the brake cannot be shown released
-// (decision 7: hard fails closed). Reduce and close intents and
+// (decision 7: hard fails closed). Reduce and close intents,
 // policy-classified hedge entries (long put on the rulebook hedge index
-// list) pass; cancels never reach it. A warn tier keeps its advisory preview
+// list) and bill purchases pass; cancels never reach it. A warn tier keeps its advisory preview
 // cause. Without a policy manager or capital store there is no brake
 // (synthetic servers); without an accepted policy the order limits already
 // refuse every order. Cheap by construction: in-memory policy plus persisted

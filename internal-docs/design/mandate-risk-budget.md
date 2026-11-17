@@ -223,9 +223,10 @@ owner's is recorded and not read: "Risk allocations" below). The
   cash like investments do not count against it, I'm fine with 15/30"). A bond
   (`BOND`, including a bill IBKR lists as a bond) stays refused, because its
   interest-rate risk is not measured and a long bond could carry real risk
-  counted as zero; a bond fund (`STK`) is measured as before; the drawdown
-  brake keeps refusing a bill purchase while engaged. The exemption is not
-  widened further. Allocations (2026-10-18, "Risk allocations" below): an
+  counted as zero; a bond fund (`STK`) is measured as before. The drawdown
+  brake passes a bill purchase as well (owner, 2026-11-17 16:08 CET: the
+  engine proposes the cash sweep, so the brake must not refuse it); a bond
+  stays refused there too. The exemption is not widened further. Allocations (2026-10-18, "Risk allocations" below): an
   addition passes only when its own sleeve is inside its allocation and stays
   there with the order added, on top of every whole-book check here. Release
   is automatic: the moment a fresh verdict reads `within`, additions pass;

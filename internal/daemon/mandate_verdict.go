@@ -711,12 +711,15 @@ func mandateMoney(v float64, ccy string) string {
 // or shrinks a held index hedge included), a BUY of a put on a Rulebook
 // hedge symbol or one that protects shares held (protectivePut) is a hedge
 // entry that stays open, and a SELL of the index future is a reduction when
-// indexHedgeReduces says so; everything else adds risk. Cancels never reach
-// either gate. The mandate gate alone also passes a bill purchase
-// (mandateBillBuy).
+// indexHedgeReduces says so; a bill purchase (mandateBillBuy) moves cash
+// into a cash-like line; everything else adds risk. Cancels never reach
+// either gate.
 func (s *Server) riskAddingOrder(draft rpc.OrderDraft, position rpc.OrderPositionImpact) bool {
 	switch position.Effect {
 	case rpc.OrderPositionEffectClose, rpc.OrderPositionEffectReduce:
+		return false
+	}
+	if mandateBillBuy(draft) {
 		return false
 	}
 	if strings.EqualFold(draft.Action, "BUY") && strings.EqualFold(draft.Contract.SecType, "OPT") && strings.EqualFold(draft.Contract.Right, "P") &&
@@ -793,7 +796,11 @@ func (s *Server) indexHedgeReduces(draft rpc.OrderDraft) bool {
 // risk, so buying one moves cash into a cash-like line and adds none the
 // budget counts (owner, 2026-10-17 06:47 CEST). A bond stays risk-adding:
 // its interest-rate risk is not measured, so a long bond could carry real
-// risk counted as zero. The drawdown brake does not read this.
+// risk counted as zero. The drawdown brake passes it too (owner, 2026-11-17
+// 16:08 CET: the engine proposes the sweep, so the brake must not refuse
+// it). What still bounds a bill purchase under the brake: the sweep's
+// reserve, keep_cash, order cap, maturity window and no_buy_while_borrowed,
+// and for any bill order the constitution's order limits.
 func mandateBillBuy(draft rpc.OrderDraft) bool {
 	return strings.EqualFold(strings.TrimSpace(draft.Action), rpc.OrderActionBuy) &&
 		strings.EqualFold(strings.TrimSpace(draft.Contract.SecType), ibkrlib.SecTypeBill)
@@ -837,7 +844,7 @@ func (s *Server) mandateBudgetJudgement(draft rpc.OrderDraft, position rpc.Order
 			return &rpc.TradingBlocker{Code: mandateBudgetCode, Message: "Mandate budget: " + why + "." + open, Action: "Refresh proposals; a strategy sends only its own row."}, nil
 		}
 	}
-	if !s.riskAddingOrder(draft, position) || mandateBillBuy(draft) {
+	if !s.riskAddingOrder(draft, position) {
 		return nil, nil
 	}
 	if !c.MandateActive() {
