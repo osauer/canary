@@ -6,6 +6,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	// IBKR names zones by their legacy aliases ("US/Eastern"). A host whose
+	// zone database omits them (Ubuntu's tzdata without tzdata-legacy) made
+	// every hours list unparseable for a program that imports this package
+	// without embedding the database itself; the daemon binary always did.
+	_ "time/tzdata"
 )
 
 // Bond orders (internal-docs/design/cash-sweep.md, Phase B order path). A

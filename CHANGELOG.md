@@ -30,6 +30,7 @@ All notable changes to this project are documented here. The project adheres to 
 
 - The daemon could stop reading the broker after a flood of open-order messages and never reconnect.
 - A daemon that hung while stopping kept its instance lock, so `canary restart` failed with "reserve daemon startup".
+- `pkg/ibkr` reads IBKR's trading hours on a host whose zone database lacks the legacy names IBKR uses, such as `US/Eastern`. The package now carries the zone data itself; the `canary` binary always did.
 
 ## v3.38.0 — 2026-11-15 20:09 CET
 
