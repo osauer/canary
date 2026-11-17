@@ -1438,8 +1438,7 @@ func (c *Connector) processSystemNoticeFrom(origin ConnectorSessionBinding, alia
 		return nil
 	}
 	func() {
-		c.publicationBarrier.RLock()
-		defer c.publicationBarrier.RUnlock()
+		// The reader holds the publication read side (rlockPublication).
 		c.evidenceBarrier.RLock()
 		defer c.evidenceBarrier.RUnlock()
 		if !c.SessionReceiptCurrent(origin) {
@@ -7167,8 +7166,7 @@ func (c *Connector) handleIBKRErrorFrom(origin ConnectorSessionBinding, fields [
 	if len(fields) > 4 {
 		rawMsg = fields[4]
 	}
-	c.publicationBarrier.RLock()
-	defer c.publicationBarrier.RUnlock()
+	// The reader holds the publication read side (rlockPublication).
 	c.evidenceBarrier.RLock()
 	defer c.evidenceBarrier.RUnlock()
 	if !c.SessionReceiptCurrent(origin) {
@@ -9366,8 +9364,7 @@ func (c *Connector) notifyOrderLifecycleReceiptFrom(conn *Connection, epoch uint
 		return
 	}
 	origin := ConnectorSessionBinding{connector: c, connection: conn, epoch: epoch}
-	c.publicationBarrier.RLock()
-	defer c.publicationBarrier.RUnlock()
+	// The reader holds the publication read side (rlockPublication).
 	c.evidenceBarrier.RLock()
 	defer c.evidenceBarrier.RUnlock()
 	current := c.SessionReceiptCurrent(origin)

@@ -37,8 +37,7 @@ func (c *Connector) handleExactOptionRisk(origin ConnectorSessionBinding, fields
 	if err != nil || (tick != 13 && tick != 83) {
 		return
 	}
-	c.publicationBarrier.RLock()
-	defer c.publicationBarrier.RUnlock()
+	// The reader holds the publication read side (rlockPublication).
 	if !c.SessionCurrent(origin) {
 		return
 	}

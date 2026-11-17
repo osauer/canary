@@ -2194,6 +2194,7 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		// Only epoch-aware order handlers may observe a stale frame, solely so
 		// their owner can fail closed. Never run legacy handlers or mutate the
 		// current session's request, farm, portfolio, or local-order state.
+		defer c.rlockPublication()()
 		c.dispatchStaleInboundMessage(msgID, fields, epoch)
 		return
 	}
@@ -2241,6 +2242,22 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 		if c.evidenceBarrier != nil {
 			c.evidenceBarrier.RLock()
 			defer c.evidenceBarrier.RUnlock()
+		}
+	case msgOpenOrder, msgOrderStatus, msgExecDetails, msgTickOptionComputation:
+		// The Connector's handlers for these frames publish under the
+		// publication read side, so it is taken here, ahead of the inbound
+		// lease. Taken inside the handler it inverted the order, and on
+		// 2026-11-17 an order status, an account read and the reconnect's
+		// publication held each other for four and a half hours.
+		if c.messageAfterInitialEpochCheck != nil {
+			c.messageAfterInitialEpochCheck(msgID)
+		}
+		defer c.rlockPublication()()
+		c.inboundEpochMu.RLock()
+		defer c.inboundEpochMu.RUnlock()
+		if epoch != c.BrokerSessionEpoch() {
+			c.dispatchStaleInboundMessage(msgID, fields, epoch)
+			return
 		}
 	default:
 		if c.messageAfterInitialEpochCheck != nil {
@@ -2435,6 +2452,7 @@ func (c *Connection) processErrorMessageAtEpoch(fields []string, epoch uint64) {
 	current := false
 	var postLease []func()
 	func() {
+		defer c.rlockPublication()()
 		c.inboundEpochMu.RLock()
 		defer c.inboundEpochMu.RUnlock()
 		if epoch != c.BrokerSessionEpoch() {
@@ -2480,6 +2498,7 @@ func (c *Connection) processSystemNoticeMessageAtEpoch(fields []string, epoch ui
 	current := false
 	var postLease func()
 	func() {
+		defer c.rlockPublication()()
 		c.inboundEpochMu.RLock()
 		defer c.inboundEpochMu.RUnlock()
 		if epoch != c.BrokerSessionEpoch() {
@@ -2490,6 +2509,7 @@ func (c *Connection) processSystemNoticeMessageAtEpoch(fields []string, epoch ui
 		c.dispatchHandlers(msgSystemNotification, fields, epoch)
 	}()
 	if !current {
+		defer c.rlockPublication()()
 		c.dispatchStaleSystemNotice(fields, epoch)
 		return
 	}
@@ -3061,6 +3081,19 @@ func (c *Connection) lockEvidenceChange() func() {
 	}
 	c.evidenceBarrier.RLock()
 	return c.evidenceBarrier.RUnlock
+}
+
+// rlockPublication takes the publication read side for one inbound frame and
+// returns its release. The lock order is publication, the inbound lease, then
+// evidence: the reader takes this before inboundEpochMu, and no handler it
+// calls may take it again, because a queued publication turns away a second
+// read lock and the reader would then wait on itself.
+func (c *Connection) rlockPublication() func() {
+	if c == nil || c.publicationBarrier == nil {
+		return func() {}
+	}
+	c.publicationBarrier.RLock()
+	return c.publicationBarrier.RUnlock
 }
 
 func (c *Connection) lockBrokerScopeChange() func() {
