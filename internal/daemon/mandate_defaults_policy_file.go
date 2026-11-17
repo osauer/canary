@@ -36,6 +36,13 @@ import (
 // [mandate.regime_gate] and [mandate.reduction], written once in the same
 // way and recorded under their own key, so a table of the first batch the
 // owner deleted is never written again by the second.
+//
+// The owner's decision of 2026-11-17 09:33 CET is the third: the two numbers
+// that step an unfilled cut toward the bid join [mandate.reduction] where the
+// file writes that table. They are keys of a later decision in a table of an
+// earlier one, so the batch adds each key the table lacks and never the
+// table: one the owner deleted stays deleted, and a key the owner commented
+// out stays out.
 const (
 	mandateDefaultsSource = "owner decision 2026-10-29 07:06 CET"
 	mandateDefaultsNote   = "mandate defaults of 2026-10-29 written once"
@@ -46,6 +53,9 @@ const (
 type mandateDefaultTable struct {
 	table string
 	keys  [][2]string
+	// into adds the keys to a table the file already writes, and writes
+	// nothing where the table is absent.
+	into bool
 }
 
 // mandateDefaultsBatch is one owner decision's tables. key names the batch
@@ -57,12 +67,15 @@ type mandateDefaultsBatch struct {
 
 var mandateDefaultBatches = []mandateDefaultsBatch{
 	{"", mandateDefaultsSource, mandateDefaultsNote, []mandateDefaultTable{
-		{"mandate.iv_fallback", [][2]string{{"short_band_pct", "65.0"}, {"month_band_pct", "15.0"}, {"long_band_pct", "8.0"}, {"measured_pct", "5.0"}, {"range_pct", "20.0"}}},
-		{"mandate.index_hedge", [][2]string{{"max_contracts", "25"}}},
+		{table: "mandate.iv_fallback", keys: [][2]string{{"short_band_pct", "65.0"}, {"month_band_pct", "15.0"}, {"long_band_pct", "8.0"}, {"measured_pct", "5.0"}, {"range_pct", "20.0"}}},
+		{table: "mandate.index_hedge", keys: [][2]string{{"max_contracts", "25"}}},
 	}},
 	{"2026-11-03", "owner decision 2026-11-03 13:29 CET", "mandate defaults of 2026-11-03 written once", []mandateDefaultTable{
-		{"mandate.regime_gate", [][2]string{{"breadth_min_pct", "50.0"}, {"half_scale_pct", "50.0"}, {"stale_after_sessions", "1"}, {"confirm_closes", "2"}}},
-		{"mandate.reduction", [][2]string{{"cheap_leg_give_pct_of_loss", "2.0"}}},
+		{table: "mandate.regime_gate", keys: [][2]string{{"breadth_min_pct", "50.0"}, {"half_scale_pct", "50.0"}, {"stale_after_sessions", "1"}, {"confirm_closes", "2"}}},
+		{table: "mandate.reduction", keys: [][2]string{{"cheap_leg_give_pct_of_loss", "2.0"}}},
+	}},
+	{"2026-11-17", "owner decision 2026-11-17 09:33 CET", "mandate defaults of 2026-11-17 written once", []mandateDefaultTable{
+		{table: "mandate.reduction", keys: [][2]string{{"unfilled_step_after_minutes", "10"}, {"unfilled_steps", "2"}}, into: true},
 	}},
 }
 
@@ -93,6 +106,23 @@ func migrateConstitutionMandateDefaults(doc *tomlDoc, c risk.Constitution, data 
 			continue
 		}
 		for _, t := range b.tables {
+			if t.into {
+				if doc.headerLine(t.table) < 0 {
+					continue
+				}
+				var lines []string
+				for _, kv := range t.keys {
+					if _, written := doc.find(t.table, kv[0]); written || doc.commentedKey(t.table, kv[0]) {
+						continue
+					}
+					lines = append(lines, kv[0]+" = "+kv[1]+"  # "+b.source)
+					changes = append(changes, fmt.Sprintf("write [%s].%s = %s (%s)", t.table, kv[0], kv[1], b.source))
+				}
+				if len(lines) > 0 {
+					doc.insert(t.table, lines)
+				}
+				continue
+			}
 			if present[t.table] || doc.headerLine(t.table) >= 0 || doc.commentedTableDiffers(t.table, t.keys) {
 				continue
 			}
@@ -177,21 +207,34 @@ func sameTOMLNumber(a, b string) bool {
 	return errA == nil && errB == nil && x == y
 }
 
-// dropCommentedKey removes a "# key = value" line in table's block, the
-// commented proposal the written key replaces.
-func (d *tomlDoc) dropCommentedKey(table, key string) {
+// commentedKeyLine is the line of a "# key = value" in table's written
+// block, or -1.
+func (d *tomlDoc) commentedKeyLine(table, key string) int {
 	header := d.headerLine(table)
 	if header < 0 {
-		return
+		return -1
 	}
 	for i := header + 1; i < len(d.lines) && !tomlHeaderRe.MatchString(d.lines[i]); i++ {
 		text := strings.TrimSpace(d.lines[i])
 		if rest, ok := strings.CutPrefix(text, "#"); ok {
 			if m := tomlKeyRe.FindStringSubmatch(strings.TrimSpace(rest)); m != nil && m[1] == key {
-				d.lines = append(d.lines[:i], d.lines[i+1:]...)
-				return
+				return i
 			}
 		}
+	}
+	return -1
+}
+
+// commentedKey reports a key the owner commented out in a written table.
+func (d *tomlDoc) commentedKey(table, key string) bool {
+	return d.commentedKeyLine(table, key) >= 0
+}
+
+// dropCommentedKey removes a "# key = value" line in table's block, the
+// commented proposal the written key replaces.
+func (d *tomlDoc) dropCommentedKey(table, key string) {
+	if i := d.commentedKeyLine(table, key); i >= 0 {
+		d.lines = append(d.lines[:i], d.lines[i+1:]...)
 	}
 }
 
@@ -207,7 +250,16 @@ func mandateDefaultsPreserved(before, after *risk.ConstitutionMandate) bool {
 	return (before.IVFallback == nil || reflect.DeepEqual(before.IVFallback, after.IVFallback)) &&
 		(before.IndexHedge == nil || reflect.DeepEqual(before.IndexHedge, after.IndexHedge)) &&
 		(before.RegimeGate == nil || reflect.DeepEqual(before.RegimeGate, after.RegimeGate)) &&
-		(before.Reduction == nil || reflect.DeepEqual(before.Reduction, after.Reduction))
+		(before.Reduction == nil || after.Reduction != nil &&
+			writtenKept(before.Reduction.CheapLegGivePctOfLoss, after.Reduction.CheapLegGivePctOfLoss) &&
+			writtenKept(before.Reduction.UnfilledStepAfterMinutes, after.Reduction.UnfilledStepAfterMinutes) &&
+			writtenKept(before.Reduction.UnfilledSteps, after.Reduction.UnfilledSteps))
+}
+
+// writtenKept reports that a key written before keeps its value after; a key
+// unwritten before may be written.
+func writtenKept[T comparable](before, after *T) bool {
+	return before == nil || after != nil && *before == *after
 }
 
 // mandateDefaultsDone reads the daemon's record of which default batches

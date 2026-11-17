@@ -2938,10 +2938,17 @@ type OrderAllowanceLimit struct {
 // the way from the mid toward the bid (sell) or the ask (buy), on the tick
 // grid, never beyond WorstPrice, and only while the spread is at most
 // MaxSpreadPctOfMid percent of the mid.
+//
+// The step of an unfilled mandate cut sets two more. With MaxGive positive,
+// a spread beyond MaxSpreadPctOfMid is not refused: the price then lies at
+// most MaxGive from the mid. With ClampToWorst, a price beyond WorstPrice
+// lands on it instead of being refused. WorstPrice holds either way.
 type OrderBoundedLimit struct {
 	Concession        float64
 	WorstPrice        float64
 	MaxSpreadPctOfMid float64
+	MaxGive           float64
+	ClampToWorst      bool
 }
 
 // StrategyPreviewParams requests one constrained group close or reduction.

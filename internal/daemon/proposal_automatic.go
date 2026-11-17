@@ -168,6 +168,10 @@ type automaticSubmissionRecord struct {
 	// CET). A clock started before the session the row would be
 	// sent in still restarts at that session (automaticNewSessionReason).
 	CarryClock bool `json:"carry_clock,omitempty"`
+	// Step is a placed mandate sale's stepping state (mandate_cut_step.go):
+	// the bounds it was placed under and the steps its limit has taken
+	// toward the bid since. Nil on every other record.
+	Step *automaticCutStep `json:"step,omitempty"`
 }
 
 // clockQuantity is the size a record's veto clock was started for.
@@ -1346,6 +1350,9 @@ type automaticWriteGrant struct {
 	Quantity int
 	// ArmedAt is the arming the record's veto clock ran under.
 	ArmedAt time.Time
+	// Step is set only while the scheduler steps a placed mandate cut: the
+	// grant then admits one modify of that order to that limit and no place.
+	Step *automaticStepGrant
 }
 
 // submitAutomatic performs one automatic submission. The intent (state
@@ -1413,7 +1420,8 @@ func (e *proposalEngine) submitAutomatic(ctx context.Context, rec automaticSubmi
 			r.State = rpc.TradeProposalAutomaticSubmitted
 			r.SubmittedAt = finish
 			r.OrderRef = res.OrderRef
-			r.Reason = "placed by the daemon under the pre-authorised protection policy"
+			r.Reason = automaticPlacedReason
+			r.Step = e.mandateCutStepBounds(res.Proposal)
 			return []automaticSubmissionEvent{{At: finish, Type: automaticEventSubmitted, Key: r.Key, Revision: r.Revision, Bucket: r.Bucket, State: r.State, AccountID: r.AccountID, AccountMode: r.AccountMode, OrderRef: r.OrderRef, Origin: rpc.OrderOriginDaemonPreAuthorised}}
 		case err == nil && !staged && mandateHeldRefusal(res.Blockers):
 			// The revalidated mandate row is held (its verdict cannot be

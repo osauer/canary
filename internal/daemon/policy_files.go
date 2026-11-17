@@ -1423,7 +1423,11 @@ func constitutionPolicyTemplateFrom(release string, src config.Trading, srcRead 
 # How the forced reduction prices a cut: an option cut whose spread is wider
 # than its cap goes at the bid when that gives at most this percent of the
 # loss measure the cut removes; otherwise at the mid. 2 is the owner's
-# number of 2026-11-03.
+# number of 2026-11-03. Where this table is written, daemon start adds
+# unfilled_step_after_minutes = 10 and unfilled_steps = 2 (the owner's
+# numbers of 2026-11-17): a cut Canary placed that has not filled moves its
+# limit to the bid after that many minutes, at most that many times, never
+# past the worst price it was placed under.
 # [mandate.reduction]
 # cheap_leg_give_pct_of_loss = 2.0
 # Risk allocations per sleeve, in percent a year of the budget base. The

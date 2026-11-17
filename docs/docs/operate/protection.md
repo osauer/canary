@@ -391,6 +391,18 @@ mid minus the limit over the whole order, is at most
 `[mandate.reduction] cheap_leg_give_pct_of_loss` (2% as Canary writes it) of
 the loss measure the cut removes; otherwise it goes at the mid.
 
+A cut Canary placed itself that has not filled does not rest at that price
+for the session. After `[mandate.reduction] unfilled_step_after_minutes` (10
+as Canary writes it) with any quantity left, its limit moves to the current
+bid, and once more that many minutes later, at most `unfilled_steps` (2)
+times. A step never goes below the worst price the order was placed under,
+25% below the row's mark, and while the spread is past its cap it goes no
+further from the mid than the give bound above allows. A step is taken only
+while the breach still asks for the cut and the arming the order was placed
+under still stands; it opens no new veto window, and cancelling the order
+works as before. Orders you confirmed yourself are never stepped. With either
+number absent, or zero steps, a placed cut keeps its limit.
+
 **End and hold.** A verdict reading within the room ends the episode and
 withdraws the standing rows. An unknown verdict, or one measured on a
 different book from the one held (after a fill or a hand trade), holds the

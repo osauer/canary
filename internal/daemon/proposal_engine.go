@@ -55,6 +55,11 @@ type proposalEngine struct {
 	// re-validates against a fresh refresh (revalidatedProposal).
 	resolve  func(ctx context.Context, key, revision string) (rpc.TradeProposal, []rpc.TradingBlocker, error)
 	snapshot rpc.TradeProposalSnapshot
+	// cutStepNext paces the stepping attempts of a placed mandate cut, by
+	// record key (mandate_cut_step.go).
+	cutStepMu     sync.Mutex
+	cutStepNext   map[string]time.Time
+	cutStepLogged map[string]string
 	// ignored is keyed by scopedIgnoreKey (account|mode|proposal key):
 	ignored map[string]struct{}
 	// refreshFailStreak counts consecutive refreshes that ended on a
@@ -232,6 +237,9 @@ func (e *proposalEngine) Run(ctx context.Context) {
 		// send window, arm deadline or window end.
 		e.runAutomaticCycle(ctx)
 		e.runQueuedCycle(ctx)
+		// A mandate cut the scheduler placed that has not filled steps
+		// toward the bid (mandate_cut_step.go).
+		e.runMandateCutSteps(ctx)
 		// The protective stop guard keeps Canary's own working sell stops no
 		// larger than the long position they protect.
 		e.server.runProtectiveStopGuard(ctx)

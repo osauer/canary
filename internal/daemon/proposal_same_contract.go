@@ -452,10 +452,15 @@ func (e *proposalEngine) reductionOrderBlockers(ctx context.Context, p rpc.Trade
 	order, found, unknown := sameContractWorkingOrder(snapshot, scope, p)
 	switch {
 	case found:
+		message := fmt.Sprintf("an order to %s %s of this contract is already working (%s); this row waits until it fills or is cancelled, then recomputes from the new position",
+			strings.ToLower(p.Action), strconv.FormatFloat(optionExitSnapshotRemaining(order), 'f', -1, 64), nonEmptyString(strings.ToUpper(strings.TrimSpace(order.OrderType)), "order"))
+		// A mandate cut Canary placed says where its limit stands: the
+		// step it took toward the bid, or why it rests.
+		if note := e.automatic.stepNote(p); note != "" {
+			message += ". The working order: " + note
+		}
 		return []rpc.TradingBlocker{{
-			Code: reductionOrderExistingCode,
-			Message: fmt.Sprintf("an order to %s %s of this contract is already working (%s); this row waits until it fills or is cancelled, then recomputes from the new position",
-				strings.ToLower(p.Action), strconv.FormatFloat(optionExitSnapshotRemaining(order), 'f', -1, 64), nonEmptyString(strings.ToUpper(strings.TrimSpace(order.OrderType)), "order")),
+			Code: reductionOrderExistingCode, Message: message,
 			Action: "Keep the working order, or cancel it at the broker first; this row then recomputes.",
 		}}
 	case unknown:

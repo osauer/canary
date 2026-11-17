@@ -51,6 +51,9 @@ func (s *Server) placeOrder(ctx context.Context, p rpc.OrderPlaceParams) (*rpc.O
 	if !auth.Allowed {
 		return nil, tradingBlockersError(auth.Blockers)
 	}
+	if err := s.automaticStepGrantRefusesPlace(p.Origin); err != nil {
+		return nil, err
+	}
 	status := auth.Status
 	payload, err := s.verifyPreviewTokenForPlace(p.PreviewToken)
 	if err != nil {
@@ -218,6 +221,14 @@ func (s *Server) validateHedgeTokenForPlace(ctx context.Context, payload orderPr
 }
 
 func (s *Server) modifyOrder(ctx context.Context, p rpc.OrderModifyParams) (*rpc.OrderModifyResult, error) {
+	return s.modifyOrderStaged(ctx, p, nil)
+}
+
+// modifyOrderStaged is modifyOrder with a caller's own durable intent:
+// beforeStage runs once every admission check has passed and before the
+// modify is journaled or anything reaches the broker, so a caller that must
+// act at most once records its attempt there. Its error refuses the modify.
+func (s *Server) modifyOrderStaged(ctx context.Context, p rpc.OrderModifyParams, beforeStage func() error) (*rpc.OrderModifyResult, error) {
 	auth, binding, bindingErr := s.authorizeBrokerWriteTransaction(p.Origin, false)
 	if !auth.Allowed {
 		return nil, fmt.Errorf("%w: %s", ErrTradingDisabled, firstTradingBlockerMessage(auth.Blockers))
@@ -258,6 +269,9 @@ func (s *Server) modifyOrder(ctx context.Context, p rpc.OrderModifyParams) (*rpc
 		return nil, err
 	}
 	if err := s.protectiveStopGuardGrantCovers(p.Origin, protectiveStopGuardShrink, view, payload.Draft.Quantity); err != nil {
+		return nil, err
+	}
+	if err := s.automaticStepGrantCovers(p.Origin, view, payload.Draft); err != nil {
 		return nil, err
 	}
 
@@ -313,6 +327,11 @@ func (s *Server) modifyOrder(ctx context.Context, p rpc.OrderModifyParams) (*rpc
 	modify.Message = fmt.Sprintf("%s broker modify attempted", auth.Route)
 	if err := s.requireBrokerWriteTransactionCurrent(binding); err != nil {
 		return nil, err
+	}
+	if beforeStage != nil {
+		if err := beforeStage(); err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrTradingDisabled, err)
+		}
 	}
 	stagedOrderEventSeq, err := s.orderJournal.StageModifyPreTransmit(payload.TokenID, payload.AuthorityEpoch, payload.SignerGeneration, view.ReservedOrderID, coreOrderOrigin(p.Origin), expectedOrderEventSeq, []orderJournalEvent{confirm, modify})
 	if err != nil {

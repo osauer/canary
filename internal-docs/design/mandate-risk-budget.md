@@ -63,7 +63,31 @@ proposal the owner confirms by writing it into the policy file.
     an option cut beyond the spread cap goes at the bid when the give is at
     most `[mandate.reduction] cheap_leg_give_pct_of_loss` (2%) of the loss
     measure it removes, the give bound then standing in for the spread cap
-    and the worst price (owner, 2026-11-03 13:29 CET, C4).
+    and the worst price (owner, 2026-11-03 13:29 CET, C4). A cut placed this
+    way that has not filled no longer rests where it was priced: after
+    `[mandate.reduction] unfilled_step_after_minutes` (10) with any quantity
+    left its limit moves to the current bid, at most `unfilled_steps` (2)
+    times, each that long after the one before (owner, 2026-11-17 09:33
+    CET). A step never goes below the worst price the order was placed
+    under, and while the spread is beyond the line's cap no further from the
+    mid than the give bound allows; with neither reachable the limit rests.
+    It is taken only while the breach's row for the line is served and not
+    held, past the session's opening offset, on a live two-sided quote, and
+    under the arming the order was placed under; it needs no veto window of
+    its own. Only orders the scheduler placed are stepped: an order the
+    owner confirmed keeps its limit (owner, 2026-10-22 15:26 CEST), and so
+    do queued authorisations, stops and strategy orders. The write is the
+    ordinary modify path with the daemon-preauthorised origin under a grant
+    naming the one order and limit; each step is recorded before the broker
+    call, so a restart or an uncertain send never repeats it, and a step
+    proven unsent is given back and taken once the broker's next report
+    shows the limit the order still holds. The record's reason, and the
+    waiting row's `existing_reduction_order` message, say the last step
+    (moved, or attempted with the outcome not known) and why a limit rests
+    (`mandate_cut_step.go`). Not stepped: a spread beyond the cap with no
+    give bound or no exchange rate to measure it (shares have no give
+    bound), and a cut Desk's controller sent, which leaves no scheduler
+    record.
   - Sleeve volatility shares of the 15%: owner 7, core 6, overlay 4. Recorded
     here as `[mandate.sleeves]`; enforcement per sleeve comes later. Since
     2026-10-18 the machine's `[mandate.sleeves]` numbers size its allocations

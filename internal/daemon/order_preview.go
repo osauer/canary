@@ -1678,7 +1678,10 @@ func previewLimitPrice(action, strategy string, explicit *float64, contract rpc.
 // bound's concession of the way from the mid toward the bid (sell) or the ask
 // (buy), rounded toward the mid on the tick grid and kept inside the spread,
 // refused when the spread is wider than the bound or the price would land
-// beyond the worst price. Only the daemon's queued executor sets the bound.
+// beyond the worst price. A bound with MaxGive prices a wider spread no
+// further than that from the mid, and one with ClampToWorst lands on the
+// worst price instead of refusing (the step of an unfilled mandate cut,
+// mandate_cut_step.go). Only the daemon sets the bound.
 func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *float64, contract rpc.ContractParams, quote rpc.OrderQuoteSnapshot) (float64, error) {
 	switch {
 	case bound == nil:
@@ -1699,21 +1702,37 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 	}
 	bid, ask := *quote.Bid, *quote.Ask
 	mid := (bid + ask) / 2
+	wide := false
 	if spread := (ask - bid) / mid * 100; spread > bound.MaxSpreadPctOfMid {
-		return 0, refusePreviewCode(previewBoundedSpreadCode, errBadRequest(fmt.Sprintf("bounded-limit requires a spread within %.1f%% of mid; it is %.1f%%", bound.MaxSpreadPctOfMid, spread)))
+		if !(bound.MaxGive > 0) || math.IsInf(bound.MaxGive, 0) {
+			return 0, refusePreviewCode(previewBoundedSpreadCode, errBadRequest(fmt.Sprintf("bounded-limit requires a spread within %.1f%% of mid; it is %.1f%%", bound.MaxSpreadPctOfMid, spread)))
+		}
+		wide = true
 	}
 	tick := patientLimitTick(contract, quote, mid)
 	var limit float64
 	switch action {
 	case rpc.OrderActionSell:
 		limit = roundPrice(min(ceilPriceToTick(mid-bound.Concession*(mid-bid), tick), ask))
+		if wide {
+			limit = max(limit, roundPrice(min(ceilPriceToTick(mid-bound.MaxGive, tick), ask)))
+		}
 		if limit+1e-9 < bound.WorstPrice {
-			return 0, refusePreviewCode(previewBoundedWorstCode, errBadRequest(fmt.Sprintf("bounded-limit price %.4f would be below the worst price %.4f", limit, bound.WorstPrice)))
+			if !bound.ClampToWorst {
+				return 0, refusePreviewCode(previewBoundedWorstCode, errBadRequest(fmt.Sprintf("bounded-limit price %.4f would be below the worst price %.4f", limit, bound.WorstPrice)))
+			}
+			limit = roundPrice(ceilPriceToTick(bound.WorstPrice, tick))
 		}
 	case rpc.OrderActionBuy:
 		limit = roundPrice(max(floorPriceToTick(mid+bound.Concession*(ask-mid), tick), bid))
+		if wide {
+			limit = min(limit, roundPrice(max(floorPriceToTick(mid+bound.MaxGive, tick), bid)))
+		}
 		if limit > bound.WorstPrice+1e-9 {
-			return 0, refusePreviewCode(previewBoundedWorstCode, errBadRequest(fmt.Sprintf("bounded-limit price %.4f would be above the worst price %.4f", limit, bound.WorstPrice)))
+			if !bound.ClampToWorst {
+				return 0, refusePreviewCode(previewBoundedWorstCode, errBadRequest(fmt.Sprintf("bounded-limit price %.4f would be above the worst price %.4f", limit, bound.WorstPrice)))
+			}
+			limit = roundPrice(floorPriceToTick(bound.WorstPrice, tick))
 		}
 	default:
 		return 0, errBadRequest("action must be buy or sell")

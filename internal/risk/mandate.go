@@ -153,8 +153,15 @@ func (g *ConstitutionMandateRegimeGate) validate() error {
 // still goes at the bid when the give (mid minus bid, for every unit) is at
 // most this percent of the loss measure the cut removes; otherwise it goes
 // at the mid. The owner's number of 2026-11-03 13:29 CET: 2.
+// UnfilledStepAfterMinutes and UnfilledSteps: a cut Canary placed itself
+// that has not filled moves its limit to the bid after this many minutes,
+// at most this many times, never past the worst price it was placed under.
+// The owner's numbers of 2026-11-17 09:33 CET: 10 and 2. Either unwritten,
+// or zero steps, and a placed cut keeps its limit.
 type ConstitutionMandateReduction struct {
-	CheapLegGivePctOfLoss *float64 `toml:"cheap_leg_give_pct_of_loss" json:"cheap_leg_give_pct_of_loss"`
+	CheapLegGivePctOfLoss    *float64 `toml:"cheap_leg_give_pct_of_loss" json:"cheap_leg_give_pct_of_loss"`
+	UnfilledStepAfterMinutes *int     `toml:"unfilled_step_after_minutes" json:"unfilled_step_after_minutes,omitempty"`
+	UnfilledSteps            *int     `toml:"unfilled_steps" json:"unfilled_steps,omitempty"`
 }
 
 // CheapLegGivePct returns the cheap-leg bound in percent, or false while it
@@ -166,12 +173,30 @@ func (m *ConstitutionMandate) CheapLegGivePct() (float64, bool) {
 	return *m.Reduction.CheapLegGivePctOfLoss, true
 }
 
+// UnfilledCutSteps returns how long an unfilled cut waits before each step
+// toward the bid and how many steps it takes, or false while either number
+// is unwritten or the steps are zero.
+func (m *ConstitutionMandate) UnfilledCutSteps() (wait time.Duration, steps int, ok bool) {
+	if m == nil || m.Reduction == nil || m.Reduction.UnfilledStepAfterMinutes == nil || m.Reduction.UnfilledSteps == nil || *m.Reduction.UnfilledSteps <= 0 {
+		return 0, 0, false
+	}
+	return time.Duration(*m.Reduction.UnfilledStepAfterMinutes) * time.Minute, *m.Reduction.UnfilledSteps, true
+}
+
 func (r *ConstitutionMandateReduction) validate() error {
-	if r == nil || r.CheapLegGivePctOfLoss == nil {
+	if r == nil {
 		return nil
 	}
-	if v := *r.CheapLegGivePctOfLoss; math.IsNaN(v) || v < 0 || v > 25 {
-		return fmt.Errorf("mandate.reduction.cheap_leg_give_pct_of_loss must be 0 to 25")
+	if r.CheapLegGivePctOfLoss != nil {
+		if v := *r.CheapLegGivePctOfLoss; math.IsNaN(v) || v < 0 || v > 25 {
+			return fmt.Errorf("mandate.reduction.cheap_leg_give_pct_of_loss must be 0 to 25")
+		}
+	}
+	if v := r.UnfilledStepAfterMinutes; v != nil && (*v < 1 || *v > 240) {
+		return fmt.Errorf("mandate.reduction.unfilled_step_after_minutes must be 1 to 240")
+	}
+	if v := r.UnfilledSteps; v != nil && (*v < 0 || *v > 4) {
+		return fmt.Errorf("mandate.reduction.unfilled_steps must be 0 to 4")
 	}
 	return nil
 }
