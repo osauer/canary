@@ -2,6 +2,35 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.39.0 — 2026-11-17 21:38 CET
+
+### What's new
+
+**The daemon no longer goes silent after a burst of order messages.** When the broker sent a flood of open-order messages, the daemon marked that read unusable and tried to reconnect. The reconnect, the message reader and an account read could then each wait for a lock another one held, and the daemon stopped reading the broker until it was restarted. The reader now takes its locks in the same order for order, error, notice and option messages as it already did for account messages, so the reconnect goes through.
+
+**`canary restart` can always replace a daemon that hangs while stopping.** A daemon that had begun to stop could wait without end on that same lock. It kept its process and its instance lock but served nothing, and `canary restart` gave up waiting for it. A stop now has ten seconds; after that the daemon writes its state to the crash log and exits.
+
+**A cash sweep can be sent while the drawdown brake is on.** The sweep proposes buying a government bill with idle cash, and the brake then refused that purchase as adding risk. The mandate gate has let bill purchases through since v3.22.0; the brake now does too. A bond is still refused, and the sweep's own reserve, order cap, maturity window and `no_buy_while_borrowed` still apply.
+
+**A forced reduction that stays unfilled moves toward the bid.** A cut the scheduler placed used to rest at its first limit all session. With `[mandate.reduction] unfilled_step_after_minutes` and `unfilled_steps` written, its limit moves to the current bid after that many minutes, at most that many times, and never below the worst price the order was placed under. Orders you confirmed yourself are never moved.
+
+**One put is no longer offered for sale twice.** When the budget governor and the trim of index protection both asked to sell the same contracts of one put, `canary proposals` listed two rows. It now lists one, the trim, with both reasons.
+
+### Added
+
+- `[mandate.reduction] unfilled_step_after_minutes` and `unfilled_steps` in the risk constitution. The daemon adds them once to a written `[mandate.reduction]` table and raises `policy_version`; unwritten, a placed cut keeps its limit.
+
+### Changed
+
+- The drawdown brake passes a purchase of a line IBKR names `BILL`. Before, only the mandate gate did. Nothing else the brake refuses has changed.
+- A trim of index protection carries a sale of the same put that asks for the same or fewer contracts; the other row reads `covered_by_proposal`. Beside a row that asks for more, the trim stays its own row as before.
+- A session's daily bar is kept only from a read taken half an hour or more after its scheduled close. Before, a bar read in the first minute could still carry the last print before the closing auction.
+
+### Fixed
+
+- The daemon could stop reading the broker after a flood of open-order messages and never reconnect.
+- A daemon that hung while stopping kept its instance lock, so `canary restart` failed with "reserve daemon startup".
+
 ## v3.38.0 — 2026-11-15 20:09 CET
 
 ### What's new

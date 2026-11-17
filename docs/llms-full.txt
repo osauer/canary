@@ -1,6 +1,18 @@
 # Canary full context
 
-Updated: 2026-11-15 20:07 CET
+Updated: 2026-11-17 21:37 CET
+
+Version 3.39 fixes a deadlock in the broker connection. After a burst of
+order messages the daemon could stop reading the broker and never reconnect;
+the reader now takes its locks in one order for every message family. A
+shutdown that hangs ends the process after ten seconds, so `canary restart`
+always takes over. A bill purchase passes the drawdown brake, as it already
+passed the mandate gate, so a cash sweep can be sent while the brake is on.
+A forced reduction the scheduler placed moves its limit to the current bid
+when it stays unfilled, under two new `[mandate.reduction]` keys. When the
+budget governor and the hedge trim ask to sell the same contracts of one
+put, `canary proposals` lists one row with both reasons. A session's daily
+bar is kept only from a read taken after its close has settled.
 
 Version 3.38 moves the Go module to `github.com/osauer/canary/v3`. Every
 release tag is now a Go module version, so `go get
