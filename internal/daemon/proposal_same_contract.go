@@ -108,20 +108,14 @@ func sameContractSecFamily(secType string) string {
 // sameContractMergeable reports a row that takes part in the merge: an
 // unblocked, non-shadow, single-contract order. Reviews, multi-leg units,
 // blocked rows and a held mandate row (nobody may send it until a verdict
-// confirms it, so it must not stand for another row) stay as they are.
+// confirms it, so it must not stand for another row) stay as they are. Rule
+// 12's trim of index protection passes here and joins only as the carrier of
+// its group (hedgeTrimCarries).
 func sameContractMergeable(p rpc.TradeProposal) bool {
 	if p.State != rpc.TradeProposalStateGenerated || len(p.Blockers) > 0 || p.Shadow || p.Unit != nil || p.Quantity <= 0 {
 		return false
 	}
 	if p.Mandate != nil && p.Mandate.Held {
-		return false
-	}
-	// Rule 12's trim of index protection stays its own card. An exit row on
-	// the same put (a loss exit once the put measures as directional) is for
-	// the whole line, so it would cover the trim and leave the owner one
-	// choice, selling every put, where the trim keeps the band's share.
-	// Working orders still net the two at dispatch.
-	if hedgeTrimProposal(p) {
 		return false
 	}
 	// A strategy row served for the owner's review (the entry holds; the
@@ -137,6 +131,50 @@ func sameContractMergeable(p rpc.TradeProposal) bool {
 		return false
 	}
 	return sameContractSide(p) != ""
+}
+
+// hedgeTrimCarries reports whether rule 12's trim of index protection joins
+// the rows grouped for its contract and side, as the row that carries them.
+//
+// The trim stays its own card beside a row that asks to sell more of the line
+// than the trim's own order. An exit row on the same put (a loss exit once
+// the put measures as directional) is for the whole line, so it would cover
+// the trim and leave the owner one choice, selling every put, where the trim
+// keeps the band's share; working orders still net the two at dispatch.
+//
+// That reason does not reach a row asking for no more than the trim does:
+// approving either sells the same contracts, and two cards offered one sale
+// twice (owner instruction 2026-11-17 21:22 CET, "fix all issues you
+// diagnosed", after the budget governor and the trim each offered the same
+// sale of one put). So the trim joins when the group holds an immediate sale
+// and none of them is larger than the trim's order. It then carries the
+// group whatever the precedence, an exit of its own size included: the card
+// left is the trim, sized at the larger requirement, and the trim's bucket is
+// outside the pre-authorised vocabulary, so the fold can never make a sale of
+// protection automatic.
+//
+// It stays out, as before, beside a row Canary places itself (no sale of a
+// hedge-listed put is one, automaticBucket; were one ever, the fold would
+// neither cover an automatic order nor lend the trim to it) and beside a
+// trailing stop alone.
+func hedgeTrimCarries(proposals []rpc.TradeProposal, channels []sameContractChannel, rows []int, trim int) bool {
+	if channels[trim] != sameContractManual {
+		return false
+	}
+	sale := false
+	for _, i := range rows {
+		if channels[i] != sameContractManual || hedgeTrimProposal(proposals[i]) {
+			return false
+		}
+		if sameContractStanding(proposals[i]) {
+			continue
+		}
+		if proposals[i].Quantity > proposals[trim].Quantity {
+			return false
+		}
+		sale = true
+	}
+	return sale
 }
 
 // sameContractStanding reports a standing conditional order (a trailing
@@ -231,6 +269,7 @@ func mergeSameContractProposalsLatched(proposals []rpc.TradeProposal, channel fu
 	channels := make([]sameContractChannel, len(proposals))
 	groups := map[string][]int{}
 	var order []string
+	var trims []int
 	for i, p := range proposals {
 		if !sameContractMergeable(p) {
 			continue
@@ -238,11 +277,24 @@ func mergeSameContractProposalsLatched(proposals []rpc.TradeProposal, channel fu
 		if channels[i] = channel(p); channels[i] == sameContractExcluded {
 			continue
 		}
+		if hedgeTrimProposal(p) {
+			trims = append(trims, i)
+			continue
+		}
 		key := sameContractSide(p)
 		if _, seen := groups[key]; !seen {
 			order = append(order, key)
 		}
 		groups[key] = append(groups[key], i)
+	}
+	// carrier names the trim that leads its group (hedgeTrimCarries).
+	carrier := map[string]int{}
+	for _, t := range trims {
+		key := sameContractSide(proposals[t])
+		if hedgeTrimCarries(proposals, channels, groups[key], t) {
+			groups[key] = append(groups[key], t)
+			carrier[key] = t
+		}
 	}
 	for _, key := range order {
 		rows := groups[key]
@@ -275,6 +327,9 @@ func mergeSameContractProposalsLatched(proposals []rpc.TradeProposal, channel fu
 		m := sameContractBest(proposals, manual)
 		if m < 0 {
 			continue
+		}
+		if t, ok := carrier[key]; ok {
+			m = t
 		}
 		for _, i := range manual {
 			if i != m {

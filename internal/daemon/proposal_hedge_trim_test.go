@@ -220,7 +220,7 @@ func TestDeskMandateNeverSellsAHedgeListedPut(t *testing.T) {
 	}
 }
 
-// The trim stays its own card beside an exit of the same put. That exit is
+// The trim stays its own card beside an exit that sells more of the same put than the trim does. That exit is
 // for the whole line and leads by size, so covering the trim would leave the
 // owner one choice, selling every put, where the trim keeps the band's share.
 func TestHedgeTrimIsNotCoveredByAnExitOfTheSamePut(t *testing.T) {

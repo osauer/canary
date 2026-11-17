@@ -720,7 +720,14 @@ Semantics notes:
   owner confirms on the device; every unattended sale of a hedge-listed put
   stays refused: by the pre-authorised scheduler in every bucket and by
   Desk's standing mandate. No plan is made without a long book, or on a
-  positions read that is not current and complete.
+  positions read that is not current and complete. In the same-contract
+  merge (`proposal_same_contract.go`) the trim stays its own card only beside
+  a row that asks to sell more of the line than the trim's own order; a sale
+  of the same put asking for the same or less folds into the trim, which
+  carries both reasons under `covers` at the larger size, never the sum
+  (owner instruction 2026-11-17 21:22 CET, after the budget governor and the
+  trim each offered the same sale). The trim is always the row that is left,
+  so the card stays outside the pre-authorised buckets.
 - Rule 16 exempts only the portion of net-short index delta carried by
   protection-classified legs, capped at the name's net-short exposure and
   disclosed in `Exempt`. Any residual, unclassified, or directional short is
