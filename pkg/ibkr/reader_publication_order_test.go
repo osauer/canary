@@ -139,3 +139,42 @@ func TestReaderWaitsForPublicationBeforeInboundLease(t *testing.T) {
 		}
 	}
 }
+
+// A connection-loss error ends the session, which pauses the transport. A
+// sender inside the transport waits for the publication read side, so the
+// reader must have released its leases before it asks for the transport.
+func TestConnectionLossErrorEndsSessionAfterReaderLeases(t *testing.T) {
+	c, conn, origin := readerOrderFixture(t)
+	conn.config.AutoReconnect = false
+	conn.transportMu.Lock()
+	done := make(chan struct{})
+	go func() {
+		conn.processMessageAtEpoch(wireTErrorFrame(-1, 504, "Not connected"), origin.epoch)
+		close(done)
+	}()
+	held := ""
+	for deadline := time.Now().Add(150 * time.Millisecond); held == "" && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		if !c.publicationBarrier.TryLock() {
+			held = "publication"
+			break
+		}
+		c.publicationBarrier.Unlock()
+		if !conn.inboundEpochMu.TryLock() {
+			held = "inbound"
+			break
+		}
+		conn.inboundEpochMu.Unlock()
+	}
+	conn.transportMu.Unlock()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("error frame did not finish")
+	}
+	if held != "" {
+		t.Fatalf("reader waits for the transport while holding the %s lease", held)
+	}
+	if conn.Status() != StatusDisconnected {
+		t.Fatal("connection-loss error did not end the session")
+	}
+}

@@ -2662,7 +2662,10 @@ func (c *Connection) handleErrorMessage(fields []string, epoch uint64) (postLeas
 	} else if code == 502 || code == 503 || code == 504 {
 		// Connection errors - these are critical
 		ibkrLogger.Errorf("[cid=%d] Critical Error: %s (Code %d)", c.config.ClientID, errorMsg, code)
-		c.handleDisconnection(fmt.Errorf("connection error %d: %s", code, errorMsg))
+		// Ending the session pauses the transport, and a sender inside the
+		// transport waits for the publication read side this frame holds. It
+		// runs once the frame's leases are released, like every send.
+		postLease = func() { c.handleDisconnection(fmt.Errorf("connection error %d: %s", code, errorMsg)) }
 	} else if code == 326 {
 		// Client ID already in use — surface as the sentinel so the
 		// matching this exact format string.
