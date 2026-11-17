@@ -602,6 +602,8 @@ type Server struct {
 	rulebookLiquidity *rulebookLiquidityWarmer
 	// ensurePolicyFiles runs the policy-file ensure step at Start.
 	ensurePolicyFiles bool
+	// shutdownStarted is Options.ShutdownStarted.
+	shutdownStarted func()
 	// connectorEpoch changes whenever the daemon publishes or removes the
 	// evidence across reconnects even when account/mode text is unchanged.
 	connectorEpoch uint64
@@ -781,6 +783,12 @@ type Options struct {
 	// decision 2026-09-26). Only the real daemon entry point sets it, so a test
 	// server never touches a home directory.
 	EnsurePolicyFiles bool
+	// ShutdownStarted is called once the serving loop has ended, before any
+	// teardown step runs. The daemon entry point bounds the teardown from
+	// there: on 2026-11-17 a teardown step waited without end on a lock the
+	// connection held, the process kept its pid and instance lock with no
+	// socket, and `canary restart` could not take over.
+	ShutdownStarted func()
 }
 
 // New constructs a Server with the supplied options.
@@ -792,6 +800,7 @@ func New(opts Options) *Server {
 		configIssues:        append([]config.Issue(nil), opts.ConfigIssues...),
 		configIssuesAt:      time.Now().UTC(),
 		ensurePolicyFiles:   opts.EnsurePolicyFiles,
+		shutdownStarted:     opts.ShutdownStarted,
 		disableMacroSources: opts.DisableMacroSources,
 		cfg:                 disableIBKRHosts(opts.Config),
 		opend:               newOpenDBroker(opts.Config, opts.Version),
@@ -1738,6 +1747,9 @@ func (s *Server) Start(ctx context.Context) error {
 	// thunk.
 	s.runIdleWatcher(ctx)
 
+	if s.shutdownStarted != nil {
+		s.shutdownStarted()
+	}
 	s.closeListener()
 	return nil
 }

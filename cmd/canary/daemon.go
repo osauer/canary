@@ -93,6 +93,13 @@ func runDaemon(args []string) {
 		logger.Warnf("config: %s", issue)
 	}
 
+	// The teardown is bounded from the first of: a stop signal, or the end
+	// of serving (an idle exit has no signal).
+	shutdownStarted := shutdownBound(daemonShutdownGrace, exitHungShutdown(logger.Errorf))
+	go func() {
+		<-ctx.Done()
+		shutdownStarted()
+	}()
 	srv := daemon.New(daemon.Options{
 		DisableMacroSources: daemonMacroSources == "disabled",
 		Config:              resolved,
@@ -101,6 +108,7 @@ func runDaemon(args []string) {
 		Logger:              logger,
 		EnsurePolicyFiles:   true,
 		ConfigIssues:        configIssues,
+		ShutdownStarted:     shutdownStarted,
 	})
 	defer srv.Stop()
 

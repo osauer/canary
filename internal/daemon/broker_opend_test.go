@@ -480,9 +480,11 @@ func TestStartWritesPolicyTemplatesUnderTheStacksOwnRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg.Daemon.SetIdleTimeout(0)
+	shutdowns := 0
 	srv := New(Options{
 		Config: cfg, SocketPath: filepath.Join(dir, "ibkrd.sock"), Version: "v3.33.1", EnsurePolicyFiles: true,
 		Logger: NewLogger(&bytes.Buffer{}, "error"), StateDatabasePath: filepath.Join(dir, "daemon.db"), DisableMacroSources: true,
+		ShutdownStarted: func() { shutdowns++ },
 	})
 	// The regime runs under OpenD; its public sources stay offline in tests.
 	srv.regimeSourcesForTest = new(offlineRegimeSources())
@@ -498,8 +500,15 @@ func TestStartWritesPolicyTemplatesUnderTheStacksOwnRoot(t *testing.T) {
 	case <-time.After(30 * time.Second):
 		t.Fatal("no start")
 	}
+	if shutdowns != 0 {
+		t.Fatalf("shutdown reported while serving: %d", shutdowns)
+	}
 	cancel()
 	<-done
+	// The entry point bounds the teardown from this call (shutdown_bound.go).
+	if shutdowns != 1 {
+		t.Fatalf("the end of serving was reported %d times, want once", shutdowns)
+	}
 	if _, err := os.Stat(filepath.Join(configRoot, "ibkr", "policies", "risk-policy.toml")); err != nil {
 		t.Fatalf("the constitution template is not under the stack's root: %v", err)
 	}
