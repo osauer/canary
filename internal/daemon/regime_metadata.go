@@ -184,7 +184,7 @@ func volOfVolBandReason(r rpc.RegimeVolOfVol) string {
 		}
 		return ">=90 and rising"
 	case "red":
-		return ">=110 vol-of-vol shock"
+		return ">=120 vol-of-vol shock"
 	default:
 		return "VVIX unavailable"
 	}

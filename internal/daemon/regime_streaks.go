@@ -447,21 +447,27 @@ func classifyVIXTermBand(ratio *float64) string {
 	}
 }
 
-// classifyVolOfVolBand applies vvix_daily_v2: amber is a transition, not a
+// classifyVolOfVolBand applies vvix_daily_v3: amber is a transition, not a
 // zone. VVIX's structural floor sits at 85-90, so the v1 static 90-110 band
 // kept the row amber on 47% of calm days (10y Cboe replay, 2026-08-11);
 // requiring the level AND a +3% rise over 5 sessions cuts that to 17% while
 // every labeled crisis 2015-2024 still lit ahead of its date (COVID lead 7
-// sessions). Red at 110 is untouched. A missing 5-session change is a data
-// defect and must not soften the warning: level alone then holds amber,
-// matching the credit veto's unknown-assumes-the-worst rule. Operator
-// decision 2026-08-11 (backtest tradeoff curve presented and signed).
+// sessions). A missing 5-session change is a data defect and must not soften
+// the warning: level alone then holds amber, matching the credit veto's
+// unknown-assumes-the-worst rule. Operator decision 2026-08-11 (backtest
+// tradeoff curve presented and signed).
+//
+// Red is at 120 (v3; it was 110, with the exit at 105). Owner decision
+// 2026-11-18 12:59 CET: asked "Which early-warning sensitivity should I
+// land?" with the history replay in front of them, the owner answered
+// "Tighter: 13% of days". The yellow rule above is unchanged, and the band
+// stays pending_backtest (internal-docs/design/regime-calibration.md, Part 8).
 func classifyVolOfVolBand(vvix, rise5d *float64) string {
 	if vvix == nil {
 		return ""
 	}
 	switch {
-	case *vvix >= 110:
+	case *vvix >= 120:
 		return "red"
 	case *vvix < 90:
 		return "green"
@@ -473,7 +479,7 @@ func classifyVolOfVolBand(vvix, rise5d *float64) string {
 }
 
 // vvixRise5DPct is the 5-session rise that turns an at-level VVIX into an
-// amber transition under vvix_daily_v2.
+// amber transition under vvix_daily_v3.
 const vvixRise5DPct = 3.0
 
 // classifyHYGSPYBand maps the HYG/50DMA + SPY/52w-high pair to its
@@ -522,7 +528,7 @@ func classifyCreditSpreadsBand(r rpc.RegimeCreditSpreads) string {
 // publications cuts that to 5.3% with no measured onset cost (funding
 // confirmed late in every 2020+ event under any definition). Red at 75 bp is
 // untouched — it fired 10 days in 11 years, 8 of them March 2020. A missing
-// rise is a data defect and holds amber, matching vvix_daily_v2. Operator
+// rise is a data defect and holds amber, matching vvix_daily_v3. Operator
 // decision 2026-08-11 (replay tradeoff presented and signed).
 const fundingRise5Bps = 10.0
 

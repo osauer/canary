@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-11-18 12:21 CET
+**Last update:** 2026-11-18 13:11 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -202,7 +202,7 @@ includes hysteresis.
 | Indicator | Red band (unchanged) | Min depth for eligible red | Fast path (eligible day 1) | Min streak | Cadence-freshness for eligibility | Exit hysteresis (band re-arm) |
 |---|---|---|---|---|---|---|
 | VIX term (VIX/VIX3M) | ratio ≥ 1.00 | ratio ≥ 1.00 (inversion is already discrete) | ratio ≥ 1.05 | 2 | both legs live during their shared 09:31–16:15 ET window for confirmation; VIX3M prior-close carry is typed `not_due` outside that window only when VIX satisfies its own 03:15–09:25 and 09:31–16:15 ET schedule | leave red only when ratio < 0.98; re-enter at ≥ 1.00 |
-| VVIX | ≥ 110 | ≥ 110 | ≥ 120 (existing isolated rule, kept) | 2 | latest official daily close (newest possible observation) | leave red < 105 |
+| VVIX | ≥ 120 (`vvix_daily_v3`, 2026-11-18; was ≥ 110, see Part 8) | ≥ 110 (unchanged; every red is deeper, so it no longer binds) | ≥ 120 (existing isolated rule, kept; every red reaches it on its first session) | 2 | latest official daily close (newest possible observation) | leave red < 115 (was < 105) |
 | HYG/SPY credit proxy | HYG < 50DMA and SPY ≥ 97% of 52w high | HYG ≥ 0.25% below 50DMA | HYG ≥ 1.0% below 50DMA | 2 | RTH tick, or latest official close outside RTH (never a thin pre/post-market tick) | leave red only after HYG closes back above 50DMA |
 | Credit spreads (HY OAS) | ≥ 5.5 or 20-obs widening ≥ 1.00 pp | levels are already deep — no extra depth | n/a (official daily series) | 1 | series ≤ 7d old (as today) | leave red < 5.25 and widening < 0.85 pp |
 | Funding (CP−T-bill) | ≥ 75 bp | ≥ 75 bp | n/a | 1 | series ≤ 7d old (as today) | leave red < 65 bp |
@@ -956,7 +956,10 @@ A witness **stands** when its red is eligible. An equity-vol red must also be
 corroborated: `isolatedLifecycleEquityVolConfirmed` holds (a term inversion,
 VVIX at 120 or more, VIX up 20%, or SPY down 1%), or funding or cash credit is
 an eligible red. A co-sign cannot corroborate it, because the co-sign would
-then confirm the witness it leans on.
+then confirm the witness it leans on. Since the VVIX row turns red at 120
+("VVIX red line at 120" below), a VVIX red carries that corroboration on the
+session it turns red; the rule still holds back a red that exit hysteresis
+keeps between 115 and 120.
 
 In the confirmed cluster bands (`rpc.BuildRegimeClusterBands`) a co-sign
 cluster that is raw red stays red only while a witness stands; otherwise it is
@@ -986,13 +989,15 @@ sessions and cash credit 752. Inputs with no reading are left out of the vote.
 | VIX/VIX3M at or above 1.00 | 5% | 33% | 14% |
 | HY OAS wider by 0.5 pp or more over 20 observations | 5% of 752 | 44% | 35% |
 | VVIX at or above 110 | 12% | 19% | 5% |
+| VVIX at or above 120 | 5% | 21% | 5% |
 | HYG proxy row red | 30% | 9% | 0% |
 | USD/JPY row red | 13% | 14% | 1% |
 | Breadth row red | 23% of 204 | 20% | 0% |
 
-The first three rows are witness conditions read straight from the file: the
-term inversion and VVIX at 110 are those rows' red, while a 0.5 pp widening is
-the cash row's yellow (its red needs 1.0 pp or a level of 5.5). The last three
+The first four rows are witness conditions read straight from the file: the
+term inversion is that row's red; VVIX at 110 was the VVIX row's red until
+2026-11-18 and 120 is its red since; a 0.5 pp widening is the cash row's
+yellow (its red needs 1.0 pp or a level of 5.5). The last three
 are served row bands from the replay, exit hysteresis included. A term inversion and a widening of cash spreads precede falls at
 about three to twelve times the base rate, VVIX at about one and a half
 times. The proxy precedes fewer falls than an average session and the yen
@@ -1085,26 +1090,86 @@ before this opener existed, three weeks before the April 2025 low.
   that test; `lifecycle.suppressed` applies it outside `data_quality`
   (Part 2).
 
-Over the replay every session that reads `quiet` reads "Normal regime". 193
-of the 745 quiet sessions keep the watch tone because a stress witness is
-yellow; 191 did before any of this. 48 `early_warning` sessions read "Normal
+Over the replay every session that reads `quiet` reads "Normal regime". 223
+of the 782 quiet sessions keep the watch tone because a stress witness is
+yellow; 191 did before any of this. 63 `early_warning` sessions read "Normal
 regime" on a watch tone: the tape alone opened them.
 
 ### Result
 
 | Stage | Before | After | After: low 5% or more below | After: low 8% or more below |
 |---|---|---|---|---|
-| `quiet` | 47% | 74% | 10% | 2% |
-| `early_warning` | 40% | 17% | 18% | 8% |
-| `confirmed_stress` | 6% | 5% | 17% | 2% |
+| `quiet` | 47% | 78% | 10% | 2% |
+| `early_warning` | 40% | 13% | 19% | 11% |
+| `confirmed_stress` | 6% | 5% | 16% | 2% |
 | `panic` | 3% | 0.4% | three sessions | |
-| `stabilization` | 4% | 2% | 23% of 22 | 0% |
-| `opportunity` | 1% | 1% | 0% of 7 | 0% |
+| `stabilization` | 4% | 3% | 25% of 28 | 0% |
+| `opportunity` | 1% | 1% | 0% of 8 | 0% |
 
-270 sessions that warned before no longer do; none was followed by a low 8%
-or more below and 9% by a low 5% or more below, under the base rate. Four
+"After" includes the VVIX red line at 120 (next section); with the line at
+110 `quiet` was 74% and `early_warning` 17%.
+
+314 sessions that warned before no longer do; none was followed by a low 8%
+or more below and 10% by a low 5% or more below, under the base rate. Four
 sessions warn that did not: the March 2025 widening. The share of sessions in
-the rulebook's early-warning bucket or worse falls from 53% to 25%.
+the rulebook's early-warning bucket or worse falls from 53% to 21%.
+
+### VVIX red line at 120
+
+Owner decision, 2026-11-18 12:59 CET. Asked "Which early-warning sensitivity
+should I land?" with the replay table below in front of them, the owner
+answered "Tighter: 13% of days", the option described to them as: VVIX red
+line from 110 to 120.
+
+What changed: the VVIX row turns red at 120 (it was 110) and leaves red below
+115 (it was 105). The threshold set is `vvix_daily_v3` and its published
+texts read "VVIX >= 120" and "trips >=120". The yellow rule, the eligibility
+gate (minimum depth 110, day-one depth 120, minimum streak 2) and the
+isolated-VVIX rule (120) are as they were. The band stays `pending_backtest`:
+this rests on the history replay, not on the forward decisions Part 4 asks
+for.
+
+In plain words: a VVIX red is now deep enough on the session it turns red to
+be eligible at once and to stand by itself, because the red line, the gate's
+day-one depth and the isolated-VVIX level are the same number. One case is
+different. A red that exit hysteresis holds between 115 and 120 is below the
+isolated-VVIX level: it stays red on the row and warns, but it does not stand
+by itself, and it needs its second banked session to be eligible.
+
+What that leaves of the older numbers: the gate's minimum depth of 110 no
+longer binds; its minimum streak binds only for a held red whose first
+session was not banked; the isolated-VVIX level matters only in the 115 to
+120 hold. None was removed.
+
+Evidence, the replay with the line at 110 against the line at 120 (vote
+only, 1,003 sessions):
+
+| | Line at 110 | Line at 120 |
+|---|---|---|
+| `quiet`, whole file | 74.3% | 78.0% |
+| `early_warning`, whole file | 17.4% | 13.3% |
+| `confirmed_stress`, whole file | 4.8% | 4.6% |
+| `stabilization` / `opportunity`, whole file | 2.3% / 0.8% | 2.9% / 0.9% |
+| `quiet` / `early_warning` / `confirmed_stress`, 2026 | 63.8% / 24.9% / 9.0% | 69.7% / 19.5% / 8.1% |
+| After `early_warning`: sessions, low 5% or more below, 8% or more below | 169, 18.3%, 8.3% | 129, 19.4%, 10.9% |
+| VVIX row red, share of sessions | 14.4% | 6.0% |
+| Rulebook early-warning bucket or worse | 24.9% | 21.1% |
+
+The first warning before each of the four falls is on the same session
+either way. `confirmed_stress` before the 2026 low comes on 2026-03-06, 16
+sessions before the low, where it came on 2026-03-03. 44 sessions that
+warned with the line at 110 no longer warn; of the 42 with 20 sessions after
+them, seven were followed by a low 5% or more below and none by 8%. Two of
+the 44 are 2026-11-02 and 2026-11-03, the sessions before the proxy-red
+rebound of 2026-11-04 and the 4.4% fall of 2026-11-05. VVIX between 110 and
+120 now reads yellow while it is rising, which adds sessions to the
+three-yellow opener (23 to 31), to `stabilization` and, on 2024-08-13, one to
+`opportunity`.
+
+At the install: the streak store keeps the row's last band across a restart.
+A VVIX red entered under the old line is therefore held while VVIX stays at
+or above 115, even though it never reached 120; it releases below 115 like
+any other. The replay starts from an empty store and does not show this.
 
 ### Lifecycle fingerprint v3, and what happens at the install
 
@@ -1112,9 +1177,12 @@ The lifecycle fingerprint is `lifecycle-fp-v3`. Its fields are unchanged; what
 `confirmed` and `suppressed` mean changed.
 
 - Retained decisions are split at the install of this change by date and
-  commit, as at the change of 2026-10-05. There is no marker on the decision
-  line: it carries the regime fingerprint, which hashes the lifecycle's
-  fields and no lifecycle version.
+  commit, as at the change of 2026-10-05. The vote change has no marker of
+  its own on the decision line: the line carries the regime fingerprint,
+  which hashes the lifecycle's fields and no lifecycle version. The VVIX
+  row's `thresholds_label` in each decision moves from `vvix_daily_v2` to
+  `vvix_daily_v3` at the same install, which marks the decisions made under
+  the new red line.
 - On the first start the alert producer refuses the retained regime snapshot
   once as alert evidence (`evidence_fingerprint_invalid`), until the first
   new publication replaces it. Until then the previous stage and headline can
@@ -1123,9 +1191,10 @@ The lifecycle fingerprint is `lifecycle-fp-v3`. Its fields are unchanged; what
   its evidence is refused. This is known and is not changed here.
 - Opportunity keeps its rule: no red, and at most one cluster at yellow of
   any role. What counts as red did change: a co-sign red with no witness
-  standing is one yellow. In the replay opportunity is 8 sessions against 7
-  before; the added one is 2026-11-04, the proxy red on a strong rebound, the
-  session before SPY fell 4.4%.
+  standing is one yellow. In the replay opportunity is 9 sessions against 7
+  before. One added session is 2026-11-04, the proxy red on a strong rebound,
+  the session before SPY fell 4.4%; the other is 2024-08-13, where VVIX at
+  114 is no longer red.
 
 ## Review log
 

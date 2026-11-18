@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-11-18 12:21 CET
+Updated: 2026-11-18 13:11 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -104,12 +104,14 @@ longer-term fear. VVIX, how volatile VIX itself is expected to be, asks whether
 traders are paying up for large volatility moves. When both worsen, equity
 stress is usually becoming more urgent.
 
-VIX/VIX3M backwardation is stress-level evidence by itself. An isolated VVIX
-red between 110 and 120 is noisier: the VVIX row remains red and visible, but
-the equity-volatility cluster counts as yellow unless VVIX is at least 120, VIX
-is up at least 20% on the day, SPY is down at least 1% on the day, or another
-stress witness (funding or cash credit) is an eligible red. A co-sign cannot
-supply that corroboration.
+VIX/VIX3M backwardation is stress-level evidence by itself. So is a VVIX red
+on the session it turns red: the row turns red at 120, which is deep enough to
+count by itself. A VVIX red that is held between 115 and 120 after the index
+has eased is noisier: the row remains red and visible, but the
+equity-volatility cluster counts as yellow unless VIX is up at least 20% on
+the day, SPY is down at least 1% on the day, the term structure is inverted,
+or another stress witness (funding or cash credit) is an eligible red. A
+co-sign cannot supply that corroboration.
 
 Isolated red equity-volatility clusters are the main source of repeated false
 alarms in the expanded Tier 1 backtest. They are not dropped, because major
@@ -120,9 +122,15 @@ vol-of-vol pop dominate the broad-market read.
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
 | VIX/VIX3M | < 0.92 | 0.92 to under 1.00 | >= 1.00 |
-| VVIX | < 90, or at level but not rising | >= 90 and +3% over 5 sessions | >= 110 |
+| VVIX | < 90, or at level but not rising | >= 90 and +3% over 5 sessions | >= 120 |
 
-VVIX's yellow is a transition, not a zone (vvix_daily_v2). The index has a
+VVIX's red line is 120 since 2026-11-18 (threshold set `vvix_daily_v3`; it was
+110), and a red is held until a close below 115. In a replay of 1,003
+sessions the row was red on 6% of them at 120 against 14% at 110, and the
+market read `early_warning` on 13% of sessions against 17%. The band is still
+a heuristic awaiting forward evidence.
+
+VVIX's yellow is a transition, not a zone (it came with vvix_daily_v2). The index has a
 structural floor near 85-90, so the earlier static 90-110 band was amber on
 47% of calm days in a ten-year replay; requiring the level plus a 3% rise
 over five sessions cut that to 17% while every labeled 2015-2024 stress
@@ -382,7 +390,7 @@ thresholds; values live in `internal/rpc/history_index.go`):
 | Indicator | Min depth for eligible red | Fast path (eligible day 1) | Min streak (NY trading sessions) | Cadence freshness | Exit hysteresis (leave red) |
 | --- | --- | --- | --- | --- | --- |
 | VIX/VIX3M | ratio >= 1.00 | ratio >= 1.05 | 2 | same-session tick (off-window the row is `not_due` at best, and only while Cboe's dated close vouches for the VIX3M leg) | ratio < 0.98 |
-| VVIX | >= 110 | >= 120 | 2 | latest official daily close (<= 4d) | < 105 |
+| VVIX | >= 110 (every red is at 120 or more when it turns red) | >= 120 (every red reaches it on its first session) | 2 | latest official daily close (<= 4d) | < 115 |
 | HYG/SPY | HYG >= 0.25% below 50DMA | >= 1.0% below | 2 | RTH tick or latest official close (off-hours banding input is the close, never a thin pre/post print; a missing spot tick falls back to the close and marks the row stale) | HYG closes back above 50DMA |
 | HY OAS | band is the gate | n/a | 1 | series <= 7d | < 5.25 and widening < 0.85 pp |
 | Funding | band is the gate | n/a | 1 | series <= 7d | < 65 bp |

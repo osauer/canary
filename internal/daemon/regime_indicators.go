@@ -525,9 +525,10 @@ func volOfVolNextDue(res *rpc.RegimeSnapshotResult, now time.Time) *time.Time {
 	return nil
 }
 
-// Exit hysteresis: leave red below 105.
+// Exit hysteresis: leave red below 115, five points under the red line as
+// before (owner decision 2026-11-18 12:59 CET, see classifyVolOfVolBand).
 func (volOfVolStreaks) exitHoldsRed(res *rpc.RegimeSnapshotResult) bool {
-	return res.VolOfVol.Last != nil && *res.VolOfVol.Last >= 105
+	return res.VolOfVol.Last != nil && *res.VolOfVol.Last >= 115
 }
 
 func (h hygSpyStreaks) displayBand(res *rpc.RegimeSnapshotResult) string {

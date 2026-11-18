@@ -733,6 +733,8 @@ var regimeGates = map[string]RegimeGate{
 	// deep day-one inversion.
 	RegimeIndicatorVIXTerm: {MinSessions: 2, MinDepth: 1.00, FastDepth: 1.05},
 	// depth = VVIX level. 120 keeps the existing isolated-VVIX rule's level.
+	// Since the row turns red at 120 (vvix_daily_v3) a red is at the fast
+	// depth on its first session, and the minimum depth no longer binds.
 	RegimeIndicatorVolOfVol: {MinSessions: 2, MinDepth: 110, FastDepth: 120},
 	// depth = percent below the 50DMA ((dma-price)/dma*100). 0.25% is the
 	// noise floor; a 1% break is eligible day one.
@@ -1262,7 +1264,7 @@ type regimeThresholdText struct{ label, green, yellow, red, trip string }
 // classifiers are inclusive, so a reading exactly on the line was documented
 var regimeThresholdTexts = map[string]regimeThresholdText{
 	RegimeIndicatorVIXTerm:   {"vix_term_structure_v1", "VIX/VIX3M < 0.92", "0.92 <= VIX/VIX3M < 1.00", "VIX/VIX3M >= 1.00", "trips >=1.00"},
-	RegimeIndicatorVolOfVol:  {"vvix_daily_v2", "VVIX < 90, or at level but not rising", "VVIX >= 90 and +3% over 5 sessions", "VVIX >= 110", "trips >=110"},
+	RegimeIndicatorVolOfVol:  {"vvix_daily_v3", "VVIX < 90, or at level but not rising", "VVIX >= 90 and +3% over 5 sessions", "VVIX >= 120", "trips >=120"},
 	RegimeIndicatorHYGSPY:    {"hyg_spy_credit_proxy_v1", "HYG >= 50-day SMA", "HYG < 50-day SMA", "HYG < 50-day SMA and SPY >= 97% of 52-week high", "trips HYG <50dma with SPY >=97% of 52w high"},
 	RegimeIndicatorCredit:    {"hy_ig_oas_v1", "HY OAS < 4.0 and 20d widening < 0.50 pp", "HY OAS 4.0-5.5 or 20d widening >= 0.50 pp", "HY OAS >= 5.5 or 20d widening >= 1.00 pp", "trips HY OAS >=5.5"},
 	RegimeIndicatorFunding:   {"funding_cp_tbill_v2", "spread < 25 bp, or at level but not widening", "spread >= 25 bp and +10 bp over 5 publications", "spread >= 75 bp", "trips >=75 bp"},

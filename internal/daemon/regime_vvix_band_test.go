@@ -6,10 +6,10 @@ import (
 	"time"
 )
 
-// vvix_daily_v2: amber is a transition (level AND 5-session rise), never a
-// resting zone; red at 110 ignores trend; a missing rise holds amber at
+// vvix_daily_v3: amber is a transition (level AND 5-session rise), never a
+// resting zone; red at 120 ignores trend; a missing rise holds amber at
 // level rather than softening the warning.
-func TestClassifyVolOfVolBandV2(t *testing.T) {
+func TestClassifyVolOfVolBandV3(t *testing.T) {
 	v := func(x float64) *float64 { return &x }
 	cases := []struct {
 		name   string
@@ -23,8 +23,10 @@ func TestClassifyVolOfVolBandV2(t *testing.T) {
 		{"at level, rising under gate", v(95), v(2.9), "green"},
 		{"at level, rising at gate", v(95), v(3.0), "yellow"},
 		{"at level, rise unknown", v(95), nil, "yellow"},
-		{"red ignores trend", v(111), v(-10), "red"},
-		{"red boundary", v(110), nil, "red"},
+		{"under the red line, flat", v(115), v(0), "green"},
+		{"under the red line, rising", v(119.9), v(5), "yellow"},
+		{"red ignores trend", v(121), v(-10), "red"},
+		{"red boundary", v(120), nil, "red"},
 		{"no reading", nil, v(5), ""},
 	}
 	for _, tc := range cases {

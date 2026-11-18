@@ -18,8 +18,8 @@ const (
 	vixRatioGreen      = 0.92 // VIX/VIX3M below this is healthy contango
 	vixRatioRed        = 1.00 // above this is backwardation
 	vvixYellow         = 90.0
-	vvixRed            = 110.0
-	vvixRise5D         = 3.0 // % rise over 5 sessions that makes an at-level VVIX an amber transition (vvix_daily_v2)
+	vvixRed            = 120.0
+	vvixRise5D         = 3.0 // % rise over 5 sessions that makes an at-level VVIX an amber transition (vvix_daily_v3)
 	hyOASYellow        = 4.0
 	hyOASRed           = 5.5
 	hyOASWidenYellow   = rpc.RegimeCreditWideningYellowPP // percentage points over ~20 observations
@@ -230,7 +230,7 @@ func rowVolOfVol(now time.Time, r rpc.RegimeVolOfVol) Row {
 	}
 	row.Value += range52WMarker(r.Range52W)
 	row.Quality = qualityTag(now, r.ValueQuality)
-	// vvix_daily_v2: amber is a transition (level AND 5-session rise), never
+	// vvix_daily_v3: amber is a transition (level AND 5-session rise), never
 	// a resting state; an unknown rise is a data defect and holds amber
 	// rather than softening the warning. Mirrors the daemon classifier.
 	switch {
