@@ -225,7 +225,7 @@ func TestEdgeHumanOutputComposesHeadlineAndOrdersSections(t *testing.T) {
 	flat := strings.ReplaceAll(got, "\n    ", " ")
 	for _, want := range []string{
 		"Long trims: -€ 4,208.84 price impact across 40 of 89 changes at 1 session; median -€ 53.76.",
-		"Coverage · 121 of 296 eligible stock/ETF changes scored at 1 session (40.9%) · 1,009 broker position changes found, 713 outside the stock/ETF review",
+		"Coverage · 121 of 296 eligible changes scored at 1 session (40.9%) · 1,009 broker position changes found, 713 outside the review",
 		"Horizon · 1 session selected automatically · 20 sessions 9.8% coverage · 5 sessions 18.9% coverage",
 		"Selected sample · 40 of 89 long trims · size coverage 42.5% of execution notional",
 		"2025-11   1 decision   total",

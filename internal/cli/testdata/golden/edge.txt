@@ -3,8 +3,8 @@ Canary Edge · 90d decision review · 20-session lens · evidence to 2026-08-24
   Best observed result: ABC add, USD +125.50 after 20 sessions.
 
 Evidence
-  Coverage · 4 of 6 eligible stock/ETF changes scored at 20 sessions (66.7%) ·
-    8 broker position changes found, 2 outside the stock/ETF review
+  Coverage · 4 of 6 eligible changes scored at 20 sessions (66.7%) · 8 broker
+    position changes found, 2 outside the review
   Horizon · 20 sessions selected with --horizon · automatic mode picks the
     longest horizon with at least 25% coverage and a 3-observation action sample
   Last full revalidation · 2026-08-24
@@ -52,8 +52,8 @@ Canary Edge · 90d decision review · 20-session lens · evidence to 2026-08-24
   Best observed result: ABC add, USD +125.50 after 20 sessions.
 
 Evidence
-  Coverage · 4 of 6 eligible stock/ETF changes scored at 20 sessions (66.7%) ·
-    8 broker position changes found, 2 outside the stock/ETF review
+  Coverage · 4 of 6 eligible changes scored at 20 sessions (66.7%) · 8 broker
+    position changes found, 2 outside the review
   Horizon · 20 sessions selected with --horizon · automatic mode picks the
     longest horizon with at least 25% coverage and a 3-observation action sample
   Last full revalidation · 2026-08-24

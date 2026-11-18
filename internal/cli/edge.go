@@ -226,10 +226,10 @@ func renderEdgeEvidence(env *Env, result rpc.EdgeResult) {
 	ccy := edgeBaseCurrency(result)
 	selection := result.HorizonSelection
 	fmt.Fprintln(out, "\nEvidence")
-	coverage := []string{fmt.Sprintf("%d of %d eligible stock/ETF changes scored at %s (%.1f%%)", selection.ScoredChanges, selection.EligibleChanges, edgeSessionCount(result.HorizonSessions), selection.CoveragePct)}
+	coverage := []string{fmt.Sprintf("%d of %d eligible changes scored at %s (%.1f%%)", selection.ScoredChanges, selection.EligibleChanges, edgeSessionCount(result.HorizonSessions), selection.CoveragePct)}
 	if result.Coverage.TradeChanges > 0 {
 		outside := result.Coverage.TradeChanges - result.Coverage.EligibleChanges
-		coverage = append(coverage, fmt.Sprintf("%s broker position changes found, %s outside the stock/ETF review", edgeCount(result.Coverage.TradeChanges), edgeCount(outside)))
+		coverage = append(coverage, fmt.Sprintf("%s broker position changes found, %s outside the review", edgeCount(result.Coverage.TradeChanges), edgeCount(outside)))
 	}
 	edgeRow(env, "Coverage", coverage...)
 	edgeRow(env, "Horizon", edgeHorizonNote(result)...)

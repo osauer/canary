@@ -844,7 +844,7 @@ function renderEdgeLearning(result) {
   const percentage = document.createElement("b");
   percentage.textContent = `${Number(selection.coverage_pct).toFixed(0)}% reviewed`;
   const sample = document.createElement("span");
-  sample.textContent = `${selection.scored_changes} of ${selection.eligible_changes} eligible stock/ETF decisions`;
+  sample.textContent = `${selection.scored_changes} of ${selection.eligible_changes} eligible decisions`;
   coverage.append(percentage, sample);
   const limitation = paragraph("Price outcomes; skill and risk-management quality are not measured.", "edge-review-limit");
   $("edgeReviewScope").replaceChildren(coverage, limitation);

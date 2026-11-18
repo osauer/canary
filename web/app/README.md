@@ -31,7 +31,7 @@ recommendation, or eligibility.
 Edge is the lazy-loaded retrospective review. Opening the tab automatically
 shows the daemon's 365-day review with a 20-session headline; there are no
 window or horizon controls to configure. It leads with where broker-confirmed
-stock/ETF decisions historically helped or hurt, keeps the full 1/5/20-session
+decisions historically helped or hurt, keeps the full 1/5/20-session
 action matrix, and puts account P/L after confirmed external flows in supporting
 context. At most three daemon-ranked findings are read-only explanation buttons:
 tapping one fetches its opaque calculation trail with position before/after,
