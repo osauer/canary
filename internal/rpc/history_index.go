@@ -966,6 +966,31 @@ const RegimeContextNote = "Context, not a stress reading on its own"
 // the cash row opens a warning as a stress witness (BuildRegimeClusterBands).
 const RegimeCreditWideningYellowPP = 0.50
 
+// regimeRowNames is the reader's name of each regime row. The regime summary
+// and the stress read word their sentences from it, and the stress read
+// serves those names to the app, so no surface keeps a list of its own.
+var regimeRowNames = map[string]string{
+	RegimeIndicatorVIXTerm:   "volatility term structure",
+	RegimeIndicatorVolOfVol:  "vol-of-vol",
+	RegimeIndicatorHYGSPY:    "ETF credit proxy",
+	RegimeIndicatorCredit:    "cash credit spreads",
+	RegimeIndicatorFunding:   "funding spread",
+	RegimeIndicatorUSDJPY:    "FX carry proxy",
+	RegimeIndicatorGammaZero: "dealer gamma",
+	RegimeIndicatorBreadth:   "breadth",
+}
+
+// RegimeRowName returns the reader's name of a regime row.
+func RegimeRowName(indicator string) string {
+	return regimeRowNames[indicator]
+}
+
+// RegimeCashWideningName names a widening of cash credit spreads where a
+// surface names what warns without confirming.
+func RegimeCashWideningName() string {
+	return RegimeRowName(RegimeIndicatorCredit) + " widening"
+}
+
 // EligibleRedCount counts clusters that survive downgrades as red AND carry
 // eligible evidence — the only reds that may confirm stress.
 func (b RegimeClusterBands) EligibleRedCount() int {
@@ -1804,6 +1829,27 @@ type HeldStress struct {
 	SignalIDs             []risk.SignalID   `json:"signal_ids,omitempty"`
 }
 
+// StressUnconfirmedSignal is one thing a surface may name beside the
+// confirmed reds, with the reader's name of the row behind it
+// (RegimeRowName) and what it is, so no reader re-derives either.
+type StressUnconfirmedSignal struct {
+	Cluster string `json:"cluster"`
+	Name    string `json:"name"`
+	Role    string `json:"role"`
+}
+
+// Roles of a StressUnconfirmedSignal. A witness is a stress witness that is
+// red without confirming, and the widening is cash credit spreads widening:
+// both warn. A waiting signal is a co-sign red beside a standing witness that
+// has yet to pass its own gate. Context is a co-sign red with no witness
+// standing.
+const (
+	StressSignalWitness  = "witness"
+	StressSignalWidening = "widening"
+	StressSignalWaiting  = "waiting"
+	StressSignalContext  = "context"
+)
+
 // StressMarketSummary combines regime, tape, and source-quality context used by
 // Stress. Its cluster counts retain rankability and confirmation distinctions.
 type StressMarketSummary struct {
@@ -1823,10 +1869,12 @@ type StressMarketSummary struct {
 	RedClusterNames            []string `json:"red_cluster_names,omitempty"`
 	YellowClusterNames         []string `json:"yellow_cluster_names,omitempty"`
 	UnconfirmedRedClusterNames []string `json:"unconfirmed_red_cluster_names,omitempty"`
+	// UnconfirmedSignals is what a surface may name beside the confirmed
+	// reds, in cluster order with the cash widening last: each unconfirmed
+	// red cluster and, when it opens a warning, the cash credit widening.
+	UnconfirmedSignals []StressUnconfirmedSignal `json:"unconfirmed_signals,omitempty"`
 	// WarningOpeners is RegimeWarningOpeners for the regime read behind this
-	// summary: the arms that open a market warning. An unconfirmed red that
-	// is not named here as a provisional witness is a co-sign shown as
-	// context.
+	// summary: the arms that open a market warning.
 	WarningOpeners    []string `json:"warning_openers,omitempty"`
 	AmbiguousClusters []string `json:"ambiguous_clusters,omitempty"`
 	PartialClusters   []string `json:"partial_clusters,omitempty"`

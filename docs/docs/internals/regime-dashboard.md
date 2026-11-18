@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-11-18 11:44 CET
+Updated: 2026-11-18 12:21 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -366,8 +366,10 @@ cadence-fresh, and a co-sign's red only while a stress witness stands.
 Otherwise it is PROVISIONAL: visible on the row and listed in
 `lifecycle.unconfirmed`. A witness's provisional red drives `early_warning`; a
 co-sign's opens nothing. With no witness standing it is context and is
-repeated in `lifecycle.suppressed` in every stage; beside a standing witness
-it waits on its own gate and is in `lifecycle.unconfirmed` only. A provisional red never counts toward `confirmed_stress`, never
+repeated in `lifecycle.suppressed`; beside a standing witness it waits on its
+own gate and is in `lifecycle.unconfirmed` only. In `data_quality` the
+lifecycle repeats every unconfirmed red in `lifecycle.suppressed`, witnesses
+included. A provisional red never counts toward `confirmed_stress`, never
 corroborates another cluster, and never reaches `confirmed_by`. This policy exists
 because of the 2026-06-12 false positive, where a 7 bps HYG break (one session
 old, thin pre-open tick) and a prior-evening gamma cache mutually confirmed
@@ -536,7 +538,10 @@ because related rows, such as VIX and VVIX, are not fully independent votes;
 confirming: a witness red held back for depth, persistence or corroboration,
 or cash credit widening. A co-sign red with no witness beside it is in
 neither; `lifecycle.unconfirmed` names it and `lifecycle.suppressed` marks it
-as context.
+as context. The stress read serves the same split for a reader in
+`market.unconfirmed_signals`: each unconfirmed red cluster and the cash
+credit widening, with the reader's name of the row behind it and its role
+(`witness`, `widening`, `waiting`, `context`).
 
 Lifecycle is a second layer over the row and cluster evidence. The stages are
 tested in the order below and the first match wins. "Tape" means the day's SPY
@@ -548,7 +553,7 @@ and VIX moves, read only on a session that is not a closed date.
 | `panic` | SPY down 4% or more with at least one eligible red; or SPY down 7% or more. Red clusters without a fall, however many, are `confirmed_stress`. |
 | `confirmed_stress` | Two or more eligible red clusters, which takes a standing stress witness plus a co-sign or a second witness; or one eligible red with SPY down 2.5% or more, or with VIX up 20% or more; or SPY down 4% or more with at least two clusters yellow or worse. |
 | `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, an isolated VVIX red); a current cash credit row with HY OAS 0.50 pp or more wider over 20 observations; three or more clusters yellow or worse of which at least one is a stress witness at yellow; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing. |
-| `opportunity` | No red, at most one stress witness at yellow, at least three ranked clusters, SPY up 1.5% or more and VIX down 10% or more. Co-sign yellows are not counted. This is broad-market context only, not a trade instruction. |
+| `opportunity` | No red, at most one cluster at yellow, at least three ranked clusters, SPY up 1.5% or more and VIX down 10% or more. Every cluster counts, co-signs included, and a co-sign red with no stress witness standing is one yellow. This is broad-market context only, not a trade instruction. |
 | `stabilization` | No red, one or two stress witnesses at yellow, and SPY up 1% or more or VIX down 10% or more. Stress is easing, but this is not yet an opportunity. A day whose only yellows are co-signs is `quiet`. |
 | `quiet` | None of the above. |
 

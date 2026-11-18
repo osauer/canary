@@ -229,8 +229,7 @@ func regimePosture(r *RegimeSnapshotResult) RegimePosture {
 }
 
 // Every surface follows the vote. A co-sign alone is context: it changes
-// neither the stage, nor the headline, nor the tone, and it does not hold a
-// rebound back from reading as one. The Watch headlines are for a stress
+// neither the stage, nor the headline, nor the tone. The Watch headlines are for a stress
 // witness that warns without confirming, which includes cash credit spreads
 // widening by the cash row's own yellow step.
 func TestRegimeHeadlineAndToneFollowTheVote(t *testing.T) {
@@ -253,10 +252,13 @@ func TestRegimeHeadlineAndToneFollowTheVote(t *testing.T) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 			r.HYGSPYDivergence.SPYChangePct = new(1.0)
 		}, LifecycleQuiet, "Normal regime", RegimeToneNormal},
-		{"proxy and breadth yellow on a strong rebound", func(r *RegimeSnapshotResult) {
+		// Opportunity counts every cluster at yellow, co-signs included, as it
+		// did before the roles: two yellows are one too many. With no witness
+		// among them the day is not stabilization either.
+		{"proxy and breadth yellow, SPY +1.5% and VIX -10%", func(r *RegimeSnapshotResult) {
 			r.HYGSPYDivergence.Band, r.Breadth.Band = "yellow", "yellow"
-			r.HYGSPYDivergence.SPYChangePct, r.VIXTermStructure.VIXChangePct = new(1.6), new(-11.0)
-		}, LifecycleOpportunity, "Normal regime", RegimeToneNormal},
+			r.HYGSPYDivergence.SPYChangePct, r.VIXTermStructure.VIXChangePct = new(1.5), new(-10.0)
+		}, LifecycleQuiet, "Normal regime", RegimeToneNormal},
 		{"term inversion on its first day", func(r *RegimeSnapshotResult) {
 			red(&r.VIXTermStructure.RegimeIndicatorMeta, false)
 		}, LifecycleEarlyWarning, "Stress signal present", RegimeToneWatch},

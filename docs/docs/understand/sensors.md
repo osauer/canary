@@ -1,6 +1,6 @@
 # Sensors
 
-Updated: 2026-11-18 11:14 CET
+Updated: 2026-11-18 12:21 CET
 
 A sensor is one measurement the daemon keeps current from broker and public
 sources, such as the market regime or the stress on the book you hold. Each
@@ -338,7 +338,10 @@ then derives an action such as `stand_down`, `watch`, `defend`, `rebalance`,
 `deploy`, or `confirm_inputs`. Its market rows follow the Regime result's own
 list of what opens a market warning, served as `market.warning_openers`: a
 red from the HYG/SPY proxy, USD/JPY, gamma or breadth with no stress witness
-beside it is context, not market pressure. It also reports planner readiness, bounded
+beside it is context, not market pressure, and a widening of cash credit
+spreads is named as the cause of the warning it opens.
+`market.unconfirmed_signals` names each of them for a reader and says which
+it is. It also reports planner readiness, bounded
 held-name stress, source health, drivers, warnings, and a semantic fingerprint.
 
 ### Timing and fail-closed prerequisites

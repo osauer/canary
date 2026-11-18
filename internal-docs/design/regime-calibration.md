@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-11-18 11:44 CET
+**Last update:** 2026-11-18 12:21 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -316,19 +316,22 @@ only when a witness stands.
   yellow or worse of which at least one is a witness at yellow; or
   `SPY ≤ −1.5%`; or `VIX +10%`. A red or yellow in co-sign clusters alone
   opens nothing. All of it only when the required input set is usable.
-- `opportunity` — no red, at most one stress witness at yellow, at least three
-  ranked clusters, `SPY ≥ +1.5%` and `VIX ≤ −10%`.
+- `opportunity` — no red, at most one cluster at yellow, at least three
+  ranked clusters, `SPY ≥ +1.5%` and `VIX ≤ −10%`. Every cluster counts,
+  co-signs included; a co-sign red with no witness standing is one yellow.
 - `stabilization` — no red, one or two stress witnesses at yellow, and
-  `SPY ≥ +1%` or `VIX ≤ −10%`. Co-sign yellows are not counted in either: a
-  day whose only yellows are co-signs has nothing to stabilize from and is
-  `quiet`, and co-sign yellows do not hold a rebound back.
+  `SPY ≥ +1%` or `VIX ≤ −10%`. Co-sign yellows are not counted here: a day
+  whose only yellows are co-signs has nothing to stabilize from and is
+  `quiet`.
 - `quiet` — none of the above.
 
-Every provisional red is named in `unconfirmed`. A co-sign red with no
-witness standing is context, and is repeated in `suppressed` in every stage. A
-co-sign red beside a standing witness that has not passed its own gate is not
-context: it keeps its cluster red and waits to confirm, as a provisional
-witness does, and is in `unconfirmed` only.
+Every provisional red is named in `unconfirmed`. Outside `data_quality` a
+co-sign red with no witness standing is context and is repeated in
+`suppressed`. A co-sign red beside a standing witness that has not passed its
+own gate is not context: it keeps its cluster red and waits to confirm, as a
+provisional witness does, and is in `unconfirmed` only. In `data_quality` the
+lifecycle repeats every unconfirmed red in `suppressed`, witnesses included;
+that branch predates the roles, and no surface words the list.
 
 `rpc.RegimeWarningOpeners` names the arms that open a warning on a snapshot;
 the stage vote and the required-input gate read the same list.
@@ -1054,27 +1057,36 @@ before this opener existed, three weeks before the April 2025 low.
   witness at yellow still keeps it on watch.
 - **Regime summary** (`summary.punch_line`, `summary.dominant_risks`). A
   co-sign red with no witness beside it is named in the context sentence, not
-  as stressed and not as a dominant risk.
+  as stressed and not as a dominant risk. A cash row whose widening opens a
+  warning reads "cash credit spreads is widening", not as one more mixed
+  reading.
 - **Stress read** (`internal/stress`). `market.warning_openers` carries
   `rpc.RegimeWarningOpeners` for the regime read behind the summary, and the
   market rows follow it: market pressure is partial only when a cluster arm
   opens a warning or the tape does; three yellow clusters are a deteriorating
   tape only with a witness among them; the fast carry unwind reads the
-  confirmed FX band; and "an early warning is flashing" names only a witness.
-  A co-sign indicator that is red with no witness standing is amber and
-  carries the context sentence.
-- **App.** A provisional warning is an unconfirmed red that
-  `market.warning_openers` names as a provisional witness. An unconfirmed red
-  whose cluster is still served red (`market.red_cluster_names`) is a co-sign
-  waiting on its own gate beside a standing witness; it keeps the provisional
-  wording. Any other unconfirmed red is context.
+  confirmed FX band; and "an early warning is flashing" names what warns
+  without confirming: a witness that is red and, as "cash credit spreads
+  widening", the cash widening. A co-sign indicator that is red with no
+  witness standing is amber and carries the context sentence.
+- **Names and roles, served once.** `market.unconfirmed_signals` lists what a
+  surface may name beside the confirmed reds: each unconfirmed red cluster
+  and the cash widening, with the reader's name of the row behind it and its
+  role (`witness`, `widening`, `waiting`, `context`). The names come from one
+  list, `rpc.RegimeRowName`, which the regime summary reads too; in the credit
+  cluster the name is the cash row's whenever the cash row is red. The stress
+  evidence and the app word the context sentence from these names, and the
+  app keeps no name list and no role rule of its own for it. A provisional
+  red keeps the app's input label ("volatility feed", "HYG 50-DMA"), except a
+  credit witness and the widening, which take the served name.
 - **One test for context.** A co-sign red is context when its cluster is not
   red in the shared combination, which is when no witness stands. The regime
-  summary, `lifecycle.suppressed`, the stress rows and indicator rows and the
-  app all apply that test.
+  summary, the stress rows, the indicator rows and the served roles apply
+  that test; `lifecycle.suppressed` applies it outside `data_quality`
+  (Part 2).
 
 Over the replay every session that reads `quiet` reads "Normal regime". 193
-of the 744 quiet sessions keep the watch tone because a stress witness is
+of the 745 quiet sessions keep the watch tone because a stress witness is
 yellow; 191 did before any of this. 48 `early_warning` sessions read "Normal
 regime" on a watch tone: the tape alone opened them.
 
@@ -1086,24 +1098,34 @@ regime" on a watch tone: the tape alone opened them.
 | `early_warning` | 40% | 17% | 18% | 8% |
 | `confirmed_stress` | 6% | 5% | 17% | 2% |
 | `panic` | 3% | 0.4% | three sessions | |
-| `stabilization` | 4% | 2% | 25% of 20 | 0% |
-| `opportunity` | 1% | 1% | 0% of 10 | 0% |
+| `stabilization` | 4% | 2% | 23% of 22 | 0% |
+| `opportunity` | 1% | 1% | 0% of 7 | 0% |
 
 270 sessions that warned before no longer do; none was followed by a low 8%
 or more below and 9% by a low 5% or more below, under the base rate. Four
 sessions warn that did not: the March 2025 widening. The share of sessions in
 the rulebook's early-warning bucket or worse falls from 53% to 25%.
 
-### Lifecycle fingerprint v3
+### Lifecycle fingerprint v3, and what happens at the install
 
 The lifecycle fingerprint is `lifecycle-fp-v3`. Its fields are unchanged; what
-`confirmed` and `suppressed` mean changed. The alert producer therefore
-refuses a regime snapshot the previous binary retained until the first
-publication replaces it, and keys afresh after that. The bump does not mark
-the decision events: a decision line carries the regime fingerprint, which
-hashes the lifecycle's fields and no lifecycle version, so decisions either
-side of this change are told apart by date and commit, as at the change of
-2026-10-05.
+`confirmed` and `suppressed` mean changed.
+
+- Retained decisions are split at the install of this change by date and
+  commit, as at the change of 2026-10-05. There is no marker on the decision
+  line: it carries the regime fingerprint, which hashes the lifecycle's
+  fields and no lifecycle version.
+- On the first start the alert producer refuses the retained regime snapshot
+  once as alert evidence (`evidence_fingerprint_invalid`), until the first
+  new publication replaces it. Until then the previous stage and headline can
+  be served, for up to about four minutes.
+- The page-hold after a restart is taken from the stored lifecycle even when
+  its evidence is refused. This is known and is not changed here.
+- Opportunity keeps its rule: no red, and at most one cluster at yellow of
+  any role. What counts as red did change: a co-sign red with no witness
+  standing is one yellow. In the replay opportunity is 8 sessions against 7
+  before; the added one is 2026-11-04, the proxy red on a strong rebound, the
+  session before SPY fell 4.4%.
 
 ## Review log
 

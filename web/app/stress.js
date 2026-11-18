@@ -664,26 +664,27 @@ function stressGovernedHold(stress = {}) {
     String(posture.severity || "").toLowerCase() === "watch";
 }
 
-// An unconfirmed red is provisional when it will confirm or clear: a stress
-// witness the served list of warning openers names, or a co-sign whose
-// cluster the daemon still serves red, which takes a standing witness beside
-// it. Any other unconfirmed red is a co-sign with no witness standing, shown
-// as context.
+// The stress read serves what a surface may name beside the confirmed reds,
+// each with the reader's name and its role. A witness and the cash credit
+// widening warn, and a co-sign waiting beside a standing witness counts once
+// it passes its own gate: all three are provisional, they confirm or clear.
+// A co-sign with no witness standing is context.
 function unconfirmedMarketReds(market = {}) {
-  const prefix = "provisional_witness:";
-  const lower = (list) => (Array.isArray(list) ? list : []).map((item) => String(item || "").trim().toLowerCase());
-  const witnesses = lower(market.warning_openers)
-    .filter((arm) => arm.startsWith(prefix))
-    .map((arm) => arm.slice(prefix.length));
-  const red = lower(market.red_cluster_names);
-  const names = Array.isArray(market.unconfirmed_red_cluster_names) ? market.unconfirmed_red_cluster_names : [];
-  const key = (name) => String(name || "").trim().toLowerCase();
-  const isWitness = (name) => witnesses.includes(key(name));
-  const isProvisional = (name) => isWitness(name) || red.includes(key(name));
+  const signals = Array.isArray(market.unconfirmed_signals) ? market.unconfirmed_signals : [];
+  const role = (signal) => String(signal?.role || "").trim().toLowerCase();
+  const pick = (...roles) => signals.filter((signal) => roles.includes(role(signal)));
+  // A provisional red keeps its input label. The credit cluster holds two
+  // rows, so a witness there, and the widening, take the served name of the
+  // cash row and never the proxy's label.
+  const label = (signal) => {
+    const cashRow = role(signal) === "widening" ||
+      (role(signal) === "witness" && String(signal.cluster || "").trim().toLowerCase() === "credit");
+    return cashRow ? signal.name : clusterInputLabel(signal.cluster);
+  };
   return {
-    witnesses: names.filter(isWitness),
-    provisional: names.filter(isProvisional),
-    context: names.filter((name) => !isProvisional(name)),
+    witnesses: pick("witness", "widening").map(label),
+    provisional: pick("witness", "widening", "waiting").map(label),
+    context: pick("context").map((signal) => signal.name),
   };
 }
 
@@ -723,7 +724,7 @@ function marketExplanation(stress) {
   }
   if (confirmation === "partial") {
     if (stressHasProvisionalOnlyMarketWarning(stress)) {
-      const names = humanList(unconfirmedMarketReds(stress.market || {}).witnesses.map(clusterInputLabel), 3);
+      const names = humanList(unconfirmedMarketReds(stress.market || {}).witnesses, 3);
       return {
         label: "Market",
         title: "Provisional warning",
@@ -1583,14 +1584,15 @@ function regimeGovernedNote(snap, market, compact = false) {
     // outcomes stated: the signal earns its co-sign or clears, no operator
     // step. "Provisional" names the evidence state without asking the trader
     // to perform a confirmation ritual.
-    const subject = humanList(unconfirmed.map(clusterInputLabel), 2);
+    const subject = humanList(unconfirmed, 2);
     const verb = unconfirmed.length === 1 ? "is provisional" : "are provisional";
     parts.push(compact ? `${subject} awaiting confirmation` : `${subject} ${verb}; Canary will confirm or clear ${unconfirmed.length === 1 ? "it" : "them"} on the next fresh read`);
   }
-  // A co-sign red with no stress witness beside it is context. The compact
-  // line stays with the action: context is not a reason to replace it.
+  // A co-sign red with no stress witness beside it is context, every one
+  // named. The compact line stays with the action: context is not a reason
+  // to replace it.
   if (context.length > 0 && !compact) {
-    parts.push(`Context, not a stress reading on its own: ${humanList(context.map(clusterInputLabel), 2)}.`);
+    parts.push(`Context, not a stress reading on its own: ${humanList(context, context.length)}`);
   }
   for (const g of snap.regime?.lifecycle?.governors || []) {
     if (g?.action === "severity_capped") {

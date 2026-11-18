@@ -1,6 +1,7 @@
 package stress
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -46,7 +47,7 @@ func TestStressCoSignRedAloneIsNotMarketPressure(t *testing.T) {
 	if text := stressText(coSign); strings.Contains(text, "arly warning") || strings.Contains(text, "arly market warning") || strings.Contains(text, "unconfirmed") {
 		t.Fatalf("a proxy red alone is worded as a warning:\n%s", text)
 	}
-	if text := stressText(coSign); !strings.Contains(text, "context, not a stress reading on its own: credit") {
+	if text := stressText(coSign); !strings.Contains(text, "context, not a stress reading on its own: ETF credit proxy") {
 		t.Fatalf("the proxy red is not named as context:\n%s", text)
 	}
 
@@ -71,7 +72,7 @@ func TestStressEarlyWarningWordsNameOnlyAWitness(t *testing.T) {
 	if row == nil || !strings.Contains(row.Guidance, "An early warning is flashing (vol red, not confirmed)") {
 		t.Fatalf("market row = %+v, want the early warning to name vol alone", row)
 	}
-	if !strings.Contains(row.Evidence, "red but unconfirmed: vol") || !strings.Contains(row.Evidence, "context, not a stress reading on its own: credit") {
+	if !strings.Contains(row.Evidence, "red but unconfirmed: vol") || !strings.Contains(row.Evidence, "context, not a stress reading on its own: ETF credit proxy") {
 		t.Fatalf("evidence = %q, want vol unconfirmed and credit as context", row.Evidence)
 	}
 }
@@ -132,7 +133,7 @@ func TestStressCoSignIndicatorIsContext(t *testing.T) {
 	alone := indicator(stressOn(func(r *rpc.RegimeSnapshotResult) {
 		stressRed(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 	}), "HYG vs SPY")
-	if alone.Status != "amber" || !strings.Contains(alone.Comment, "Context, not a stress reading on its own") {
+	if alone.Status != "amber" || !strings.HasSuffix(alone.Comment, "; context, not a stress reading on its own") {
 		t.Fatalf("eligible proxy red alone: status %q, comment %q; want amber and the context sentence", alone.Status, alone.Comment)
 	}
 
@@ -152,7 +153,7 @@ func TestStressCoSignIndicatorIsContext(t *testing.T) {
 		r.HYGSPYDivergence.HYGPrice, r.HYGSPYDivergence.HYG50DMA = new(79.5), new(79.7)
 		r.HYGSPYDivergence.SPYPrice, r.HYGSPYDivergence.SPY52WHigh = new(95.0), new(100.0)
 	}), "HYG vs SPY")
-	if held.Status != "amber" || strings.Contains(held.Comment, "Provisional") || !strings.Contains(held.Comment, "Context, not a stress reading on its own") {
+	if held.Status != "amber" || strings.Contains(held.Comment, "Provisional") || !strings.Contains(held.Comment, "; context, not a stress reading on its own") {
 		t.Fatalf("held proxy red: status %q, comment %q; want amber and the context sentence", held.Status, held.Comment)
 	}
 
@@ -178,7 +179,7 @@ func TestStressProxyRedBesideCashWideningIsContext(t *testing.T) {
 	if res.MarketConfirmation != stressMarketPartial {
 		t.Fatalf("a widening cash row reads market confirmation %q, want partial", res.MarketConfirmation)
 	}
-	if text := stressText(res); strings.Contains(text, "red, not confirmed") || !strings.Contains(text, "context, not a stress reading on its own: breadth and credit") {
+	if text := stressText(res); strings.Contains(text, "red, not confirmed") || !strings.Contains(text, "context, not a stress reading on its own: ETF credit proxy and breadth") {
 		t.Fatalf("the proxy and breadth reds are not worded as context:\n%s", text)
 	}
 }
@@ -195,5 +196,93 @@ func TestStressCoSignRedBesideAStandingWitnessIsUnconfirmed(t *testing.T) {
 	row := stressRowByTitle(res.Rows, "Stress pending confirmation")
 	if row == nil || !strings.Contains(row.Evidence, "red but unconfirmed: credit") || strings.Contains(stressText(res), "ontext, not a stress reading") {
 		t.Fatalf("a proxy red waiting beside a standing term inversion is not worded as unconfirmed:\n%s", stressText(res))
+	}
+}
+
+// A widening of cash credit spreads is named as the cause wherever a witness
+// that warns without confirming is named, in the same sentences.
+func TestStressNamesTheCashWidening(t *testing.T) {
+	t.Parallel()
+	widening := func(r *rpc.RegimeSnapshotResult) {
+		r.CreditSpreads.Band, r.CreditSpreads.HY20DChange = "yellow", new(0.5)
+		r.CreditSpreads.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh}
+	}
+	alone := stressOn(widening)
+	row := stressRowByTitle(alone.Rows, "Market stress")
+	if !strings.HasPrefix(alone.Summary, "An early market warning is flashing (cash credit spreads widening, not confirmed yet)") ||
+		row == nil || row.Guidance != "An early warning is flashing (cash credit spreads widening, not confirmed); below the de-risking trigger." ||
+		!strings.Contains(row.Evidence, "1 yellow (credit); cash credit spreads widening") {
+		t.Fatalf("a widening cash row is not named as the cause:\n%s", stressText(alone))
+	}
+
+	beside := stressOn(func(r *rpc.RegimeSnapshotResult) {
+		widening(r)
+		stressRed(&r.VolOfVol.RegimeIndicatorMeta, true)
+		r.VolOfVol.Last = new(112.0)
+	})
+	if !strings.HasPrefix(beside.Summary, "An early market warning is flashing (vol red and cash credit spreads widening, not confirmed yet)") {
+		t.Fatalf("a widening beside an isolated VVIX red: summary %q", beside.Summary)
+	}
+}
+
+// The stress read serves what a surface may name beside the confirmed reds,
+// with the reader's name and what it is, so the app words it without a name
+// list or a rule of its own.
+func TestStressServesTheUnconfirmedSignals(t *testing.T) {
+	t.Parallel()
+	served := func(shape func(r *rpc.RegimeSnapshotResult)) string {
+		raw, err := json.Marshal(stressOn(shape))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got struct {
+			Market struct {
+				Signals []struct{ Cluster, Name, Role string } `json:"unconfirmed_signals"`
+			} `json:"market"`
+		}
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatal(err)
+		}
+		var parts []string
+		for _, signal := range got.Market.Signals {
+			parts = append(parts, signal.Cluster+"/"+signal.Name+"/"+signal.Role)
+		}
+		return strings.Join(parts, ", ")
+	}
+	for _, tc := range []struct {
+		name  string
+		shape func(r *rpc.RegimeSnapshotResult)
+		want  string
+	}{
+		{"nothing red", func(*rpc.RegimeSnapshotResult) {}, ""},
+		{"proxy and breadth red, no witness", func(r *rpc.RegimeSnapshotResult) {
+			stressRed(&r.Breadth.RegimeIndicatorMeta, true)
+			stressRed(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+		}, "credit/ETF credit proxy/context, breadth/breadth/context"},
+		{"yen and gamma red, no witness", func(r *rpc.RegimeSnapshotResult) {
+			stressRed(&r.USDJPY.RegimeIndicatorMeta, true)
+			stressRed(&r.GammaZero.RegimeIndicatorMeta, true)
+		}, "fx/FX carry proxy/context, gamma/dealer gamma/context"},
+		{"cash credit red that may not confirm", func(r *rpc.RegimeSnapshotResult) {
+			stressRed(&r.CreditSpreads.RegimeIndicatorMeta, false)
+			stressRed(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+		}, "credit/cash credit spreads/witness"},
+		{"isolated VVIX red", func(r *rpc.RegimeSnapshotResult) {
+			stressRed(&r.VolOfVol.RegimeIndicatorMeta, true)
+			r.VolOfVol.Last = new(112.0)
+		}, "vol/vol-of-vol/witness"},
+		{"proxy red waiting beside a standing term inversion", func(r *rpc.RegimeSnapshotResult) {
+			stressRed(&r.VIXTermStructure.RegimeIndicatorMeta, true)
+			stressRed(&r.HYGSPYDivergence.RegimeIndicatorMeta, false)
+		}, "credit/ETF credit proxy/waiting"},
+		{"cash credit widening with the proxy red", func(r *rpc.RegimeSnapshotResult) {
+			stressRed(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+			r.CreditSpreads.Band, r.CreditSpreads.HY20DChange = "yellow", new(0.5)
+			r.CreditSpreads.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh}
+		}, "credit/ETF credit proxy/context, credit/cash credit spreads widening/widening"},
+	} {
+		if got := served(tc.shape); got != tc.want {
+			t.Errorf("%s: unconfirmed signals %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

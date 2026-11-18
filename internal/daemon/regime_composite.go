@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -101,6 +102,9 @@ type regimeEvidenceRow struct {
 	// context marks a co-sign row that is red while no stress witness
 	// stands: shown, but not a stress reading on its own.
 	context bool
+	// widening marks the cash credit row while its widening opens a warning
+	// from a yellow: it is named as the cause, not as one more mixed reading.
+	widening bool
 }
 
 func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
@@ -117,56 +121,58 @@ func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 	return []regimeEvidenceRow{
 		{
 			scope:   "vix_term_structure",
-			name:    "volatility term structure",
+			name:    rpc.RegimeRowName(rpc.RegimeIndicatorVIXTerm),
 			status:  r.VIXTermStructure.Status,
 			band:    bandForVIX(r.VIXTermStructure),
 			message: r.VIXTermStructure.ErrorMessage,
 		},
 		{
 			scope:   "vol_of_vol",
-			name:    "vol-of-vol",
+			name:    rpc.RegimeRowName(rpc.RegimeIndicatorVolOfVol),
 			status:  r.VolOfVol.Status,
 			band:    bandForVolOfVol(r.VolOfVol),
 			message: r.VolOfVol.ErrorMessage,
 		},
 		context(regimeEvidenceRow{
 			scope:   "hyg_spy_divergence",
-			name:    "ETF credit proxy",
+			name:    rpc.RegimeRowName(rpc.RegimeIndicatorHYGSPY),
 			status:  r.HYGSPYDivergence.Status,
 			band:    bandForHYGSPY(r.HYGSPYDivergence),
 			message: r.HYGSPYDivergence.ErrorMessage,
 		}, rpc.RegimeClusterCredit),
 		{
 			scope:   "credit_spreads",
-			name:    "cash credit spreads",
+			name:    rpc.RegimeRowName(rpc.RegimeIndicatorCredit),
 			status:  r.CreditSpreads.Status,
 			band:    bandForCreditSpreads(r.CreditSpreads),
 			message: r.CreditSpreads.ErrorMessage,
+			// The opener is listed only while the row is not red.
+			widening: slices.Contains(rpc.RegimeWarningOpeners(r), rpc.RegimeWarningCashWidening),
 		},
 		{
 			scope:   "funding_stress",
-			name:    "funding spread",
+			name:    rpc.RegimeRowName(rpc.RegimeIndicatorFunding),
 			status:  r.FundingStress.Status,
 			band:    bandForFundingStress(r.FundingStress),
 			message: r.FundingStress.ErrorMessage,
 		},
 		context(regimeEvidenceRow{
 			scope:   "usd_jpy",
-			name:    "FX carry proxy",
+			name:    rpc.RegimeRowName(rpc.RegimeIndicatorUSDJPY),
 			status:  r.USDJPY.Status,
 			band:    bandForUSDJPY(r.USDJPY),
 			message: r.USDJPY.ErrorMessage,
 		}, rpc.RegimeClusterFX),
 		context(regimeEvidenceRow{
 			scope:   "gamma_zero",
-			name:    "dealer gamma",
+			name:    rpc.RegimeRowName(rpc.RegimeIndicatorGammaZero),
 			status:  r.GammaZero.Status,
 			band:    bandForGamma(r.GammaZero),
 			message: r.GammaZero.Envelope.Error,
 		}, rpc.RegimeClusterGamma),
 		context(regimeEvidenceRow{
 			scope:   "breadth",
-			name:    "breadth",
+			name:    rpc.RegimeRowName(rpc.RegimeIndicatorBreadth),
 			status:  r.Breadth.Status,
 			band:    bandForBreadth(r.Breadth),
 			message: "",
@@ -254,6 +260,8 @@ func regimePunchLine(rows []regimeEvidenceRow) string {
 		switch {
 		case row.context:
 			key = "context"
+		case row.widening:
+			key = "widening"
 		case key == "":
 			key = unrankedEvidenceState(row.status)
 		}
@@ -265,6 +273,7 @@ func regimePunchLine(rows []regimeEvidenceRow) string {
 		word string
 	}{
 		{"red", "stressed"},
+		{"widening", "widening"},
 		{"yellow", "mixed"},
 		{"green", "constructive"},
 		{"computing", "computing"},

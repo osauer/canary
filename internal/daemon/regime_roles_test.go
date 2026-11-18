@@ -83,3 +83,19 @@ func TestRetainedSnapshotFromThePreviousLifecycleVersion(t *testing.T) {
 		t.Fatal("a snapshot stamped with the current lifecycle version is refused for its fingerprint")
 	}
 }
+
+// A widening of cash credit spreads opens a warning from a yellow row. The
+// summary names it as widening, not as one more mixed reading.
+func TestRegimeSummaryNamesTheCashWidening(t *testing.T) {
+	r := coSignRedSnapshot()
+	r.CreditSpreads.HYOAS, r.CreditSpreads.HY20DChange = new(3.6), new(0.62)
+	annotateRegimeMetadata(r, nil)
+	r.CreditSpreads.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh}
+	if openers := rpc.RegimeWarningOpeners(r); !slices.Contains(openers, rpc.RegimeWarningCashWidening) {
+		t.Fatalf("the fixture's cash row does not open a warning: %v", openers)
+	}
+	summary := buildRegimeSummary(r)
+	if !strings.HasPrefix(summary.PunchLine, "cash credit spreads is widening; ") || strings.Contains(summary.PunchLine, "mixed") {
+		t.Fatalf("punch line %q; want the cash row named as widening", summary.PunchLine)
+	}
+}

@@ -277,7 +277,7 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		state.Stage = LifecycleEarlyWarning
 		state.Severity = "watch"
 		state.Timing = LifecycleTimingForwardWarning
-	case regimeLifecycleOpportunity(*r, cb, tally):
+	case regimeLifecycleOpportunity(*r, tally):
 		state.Stage = LifecycleOpportunity
 		state.Severity = "watch"
 		state.Timing = LifecycleTimingRecovery
@@ -910,13 +910,14 @@ func RegimeWarningOpeners(r *RegimeSnapshotResult) []string {
 }
 
 // Opportunity and stabilization are tape-driven recovery stages: a frozen
-// closed-date print cannot enter them. Their yellow counts read the stress
-// witnesses only: a day whose only yellows are co-signs has nothing to
-// stabilize from and is quiet, and co-sign yellows do not hold a rebound
-// back from reading as an opportunity.
-func regimeLifecycleOpportunity(r RegimeSnapshotResult, cb RegimeClusterBands, t regimeClusterTally) bool {
+// closed-date print cannot enter them. Opportunity counts every cluster at
+// yellow, co-signs included: it is the stage a reader may act on, and the
+// roles did not loosen it. Stabilization counts the stress witnesses only: a
+// day whose only yellows are co-signs has nothing to stabilize from and is
+// quiet.
+func regimeLifecycleOpportunity(r RegimeSnapshotResult, t regimeClusterTally) bool {
 	return t.red == 0 &&
-		cb.witnessYellows() <= 1 &&
+		t.yellow <= 1 &&
 		t.ranked >= 3 &&
 		regimeTapeConfirmable(r) &&
 		pctAtLeast(r.HYGSPYDivergence.SPYChangePct, 1.5) &&

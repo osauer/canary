@@ -899,13 +899,14 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 	slices.Sort(out.EligibleRedClusterNames)
 	slices.Sort(out.UnconfirmedRedClusterNames)
 	// The regime's own list of what opens a market warning decides which of
-	// those reds is a warning (stressUnconfirmedReds).
+	// those reds is a warning (stressUnconfirmedSignals).
 	out.WarningOpeners = rpc.RegimeWarningOpeners(&r)
 	slices.Sort(out.AmbiguousClusters)
 	slices.Sort(out.PartialClusters)
 	slices.Sort(out.ComputingClusters)
 	slices.Sort(out.DegradedClusters)
 	slices.Sort(out.StaleClusters)
+	out.UnconfirmedSignals = stressUnconfirmedSignals(r, out)
 	out.RedClusters = len(out.RedClusterNames)
 	out.EligibleRedClusters = len(out.EligibleRedClusterNames)
 	out.YellowClusters = len(out.YellowClusterNames)
@@ -1140,15 +1141,21 @@ func stressCoSignComment(indicator string, eligibility *rpc.RegimeEligibility) s
 	if indicator == rpc.RegimeIndicatorHYGSPY && eligibility != nil && !eligibility.Eligible {
 		gate, _ := rpc.RegimeGateFor(indicator)
 		if slices.Contains(eligibility.Reasons, "depth_below_min") {
-			return fmt.Sprintf("%s; counts beside a stress witness from %.2f%% below the 50-day average", rpc.RegimeContextNote, gate.MinDepth)
+			return fmt.Sprintf("%s; counts beside a stress witness from %.2f%% below the 50-day average", stressContextClause(), gate.MinDepth)
 		}
 		for _, reason := range eligibility.Reasons {
 			if strings.HasPrefix(reason, "streak_") {
-				return fmt.Sprintf("%s; counts beside a stress witness after %d sessions", rpc.RegimeContextNote, gate.MinSessions)
+				return fmt.Sprintf("%s; counts beside a stress witness after %d sessions", stressContextClause(), gate.MinSessions)
 			}
 		}
 	}
-	return rpc.RegimeContextNote
+	return stressContextClause()
+}
+
+// stressContextClause is the context sentence as one clause of a semicolon
+// list, where it does not start a sentence: lower case.
+func stressContextClause() string {
+	return strings.ToLower(rpc.RegimeContextNote[:1]) + rpc.RegimeContextNote[1:]
 }
 
 func stressGammaDegraded(r rpc.RegimeSnapshotResult) bool {
@@ -1332,9 +1339,9 @@ func stressMarketRow(m StressMarketSummary) StressRow {
 	case m.YellowClusters >= 3 && stressClusterWarning(m):
 		return stressRow("Deteriorating tape", risk.DirectionDefensive, risk.SeverityWatch, "Freeze new risk and review hedges; no urgent action without red confirmation.", evidence)
 	default:
-		if witnesses, _, _ := stressUnconfirmedReds(m); len(witnesses) > 0 {
+		if cause := stressProvisionalCause(m); cause != "" {
 			// The overall summary calls this warning out; the check still
-			return stressRow("Market stress", "", risk.SeverityObserve, "An early warning is flashing ("+stressClusterList(witnesses)+" red, not confirmed); below the de-risking trigger.", evidence)
+			return stressRow("Market stress", "", risk.SeverityObserve, "An early warning is flashing ("+cause+", not confirmed); below the de-risking trigger.", evidence)
 		}
 		return stressRow("Market stress", "", risk.SeverityObserve, "No market-regime de-risking trigger.", evidence)
 	}
@@ -1726,25 +1733,83 @@ func stressClusterWarning(m StressMarketSummary) bool {
 	})
 }
 
-// stressUnconfirmedReds splits the unconfirmed reds by what they wait for.
-// witnesses are the stress witnesses that warn without confirming. waiting
-// adds the co-sign reds beside a standing witness: they keep their cluster
-// red and count once they pass their own gate. context is the rest, a
-// co-sign red with no witness standing, which the cluster combination holds
-// at yellow (the same test as the indicator rows and the regime summary).
-func stressUnconfirmedReds(m StressMarketSummary) (witnesses, waiting, context []string) {
-	for _, name := range m.UnconfirmedRedClusterNames {
+// stressUnconfirmedSignals lists what a surface may name beside the confirmed
+// reds, in cluster order with the cash widening last. A stress witness the
+// regime names as provisional warns without confirming. A co-sign red whose
+// cluster stays red in the shared combination stands beside a witness and
+// waits on its own gate. Any other is a co-sign with no witness standing:
+// context, the same test as the indicator rows and the regime summary. Each
+// carries the reader's name of the row that is red; in the credit cluster
+// that is the cash row whenever the cash row is red.
+func stressUnconfirmedSignals(r rpc.RegimeSnapshotResult, m StressMarketSummary) []rpc.StressUnconfirmedSignal {
+	rows := map[string][]struct{ indicator, band string }{
+		"vol":     {{rpc.RegimeIndicatorVIXTerm, r.VIXTermStructure.Band}, {rpc.RegimeIndicatorVolOfVol, r.VolOfVol.Band}},
+		"credit":  {{rpc.RegimeIndicatorCredit, r.CreditSpreads.Band}, {rpc.RegimeIndicatorHYGSPY, r.HYGSPYDivergence.Band}},
+		"funding": {{rpc.RegimeIndicatorFunding, r.FundingStress.Band}},
+		"fx":      {{rpc.RegimeIndicatorUSDJPY, r.USDJPY.Band}},
+		"gamma":   {{rpc.RegimeIndicatorGammaZero, r.GammaZero.Band}},
+		"breadth": {{rpc.RegimeIndicatorBreadth, r.Breadth.Band}},
+	}
+	var out []rpc.StressUnconfirmedSignal
+	for _, cluster := range rpc.RegimeClusterNames {
+		if !slices.Contains(m.UnconfirmedRedClusterNames, cluster) {
+			continue
+		}
+		role := rpc.StressSignalContext
 		switch {
-		case slices.Contains(m.WarningOpeners, rpc.RegimeWarningProvisionalWitness+":"+name):
-			witnesses = append(witnesses, name)
-			waiting = append(waiting, name)
-		case slices.Contains(m.RedClusterNames, name):
-			waiting = append(waiting, name)
-		default:
-			context = append(context, name)
+		case slices.Contains(m.WarningOpeners, rpc.RegimeWarningProvisionalWitness+":"+cluster):
+			role = rpc.StressSignalWitness
+		case slices.Contains(m.RedClusterNames, cluster):
+			role = rpc.StressSignalWaiting
+		}
+		var names []string
+		for _, row := range rows[cluster] {
+			if row.band == "red" {
+				names = append(names, rpc.RegimeRowName(row.indicator))
+				if cluster == "credit" {
+					break
+				}
+			}
+		}
+		name := strings.Join(names, " and ")
+		if name == "" {
+			// A red the cluster holds with no row red: keep the cluster key.
+			name = cluster
+		}
+		out = append(out, rpc.StressUnconfirmedSignal{Cluster: cluster, Name: name, Role: role})
+	}
+	if slices.Contains(m.WarningOpeners, rpc.RegimeWarningCashWidening) {
+		out = append(out, rpc.StressUnconfirmedSignal{Cluster: "credit", Name: rpc.RegimeCashWideningName(), Role: rpc.StressSignalWidening})
+	}
+	return out
+}
+
+func stressSignalName(s rpc.StressUnconfirmedSignal) string    { return s.Name }
+func stressSignalCluster(s rpc.StressUnconfirmedSignal) string { return s.Cluster }
+
+// stressUnconfirmed returns one field of the unconfirmed signals that have
+// one of the given roles, in served order.
+func stressUnconfirmed(m StressMarketSummary, field func(rpc.StressUnconfirmedSignal) string, roles ...string) []string {
+	var out []string
+	for _, signal := range m.UnconfirmedSignals {
+		if slices.Contains(roles, signal.Role) {
+			out = append(out, field(signal))
 		}
 	}
-	return witnesses, waiting, context
+	return out
+}
+
+// stressProvisionalCause names what warns without confirming, for the early
+// warning sentences: the witness clusters that are red, then the cash
+// widening. Empty when nothing does.
+func stressProvisionalCause(m StressMarketSummary) string {
+	var parts []string
+	if witnesses := stressUnconfirmed(m, stressSignalCluster, rpc.StressSignalWitness); len(witnesses) > 0 {
+		slices.Sort(witnesses)
+		parts = append(parts, stressClusterList(witnesses)+" red")
+	}
+	parts = append(parts, stressUnconfirmed(m, stressSignalName, rpc.StressSignalWidening)...)
+	return strings.Join(parts, " and ")
 }
 
 func partialMarketPressure(m StressMarketSummary) bool {
@@ -2044,8 +2109,8 @@ func stressDecisionSummary(r StressResult) string {
 }
 
 func stressPartialMarketSummary(m StressMarketSummary) string {
-	if witnesses, _, _ := stressUnconfirmedReds(m); m.EligibleRedClusters == 0 && len(witnesses) > 0 {
-		return "An early market warning is flashing (" + stressClusterList(witnesses) + " red, not confirmed yet)"
+	if cause := stressProvisionalCause(m); m.EligibleRedClusters == 0 && cause != "" {
+		return "An early market warning is flashing (" + cause + ", not confirmed yet)"
 	}
 	if m.EligibleRedClusters >= 2 && !stressGovernedSeverityAllows(m, risk.SeverityAct) {
 		return "Confirmed market stress is held at watch by regime policy"
@@ -3466,13 +3531,14 @@ func stressMarketEvidence(m StressMarketSummary) string {
 	if len(parts) == 0 {
 		parts = append(parts, "no stressed clusters")
 	}
-	_, waiting, context := stressUnconfirmedReds(m)
-	if len(waiting) > 0 {
+	if waiting := stressUnconfirmed(m, stressSignalCluster, rpc.StressSignalWitness, rpc.StressSignalWaiting); len(waiting) > 0 {
+		// Cluster keys in their sorted order, as this clause always read.
+		slices.Sort(waiting)
 		parts = append(parts, "red but unconfirmed: "+stressClusterList(waiting))
 	}
-	if len(context) > 0 {
-		// Lower case: this is one clause in a semicolon list.
-		parts = append(parts, strings.ToLower(rpc.RegimeContextNote[:1])+rpc.RegimeContextNote[1:]+": "+stressClusterList(context))
+	parts = append(parts, stressUnconfirmed(m, stressSignalName, rpc.StressSignalWidening)...)
+	if context := stressUnconfirmed(m, stressSignalName, rpc.StressSignalContext); len(context) > 0 {
+		parts = append(parts, stressContextClause()+": "+stressClusterList(context))
 	}
 	total := m.RankedClusters + m.UnrankedClusters
 	if m.RankedClusters < total {

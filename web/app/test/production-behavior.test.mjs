@@ -1203,10 +1203,17 @@ test("unconfirmed red market clusters render as provisional amber", () => {
 });
 
 test("a co-sign red with no stress witness is context, not a provisional warning", () => {
-  // The stress read names what opens a market warning. A provisional red it
-  // does not name as a stress witness is a co-sign: shown, never a warning.
-  const market = { unconfirmed_red_cluster_names: ["credit"], eligible_red_clusters: 0, yellow_cluster_names: ["credit"] };
-  assert.equal(stress.regimeGovernedNote({}, market), "Context, not a stress reading on its own: HYG 50-DMA.");
+  // The stress read serves what a surface may name beside the confirmed reds:
+  // the reader's name and what it is. A co-sign with no witness standing is
+  // context, shown under its served name and never a warning.
+  const context = (cluster, name) => ({ cluster, name, role: "context" });
+  const market = {
+    unconfirmed_red_cluster_names: ["credit"],
+    eligible_red_clusters: 0,
+    yellow_cluster_names: ["credit"],
+    unconfirmed_signals: [context("credit", "ETF credit proxy")],
+  };
+  assert.equal(stress.regimeGovernedNote({}, market), "Context, not a stress reading on its own: ETF credit proxy");
   assert.equal(stress.regimeGovernedNote({}, market, true), "", "context does not replace the action on the master line");
   for (const confirmation of ["none", "partial"]) {
     const current = { market_confirmation: confirmation, market, summary: "served summary" };
@@ -1215,20 +1222,60 @@ test("a co-sign red with no stress witness is context, not a provisional warning
     assert.equal(stress.stressSummaryText(current), "served summary");
   }
 
-  const witnessMarket = { unconfirmed_red_cluster_names: ["credit", "vol"], warning_openers: ["provisional_witness:vol"], eligible_red_clusters: 0 };
+  // Every co-sign is named, in the served order, and no full stop sits before
+  // the part that follows.
+  const all = { unconfirmed_signals: [context("credit", "ETF credit proxy"), context("fx", "FX carry proxy"), context("gamma", "dealer gamma"), context("breadth", "breadth")] };
+  assert.equal(stress.regimeGovernedNote({}, all), "Context, not a stress reading on its own: ETF credit proxy, FX carry proxy, dealer gamma, and breadth");
+  const governed = { regime: { lifecycle: { governors: [{ action: "severity_capped", to: "watch", reason: "confirming_cluster_quality" }] } } };
+  assert.equal(stress.regimeGovernedNote(governed, market),
+    "Context, not a stress reading on its own: ETF credit proxy · severity held at watch — confirming data quality impaired");
+
+  const witnessMarket = {
+    unconfirmed_red_cluster_names: ["credit", "vol"],
+    eligible_red_clusters: 0,
+    unconfirmed_signals: [{ cluster: "vol", name: "vol-of-vol", role: "witness" }, context("credit", "ETF credit proxy")],
+  };
   const witness = { market_confirmation: "partial", market: witnessMarket, summary: "served summary" };
   const explanation = stress.marketExplanation(witness);
   assert.equal(explanation.title, "Provisional warning");
   assert.equal(explanation.body, "volatility feed needs confirmation or fresher data. Treat this as watch context, not confirmed stress.");
   assert.match(stress.stressSummaryText(witness), /^Early market warning, not confirmed yet/);
   assert.equal(stress.regimeGovernedNote({}, witnessMarket),
-    "volatility feed is provisional; Canary will confirm or clear it on the next fresh read · Context, not a stress reading on its own: HYG 50-DMA.");
+    "volatility feed is provisional; Canary will confirm or clear it on the next fresh read · Context, not a stress reading on its own: ETF credit proxy");
   assert.equal(stress.regimeGovernedNote({}, witnessMarket, true), "volatility feed awaiting confirmation");
+});
 
-  // Cash credit widening warns without a red: the proxy red beside it is context.
-  const widening = { unconfirmed_red_cluster_names: ["credit"], warning_openers: ["cash_widening"], eligible_red_clusters: 0 };
-  assert.equal(stress.regimeGovernedNote({}, widening), "Context, not a stress reading on its own: HYG 50-DMA.");
-  assert.equal(stress.stressHasProvisionalOnlyMarketWarning({ market_confirmation: "partial", market: widening }), false);
+test("a cash credit widening and a cash credit red are named as the cash row", () => {
+  // Cash credit widening warns without a red. It is named as the cause in the
+  // sentences a provisional witness is named in; the proxy red beside it is
+  // context.
+  const widening = {
+    unconfirmed_red_cluster_names: ["credit"],
+    eligible_red_clusters: 0,
+    unconfirmed_signals: [
+      { cluster: "credit", name: "ETF credit proxy", role: "context" },
+      { cluster: "credit", name: "cash credit spreads widening", role: "widening" },
+    ],
+  };
+  const current = { market_confirmation: "partial", market: widening, summary: "served summary" };
+  assert.equal(stress.stressHasProvisionalOnlyMarketWarning(current), true);
+  assert.equal(stress.marketExplanation(current).title, "Provisional warning");
+  assert.equal(stress.marketExplanation(current).body,
+    "cash credit spreads widening needs confirmation or fresher data. Treat this as watch context, not confirmed stress.");
+  assert.equal(stress.regimeGovernedNote({}, widening),
+    "cash credit spreads widening is provisional; Canary will confirm or clear it on the next fresh read · Context, not a stress reading on its own: ETF credit proxy");
+  assert.equal(stress.regimeGovernedNote({}, widening, true), "cash credit spreads widening awaiting confirmation");
+
+  // A red in the credit cluster that is the cash row's is never named as the
+  // HYG proxy.
+  const cash = {
+    unconfirmed_red_cluster_names: ["credit"],
+    eligible_red_clusters: 0,
+    unconfirmed_signals: [{ cluster: "credit", name: "cash credit spreads", role: "witness" }],
+  };
+  assert.equal(stress.regimeGovernedNote({}, cash), "cash credit spreads is provisional; Canary will confirm or clear it on the next fresh read");
+  assert.equal(stress.marketExplanation({ market_confirmation: "partial", market: cash }).body,
+    "cash credit spreads needs confirmation or fresher data. Treat this as watch context, not confirmed stress.");
 });
 
 test("a co-sign red waiting on its own gate beside a standing witness stays provisional", () => {
@@ -1239,7 +1286,7 @@ test("a co-sign red waiting on its own gate beside a standing witness stays prov
     eligible_red_cluster_names: ["vol"],
     eligible_red_clusters: 1,
     unconfirmed_red_cluster_names: ["credit"],
-    warning_openers: ["eligible_red"],
+    unconfirmed_signals: [{ cluster: "credit", name: "ETF credit proxy", role: "waiting" }],
   };
   assert.equal(stress.regimeGovernedNote({}, market), "HYG 50-DMA is provisional; Canary will confirm or clear it on the next fresh read");
   assert.equal(stress.regimeGovernedNote({}, market, true), "HYG 50-DMA awaiting confirmation");
