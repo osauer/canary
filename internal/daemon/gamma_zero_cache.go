@@ -198,6 +198,14 @@ type gammaComputation struct {
 // poll for hours).
 const gammaErrorRetryTTL = 60 * time.Second
 
+// gammaComputeBudget bounds how long one compute may hold its slot. A healthy
+// combined compute (SPY phase, then SPX phase) took about 13 minutes on
+// 2026-11-18 after a cold start; the documented worst case is two phases of
+// about 6 minutes each. Past the budget kickOrJoin abandons the job: it is
+// cancelled and counted as a failure, so the retry gate paces the next
+// attempt. Engineering bound, not a freshness limit; the owner may retune it.
+const gammaComputeBudget = 30 * time.Minute
+
 // gammaErrorRetryMaxTTL caps the escalating retry gate. Matches
 const gammaErrorRetryMaxTTL = 15 * time.Minute
 
@@ -482,6 +490,23 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 			slot.rememberError(slot.refresh)
 		}
 		slot.refresh = nil
+	}
+
+	// A refresh that outlives its budget is abandoned, not waited on: every
+	// other path below spawns only while slot.refresh is nil, so a job stuck
+	// in a wait the context cannot reach would otherwise block all refreshes
+	// until a daemon restart (2026-11-18: two hours stale in session). Counted
+	// as a failure so retryAllowed paces the next attempt; the cancelled job
+	// can no longer publish (notifyJobPublication and promoteRefreshOnDone
+	// both require it to still be slot.refresh).
+	if slot.refresh != nil && !slot.refresh.isDone() && now.Sub(slot.refresh.startedAt) >= gammaComputeBudget {
+		stuck := slot.refresh
+		stuck.cancel()
+		slot.refresh = nil
+		slot.errStreak++
+		slot.lastFailAt = now
+		gammaLogf{inner: c.log}.Warnf("gamma compute: scope=%s refresh abandoned after %s without finishing; retrying behind the backoff",
+			scope, now.Sub(stuck.startedAt).Round(time.Second))
 	}
 
 	// SessionClosed gate: outside the regular U.S. listed-options
