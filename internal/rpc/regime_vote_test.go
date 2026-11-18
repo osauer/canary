@@ -169,16 +169,21 @@ func TestRegimeCashCreditRedStandsOnItsOwnEvidence(t *testing.T) {
 	}
 }
 
-// A warning cannot outlive a broken witness on a co-sign's back: when the
-// only cluster that opens it is defective, the read is undefined, whatever
-// the co-signs show.
-func TestRegimeWarningDoesNotRestOnACoSignWhenItsWitnessIsBroken(t *testing.T) {
+// A warning does not rest on a red nobody can read: a term row in error with
+// its last red held is data incomplete while every co-sign is green. Beside a
+// yellow co-sign the dark witness is itself the early warning (owner ruling
+// 2026-11-18 14:47 CET).
+func TestRegimeWarningDoesNotRestOnADarkRed(t *testing.T) {
 	r := calmRegime()
 	red(&r.VIXTermStructure.RegimeIndicatorMeta, false)
-	r.VolOfVol = RegimeVolOfVol{Status: RegimeStatusError}
-	r.HYGSPYDivergence.Band = "yellow"
+	r.VIXTermStructure.Status = RegimeStatusError
+	r.VIXTermStructure.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
 	if got := regimeVote(r); got.Stage != LifecycleDataQuality {
 		t.Fatalf("stage = %s (readiness %s), want data_quality", got.Stage, got.Readiness)
+	}
+	r.HYGSPYDivergence.Band = "yellow"
+	if got := regimeVote(r); got.Stage != LifecycleEarlyWarning || !slices.Contains(RegimeWarningOpeners(r), "witness_unavailable") {
+		t.Fatalf("beside a yellow proxy: stage = %s, openers %v; want early_warning opened by the unavailable witness", got.Stage, RegimeWarningOpeners(r))
 	}
 }
 

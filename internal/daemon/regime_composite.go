@@ -105,6 +105,10 @@ type regimeEvidenceRow struct {
 	// widening marks the cash credit row while its widening opens a warning
 	// from a yellow: it is named as the cause, not as one more mixed reading.
 	widening bool
+	// weak marks a co-sign row at yellow or red beside a stress witness
+	// nobody can read: with it the warning flashes, so it is named as weak,
+	// not as mixed or as context.
+	weak bool
 }
 
 func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
@@ -112,6 +116,8 @@ func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 		return nil
 	}
 	cb := rpc.BuildRegimeClusterBands(r)
+	openers := rpc.RegimeWarningOpeners(r)
+	darkWitness := slices.Contains(openers, rpc.RegimeWarningWitnessUnavailable)
 	// served words a usable row by the band the daemon serves, which holds a
 	// red through its exit hysteresis, so the summary agrees with the
 	// clusters. A row with no usable reading keeps its unranked state.
@@ -124,11 +130,12 @@ func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 			scope: scope, name: rpc.RegimeRowName(indicator), status: status, band: band, message: message,
 			// A co-sign red with no stress witness standing, decided per row.
 			context: band == "red" && cb.RowRed(indicator) == rpc.RegimeRedContext,
+			weak:    darkWitness && rpc.RegimeIndicatorRole(indicator) == rpc.RegimeRoleCoSign && (band == "yellow" || band == "red"),
 		}
 	}
 	credit := row(rpc.RegimeIndicatorCredit, "credit_spreads", r.CreditSpreads.Status, bandForCreditSpreads(r.CreditSpreads), r.CreditSpreads.ErrorMessage, r.CreditSpreads.RegimeIndicatorMeta)
 	// The opener is listed only while the row is not red.
-	credit.widening = slices.Contains(rpc.RegimeWarningOpeners(r), rpc.RegimeWarningCashWidening)
+	credit.widening = slices.Contains(openers, rpc.RegimeWarningCashWidening)
 	return []regimeEvidenceRow{
 		row(rpc.RegimeIndicatorVIXTerm, "vix_term_structure", r.VIXTermStructure.Status, bandForVIX(r.VIXTermStructure), r.VIXTermStructure.ErrorMessage, r.VIXTermStructure.RegimeIndicatorMeta),
 		row(rpc.RegimeIndicatorVolOfVol, "vol_of_vol", r.VolOfVol.Status, bandForVolOfVol(r.VolOfVol), r.VolOfVol.ErrorMessage, r.VolOfVol.RegimeIndicatorMeta),
@@ -219,6 +226,8 @@ func regimePunchLine(rows []regimeEvidenceRow) string {
 	for _, row := range rows {
 		key := row.band
 		switch {
+		case row.weak:
+			key = "weak"
 		case row.context:
 			key = "context"
 		case row.widening:
@@ -235,6 +244,7 @@ func regimePunchLine(rows []regimeEvidenceRow) string {
 	}{
 		{"red", "stressed"},
 		{"widening", "widening"},
+		{"weak", "weak"},
 		{"yellow", "mixed"},
 		{"green", "constructive"},
 		{"computing", "computing"},

@@ -250,13 +250,11 @@ func CompactRegimeMonitor(r *RegimeSnapshotResult) RegimeMonitorResult {
 	}
 	CompactRegimeSnapshot(r)
 	out := compactRegimeMonitor(r)
-	indicators := []string{
-		RegimeIndicatorVIXTerm, RegimeIndicatorVolOfVol, RegimeIndicatorHYGSPY, RegimeIndicatorCredit,
-		RegimeIndicatorFunding, RegimeIndicatorUSDJPY, RegimeIndicatorGammaZero, RegimeIndicatorBreadth,
-	}
+	// The monitor's indicators are in the order of the served rows.
+	rows := regimeRows(r)
 	for i := range out.Indicators {
 		for _, standing := range r.RowStandings {
-			if i < len(indicators) && standing.Indicator == indicators[i] {
+			if i < len(rows) && standing.Indicator == rows[i].indicator {
 				out.Indicators[i].Role, out.Indicators[i].Red, out.Indicators[i].Note = standing.Role, standing.Red, standing.Note
 			}
 		}

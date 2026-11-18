@@ -219,11 +219,25 @@ volatility, funding and cash credit spreads are stress witnesses and can start
 a warning; the HYG/SPY proxy, USD/JPY, gamma and breadth are co-signs that
 count only beside a standing witness. A provisional red stays visible. A
 witness's may support `early_warning` when the required evidence set is
-otherwise usable; a co-sign's opens nothing. One cluster whose evidence has gone defective or stale
+otherwise usable; a co-sign's opens nothing. A witness is judged by its own
+row, whatever the row beside it in its cluster serves. One cluster whose evidence has gone defective or stale
 degrades readiness and is named rather than discarding the other five; two of
 them, an unattributable defect, or a defect in the very evidence the current
 stage rests on produce `data_quality`, blocked readiness, and the label
 `Market state undefined — data incomplete`.
+
+A stress witness that cannot be read beside a co-sign at yellow or red reads
+`early_warning`, not `data_quality` and never a calm stage (owner ruling
+2026-11-18 14:47 CET: "Early warning"; what cannot be read is assumed to be
+the worst). The trading rulebook then uses its early-warning thresholds. This
+warning also shows while an input arrives late: VVIX on a Monday evening
+until Cboe's Monday close is read, the VIX/VIX3M row from 09:31 until the
+first VIX3M tick or after a missed tick. From the retained readings since
+2026-10-06, an estimate puts it at about 20% of the time. What still bounds
+risk: a calm read only rises, a confirmed stress keeps its own rules, and the
+early-warning thresholds are stricter than calm; the one loosening is a
+confirmed stress resting on the VIX/VIX3M row while that row is dark, which
+reads `early_warning` until the row returns.
 
 Thresholds and severity governors labeled `heuristic` and `pending_backtest` are
 reviewed starting assumptions awaiting point-in-time calibration, not proven

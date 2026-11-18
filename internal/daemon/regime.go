@@ -691,7 +691,9 @@ func regimeRoleNote(indicator string) string {
 	if rpc.RegimeIndicatorRole(indicator) != rpc.RegimeRoleCoSign {
 		return ""
 	}
-	return " This row is a co-sign: an eligible red counts toward confirmed stress only while a stress witness stands (equity volatility, funding, or cash credit spreads), and by itself it opens no warning."
+	witnesses := rpc.RegimeWitnessNames()
+	return " This row is a co-sign: an eligible red counts toward confirmed stress only while a stress witness stands (" +
+		strings.Join(witnesses[:len(witnesses)-1], ", ") + ", or " + witnesses[len(witnesses)-1] + "), and by itself it opens no warning."
 }
 
 const vixTermNotes = "VIX (30-day implied vol) divided by VIX3M (3-month implied vol). Spec thresholds: <0.92 green (healthy contango), 0.92-1.00 yellow (flattening), >1.00 red (backwardation — acute stress pricing). Signal requires sustained inversion over 2-3 sessions, not a single Fed-day spike. Confirmation gate: a red may confirm stress only after 2 consecutive NY trading sessions of inversion (or ratio >= 1.05 day one) on a fresh same-session tick; earlier or stale reds are provisional and warn only. In session VIX3M comes from the gateway; outside Cboe's publication window the served VIX3M is Cboe's official dated close, and comparing it against the gateway's own reading (vix3m_cross_check) is what makes a stuck or lapsed index subscription visible — an uncorroborated or contradicted leg reads overdue, never not_due. On official non-trading dates the VIX day-change fields are pinned to the official daily closes of the last two completed sessions (vix_change_basis names them); frozen weekend prints and reset prev-close anchors never serve as day-change inputs."

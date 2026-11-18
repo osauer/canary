@@ -10,6 +10,7 @@ import (
 	"github.com/osauer/canary/v3/internal/risk"
 	"io"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -595,32 +596,54 @@ func RegimeClusterCurrency(r RegimeSnapshotResult, name string) string {
 }
 
 // regimeClusterWithinMaxAge bounds a scheduled class by the served staleness
+// policy: every row of the cluster must be within it (regimeRowWithinMaxAge).
 func regimeClusterWithinMaxAge(r RegimeSnapshotResult, name string) bool {
-	maxAge := RegimeSourceMaxAgeSeconds(strings.ToLower(strings.TrimSpace(name)))
-	if maxAge <= 0 {
-		return true
-	}
-	metas := regimeClusterRowMetas(&r, strings.ToLower(strings.TrimSpace(name)))
-	if len(metas) == 0 {
-		return false
-	}
-	now := r.AsOf
-	for i, meta := range metas {
-		asOf := metaAsOf(meta).Time
-		// Only the VVIX daily-close producer supplies this calendar proof.
-		// Other rows retain their original wall-clock bound.
-		if strings.EqualFold(name, "vol") && i == 1 && meta.Freshness != nil &&
-			meta.Freshness.Class == RegimeFreshnessNotDue && meta.Freshness.NextDueAt != nil {
-			if now.IsZero() || !now.Before(*meta.Freshness.NextDueAt) {
-				return false
-			}
+	name = strings.ToLower(strings.TrimSpace(name))
+	found := false
+	for _, row := range regimeRows(&r) {
+		if RegimeIndicatorCluster(row.indicator) != name {
 			continue
 		}
-		if !now.IsZero() && !asOf.IsZero() && now.Sub(asOf) >= time.Duration(maxAge)*time.Second {
+		found = true
+		if !regimeRowWithinMaxAge(r, row) {
 			return false
 		}
 	}
-	return true
+	return found
+}
+
+// regimeRowWithinMaxAge bounds one row's scheduled class by its cluster's
+// served staleness policy.
+func regimeRowWithinMaxAge(r RegimeSnapshotResult, row regimeRow) bool {
+	maxAge := RegimeSourceMaxAgeSeconds(RegimeIndicatorCluster(row.indicator))
+	if maxAge <= 0 {
+		return true
+	}
+	now := r.AsOf
+	// Only the VVIX daily-close producer supplies this calendar proof.
+	// Other rows retain their original wall-clock bound.
+	if row.indicator == RegimeIndicatorVolOfVol && row.freshness != nil &&
+		row.freshness.Class == RegimeFreshnessNotDue && row.freshness.NextDueAt != nil {
+		return !now.IsZero() && now.Before(*row.freshness.NextDueAt)
+	}
+	return now.IsZero() || row.asOf.IsZero() || now.Sub(row.asOf) < time.Duration(maxAge)*time.Second
+}
+
+// regimeWitnessRowDark reports a stress witness row nobody can read: failed,
+// unavailable, stale or overdue by its own currency, missing a field it
+// needs to band, or older than its cluster's age bound (for VVIX on its
+// dated not-due schedule, past its next due close). A valid typed not-due or
+// pending schedule inside the bound is not dark. The row is judged by
+// itself, never by its cluster-mate. These are the row-level parts of the
+// input verdict (regimeLifecycleInputVerdict); the verdict also reads the
+// served data-quality items and source health, which are stamped after the
+// summary reads the warning openers, so a defect only they carry is not a
+// dark witness.
+func regimeWitnessRowDark(r RegimeSnapshotResult, row regimeRow) bool {
+	if RegimeCurrencyGrade(RegimeRowCurrency(row.status, row.freshness)) != RegimeCurrencyGradeNone {
+		return true
+	}
+	return regimeSourceMissingRequiredFields(row.status, row.band, row.fieldsMissing) || !regimeRowWithinMaxAge(r, row)
 }
 
 // gammaBlockedOnSessionCadenceOnly reports whether the only thing keeping a
@@ -969,6 +992,15 @@ type RegimeClusterBands struct {
 	rows map[string]string
 	// witnessEligible marks the clusters whose witness row is an eligible red.
 	witnessEligible []bool
+	// darkWitnesses and weakCoSigns list, in row order, the witness rows
+	// nobody can read (regimeWitnessRowDark) and the co-sign rows served at
+	// yellow or red. Together they open the dark-witness warning.
+	darkWitnesses, weakCoSigns []string
+	// witnessRedLit marks the clusters with a witness row that is red and
+	// not dark; witnessStandsFresh, those with a witness row that is an
+	// eligible red on a current reading. A witness is judged by its own row,
+	// whatever its cluster-mate serves.
+	witnessRedLit, witnessStandsFresh []bool
 }
 
 // RegimeContextNote is how every surface words a co-sign red with no stress
@@ -1001,6 +1033,18 @@ var regimeRowRoles = map[string]string{
 // RegimeIndicatorRole returns a regime row's role.
 func RegimeIndicatorRole(indicator string) string {
 	return regimeRowRoles[indicator]
+}
+
+// RegimeWitnessNames lists the reader's names of the stress witness rows in
+// row order, from the one role list.
+func RegimeWitnessNames() []string {
+	var out []string
+	for _, row := range regimeRows(&RegimeSnapshotResult{}) {
+		if RegimeIndicatorRole(row.indicator) == RegimeRoleWitness {
+			out = append(out, RegimeRowName(row.indicator))
+		}
+	}
+	return out
 }
 
 // What a red row is worth in the combination. A red that counts is eligible
@@ -1061,25 +1105,32 @@ type regimeRow struct {
 	eligible  bool
 	status    string
 	freshness *RegimeFreshness
+	asOf      time.Time
+	// fieldsMissing is the row's own list of required fields it could not
+	// fill (RegimeVIXTerm.FieldsMissing and its siblings).
+	fieldsMissing []string
 }
 
 // regimeRows lists the eight rows in indicator order with their served
 // bands. Dealer gamma votes only with a rankable profile.
 func regimeRows(r *RegimeSnapshotResult) []regimeRow {
-	row := func(indicator string, cluster int, meta RegimeIndicatorMeta, status string) regimeRow {
-		return regimeRow{indicator: indicator, cluster: cluster, band: meta.Band, eligible: redEligible(meta), status: status, freshness: meta.Freshness}
+	row := func(indicator string, cluster int, meta RegimeIndicatorMeta, status string, fieldsMissing []string) regimeRow {
+		return regimeRow{
+			indicator: indicator, cluster: cluster, band: meta.Band, eligible: redEligible(meta), status: status,
+			freshness: meta.Freshness, asOf: metaAsOf(meta).Time, fieldsMissing: fieldsMissing,
+		}
 	}
-	gamma := row(RegimeIndicatorGammaZero, RegimeClusterGamma, r.GammaZero.RegimeIndicatorMeta, r.GammaZero.Status)
+	gamma := row(RegimeIndicatorGammaZero, RegimeClusterGamma, r.GammaZero.RegimeIndicatorMeta, r.GammaZero.Status, r.GammaZero.FieldsMissing)
 	gamma.band, gamma.eligible = rankableLifecycleGammaBand(r.GammaZero), gammaRedEligible(r.GammaZero)
 	return []regimeRow{
-		row(RegimeIndicatorVIXTerm, RegimeClusterEquityVol, r.VIXTermStructure.RegimeIndicatorMeta, r.VIXTermStructure.Status),
-		row(RegimeIndicatorVolOfVol, RegimeClusterEquityVol, r.VolOfVol.RegimeIndicatorMeta, r.VolOfVol.Status),
-		row(RegimeIndicatorHYGSPY, RegimeClusterCredit, r.HYGSPYDivergence.RegimeIndicatorMeta, r.HYGSPYDivergence.Status),
-		row(RegimeIndicatorCredit, RegimeClusterCredit, r.CreditSpreads.RegimeIndicatorMeta, r.CreditSpreads.Status),
-		row(RegimeIndicatorFunding, RegimeClusterFunding, r.FundingStress.RegimeIndicatorMeta, r.FundingStress.Status),
-		row(RegimeIndicatorUSDJPY, RegimeClusterFX, r.USDJPY.RegimeIndicatorMeta, r.USDJPY.Status),
+		row(RegimeIndicatorVIXTerm, RegimeClusterEquityVol, r.VIXTermStructure.RegimeIndicatorMeta, r.VIXTermStructure.Status, r.VIXTermStructure.FieldsMissing),
+		row(RegimeIndicatorVolOfVol, RegimeClusterEquityVol, r.VolOfVol.RegimeIndicatorMeta, r.VolOfVol.Status, nil),
+		row(RegimeIndicatorHYGSPY, RegimeClusterCredit, r.HYGSPYDivergence.RegimeIndicatorMeta, r.HYGSPYDivergence.Status, r.HYGSPYDivergence.FieldsMissing),
+		row(RegimeIndicatorCredit, RegimeClusterCredit, r.CreditSpreads.RegimeIndicatorMeta, r.CreditSpreads.Status, r.CreditSpreads.FieldsMissing),
+		row(RegimeIndicatorFunding, RegimeClusterFunding, r.FundingStress.RegimeIndicatorMeta, r.FundingStress.Status, r.FundingStress.FieldsMissing),
+		row(RegimeIndicatorUSDJPY, RegimeClusterFX, r.USDJPY.RegimeIndicatorMeta, r.USDJPY.Status, r.USDJPY.FieldsMissing),
 		gamma,
-		row(RegimeIndicatorBreadth, RegimeClusterBreadth, r.Breadth.RegimeIndicatorMeta, r.Breadth.Status),
+		row(RegimeIndicatorBreadth, RegimeClusterBreadth, r.Breadth.RegimeIndicatorMeta, r.Breadth.Status, r.Breadth.FieldsMissing),
 	}
 }
 
@@ -1153,14 +1204,51 @@ func (b RegimeClusterBands) widening(i int) bool {
 // provisionalWitnessCount counts the stress witnesses that warn without
 // confirming: a witness red or cash credit widening, once per cluster.
 // Co-sign reds are context and are not counted.
+//
+// A witness nobody can read beside a weak co-sign warns without confirming
+// too (darkWitnessWarns), once per cluster it is in.
 func (b RegimeClusterBands) provisionalWitnessCount() int {
 	n := 0
 	for i := range b.witness {
-		if b.witnessRed(i) || b.widening(i) {
+		if b.witnessRed(i) || b.widening(i) || (b.darkWitnessWarns() && b.darkIn(i)) {
 			n++
 		}
 	}
 	return n
+}
+
+// darkWitnessWarns reports a stress witness nobody can read beside a co-sign
+// at yellow or red. Owner ruling 2026-11-18 14:47 CET: asked "When a real
+// stress input is dark and weak readings are yellow or red, what should
+// Regime say?", the owner answered "Early warning". It keeps the operator
+// decision of 2026-08-11 that unknown cash evidence never softens a live
+// warning: what cannot be read is assumed to be the worst.
+func (b RegimeClusterBands) darkWitnessWarns() bool {
+	return len(b.darkWitnesses) > 0 && len(b.weakCoSigns) > 0
+}
+
+// darkIn reports a dark witness row in cluster i.
+func (b RegimeClusterBands) darkIn(i int) bool {
+	return slices.ContainsFunc(b.darkWitnesses, func(indicator string) bool {
+		return i < len(RegimeClusterNames) && RegimeIndicatorCluster(indicator) == RegimeClusterNames[i]
+	})
+}
+
+// RegimeDarkWitnessCause names what a dark-witness warning rests on, by the
+// reader's names in row order: the witness rows nobody can read and the
+// co-sign rows at yellow or red. Both are empty when the warning is not open.
+func RegimeDarkWitnessCause(r *RegimeSnapshotResult) (unavailable, weak []string) {
+	cb := BuildRegimeClusterBands(r)
+	if !cb.darkWitnessWarns() {
+		return nil, nil
+	}
+	for _, indicator := range cb.darkWitnesses {
+		unavailable = append(unavailable, RegimeRowName(indicator))
+	}
+	for _, indicator := range cb.weakCoSigns {
+		weak = append(weak, RegimeRowName(indicator))
+	}
+	return unavailable, weak
 }
 
 // witnessYellows counts the clusters whose stress witness reads yellow.
@@ -1198,6 +1286,9 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 	witness := make([]string, regimeClusterCount)
 	eligible := make([]bool, regimeClusterCount)
 	witnessEligible := make([]bool, regimeClusterCount)
+	witnessRedLit := make([]bool, regimeClusterCount)
+	witnessStandsFresh := make([]bool, regimeClusterCount)
+	var darkWitnesses, weakCoSigns []string
 	stands := false
 	for _, row := range rows {
 		raw[row.cluster] = strongestLifecycleBand(raw[row.cluster], row.band)
@@ -1205,6 +1296,15 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 			witness[row.cluster] = strongestLifecycleBand(witness[row.cluster], row.band)
 			witnessEligible[row.cluster] = witnessEligible[row.cluster] || row.eligible
 			stands = stands || row.eligible
+			dark := regimeWitnessRowDark(*r, row)
+			if dark {
+				darkWitnesses = append(darkWitnesses, row.indicator)
+			}
+			witnessRedLit[row.cluster] = witnessRedLit[row.cluster] || (row.band == "red" && !dark)
+			witnessStandsFresh[row.cluster] = witnessStandsFresh[row.cluster] ||
+				(row.eligible && RegimeCurrencyMayConfirm(RegimeRowCurrency(row.status, row.freshness)))
+		} else if row.band == "yellow" || row.band == "red" {
+			weakCoSigns = append(weakCoSigns, row.indicator)
 		}
 	}
 	confirmed := append([]string(nil), raw...)
@@ -1239,7 +1339,11 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 	// counts; an old series is a data gap, not a warning.
 	widening := RegimeCurrencyMayConfirm(RegimeRowCurrency(r.CreditSpreads.Status, r.CreditSpreads.Freshness)) &&
 		pctAtLeast(r.CreditSpreads.HY20DChange, RegimeCreditWideningYellowPP)
-	return RegimeClusterBands{Raw: raw, Confirmed: confirmed, Eligible: eligible, witness: witness, cashWidening: widening, rows: state, witnessEligible: witnessEligible}
+	return RegimeClusterBands{
+		Raw: raw, Confirmed: confirmed, Eligible: eligible, witness: witness, cashWidening: widening, rows: state,
+		witnessEligible: witnessEligible, darkWitnesses: darkWitnesses, weakCoSigns: weakCoSigns,
+		witnessRedLit: witnessRedLit, witnessStandsFresh: witnessStandsFresh,
+	}
 }
 
 func redEligible(meta RegimeIndicatorMeta) bool {
@@ -1975,11 +2079,17 @@ type StressUnconfirmedSignal struct {
 // both warn. A waiting signal is a co-sign red beside a standing witness that
 // has yet to pass its own gate. Context is a co-sign red with no witness
 // standing.
+//
+// A dark-witness warning (RegimeWarningWitnessUnavailable) adds the witness
+// rows nobody can read as unavailable and every co-sign row at yellow or red
+// as weak, also one listed as context.
 const (
-	StressSignalWitness  = "witness"
-	StressSignalWidening = "widening"
-	StressSignalWaiting  = "waiting"
-	StressSignalContext  = "context"
+	StressSignalWitness     = "witness"
+	StressSignalWidening    = "widening"
+	StressSignalWaiting     = "waiting"
+	StressSignalContext     = "context"
+	StressSignalUnavailable = "unavailable"
+	StressSignalWeak        = "weak"
 )
 
 // StressMarketSummary combines regime, tape, and source-quality context used by

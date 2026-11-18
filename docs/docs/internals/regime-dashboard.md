@@ -81,9 +81,42 @@ Rows play one of two roles in the count.
 A **stress witness** measures stress directly: the equity-volatility cluster,
 funding, and the cash credit row (HY OAS). Only a witness starts a warning. A
 witness stands when its red is eligible to confirm (see
-[Eligibility gates](#eligibility-gates)). When a witness row cannot be read
-and a co-sign is red, the read is `data_quality`, never a calm stage: a dark
-witness is not a calm one.
+[Eligibility gates](#eligibility-gates)). A witness is judged by its own row:
+an outage of the row beside it in its cluster does not mute it.
+
+When a witness row cannot be read (failed, unavailable, stale or overdue, or
+a schedule past its age bound) and a co-sign is yellow or red, the read is
+`early_warning`, never a calm stage and not `data_quality`: what cannot be
+read is assumed to be the worst. The owner ruled this on 2026-11-18 at 14:47
+CET, answering "Early warning" to "When a real stress input is dark and weak
+readings are yellow or red, what should Regime say?"; it keeps the operator
+decision of 2026-08-11 that unknown cash evidence never softens a live
+warning. The warning opener is `witness_unavailable`, the headline is "Watch:
+one unconfirmed stress signal", and the stress read names the cause, for
+example "volatility term structure unavailable; ETF credit proxy and breadth
+weak". The trading rulebook moves to its early-warning thresholds. A witness
+on a valid typed not-due schedule is not dark, and with two or more clusters
+defective the read is still `data_quality`.
+
+This warning shows while inputs arrive late, not only in a real fall. VVIX
+reads dark on a Monday evening, from 4 days after Friday's dated close (19:00
+or 20:00 New York) until Canary reads Cboe's Monday close, and after a
+holiday from the next session's close until its close is published. The
+VIX/VIX3M row reads dark inside VIX3M's window (09:31 to 15 minutes after the
+close) from 09:31 until the first live VIX3M tick, after a missed tick, and
+off the window when Cboe's dated close does not vouch for the gateway leg.
+An estimate from the retained readings since 2026-10-06 puts a witness dark
+beside a co-sign red at about 20% of the time; it is an estimate, not a
+measurement of this rule.
+
+What still bounds risk: a calm read only rises, and a confirmed stress or
+panic keeps its own rules (with two clusters dark it is still
+`data_quality`, which holds the rulebook's last bucket). The early-warning
+thresholds are stricter than calm. The one loosening: when a confirmed
+stress rests on the VIX/VIX3M row and that row goes dark beside red
+co-signs, for example from 09:31 until the first VIX3M tick, the read is
+`early_warning` and the rulebook uses its early-warning thresholds instead
+of its confirmed ones until the row returns.
 
 A **co-sign** strengthens a warning a witness has started: the HYG/SPY proxy,
 USD/JPY, dealer gamma and breadth. A co-sign row still turns red by itself and
@@ -541,12 +574,15 @@ because related rows, such as VIX and VVIX, are not fully independent votes;
 `cluster_eligible_red_count` counts the red clusters that may confirm.
 `cluster_provisional_red_count` counts the stress witnesses that warn without
 confirming: a witness red held back for depth, persistence or currency,
-or cash credit widening. A co-sign red with no witness beside it is in
+cash credit widening, or a witness nobody can read beside a co-sign at yellow
+or red. A co-sign red with no witness beside it is in
 neither; `lifecycle.unconfirmed` names it and `lifecycle.suppressed` marks it
 as context. The stress read serves the same split for a reader in
 `market.unconfirmed_signals`: each unconfirmed red cluster and the cash
 credit widening, with the reader's name of the row behind it and its role
-(`witness`, `widening`, `waiting`, `context`).
+(`witness`, `widening`, `waiting`, `context`). Under a dark-witness warning
+it also lists the witness nobody can read (`unavailable`) and every co-sign
+at yellow or red (`weak`).
 
 Lifecycle is a second layer over the row and cluster evidence. The stages are
 tested in the order below and the first match wins. "Tape" means the day's SPY
@@ -555,9 +591,9 @@ and VIX moves, read only on a session that is not a closed date.
 | Lifecycle stage | Trigger |
 | --- | --- |
 | `data_quality` | Fewer than three clusters are ranked, or the input-currency rules in [How inputs report currency](#how-inputs-report-currency) send the read here. |
-| `panic` | SPY down 4% or more with at least one eligible red; or SPY down 7% or more. Red clusters without a fall, however many, are `confirmed_stress`. |
+| `panic` | SPY down 4% or more with at least one eligible red; or SPY down 7% or more. Red clusters without a fall, however many, are `confirmed_stress`, and so is a panic whose SPY print is not current while an input is impaired. |
 | `confirmed_stress` | Two or more eligible red clusters, which takes a standing stress witness plus a co-sign or a second witness; or one eligible red with SPY down 2.5% or more, or with VIX up 20% or more; or SPY down 4% or more with at least two clusters yellow or worse. |
-| `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, a witness red on a row that is not current); a current cash credit row with HY OAS 0.50 pp or more wider over 20 observations; three or more clusters yellow or worse of which at least one is a stress witness at yellow; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing. |
+| `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, a witness red on a row that is not current); a current cash credit row with HY OAS 0.50 pp or more wider over 20 observations; three or more clusters yellow or worse of which at least one is a stress witness at yellow; a stress witness nobody can read beside a co-sign at yellow or red; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing while every witness can be read. |
 | `opportunity` | No red, at most one cluster at yellow, at least three ranked clusters, SPY up 1.5% or more and VIX down 10% or more. Every cluster counts, co-signs included, and a co-sign red with no stress witness standing is one yellow. This is broad-market context only, not a trade instruction. |
 | `stabilization` | No red, one or two stress witnesses at yellow, and SPY up 1% or more or VIX down 10% or more. Stress is easing, but this is not yet an opportunity. A day whose only yellows are co-signs is `quiet`. |
 | `quiet` | None of the above. |

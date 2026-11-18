@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v3/internal/risk"
 	"github.com/osauer/canary/v3/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
@@ -13,7 +14,9 @@ import (
 // A confirmed stress that rests on a term inversion does not drop at the
 // close and return at the open. The term row is eligible in its window; after
 // the window, on its typed not-due schedule, it keeps standing, so the
-// co-signs beside it keep counting. With the row overdue it does not.
+// co-signs beside it keep counting: the same evening, the next morning before
+// VIX3M's first tick at 09:31, and over the weekend. With the row overdue it
+// does not.
 func TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow(t *testing.T) {
 	days := calmRegimeSessions(t, 16)
 	const i = 12
@@ -46,27 +49,49 @@ func TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow(t *testing.T) {
 		}
 	}
 
-	// 17:30 New York on the same trading date: no newer VIX3M can exist. The
-	// legs are the frozen last prints and Cboe's dated close vouches for them.
-	evening := func(crossCheck string) *rpc.RegimeSnapshotResult {
-		late := at[i].Add(5*time.Hour + 30*time.Minute)
+	// Off VIX3M's window no newer VIX3M can exist. The legs are the frozen
+	// last prints and Cboe's dated close vouches for them; every other row
+	// serves session i's own reading.
+	offWindow := func(late time.Time, crossCheck string) *rpc.RegimeSnapshotResult {
 		snap := in.snapshot(t.Context(), i, late, ownDate[i])
 		frozen := &rpc.Quality{AsOf: late, FreshnessClass: rpc.FreshnessFrozen, Confidence: rpc.ConfidenceFirm}
 		snap.VIXTermStructure.Status = rpc.RegimeStatusStale
 		snap.VIXTermStructure.VIXQuality, snap.VIXTermStructure.VIX3MQuality = frozen, frozen
 		snap.VIXTermStructure.VIX3MCrossCheck = crossCheck
+		snap.VolOfVol.AsOfDate = days[i].date
+		snap.Breadth.Envelope.SessionKey = days[i].date
 		return evaluate(snap)
 	}
-	after := evening(rpc.VIX3MCrossCheckAgree)
-	if class := after.VIXTermStructure.Freshness; class == nil || class.Class != rpc.RegimeFreshnessNotDue {
-		t.Fatalf("after the close the term row reads %+v, want not_due", class)
-	}
-	if after.Lifecycle.Stage != rpc.LifecycleConfirmedStress {
-		t.Errorf("after the close on the same trading date: stage %s, term eligibility %+v, unconfirmed %v; want confirmed_stress still",
-			after.Lifecycle.Stage, after.VIXTermStructure.Eligibility, after.Lifecycle.Unconfirmed)
-	}
-	if overdue := evening(""); overdue.Lifecycle.Stage == rpc.LifecycleConfirmedStress {
-		t.Errorf("with the term row overdue the stage is still %s", overdue.Lifecycle.Stage)
+	ny := newYorkLocation()
+	session := time.Date(days[i].day.Year(), days[i].day.Month(), days[i].day.Day(), 0, 0, 0, 0, ny)
+	for _, tc := range []struct {
+		name string
+		at   time.Time
+	}{
+		{"17:30 on the same trading date", at[i].Add(5*time.Hour + 30*time.Minute)},
+		{"08:30 the next morning, before VIX3M's first tick", session.AddDate(0, 0, 1).Add(8*time.Hour + 30*time.Minute)},
+		{"noon on the Saturday after", session.AddDate(0, 0, 2).Add(12 * time.Hour)},
+	} {
+		if tc.at.Weekday() == time.Saturday != (tc.name == "noon on the Saturday after") {
+			t.Fatalf("%s falls on a %s; the fixture's session %s moved", tc.name, tc.at.Weekday(), days[i].date)
+		}
+		after := offWindow(tc.at, rpc.VIX3MCrossCheckAgree)
+		if class := after.VIXTermStructure.Freshness; class == nil || class.Class != rpc.RegimeFreshnessNotDue {
+			t.Fatalf("%s the term row reads %+v, want not_due", tc.name, class)
+		}
+		if after.Lifecycle.Stage != rpc.LifecycleConfirmedStress {
+			t.Errorf("%s: stage %s, term eligibility %+v, unconfirmed %v; want confirmed_stress still",
+				tc.name, after.Lifecycle.Stage, after.VIXTermStructure.Eligibility, after.Lifecycle.Unconfirmed)
+		}
+		// With the row overdue the latched red drops, and the dark term row
+		// beside the red co-signs is the early warning: the rulebook moves from
+		// its confirmed bucket to the early-warning one (owner ruling
+		// 2026-11-18 14:47 CET; the contract names this worst case).
+		if overdue := offWindow(tc.at, ""); overdue.Lifecycle.Stage != rpc.LifecycleEarlyWarning ||
+			bucketRegimeStage(overdue.Lifecycle.Stage) != risk.RegimeBucketEarlyWarning {
+			t.Errorf("%s with the term row overdue: stage %s, bucket %q; want early_warning in the early-warning bucket",
+				tc.name, overdue.Lifecycle.Stage, bucketRegimeStage(overdue.Lifecycle.Stage))
+		}
 	}
 }
 
@@ -134,7 +159,7 @@ func TestRegimeSummaryReadsServedBandsRowByRow(t *testing.T) {
 	r := coSignRedSnapshot()
 	r.HYGSPYDivergence.HYGPrice = new(81.0) // back above its average: calm
 	r.VolOfVol.Last = new(116.0)
-	annotateRegimeMetadata(r, nil)
+	annotateCurrentRows(r)
 	r.VolOfVol.Band = "red" // held by exit hysteresis since a close at 121
 	r.VolOfVol.Eligibility = &rpc.RegimeEligibility{Eligible: true}
 	if got := buildRegimeSummary(r).PunchLine; !strings.HasPrefix(got, "vol-of-vol is stressed; ") {
@@ -143,7 +168,7 @@ func TestRegimeSummaryReadsServedBandsRowByRow(t *testing.T) {
 
 	r = coSignRedSnapshot()
 	r.CreditSpreads.HYOAS = new(5.8)
-	annotateRegimeMetadata(r, nil)
+	annotateCurrentRows(r)
 	r.CreditSpreads.Eligibility = &rpc.RegimeEligibility{Reasons: []string{"data_overdue"}}
 	r.HYGSPYDivergence.Eligibility = &rpc.RegimeEligibility{Eligible: true}
 	summary := buildRegimeSummary(r)

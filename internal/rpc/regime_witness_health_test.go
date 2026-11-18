@@ -12,70 +12,99 @@ func coSignsRed(r *RegimeSnapshotResult) {
 	red(&r.Breadth.RegimeIndicatorMeta, true)
 }
 
-// A dark stress witness never reads as a calm one. With a co-sign red on the
-// panel and a witness row that cannot be read, nothing says the witness is
-// calm: the read is undefined, not quiet, and the rulebook's stage latch
-// holds. Operator decision 2026-08-11: unknown cash evidence never softens a
-// live warning. A witness on its own typed not-due schedule is not dark.
-func TestRegimeDarkWitnessIsNeverCalm(t *testing.T) {
+// regimeWitnessUnavailable is the opener of a warning that a dark stress
+// witness raises beside a weak co-sign (rpc.RegimeWarningWitnessUnavailable).
+const regimeWitnessUnavailable = "witness_unavailable"
+
+func coSignsYellow(r *RegimeSnapshotResult) {
+	r.HYGSPYDivergence.Band, r.Breadth.Band, r.USDJPY.Band = "yellow", "yellow", "yellow"
+}
+
+func termRowLost(r *RegimeSnapshotResult) {
+	// VIX3M without a tick: the row errors and its last band is held green.
+	r.VIXTermStructure.Status = RegimeStatusError
+	r.VIXTermStructure.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
+	r.VIXTermStructure.Ratio = nil
+}
+
+// A dark stress witness beside a weak co-sign reads early_warning. Owner
+// ruling 2026-11-18 14:47 CET: asked "When a real stress input is dark and
+// weak readings are yellow or red, what should Regime say?", the owner
+// answered "Early warning", which keeps the operator decision of 2026-08-11
+// that unknown cash evidence never softens a live warning. The headline is
+// the Watch headline for a signal that warns without confirming, the tone is
+// watch, and the opener names the unavailable witness. A witness on its own
+// typed not-due schedule is not dark, a healthy panel with co-signs red stays
+// quiet, and a dark witness with every co-sign green changes nothing.
+func TestRegimeDarkWitnessBesideAWeakCoSignIsAnEarlyWarning(t *testing.T) {
+	const watch = "Watch: one unconfirmed stress signal"
 	for _, tc := range []struct {
-		name  string
-		shape func(r *RegimeSnapshotResult)
-		want  string
+		name         string
+		shape        func(r *RegimeSnapshotResult)
+		stage, label string
+		tone         string
+		opener       bool
 	}{
-		{"every witness current and green, four co-signs red", coSignsRed, LifecycleQuiet},
-		{"VIX3M lost: term row in error with its last band held green", func(r *RegimeSnapshotResult) {
-			coSignsRed(r)
-			r.VIXTermStructure.Status = RegimeStatusError
-			r.VIXTermStructure.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
-			r.VIXTermStructure.Ratio = nil
-		}, LifecycleDataQuality},
-		{"cash credit unavailable; proxy, breadth and yen red", func(r *RegimeSnapshotResult) {
+		{"term row lost, VVIX green; proxy, breadth and yen yellow; SPY -1.4%", func(r *RegimeSnapshotResult) {
+			termRowLost(r)
+			coSignsYellow(r)
+			r.HYGSPYDivergence.SPYChangePct = new(-1.4)
+		}, LifecycleEarlyWarning, watch, RegimeToneWatch, true},
+		{"term row lost; proxy, breadth and yen red; SPY -1.4%", func(r *RegimeSnapshotResult) {
+			termRowLost(r)
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 			red(&r.Breadth.RegimeIndicatorMeta, true)
 			red(&r.USDJPY.RegimeIndicatorMeta, true)
-			r.CreditSpreads = RegimeCreditSpreads{Status: RegimeStatusUnavailable}
-		}, LifecycleDataQuality},
-		{"cash credit stale; proxy red", func(r *RegimeSnapshotResult) {
+			r.HYGSPYDivergence.SPYChangePct = new(-1.4)
+		}, LifecycleEarlyWarning, watch, RegimeToneWatch, true},
+		{"cash credit unavailable; proxy red", func(r *RegimeSnapshotResult) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
-			r.CreditSpreads.Status = RegimeStatusStale
-			r.CreditSpreads.Freshness = &RegimeFreshness{Class: RegimeFreshnessStale}
-		}, LifecycleDataQuality},
-		{"funding unavailable; breadth red", func(r *RegimeSnapshotResult) {
-			red(&r.Breadth.RegimeIndicatorMeta, true)
-			r.FundingStress = RegimeFundingStress{Status: RegimeStatusUnavailable}
-		}, LifecycleDataQuality},
+			r.CreditSpreads = RegimeCreditSpreads{Status: RegimeStatusUnavailable}
+		}, LifecycleEarlyWarning, watch, RegimeToneWatch, true},
+		{"funding overdue; breadth yellow", func(r *RegimeSnapshotResult) {
+			r.Breadth.Band = "yellow"
+			r.FundingStress.Status = RegimeStatusStale
+			r.FundingStress.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
+		}, LifecycleEarlyWarning, watch, RegimeToneWatch, true},
 		{"VVIX unavailable; proxy red on a strong rebound", func(r *RegimeSnapshotResult) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 			r.VolOfVol = RegimeVolOfVol{Status: RegimeStatusUnavailable}
 			r.HYGSPYDivergence.SPYChangePct, r.VIXTermStructure.VIXChangePct = new(1.6), new(-11.0)
-		}, LifecycleDataQuality},
-		{"funding typed not-due but a month old; proxy red", func(r *RegimeSnapshotResult) {
+		}, LifecycleEarlyWarning, watch, RegimeToneWatch, true},
+		{"control: every witness current and green, four co-signs red", coSignsRed, LifecycleQuiet, "Normal regime", RegimeToneNormal, false},
+		{"control: term row lost, every co-sign green", termRowLost, LifecycleQuiet, "Normal regime", RegimeToneDataQuality, false},
+		{"control: term row on its typed not-due schedule after the close; proxy red", func(r *RegimeSnapshotResult) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
-			r.FundingStress.Status = RegimeStatusStale
-			r.FundingStress.Freshness = &RegimeFreshness{Class: RegimeFreshnessNotDue}
-			r.FundingStress.AsOf = &RegimeAsOfSummary{Time: r.AsOf.AddDate(0, 0, -30)}
-		}, LifecycleDataQuality},
-		{"cash credit on its typed not-due schedule; proxy red", func(r *RegimeSnapshotResult) {
-			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
-			r.CreditSpreads.Status = RegimeStatusStale
-			r.CreditSpreads.Freshness = &RegimeFreshness{Class: RegimeFreshnessNotDue}
-		}, LifecycleQuiet},
-		{"cash credit unavailable and no co-sign red", func(r *RegimeSnapshotResult) {
-			r.CreditSpreads = RegimeCreditSpreads{Status: RegimeStatusUnavailable}
-		}, LifecycleQuiet},
+			r.VIXTermStructure.Status = RegimeStatusStale
+			r.VIXTermStructure.Freshness = &RegimeFreshness{Class: RegimeFreshnessNotDue}
+			r.VolOfVol.Freshness = &RegimeFreshness{Class: RegimeFreshnessNotDue}
+		}, LifecycleQuiet, "Normal regime", RegimeToneNormal, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := calmRegime()
 			tc.shape(r)
 			posture := regimePosture(r)
-			if posture.Stage != tc.want {
-				t.Fatalf("stage %s, headline %q, readiness %s; want %s", posture.Stage, posture.Label, posture.Readiness, tc.want)
+			if posture.Stage != tc.stage || posture.Label != tc.label || posture.Tone != tc.tone {
+				t.Fatalf("stage %s, headline %q, tone %s (readiness %s); want %s, %q, %s",
+					posture.Stage, posture.Label, posture.Tone, posture.Readiness, tc.stage, tc.label, tc.tone)
 			}
-			if tc.want == LifecycleDataQuality && posture.Label != "Market state undefined — data incomplete" {
-				t.Fatalf("headline %q, want the data-incomplete headline", posture.Label)
+			if got := slices.Contains(RegimeWarningOpeners(r), regimeWitnessUnavailable); got != tc.opener {
+				t.Fatalf("openers %v; want %s listed: %v", RegimeWarningOpeners(r), regimeWitnessUnavailable, tc.opener)
 			}
 		})
+	}
+}
+
+// Two defective clusters still blank the read: the existing floor of the
+// required-input gate (RegimeCurrencyBlankFloor) decides, and the headline
+// says data incomplete. The rulebook's stage latch then holds.
+func TestRegimeTwoDarkClustersStillBlankTheRead(t *testing.T) {
+	r := calmRegime()
+	termRowLost(r)
+	r.CreditSpreads = RegimeCreditSpreads{Status: RegimeStatusUnavailable}
+	red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+	if posture := regimePosture(r); posture.Stage != LifecycleDataQuality || posture.Label != "Market state undefined — data incomplete" {
+		t.Fatalf("stage %s, headline %q; want data_quality under the data-incomplete headline", posture.Stage, posture.Label)
 	}
 }
 
@@ -163,24 +192,138 @@ func TestRegimeTapeConfirmationNamesTheTape(t *testing.T) {
 }
 
 // A confirmed stress cannot rest on co-signs when the witness they lean on
-// is broken: with the only standing witness in a defective cluster the read
-// is undefined, however many co-signs are current and red.
+// has no current reading. After the close the term inversion stands on its
+// not-due schedule, latched; with VVIX unavailable at the same time the vol
+// cluster is defective and the latched red is not a current reading, so the
+// proxy and breadth red cannot hold the stress. A stress stage keeps its own
+// rule: it is data incomplete and the rulebook's latch holds. With a second,
+// clean witness it stands.
 func TestRegimeConfirmedStressDoesNotRestOnCoSignsWhenItsWitnessIsBroken(t *testing.T) {
 	r := calmRegime()
-	red(&r.VolOfVol.RegimeIndicatorMeta, true)
-	r.VolOfVol.Last = new(125.0)
-	r.VIXTermStructure.Band = "red"
-	r.VIXTermStructure.Status = RegimeStatusError
-	r.VIXTermStructure.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
+	red(&r.VIXTermStructure.RegimeIndicatorMeta, true)
+	r.VIXTermStructure.Eligibility.Latched = true
+	r.VIXTermStructure.Status = RegimeStatusStale
+	r.VIXTermStructure.Freshness = &RegimeFreshness{Class: RegimeFreshnessNotDue}
+	r.VolOfVol = RegimeVolOfVol{Status: RegimeStatusUnavailable}
 	red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 	red(&r.Breadth.RegimeIndicatorMeta, true)
 	if got := regimeVote(r); got.Stage != LifecycleDataQuality {
 		t.Fatalf("stage %s (readiness %s, confirmed_by %v), want data_quality", got.Stage, got.Readiness, got.ConfirmedBy)
 	}
 
-	// With a second, clean witness the stress stands on current evidence.
 	red(&r.FundingStress.RegimeIndicatorMeta, true)
 	if got := regimeVote(r); got.Stage != LifecycleConfirmedStress {
 		t.Fatalf("with funding an eligible red: stage %s, want confirmed_stress", got.Stage)
+	}
+}
+
+// The dark-witness test reads the row-level parts of the input verdict: a
+// witness row that cannot fill a field it needs to band, or a current-typed
+// row older than its cluster's age bound, is dark although its class says
+// fresh.
+func TestRegimeDarkWitnessReadsTheRowsOwnDefects(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		shape func(r *RegimeSnapshotResult)
+	}{
+		{"term row without VIX3M, band unranked", func(r *RegimeSnapshotResult) {
+			r.VIXTermStructure.Band, r.VIXTermStructure.Ratio = "", nil
+			r.VIXTermStructure.FieldsMissing = []string{"vix3m"}
+		}},
+		{"funding typed fresh, eight days old", func(r *RegimeSnapshotResult) {
+			r.FundingStress.AsOf = &RegimeAsOfSummary{Time: r.AsOf.AddDate(0, 0, -8)}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := calmRegime()
+			tc.shape(r)
+			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+			if got := regimeVote(r); got.Stage != LifecycleEarlyWarning || !slices.Contains(RegimeWarningOpeners(r), regimeWitnessUnavailable) {
+				t.Fatalf("stage %s (readiness %s), openers %v; want early_warning opened by the unavailable witness", got.Stage, got.Readiness, RegimeWarningOpeners(r))
+			}
+		})
+	}
+}
+
+// A witness is judged by its own row. A cluster-mate's outage does not mute a
+// current witness red: the cash red stands with the proxy row unavailable,
+// and VVIX at 125 stands with the term row in error.
+func TestRegimeWitnessIsJudgedByItsOwnRow(t *testing.T) {
+	proxyLost := func(r *RegimeSnapshotResult) {
+		r.HYGSPYDivergence = RegimeHYGSPYDivergence{Status: RegimeStatusUnavailable}
+	}
+	cashRed := func(r *RegimeSnapshotResult) {
+		red(&r.CreditSpreads.RegimeIndicatorMeta, true)
+		r.CreditSpreads.HYOAS = new(5.8)
+	}
+	for _, tc := range []struct {
+		name   string
+		shape  func(r *RegimeSnapshotResult)
+		stage  string
+		opener string
+	}{
+		{"cash red, proxy row unavailable", func(r *RegimeSnapshotResult) {
+			cashRed(r)
+			proxyLost(r)
+		}, LifecycleEarlyWarning, RegimeWarningEligibleRed},
+		{"term row in error, VVIX 125", func(r *RegimeSnapshotResult) {
+			termRowLost(r)
+			red(&r.VolOfVol.RegimeIndicatorMeta, true)
+			r.VolOfVol.Last = new(125.0)
+		}, LifecycleEarlyWarning, RegimeWarningEligibleRed},
+		{"term row in error, VVIX 125, proxy and breadth red", func(r *RegimeSnapshotResult) {
+			termRowLost(r)
+			red(&r.VolOfVol.RegimeIndicatorMeta, true)
+			r.VolOfVol.Last = new(125.0)
+			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+			red(&r.Breadth.RegimeIndicatorMeta, true)
+		}, LifecycleConfirmedStress, RegimeWarningEligibleRed},
+		{"cash red and funding red, proxy row unavailable", func(r *RegimeSnapshotResult) {
+			cashRed(r)
+			red(&r.FundingStress.RegimeIndicatorMeta, true)
+			proxyLost(r)
+		}, LifecycleConfirmedStress, RegimeWarningEligibleRed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := calmRegime()
+			tc.shape(r)
+			got := regimeVote(r)
+			if got.Stage != tc.stage || !slices.Contains(RegimeWarningOpeners(r), tc.opener) {
+				t.Fatalf("stage %s (readiness %s, confirmed_by %v), openers %v; want %s opened by %s",
+					got.Stage, got.Readiness, got.ConfirmedBy, RegimeWarningOpeners(r), tc.stage, tc.opener)
+			}
+		})
+	}
+}
+
+// Panic is a fall on a current tape. With the SPY print not current, three
+// eligible reds and SPY down 4.5% are confirmed stress, confirmed by those
+// clusters at the act grade; with the tape current they are panic.
+func TestRegimePanicNeedsACurrentTape(t *testing.T) {
+	shape := func(current bool) *RegimeSnapshotResult {
+		r := calmRegime()
+		red(&r.VIXTermStructure.RegimeIndicatorMeta, true)
+		red(&r.FundingStress.RegimeIndicatorMeta, true)
+		red(&r.Breadth.RegimeIndicatorMeta, true)
+		r.HYGSPYDivergence.SPYChangePct = new(-4.5)
+		if !current {
+			// The SPY print rides on the proxy row, which is stale.
+			r.HYGSPYDivergence.Status = RegimeStatusStale
+			r.HYGSPYDivergence.Freshness = &RegimeFreshness{Class: RegimeFreshnessStale}
+		}
+		return r
+	}
+	got := regimeVote(shape(false))
+	if got.Stage != LifecycleConfirmedStress || got.Severity != "act" || !slices.Equal(got.ConfirmedBy, []string{"vol", "funding", "breadth"}) {
+		t.Fatalf("tape not current: stage %s, severity %s, confirmed_by %v; want confirmed_stress at act, confirmed by vol, funding and breadth",
+			got.Stage, got.Severity, got.ConfirmedBy)
+	}
+	if !slices.ContainsFunc(got.Governors, func(g GovernorAction) bool {
+		return g.Action == "stage_downgraded" && g.From == LifecyclePanic && g.To == LifecycleConfirmedStress && g.Reason == "tape_not_current"
+	}) {
+		t.Fatalf("governors %+v; want the downgrade from panic disclosed", got.Governors)
+	}
+	if got := regimeVote(shape(true)); got.Stage != LifecyclePanic {
+		t.Fatalf("tape current: stage %s, want panic", got.Stage)
 	}
 }

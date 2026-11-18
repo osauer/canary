@@ -304,12 +304,19 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		}
 	}
 	inputs := regimeLifecycleInputVerdict(*r)
-	darkWitness := regimeLifecycleDarkWitness(state.Stage, *r, inputs)
-	if inputs.any() || darkWitness {
-		blanks := darkWitness || inputs.global ||
-			len(inputs.defects)+len(inputs.impaired) >= RegimeCurrencyBlankFloor ||
-			!regimeLifecycleStageEvidenceCurrent(state, *r, cb, inputs)
-		if blanks {
+	if inputs.any() {
+		floor := inputs.global || len(inputs.defects)+len(inputs.impaired) >= RegimeCurrencyBlankFloor
+		if !floor && state.Stage == LifecyclePanic {
+			// Panic is a fall on a current tape. Without one, three reds that
+			// stand on current evidence are confirmed stress.
+			if panicCurrent, confirmedCurrent := regimeLifecycleIndependentCurrentStress(*r, cb); !panicCurrent && confirmedCurrent {
+				state.Stage, state.Severity = LifecycleConfirmedStress, "act"
+				state.Governors = append(state.Governors, GovernorAction{
+					Action: "stage_downgraded", From: LifecyclePanic, To: LifecycleConfirmedStress, Reason: "tape_not_current",
+				})
+			}
+		}
+		if floor || !regimeLifecycleStageEvidenceCurrent(state, *r, cb, inputs) {
 			state.Stage = LifecycleDataQuality
 			state.Severity = "watch"
 			state.Readiness = "blocked"
@@ -338,51 +345,27 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 // tape confirmed while no cluster did.
 const RegimeConfirmedByTape = "tape"
 
-// regimeLifecycleDarkWitness reports a calm stage that would rest on a stress
-// witness nobody can read. Quiet, opportunity and stabilization claim an
-// absence of stress. With a co-sign red on the panel and a witness whose
-// currency costs the read anything (stale, overdue, failed, or a schedule
-// past its age bound; not a valid typed not-due or pending one), that
-// absence is unknown: the read is undefined, and the rulebook's stage latch
-// holds. Operator decision 2026-08-11: unknown cash evidence never softens a
-// live warning.
-//
-// The equity-vol and funding clusters hold witness rows only, so the input
-// verdict's word on those clusters is the word on their witnesses. The
-// credit cluster also holds the proxy, a co-sign, so there the cash row is
-// read by itself.
-func regimeLifecycleDarkWitness(stage string, r RegimeSnapshotResult, inputs regimeLifecycleInputs) bool {
-	if !stageCalm(stage) {
-		return false
-	}
-	coSignRed := false
-	dark := slices.ContainsFunc([]string{"vol", "funding"}, func(name string) bool {
-		return slices.Contains(inputs.defects, name) || slices.Contains(inputs.impaired, name)
-	})
-	for _, row := range regimeRows(&r) {
-		switch RegimeIndicatorRole(row.indicator) {
-		case RegimeRoleCoSign:
-			coSignRed = coSignRed || row.band == "red"
-		case RegimeRoleWitness:
-			dark = dark || RegimeCurrencyGrade(RegimeRowCurrency(row.status, row.freshness)) != RegimeCurrencyGradeNone
-		}
-	}
-	return coSignRed && dark
-}
-
-// regimeLifecycleHasIndependentCurrentStress permits a stress/panic stage to
-// survive an unrelated broken input only when the stage has its own current
-// survives only when none of its confirming clusters is impaired.
-func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSnapshotResult, cb RegimeClusterBands) bool {
-	if state.Stage != LifecycleConfirmedStress && state.Stage != LifecyclePanic {
-		return false
-	}
+// regimeLifecycleIndependentCurrentStress reports whether a panic and a
+// confirmed stress could each survive an impaired input on current evidence
+// of their own. A cluster counts while it is current; a cluster whose
+// cluster-mate is not current still counts its witness when that witness row
+// is an eligible red on a current reading, because a witness is judged by
+// its own row. Panic needs a current confirmable tape.
+func regimeLifecycleIndependentCurrentStress(r RegimeSnapshotResult, cb RegimeClusterBands) (panicCurrent, confirmedCurrent bool) {
 	// A co-sign's red counts only beside a standing witness, so it survives
 	// only beside a clean one: with every standing witness in a broken
 	// cluster the co-signs have nothing current to lean on.
 	cleanRed, cleanCoSignRed, cleanWitness, cleanAtLeastYellow := 0, 0, false, 0
 	for i, name := range RegimeClusterNames {
-		if i >= len(cb.Confirmed) || !regimeLifecycleClusterCurrent(r, name) {
+		if i >= len(cb.Confirmed) {
+			continue
+		}
+		if !regimeLifecycleClusterCurrent(r, name) {
+			if cb.witnessStands(i) && i < len(cb.witnessStandsFresh) && cb.witnessStandsFresh[i] {
+				cleanWitness = true
+				cleanRed++
+				cleanAtLeastYellow++
+			}
 			continue
 		}
 		switch cb.Confirmed[i] {
@@ -405,16 +388,13 @@ func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSn
 	}
 	spyCurrent := regimeLifecycleSPYTapeCurrent(r)
 	vixCurrent := regimeLifecycleVIXTapeCurrent(r)
-	panicCurrent := cleanRed >= 3 ||
-		(spyCurrent && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && cleanRed >= 1) ||
+	panicCurrent = (spyCurrent && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && cleanRed >= 1) ||
 		(spyCurrent && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -7.0))
-	if state.Stage == LifecyclePanic {
-		return panicCurrent
-	}
-	return cleanRed >= 2 ||
+	confirmedCurrent = cleanRed >= 2 ||
 		(spyCurrent && cleanRed >= 1 && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -2.5)) ||
 		(spyCurrent && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && cleanAtLeastYellow >= 2) ||
 		(vixCurrent && cleanRed >= 1 && pctAtLeast(r.VIXTermStructure.VIXChangePct, 20.0))
+	return panicCurrent, confirmedCurrent
 }
 
 // regimeClusterTally is the lifecycle's working view of the combined cluster
@@ -649,7 +629,8 @@ func BuildRegimePosture(r *RegimeSnapshotResult) RegimePosture {
 	if confidence == "" {
 		confidence = strings.TrimSpace(r.Summary.Confidence)
 	}
-	tone := regimePostureTone(r.Composite, r.Lifecycle, BuildRegimeClusterBands(r).witnessYellows() > 0)
+	cb := BuildRegimeClusterBands(r)
+	tone := regimePostureTone(r.Composite, r.Lifecycle, cb.witnessYellows() > 0, cb.darkWitnessWarns())
 	return RegimePosture{
 		Label:      label,
 		Tone:       tone,
@@ -662,7 +643,7 @@ func BuildRegimePosture(r *RegimeSnapshotResult) RegimePosture {
 }
 
 // regimePostureTone maps the unified headline + lifecycle state to the display
-func regimePostureTone(c RegimeComposite, lifecycle LifecycleState, witnessYellow bool) string {
+func regimePostureTone(c RegimeComposite, lifecycle LifecycleState, witnessYellow, darkWitness bool) string {
 	label := RegimeHeadline(c, lifecycle.Stage)
 	if label == "Full risk-off conditions" {
 		return RegimeToneRiskOff
@@ -683,6 +664,12 @@ func regimePostureTone(c RegimeComposite, lifecycle LifecycleState, witnessYello
 			return RegimeToneWatch
 		}
 		return RegimeToneStress
+	}
+	// A warning that a dark witness opens is a warning, not a data gap: its
+	// cluster's defect is the reason it flashes (owner ruling 2026-11-18
+	// 14:47 CET, "Early warning").
+	if lifecycle.Stage == LifecycleEarlyWarning && darkWitness {
+		return RegimeToneWatch
 	}
 	if regimeLifecycleReadinessDegraded(lifecycle.Readiness) {
 		return RegimeToneDataQuality
@@ -898,6 +885,9 @@ const (
 	RegimeWarningProvisionalWitness = "provisional_witness"
 	RegimeWarningCashWidening       = "cash_widening"
 	RegimeWarningThreeYellows       = "three_yellows"
+	// RegimeWarningWitnessUnavailable is a stress witness nobody can read
+	// beside a co-sign at yellow or red (owner ruling 2026-11-18 14:47 CET).
+	RegimeWarningWitnessUnavailable = "witness_unavailable"
 	RegimeWarningSPYTape            = "spy_tape"
 	RegimeWarningVIXTape            = "vix_tape"
 )
@@ -926,8 +916,9 @@ func regimeWarningArm(cb RegimeClusterBands, t regimeClusterTally, i int) string
 }
 
 // regimeWarningOpeners lists every arm that opens early_warning: the cluster
-// arms above, then the direct tape arms, which need a confirmable session. A
-// provisional witness carries its cluster ("provisional_witness:vol").
+// arms above, a dark witness beside a weak co-sign, then the direct tape
+// arms, which need a confirmable session. A provisional witness carries its
+// cluster ("provisional_witness:vol").
 func regimeWarningOpeners(r RegimeSnapshotResult, cb RegimeClusterBands, t regimeClusterTally) []string {
 	var out []string
 	for i, name := range RegimeClusterNames {
@@ -938,6 +929,9 @@ func regimeWarningOpeners(r RegimeSnapshotResult, cb RegimeClusterBands, t regim
 		if arm != "" && !slices.Contains(out, arm) {
 			out = append(out, arm)
 		}
+	}
+	if cb.darkWitnessWarns() {
+		out = append(out, RegimeWarningWitnessUnavailable)
 	}
 	if regimeTapeConfirmable(r) {
 		if pctAtMost(r.HYGSPYDivergence.SPYChangePct, -1.5) {
@@ -953,7 +947,8 @@ func regimeWarningOpeners(r RegimeSnapshotResult, cb RegimeClusterBands, t regim
 // RegimeWarningOpeners names the arms that open early_warning on this
 // snapshot, for a reader that explains or measures a warning: "eligible_red",
 // "provisional_witness:<cluster>", "cash_widening", "three_yellows",
-// "spy_tape", "vix_tape".
+// "witness_unavailable", "spy_tape", "vix_tape". It reads the served rows
+// only, so it is the same list before and after source health is stamped.
 // The stage vote reads the same list; a higher stage may still win.
 func RegimeWarningOpeners(r *RegimeSnapshotResult) []string {
 	if r == nil {
@@ -1154,18 +1149,30 @@ func RegimeClusterCadenceOnlyDegraded(r RegimeSnapshotResult, name string) bool 
 // is claiming blanks it.
 func regimeLifecycleStageEvidenceCurrent(state LifecycleState, r RegimeSnapshotResult, cb RegimeClusterBands, inputs regimeLifecycleInputs) bool {
 	switch state.Stage {
-	case LifecycleConfirmedStress, LifecyclePanic:
-		return regimeLifecycleHasIndependentCurrentStress(state, r, cb)
+	case LifecyclePanic:
+		panicCurrent, _ := regimeLifecycleIndependentCurrentStress(r, cb)
+		return panicCurrent
+	case LifecycleConfirmedStress:
+		_, confirmedCurrent := regimeLifecycleIndependentCurrentStress(r, cb)
+		return confirmedCurrent
 	case LifecycleEarlyWarning:
 		// A warning needs at least one non-defective cluster whose evidence
-		// opens it, or a current tape arm. An overdue red is not a market
-		// warning — it is missing evidence, and stays data_quality.
+		// opens it, a witness red on its own readable row, a dark witness
+		// beside a weak co-sign, or a current tape arm. An overdue red is
+		// not a market warning: it is missing evidence.
 		t := tallyRegimeClusters(cb)
+		if cb.darkWitnessWarns() {
+			// The dark witness is the reason for this warning; its own
+			// cluster's defect cannot blank it.
+			return true
+		}
 		for i, name := range RegimeClusterNames {
 			// The widening is the cash row's own and opens only while that
-			// row is current, whatever the proxy row beside it can serve.
+			// row is current, whatever the proxy row beside it can serve. A
+			// witness red is judged by its own row the same way.
 			arm := regimeWarningArm(cb, t, i)
-			if arm == RegimeWarningCashWidening || (arm != "" && !inputs.clusterDefective(name)) {
+			if arm == RegimeWarningCashWidening ||
+				(arm != "" && (!inputs.clusterDefective(name) || (i < len(cb.witnessRedLit) && cb.witnessRedLit[i]))) {
 				return true
 			}
 		}

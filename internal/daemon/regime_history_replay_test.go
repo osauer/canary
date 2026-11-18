@@ -438,8 +438,10 @@ func regimeReplayStage(snap *rpc.RegimeSnapshotResult, policies map[string]regim
 
 // regimeReplayDarkWitness reports a stress witness row that has a reading in
 // the file but is off its own currency on this session, as the funding row
-// is once commercial paper has gone a week without a print. With a co-sign
-// red beside it the vote reads data_quality by rule, not by a replay defect.
+// is once commercial paper has gone a week without a print. Beside a weak
+// co-sign that is an early warning; a data_quality session it explains is
+// one where the dark red stood alone or a second cluster was dark, by rule,
+// not by a replay defect.
 func regimeReplayDarkWitness(snap *rpc.RegimeSnapshotResult) bool {
 	dark := func(status string, meta rpc.RegimeIndicatorMeta) bool {
 		return rpc.RegimeCurrencyGrade(rpc.RegimeRowCurrency(status, meta.Freshness)) != rpc.RegimeCurrencyGradeNone

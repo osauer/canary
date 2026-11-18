@@ -263,8 +263,10 @@ func freshStressPositions() rpc.PositionsResult {
 	return rpc.PositionsResult{AsOf: stressTestNow}
 }
 
+// healthyStressRegime is a regime read with every row current and green.
+// Production stamps every row's currency; a row without one is overdue.
 func healthyStressRegime() rpc.RegimeSnapshotResult {
-	return rpc.RegimeSnapshotResult{
+	r := rpc.RegimeSnapshotResult{
 		Composite: rpc.RegimeComposite{ClusterGreenCount: 6, ClusterRankedCount: 6},
 		VIXTermStructure: rpc.RegimeVIXTerm{
 			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green"},
@@ -305,6 +307,15 @@ func healthyStressRegime() rpc.RegimeSnapshotResult {
 			Status:              rpc.RegimeStatusOK,
 		},
 	}
+	for _, meta := range []*rpc.RegimeIndicatorMeta{
+		&r.VIXTermStructure.RegimeIndicatorMeta, &r.VolOfVol.RegimeIndicatorMeta,
+		&r.HYGSPYDivergence.RegimeIndicatorMeta, &r.CreditSpreads.RegimeIndicatorMeta,
+		&r.FundingStress.RegimeIndicatorMeta, &r.USDJPY.RegimeIndicatorMeta,
+		&r.GammaZero.RegimeIndicatorMeta, &r.Breadth.RegimeIndicatorMeta,
+	} {
+		meta.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh}
+	}
+	return r
 }
 
 func rankableStressGammaQuality() *rpc.GammaSignalQuality {

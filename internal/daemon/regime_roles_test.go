@@ -32,7 +32,7 @@ func coSignRedSnapshot() *rpc.RegimeSnapshotResult {
 // Beside a standing witness it counts and is named with it.
 func TestRegimeSummaryCallsACoSignRedContext(t *testing.T) {
 	r := coSignRedSnapshot()
-	annotateRegimeMetadata(r, nil)
+	annotateCurrentRows(r)
 	summary := buildRegimeSummary(r)
 	if strings.Contains(summary.PunchLine, "stressed") ||
 		!strings.HasSuffix(summary.PunchLine, "Context, not a stress reading on its own: ETF credit proxy.") ||
@@ -42,7 +42,7 @@ func TestRegimeSummaryCallsACoSignRedContext(t *testing.T) {
 
 	r = coSignRedSnapshot()
 	r.VIXTermStructure.Ratio = new(1.06)
-	annotateRegimeMetadata(r, nil)
+	annotateCurrentRows(r)
 	r.VIXTermStructure.Eligibility = &rpc.RegimeEligibility{Eligible: true}
 	r.HYGSPYDivergence.Eligibility = &rpc.RegimeEligibility{Eligible: true}
 	summary = buildRegimeSummary(r)
@@ -89,7 +89,7 @@ func TestRetainedSnapshotFromThePreviousLifecycleVersion(t *testing.T) {
 func TestRegimeSummaryNamesTheCashWidening(t *testing.T) {
 	r := coSignRedSnapshot()
 	r.CreditSpreads.HYOAS, r.CreditSpreads.HY20DChange = new(3.6), new(0.62)
-	annotateRegimeMetadata(r, nil)
+	annotateCurrentRows(r)
 	r.CreditSpreads.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh}
 	if openers := rpc.RegimeWarningOpeners(r); !slices.Contains(openers, rpc.RegimeWarningCashWidening) {
 		t.Fatalf("the fixture's cash row does not open a warning: %v", openers)

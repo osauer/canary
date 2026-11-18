@@ -1764,6 +1764,24 @@ func stressUnconfirmedSignals(r rpc.RegimeSnapshotResult, m StressMarketSummary)
 	if slices.Contains(m.WarningOpeners, rpc.RegimeWarningCashWidening) {
 		out = append(out, rpc.StressUnconfirmedSignal{Cluster: "credit", Name: rpc.RegimeCashWideningName(), Role: rpc.StressSignalWidening})
 	}
+	if slices.Contains(m.WarningOpeners, rpc.RegimeWarningWitnessUnavailable) {
+		// What a dark-witness warning rests on, in row order: the witness
+		// nobody can read, and every co-sign at yellow or red, also one the
+		// list names as context above.
+		unavailable, weak := rpc.RegimeDarkWitnessCause(&r)
+		for _, row := range standings {
+			role := ""
+			switch {
+			case row.Role == rpc.RegimeRoleWitness && slices.Contains(unavailable, row.Name):
+				role = rpc.StressSignalUnavailable
+			case row.Role == rpc.RegimeRoleCoSign && slices.Contains(weak, row.Name):
+				role = rpc.StressSignalWeak
+			default:
+				continue
+			}
+			out = append(out, rpc.StressUnconfirmedSignal{Cluster: rpc.RegimeIndicatorCluster(row.Indicator), Name: row.Name, Role: role})
+		}
+	}
 	return out
 }
 
@@ -1784,7 +1802,9 @@ func stressUnconfirmed(m StressMarketSummary, field func(rpc.StressUnconfirmedSi
 
 // stressProvisionalCause names what warns without confirming, for the early
 // warning sentences: the witness clusters that are red, then the cash
-// widening. Empty when nothing does.
+// widening, then a witness nobody can read beside the co-signs that are
+// weak ("volatility term structure unavailable; ETF credit proxy and
+// breadth weak"). Empty when nothing does.
 func stressProvisionalCause(m StressMarketSummary) string {
 	var parts []string
 	if witnesses := stressUnconfirmed(m, stressSignalCluster, rpc.StressSignalWitness); len(witnesses) > 0 {
@@ -1792,6 +1812,10 @@ func stressProvisionalCause(m StressMarketSummary) string {
 		parts = append(parts, stressClusterList(witnesses)+" red")
 	}
 	parts = append(parts, stressUnconfirmed(m, stressSignalName, rpc.StressSignalWidening)...)
+	if unavailable := stressUnconfirmed(m, stressSignalName, rpc.StressSignalUnavailable); len(unavailable) > 0 {
+		weak := stressUnconfirmed(m, stressSignalName, rpc.StressSignalWeak)
+		parts = append(parts, humanList(strings.Join(unavailable, ","))+" unavailable; "+humanList(strings.Join(weak, ","))+" weak")
+	}
 	return strings.Join(parts, " and ")
 }
 
