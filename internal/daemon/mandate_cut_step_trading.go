@@ -17,8 +17,10 @@ import (
 // stepMandateCut takes one due step of a placed mandate cut through the
 // ordinary modify path with the daemon-preauthorised origin. Under
 // brokerWriteMu it reads the record, the served row, the order and the quote
-// again and acts only on what it finds there, so a fill, a veto of the
-// breach or a disarm between the pass and the lock never becomes a write.
+// again and acts only on what it finds there, so a fill, the breach's end or
+// a disarm between the pass and the lock never becomes a write. A veto of
+// the row waiting behind the order does not stop its steps; cancelling the
+// order does.
 // outcome says what was done or why the limit rests; err is a step that
 // could not be attempted and is tried again.
 func (e *proposalEngine) stepMandateCut(ctx context.Context, rec automaticSubmissionRecord, wait time.Duration, steps int) (outcome string, err error) {
@@ -30,7 +32,14 @@ func (e *proposalEngine) stepMandateCut(ctx context.Context, rec automaticSubmis
 	if !ok || !current.stepDue(now, wait, steps) {
 		return "", nil
 	}
-	prop, wanted := e.mandateCutWanted(current)
+	if paused := s.configAutomationPausedBlocker(); paused != nil {
+		return "", errors.New(paused.Message)
+	}
+	snap := e.Snapshot(false)
+	if why := e.mandateCutSnapshotUnconfirmed(snap, now); why != "" {
+		return "", errors.New(why)
+	}
+	prop, wanted := mandateCutWanted(snap, current)
 	switch {
 	case !wanted:
 		e.noteMandateCutRests(ctx, current, "the breach's row for this line is no longer served, so the order keeps its limit", false)
@@ -40,7 +49,7 @@ func (e *proposalEngine) stepMandateCut(ctx context.Context, rec automaticSubmis
 	case e.automaticSessionDue(prop, now).After(now):
 		return "", errors.New("the session is closed or inside its opening offset")
 	}
-	views, _, err := s.loadOrderViews()
+	views, events, err := s.loadOrderViews()
 	if err != nil {
 		return "", err
 	}
@@ -53,6 +62,10 @@ func (e *proposalEngine) stepMandateCut(ctx context.Context, rec automaticSubmis
 	if known && !working {
 		// Filled, cancelled or expired: nothing is left to step.
 		e.noteMandateCutRests(ctx, current, "the order no longer works", true)
+		return "", nil
+	}
+	if mandateCutChangedByHand(events, current.OrderRef) {
+		e.noteMandateCutRests(ctx, current, "the order was changed by hand, so Canary leaves its limit where it was set", true)
 		return "", nil
 	}
 	status := s.currentTradingStatus()

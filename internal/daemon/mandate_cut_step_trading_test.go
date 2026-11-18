@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v3/internal/config"
 	"github.com/osauer/canary/v3/internal/risk"
 	"github.com/osauer/canary/v3/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
@@ -120,9 +121,13 @@ func (r *cutStepRig) view() rpc.OrderView {
 	return rpc.OrderView{}
 }
 
-// pass advances the clock and runs one stepping pass.
+// pass advances the clock and runs one stepping pass on a snapshot generated
+// at that instant, as the engine's loop refreshes before it steps.
 func (r *cutStepRig) pass(after time.Duration) {
 	r.advance(after)
+	r.engine.mu.Lock()
+	r.engine.snapshot.AsOf = r.now
+	r.engine.mu.Unlock()
 	r.engine.runMandateCutSteps(context.Background())
 }
 
@@ -344,6 +349,88 @@ func TestMandateCutStepNeedsTheBreachStillServed(t *testing.T) {
 	held.pass(10 * time.Minute)
 	if held.sent() != 1 {
 		t.Fatalf("stepped to %v while the row was held", held.lastLimit())
+	}
+}
+
+// While a broken config.toml section pauses pre-authorised submission, a cut
+// already working keeps its limit: the pause covers every write of the
+// scheduler's origin, a step included, and no step is spent.
+func TestMandateCutStepWaitsWhileConfigPausesAutomation(t *testing.T) {
+	t.Parallel()
+	r := newCutStepRig(t)
+	r.server.addConfigIssue(config.Issue{Key: "trading.max_order_notional", Problem: "unreadable; default in force"})
+	if paused, _ := r.server.configPausesAutomation(); !paused {
+		t.Fatal("the config issue does not pause automation; the test proves nothing")
+	}
+	r.pass(10 * time.Minute)
+	r.pass(10 * time.Minute)
+	if r.sent() != 1 {
+		t.Fatalf("the limit moved to %v while pre-authorised submission was paused", r.lastLimit())
+	}
+	if r.rec().Step.Count != 0 {
+		t.Fatalf("a refused step was spent: %+v", r.rec().Step)
+	}
+	// The origin gate refuses it too, whoever asks.
+	r.server.automaticGrant.Store(&automaticWriteGrant{Key: r.prop.Key, Revision: r.revision, Bucket: r.rec().Bucket, ArmedAt: r.rec().ArmedAt})
+	blockers := r.server.daemonPreAuthorisedOriginBlockers(r.server.currentTradingStatus())
+	r.server.automaticGrant.Store(nil)
+	if len(blockers) != 1 || blockers[0].Code != "config_automation_paused" {
+		t.Fatalf("the origin gate admits a daemon write while automation is paused: %+v", blockers)
+	}
+}
+
+// A step needs the breach's row from a snapshot the scheduler itself would
+// act on: generated in this process, without blockers of its own, and no
+// older than two refresh cadences. A restored, blocked or stalled snapshot
+// may still serve a row whose breach has ended.
+func TestMandateCutStepNeedsACurrentSnapshot(t *testing.T) {
+	t.Parallel()
+	for name, change := range map[string]func(*cutStepRig){
+		"restored from state": func(r *cutStepRig) { r.engine.snapshot.LoadedFromState = true },
+		"kept through a failed refresh": func(r *cutStepRig) {
+			r.engine.snapshot.Blockers = []rpc.TradingBlocker{{Code: "positions_unavailable", Message: "the positions read failed"}}
+		},
+		"three hours old": func(r *cutStepRig) { r.engine.snapshot.AsOf = r.now.Add(-3 * time.Hour) },
+	} {
+		r := newCutStepRig(t)
+		for range 2 {
+			r.advance(10 * time.Minute)
+			r.engine.mu.Lock()
+			r.engine.snapshot.AsOf = r.now
+			change(r)
+			r.engine.mu.Unlock()
+			r.engine.runMandateCutSteps(context.Background())
+		}
+		if r.sent() != 1 {
+			t.Fatalf("%s: the limit moved to %v", name, r.lastLimit())
+		}
+		if step := r.rec().Step; step.Count != 0 || step.Done {
+			t.Fatalf("%s: the step was spent or ended: %+v", name, step)
+		}
+	}
+}
+
+// A cut the scheduler placed and the owner then changed by hand is the
+// owner's: its limit is never stepped again (owner, 2026-10-22 15:26 CEST,
+// an order the owner confirmed keeps its limit).
+func TestMandateCutStepLeavesAnOrderTheOwnerChanged(t *testing.T) {
+	t.Parallel()
+	r := newCutStepRig(t)
+	ev := orderJournalEventFromView(r.view(), orderJournalEventModifyRequested, r.now)
+	ev.Status, ev.SendState, ev.LimitPrice, ev.Origin = "Submitted", orderSendStateBrokerAcknowledged, 25.05, rpc.OrderOriginHumanTTY
+	if err := r.server.orderJournal.Append(ev); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.view().LimitPrice; got != 25.05 {
+		t.Fatalf("the order's limit reads %v after the owner's change, want 25.05", got)
+	}
+	r.pass(10 * time.Minute)
+	r.pass(10 * time.Minute)
+	if r.sent() != 1 {
+		t.Fatalf("the limit the owner set was stepped to %v", r.lastLimit())
+	}
+	if step := r.rec().Step; step.Count != 0 || !step.Done || !strings.Contains(step.Rests, "changed by hand") {
+		t.Fatalf("the record does not end the stepping and say why: %+v", step)
 	}
 }
 

@@ -219,14 +219,47 @@ func (s *automaticSubmissionStore) stepNote(p rpc.TradeProposal) string {
 // same row key, still a mandate reduction of the record's episode. Without
 // it the breach ended or the plan dropped the line, and the order keeps its
 // limit.
-func (e *proposalEngine) mandateCutWanted(rec automaticSubmissionRecord) (rpc.TradeProposal, bool) {
-	for _, prop := range e.Snapshot(false).Proposals {
+func mandateCutWanted(snap rpc.TradeProposalSnapshot, rec automaticSubmissionRecord) (rpc.TradeProposal, bool) {
+	for _, prop := range snap.Proposals {
 		if prop.Key == rec.Key && prop.Bucket == rpc.TradeProposalBucketMandateReduction && prop.Mandate != nil &&
 			prop.Mandate.Episode != "" && prop.Mandate.Episode == rec.Episode {
 			return prop, true
 		}
 	}
 	return rpc.TradeProposal{}, false
+}
+
+// mandateCutSnapshotUnconfirmed says why snap cannot tell whether a placed
+// cut is still wanted, or "": the scheduler places nothing from a snapshot
+// that was restored from state or carries blockers of its own
+// (proposalUnblocked), and a failed or stalled refresh keeps the last rows
+// served, so a step asks the same and that the snapshot is no older than two
+// cadences.
+func (e *proposalEngine) mandateCutSnapshotUnconfirmed(snap rpc.TradeProposalSnapshot, now time.Time) string {
+	switch {
+	case snap.LoadedFromState:
+		return "the proposals on hand are from before the restart; the breach is read again first"
+	case len(snap.Blockers) > 0:
+		return "the proposal set is blocked (" + snap.Blockers[0].Code + "), so the breach cannot be confirmed right now"
+	case now.Sub(snap.AsOf) > e.snapshotMaxAge():
+		return "the proposals on hand are too old to confirm the breach"
+	}
+	return ""
+}
+
+// mandateCutChangedByHand reports a modify of the order that the scheduler
+// did not issue. The order is then the owner's and keeps the limit it was
+// given (owner, 2026-10-22 15:26 CEST). A change made in TWS itself leaves
+// no such event and is not seen here.
+func mandateCutChangedByHand(events map[string][]rpc.OrderEvent, orderRef string) bool {
+	for _, rows := range events {
+		for _, ev := range rows {
+			if ev.OrderRef == orderRef && ev.Type == orderJournalEventModifyRequested && ev.Origin != rpc.OrderOriginDaemonPreAuthorised {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // runMandateCutSteps is one stepping pass. It runs after the scheduler's

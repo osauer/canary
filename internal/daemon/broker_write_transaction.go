@@ -144,6 +144,12 @@ func (s *Server) daemonPreAuthorisedOriginBlockers(status rpc.TradingStatus) []r
 	if grant == nil {
 		return []rpc.TradingBlocker{{Code: "daemon_origin_unauthorised", Message: "daemon-preauthorised writes are issued only by the daemon's pre-authorised protection scheduler; no submission is in progress", Action: "Submit through `canary proposals submit` from a human terminal instead."}}
 	}
+	// The config pause covers every write of this origin, a placement and a
+	// step of a placed order alike; the proposal-side check alone let a
+	// working cut be stepped through it (v3.39.0).
+	if paused := s.configAutomationPausedBlocker(); paused != nil {
+		return []rpc.TradingBlocker{*paused}
+	}
 	if s.protectionPolicies == nil {
 		return []rpc.TradingBlocker{{Code: "bucket_not_pre_authorised", Message: "no protection policy is loaded, so no bucket is pre-authorised", Action: "List the bucket under [authority].pre_authorised and bump policy_version."}}
 	}

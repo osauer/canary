@@ -53,6 +53,16 @@ func (s *Server) configPausesAutomation() (bool, []string) {
 	return len(sections) > 0, sections
 }
 
+// configAutomationPausedBlocker is the refusal of a pre-authorised write
+// while configPausesAutomation holds, or nil.
+func (s *Server) configAutomationPausedBlocker() *rpc.TradingBlocker {
+	paused, sections := s.configPausesAutomation()
+	if !paused {
+		return nil
+	}
+	return &rpc.TradingBlocker{Code: "config_automation_paused", Message: fmt.Sprintf("pre-authorised submission is paused while config.toml [%s] runs on Canary's defaults", strings.Join(sections, "], [")), Action: "Fix config.toml and run `canary restart`, or submit by hand."}
+}
+
 // configIssueSummary is the one sentence every surface quotes.
 func (s *Server) configIssueSummary() string {
 	issues, _ := s.configIssuesSnapshot()

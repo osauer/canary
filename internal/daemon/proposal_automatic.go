@@ -1577,8 +1577,8 @@ func (e *proposalEngine) automaticSubmitBlockers(prop rpc.TradeProposal) []rpc.T
 	if prop.Bucket == rpc.TradeProposalBucketCashSweep && (grant.Quantity <= 0 || prop.Quantity != grant.Quantity) {
 		return []rpc.TradingBlocker{{Code: "stale_revision", Message: "cash sweep quantity changed after its automatic notice; refresh proposals for a new veto window"}}
 	}
-	if paused, sections := e.server.configPausesAutomation(); paused {
-		return []rpc.TradingBlocker{{Code: "config_automation_paused", Message: fmt.Sprintf("pre-authorised submission is paused while config.toml [%s] runs on Canary's defaults", strings.Join(sections, "], [")), Action: "Fix config.toml and run `canary restart`, or submit by hand."}}
+	if paused := e.server.configAutomationPausedBlocker(); paused != nil {
+		return []rpc.TradingBlocker{*paused}
 	}
 	policy, ok, disarmed := e.automaticPolicyAuthority()
 	if disarmed != nil {

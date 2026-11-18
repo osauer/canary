@@ -2444,11 +2444,7 @@ func (e *proposalEngine) fastPathCachedProposal(key, revision string) (rpc.Trade
 	}
 	// The fast path serves the cached snapshot; cap its age so a daemon
 	// restart (LoadedFromState) or a stalled refresh can never preview
-	maxAge := 2 * e.cadence
-	if maxAge <= 0 {
-		maxAge = 30 * time.Minute
-	}
-	if snap.LoadedFromState || e.clock().Sub(snap.AsOf) > maxAge {
+	if snap.LoadedFromState || e.clock().Sub(snap.AsOf) > e.snapshotMaxAge() {
 		return rpc.TradeProposal{}, nil, false
 	}
 	// The fast path may only act on a cached snapshot generated under the
@@ -3565,6 +3561,15 @@ func (e *proposalEngine) installPreservedSnapshot(snap rpc.TradeProposalSnapshot
 	if show {
 		e.appendShownEvents(snap)
 	}
+}
+
+// snapshotMaxAge is how old a cached snapshot may be and still be acted on
+// without a refresh: two refresh cadences.
+func (e *proposalEngine) snapshotMaxAge() time.Duration {
+	if maxAge := 2 * e.cadence; maxAge > 0 {
+		return maxAge
+	}
+	return 30 * time.Minute
 }
 
 func (e *proposalEngine) replaceSnapshot(snap rpc.TradeProposalSnapshot) {

@@ -74,9 +74,19 @@ proposal the owner confirms by writing it into the policy file.
     It is taken only while the breach's row for the line is served and not
     held, past the session's opening offset, on a live two-sided quote, and
     under the arming the order was placed under; it needs no veto window of
-    its own. Only orders the scheduler placed are stepped: an order the
+    its own. The row is read from a snapshot the scheduler itself would
+    place from: generated in this process, without blockers of its own and
+    no older than two refresh cadences; and the config pause on
+    pre-authorised submission stops a step at the origin gate, as it stops
+    a placement (review fix, 2026-11-18 21:34 CET: v3.39.0 stepped through
+    a restored or failed-refresh snapshot and through the pause). Only
+    orders the scheduler placed are stepped: an order the
     owner confirmed keeps its limit (owner, 2026-10-22 15:26 CEST), and so
-    do queued authorisations, stops and strategy orders. The write is the
+    do queued authorisations, stops and strategy orders. A placed cut that
+    any other origin then modified through Canary is no longer stepped
+    (same fix); a change made in TWS itself is not seen. Open, for the
+    owner: a veto of the row waiting behind a working cut does not stop
+    its steps. The write is the
     ordinary modify path with the daemon-preauthorised origin under a grant
     naming the one order and limit; each step is recorded before the broker
     call, so a restart or an uncertain send never repeats it, and a step

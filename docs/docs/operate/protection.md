@@ -1,6 +1,6 @@
 # Protection and risk reduction
 
-Updated: 2026-11-07 08:25 CET
+Updated: 2026-11-18 21:34 CET
 
 Proposals are advisory by default. The standard binary cannot place an order.
 In a trading build, manual submission requires the exact proposal and its
@@ -400,7 +400,12 @@ times. A step never goes below the worst price the order was placed under,
 further from the mid than the give bound above allows. A step is taken only
 while the breach still asks for the cut and the arming the order was placed
 under still stands; it opens no new veto window, and cancelling the order
-works as before. Orders you confirmed yourself are never stepped. With either
+works as before. The breach is read from proposals generated in the last two
+refresh intervals: after a restart, or while the proposal refresh fails, the
+order keeps its limit until a fresh read confirms the cut is still wanted. A
+step also waits while a part of `config.toml` that could not be read pauses
+pre-authorised orders. Orders you confirmed yourself are never stepped, and a
+cut whose limit you changed through Canary is yours from then on. With either
 number absent, or zero steps, a placed cut keeps its limit.
 
 **End and hold.** A verdict reading within the room ends the episode and
