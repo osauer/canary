@@ -198,6 +198,14 @@ type gammaComputation struct {
 // poll for hours).
 const gammaErrorRetryTTL = 60 * time.Second
 
+// gammaComputeBudget bounds how long one compute may hold its slot. A healthy
+// combined compute (SPY phase, then SPX phase) took about 13 minutes on
+// 2026-11-18 after a cold start; the documented worst case is two phases of
+// about 6 minutes each. Past the budget kickOrJoin abandons the job: it is
+// cancelled and counted as a failure, so the retry gate paces the next
+// attempt. Engineering bound, not a freshness limit; the owner may retune it.
+const gammaComputeBudget = 30 * time.Minute
+
 // gammaErrorRetryMaxTTL caps the escalating retry gate. Matches
 const gammaErrorRetryMaxTTL = 15 * time.Minute
 
@@ -482,6 +490,23 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 			slot.rememberError(slot.refresh)
 		}
 		slot.refresh = nil
+	}
+
+	// A refresh that outlives its budget is abandoned, not waited on: every
+	// other path below spawns only while slot.refresh is nil, so a job stuck
+	// in a wait the context cannot reach would otherwise block all refreshes
+	// until a daemon restart (2026-11-18: two hours stale in session). Counted
+	// as a failure so retryAllowed paces the next attempt; the cancelled job
+	// can no longer publish (notifyJobPublication and promoteRefreshOnDone
+	// both require it to still be slot.refresh).
+	if slot.refresh != nil && !slot.refresh.isDone() && now.Sub(slot.refresh.startedAt) >= gammaComputeBudget {
+		stuck := slot.refresh
+		stuck.cancel()
+		slot.refresh = nil
+		slot.errStreak++
+		slot.lastFailAt = now
+		gammaLogf{inner: c.log}.Warnf("gamma compute: scope=%s refresh abandoned after %s without finishing, last progress %d%% (%s); retrying behind the backoff",
+			scope, now.Sub(stuck.startedAt).Round(time.Second), stuck.progress.Load(), gammaProgressStage(scope, stuck.progress.Load()))
 	}
 
 	// SessionClosed gate: outside the regular U.S. listed-options
@@ -1417,4 +1442,28 @@ func findZeroCrossing(profile []rpc.GammaProfilePoint, reference ...float64) (ze
 		}
 	}
 	return nil, "no_data"
+}
+
+// gammaProgressStage names where a job's progress counter stands, so an
+// abandoned job's log line locates the blocking call. Each underlying phase
+// reports 2 (spot), 5 and 10 (option chain and expiries), 10-85 (leg fan-out),
+// 85-100 (fit); the combined scope maps SPY to 0-50 and SPX to 50-100.
+func gammaProgressStage(scope string, progress int32) string {
+	phase := ""
+	if scope == rpc.GammaZeroScopeCombined {
+		phase = "SPY phase, "
+		if progress >= 50 {
+			phase, progress = "SPX phase, ", (progress-50)*2
+		} else {
+			progress *= 2
+		}
+	}
+	switch {
+	case progress < 10:
+		return phase + "spot and option chain lookup"
+	case progress < 85:
+		return phase + "leg fan-out"
+	default:
+		return phase + "fit and publication"
+	}
 }
