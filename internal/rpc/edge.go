@@ -111,6 +111,7 @@ type EdgeResult struct {
 	ActionRollups        []EdgeActionRollup        `json:"action_rollups"`
 	Findings             []EdgeFinding             `json:"findings"`
 	Options              EdgeOptionReview          `json:"options"`
+	Verdicts             EdgeVerdicts              `json:"verdicts"`
 	Coverage             EdgeCoverage              `json:"coverage"`
 	Method               EdgeMethod                `json:"method"`
 	Setup                *EdgeSetup                `json:"setup,omitempty"`
@@ -203,6 +204,50 @@ type EdgeFinding struct {
 	MarketContext        []EdgeMarketContext `json:"market_context,omitempty"`
 }
 
+// EdgeVerdict says in one word whether a decision helped: helped, hurt,
+// no_difference (a result no larger than the decision's own costs) or none.
+// Basis horizon is Decision price impact after costs at Sessions; basis
+// position is the outcome of an option decision's own position. None carries
+// the reason no figure exists.
+type EdgeVerdict struct {
+	Label      string   `json:"label"`
+	Basis      string   `json:"basis,omitempty"`
+	Sessions   int      `json:"sessions,omitempty"`
+	ImpactBase *float64 `json:"impact_base,omitempty"`
+	Reason     string   `json:"reason,omitempty"`
+}
+
+// EdgeVerdicts counts every decision's verdict by asset class and lists the
+// most recent decisions, newest first. Verdict money is never totalled.
+type EdgeVerdicts struct {
+	Counts []EdgeVerdictCount `json:"counts"`
+	Recent []EdgeTradeVerdict `json:"recent"`
+}
+
+// EdgeVerdictCount counts verdicts for one asset class.
+type EdgeVerdictCount struct {
+	AssetClass   string `json:"asset_class"`
+	Helped       int    `json:"helped"`
+	Hurt         int    `json:"hurt"`
+	NoDifference int    `json:"no_difference"`
+	None         int    `json:"none"`
+}
+
+// EdgeTradeVerdict is one decision with its verdict; change_id opens the
+// broker-fact detail.
+type EdgeTradeVerdict struct {
+	ChangeID   string      `json:"change_id"`
+	Symbol     string      `json:"symbol"`
+	AssetClass string      `json:"asset_class"`
+	Action     string      `json:"action"`
+	Direction  string      `json:"direction"`
+	ExecutedAt time.Time   `json:"executed_at"`
+	Verdict    EdgeVerdict `json:"verdict"`
+}
+
+// MaxEdgeRecentVerdicts bounds the recent decision list.
+const MaxEdgeRecentVerdicts = 20
+
 // EdgeChangeDetail expands one opaque change without exposing broker identity.
 type EdgeChangeDetail struct {
 	ProtectionContext     EdgeProtectionContext `json:"protection_context"`
@@ -221,6 +266,7 @@ type EdgeChangeDetail struct {
 	ExecutionNotionalBase *float64              `json:"execution_notional_base,omitempty"`
 	DirectCostsBase       *float64              `json:"direct_costs_base,omitempty"`
 	Scores                []EdgeHorizonScore    `json:"scores"`
+	Verdict               EdgeVerdict           `json:"verdict"`
 }
 
 // EdgeHorizonScore exposes either one calculated impact or a typed reason.
@@ -239,10 +285,42 @@ type EdgeHorizonScore struct {
 // EdgeOptionReview keeps realized option episodes and the dated open-position
 // snapshot as separate broker-truth scopes.
 type EdgeOptionReview struct {
-	Cycles   EdgeOptionCycles         `json:"cycles"`
-	Coverage EdgeOptionCoverage       `json:"coverage"`
-	Realized EdgeOptionRealizedReview `json:"realized"`
-	Open     EdgeOptionOpenReview     `json:"open"`
+	Cycles    EdgeOptionCycles         `json:"cycles"`
+	Decisions EdgeOptionDecisions      `json:"decisions"`
+	Coverage  EdgeOptionCoverage       `json:"coverage"`
+	Realized  EdgeOptionRealizedReview `json:"realized"`
+	Open      EdgeOptionOpenReview     `json:"open"`
+}
+
+// EdgeOptionDecisions reads each option decision against the flat-to-flat
+// position it belonged to, from broker executions and the latest statement
+// mark. Entry rows (open, add) and exit rows (trim, exit) describe the same
+// booked money and are never added together.
+type EdgeOptionDecisions struct {
+	Changes     int                      `json:"changes"`
+	WithOutcome int                      `json:"with_outcome"`
+	Reasons     map[string]int           `json:"reasons"`
+	Actions     []EdgeOptionDecisionRoll `json:"actions"`
+}
+
+// EdgeOptionDecisionRoll is one action's reading. For open and add,
+// result is the average price the position's contracts were closed at (held
+// contracts at the statement mark) against the price paid. For trim and
+// exit, result is the price taken against the position's average entry
+// price, and later_exit compares the price taken with what the contracts
+// closed afterwards fetched: later_exit_better counts the sales the kept
+// contracts went on to beat.
+type EdgeOptionDecisionRoll struct {
+	Action             string   `json:"action"`
+	Changes            int      `json:"changes"`
+	WithResult         int      `json:"with_result"`
+	Losses             int      `json:"losses"`
+	MedianResultPct    *float64 `json:"median_result_pct,omitempty"`
+	TotalResultBase    *float64 `json:"total_result_base,omitempty"`
+	WithLaterExit      int      `json:"with_later_exit"`
+	LaterExitBetter    int      `json:"later_exit_better"`
+	MedianLaterExitPct *float64 `json:"median_later_exit_pct,omitempty"`
+	TotalLaterExitBase *float64 `json:"total_later_exit_base,omitempty"`
 }
 
 // EdgeOptionCoverage accounts for lifecycle evidence that is not necessarily
@@ -549,6 +627,12 @@ func ValidateEdgeResult(result EdgeResult) error {
 	if err := validateEdgeLearning(result); err != nil {
 		return err
 	}
+	if err := validateEdgeVerdicts(result.Verdicts); err != nil {
+		return err
+	}
+	if result.Change != nil && result.Change.Verdict.Label != "" && !validEdgeVerdict(result.Change.Verdict) {
+		return fmt.Errorf("invalid Edge change verdict")
+	}
 	if err := validateEdgeOptionReview(result.Options); err != nil {
 		return err
 	}
@@ -647,6 +731,9 @@ func validateEdgeOptionReview(review EdgeOptionReview) error {
 	if coverage.ExecutionEpisodes != coverage.OpeningEpisodes+coverage.ClosingEpisodes+coverage.MixedEpisodes+coverage.UnknownEpisodes || coverage.OpeningOnlyZeroEpisodes > coverage.OpeningEpisodes {
 		return Defect(fmt.Errorf("inconsistent Edge option coverage"))
 	}
+	if err := validateEdgeOptionDecisions(review.Decisions); err != nil {
+		return err
+	}
 	realized := review.Realized
 	if realized.TotalCount < 0 || realized.TotalCount != realized.CompleteCount+realized.PartialCount+realized.UnavailableCount || realized.PositiveCount+realized.NegativeCount+realized.FlatCount != realized.CompleteCount+realized.PartialCount || !validEdgeOptionPage(realized.TotalCount, realized.Offset, len(realized.Episodes), realized.NextOffset) || realized.Truncated != (realized.TotalCount > len(realized.Episodes)) {
 		return fmt.Errorf("invalid Edge realized option counts")
@@ -683,6 +770,63 @@ func validateEdgeOptionReview(review EdgeOptionReview) error {
 		if err := validateEdgeOptionOpenSummary(position); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validEdgeVerdict(verdict EdgeVerdict) bool {
+	switch verdict.Label {
+	case "helped", "hurt", "no_difference":
+		return verdict.ImpactBase != nil && finite(*verdict.ImpactBase) && (verdict.Basis == "horizon" && validEdgeHorizon(verdict.Sessions) || verdict.Basis == "position" && verdict.Sessions == 0)
+	case "none":
+		return verdict.ImpactBase == nil && verdict.Basis == ""
+	}
+	return false
+}
+
+func validateEdgeVerdicts(verdicts EdgeVerdicts) error {
+	for _, row := range verdicts.Counts {
+		if strings.TrimSpace(row.AssetClass) == "" || row.Helped < 0 || row.Hurt < 0 || row.NoDifference < 0 || row.None < 0 {
+			return fmt.Errorf("invalid Edge verdict counts")
+		}
+	}
+	if len(verdicts.Recent) > MaxEdgeRecentVerdicts {
+		return fmt.Errorf("too many Edge recent verdicts")
+	}
+	for _, row := range verdicts.Recent {
+		if strings.TrimSpace(row.ChangeID) == "" || !validEdgeAction(row.Action) || row.ExecutedAt.IsZero() || !validEdgeVerdict(row.Verdict) {
+			return fmt.Errorf("invalid Edge trade verdict")
+		}
+	}
+	return nil
+}
+
+func validateEdgeOptionDecisions(decisions EdgeOptionDecisions) error {
+	without := 0
+	for _, count := range decisions.Reasons {
+		if count < 0 {
+			return fmt.Errorf("invalid Edge option decision reasons")
+		}
+		without += count
+	}
+	if decisions.Changes < 0 || decisions.WithOutcome < 0 || decisions.WithOutcome+without != decisions.Changes {
+		return Defect(fmt.Errorf("inconsistent Edge option decision counts"))
+	}
+	changes, withResult := 0, 0
+	for _, roll := range decisions.Actions {
+		if !validEdgeAction(roll.Action) || roll.Changes < 0 || roll.WithResult < 0 || roll.WithResult > roll.Changes || roll.Losses < 0 || roll.Losses > roll.WithResult || roll.WithLaterExit < 0 || roll.WithLaterExit > roll.WithResult || roll.LaterExitBetter < 0 || roll.LaterExitBetter > roll.WithLaterExit {
+			return fmt.Errorf("invalid Edge option decision row")
+		}
+		for _, value := range []*float64{roll.MedianResultPct, roll.TotalResultBase, roll.MedianLaterExitPct, roll.TotalLaterExitBase} {
+			if value != nil && !finite(*value) {
+				return fmt.Errorf("invalid Edge option decision figure")
+			}
+		}
+		changes += roll.Changes
+		withResult += roll.WithResult
+	}
+	if changes != decisions.Changes || withResult != decisions.WithOutcome {
+		return Defect(fmt.Errorf("inconsistent Edge option decision rows"))
 	}
 	return nil
 }

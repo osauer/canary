@@ -366,3 +366,57 @@ func TestEdgeCLIAllOptionsFetchesEveryRow(t *testing.T) {
 		t.Fatal("--all-options with an offset was accepted")
 	}
 }
+
+// The option decisions block says how buys and sales turned out inside their
+// own positions and keeps the two money readings apart.
+func TestEdgeOptionDecisionsRows(t *testing.T) {
+	t.Parallel()
+	result := edgeCLIResult()
+	median, total, laterTotal := -12.5, -1500.0, 800.0
+	result.Options.Decisions = rpc.EdgeOptionDecisions{Changes: 9, WithOutcome: 8, Reasons: map[string]int{"closed_by_delivery": 1}, Actions: []rpc.EdgeOptionDecisionRoll{
+		{Action: "add", Changes: 5, WithResult: 4, Losses: 3, MedianResultPct: &median, TotalResultBase: &total},
+		{Action: "trim", Changes: 4, WithResult: 4, Losses: 1, WithLaterExit: 4, LaterExitBetter: 3, TotalLaterExitBase: &laterTotal},
+	}}
+	if err := rpc.ValidateEdgeResult(result); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	renderEdgeText(&Env{Stdout: &out}, result)
+	got := strings.Join(strings.Fields(out.String()), " ")
+	for _, want := range []string{"9 option decisions read against their own position", "3 of 4 ended below the price paid", "the contracts kept went on to fetch more after 3 of 4", "1 closed by delivery"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, out.String())
+		}
+	}
+	result.Options.Decisions.WithOutcome = 9
+	if err := rpc.ValidateEdgeResult(result); err == nil {
+		t.Fatal("inconsistent option decision counts validated")
+	}
+}
+
+// Every decision gets one line: the word, the money and what it rests on.
+func TestEdgeVerdictRows(t *testing.T) {
+	t.Parallel()
+	result := edgeCLIResult()
+	gain, loss := 1240.0, -860.0
+	result.Verdicts = rpc.EdgeVerdicts{Counts: []rpc.EdgeVerdictCount{{AssetClass: "OPT", Helped: 3, Hurt: 2, None: 1}}, Recent: []rpc.EdgeTradeVerdict{
+		{ChangeID: "change_a", Symbol: "SYNX 260918C00100000", AssetClass: "OPT", Action: "add", Direction: "long", ExecutedAt: result.AsOf.AddDate(0, 0, -3), Verdict: rpc.EdgeVerdict{Label: "helped", Basis: "horizon", Sessions: 5, ImpactBase: &gain}},
+		{ChangeID: "change_b", Symbol: "SYNX 260918C00100000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: result.AsOf.AddDate(0, 0, -2), Verdict: rpc.EdgeVerdict{Label: "hurt", Basis: "position", ImpactBase: &loss}},
+		{ChangeID: "change_c", Symbol: "SYNX", AssetClass: "STK", Action: "open", Direction: "long", ExecutedAt: result.AsOf.AddDate(0, 0, -1), Verdict: rpc.EdgeVerdict{Label: "none", Reason: "missing_horizon"}},
+	}}
+	if err := rpc.ValidateEdgeResult(result); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	renderEdgeText(&Env{Stdout: &out}, result)
+	got := strings.Join(strings.Fields(out.String()), " ")
+	for _, want := range []string{"3 helped", "2 hurt", "1 without a verdict", "helped $ 1,240.00 after 5 sessions", "by its position's outcome", "no verdict: missing horizon"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, out.String())
+		}
+	}
+	result.Verdicts.Recent[0].Verdict.ImpactBase = nil
+	if err := rpc.ValidateEdgeResult(result); err == nil {
+		t.Fatal("a verdict without its figure validated")
+	}
+}

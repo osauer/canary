@@ -27,7 +27,7 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 5
+	edgePublicationVersion   = 6
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
@@ -81,6 +81,10 @@ type edgeContractSpec struct {
 	ConID    int64
 	Symbol   string
 	Currency string
+	// Option marks a live option contract. Its closes are worth keeping
+	// because the broker drops them at expiry, but a failed fetch never
+	// degrades the publication: the statement marks still score it.
+	Option bool
 }
 
 func (s *Server) startEdgeWorker(ctx context.Context) {
@@ -197,7 +201,7 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 	if cache.ScopeFingerprint != scopeFingerprint {
 		cache = edgeBarCache{Version: edgeBarCacheVersion, ScopeFingerprint: scopeFingerprint, Contracts: map[string]edgeBarSeries{}, MarketContext: map[string]edgeBarSeries{}}
 	}
-	contracts := edgeContracts(statements, s.edgeNow().AddDate(0, 0, -edgeFullLookbackDays))
+	contracts := edgeContracts(statements, s.edgeNow().AddDate(0, 0, -edgeFullLookbackDays), s.edgeNow())
 	now := s.edgeNow()
 	full := cache.LastFullRevalidation.IsZero() || now.Sub(cache.LastFullRevalidation) >= edgeFullRevalidateAfter
 	fetchFailures := 0
@@ -211,8 +215,10 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 		}
 		bars, fetchErr := s.fetchEdgeBars(ctx, spec, lookback)
 		if fetchErr != nil {
-			fetchFailures++
-			fetchedAll = false
+			if !spec.Option {
+				fetchFailures++
+				fetchedAll = false
+			}
 			continue
 		}
 		series = edgeBarSeries{
@@ -308,6 +314,11 @@ func edgeBarRefreshPlan(now time.Time, globalFullDue bool, series edgeBarSeries)
 
 func (s *Server) fetchEdgeBars(ctx context.Context, spec edgeContractSpec, lookback int) ([]edgecore.DailyBar, error) {
 	contract := ibkrlib.Contract{ConID: int(spec.ConID), Symbol: spec.Symbol, SecType: "STK", Exchange: "SMART", Currency: spec.Currency}
+	if spec.Option {
+		// The contract id names the option; the symbol field is the
+		// statement's display name, not an underlying.
+		contract.SecType, contract.Symbol = "OPT", ""
+	}
 	var (
 		raw []ibkrlib.HistoricalBar
 		err error
@@ -363,14 +374,29 @@ func edgeDailyBarsFromHistory(raw []ibkrlib.HistoricalBar, conid int64) ([]edgec
 	return out, nil
 }
 
-func edgeContracts(statements []flexstmt.Statement, from time.Time) []edgeContractSpec {
+func edgeContracts(statements []flexstmt.Statement, from, now time.Time) []edgeContractSpec {
 	byConID := map[int64]edgeContractSpec{}
+	expiry := map[int64]string{}
+	for _, statement := range statements {
+		for _, instrument := range statement.Instruments {
+			if instrument.ConID != 0 && instrument.Expiry != "" {
+				expiry[instrument.ConID] = instrument.Expiry
+			}
+		}
+	}
+	today := now.UTC().Format("2006-01-02")
 	for _, statement := range statements {
 		for _, trade := range statement.Trades {
-			if trade.ConID == 0 || trade.ExecutedAt.Before(from) || (trade.AssetClass != "STK" && trade.AssetClass != "ETF") {
+			if trade.ConID == 0 || trade.ExecutedAt.Before(from) {
 				continue
 			}
-			byConID[trade.ConID] = edgeContractSpec{ConID: trade.ConID, Symbol: trade.Symbol, Currency: trade.Currency}
+			switch {
+			case trade.AssetClass == "STK" || trade.AssetClass == "ETF":
+				byConID[trade.ConID] = edgeContractSpec{ConID: trade.ConID, Symbol: trade.Symbol, Currency: trade.Currency}
+			case trade.AssetClass == "OPT" && edgeExpiryDay(expiry[trade.ConID]) >= today:
+				// Only a contract still alive has history at the broker.
+				byConID[trade.ConID] = edgeContractSpec{ConID: trade.ConID, Symbol: trade.Symbol, Currency: trade.Currency, Option: true}
+			}
 		}
 	}
 	ids := make([]int64, 0, len(byConID))
@@ -383,6 +409,16 @@ func edgeContracts(statements []flexstmt.Statement, from time.Time) []edgeContra
 		out = append(out, byConID[conid])
 	}
 	return out
+}
+
+// edgeExpiryDay normalises a statement expiry (2026-03-20 or 20260320) to
+// 2006-01-02, or "" when it is absent or unreadable.
+func edgeExpiryDay(value string) string {
+	value = strings.ReplaceAll(strings.TrimSpace(value), "-", "")
+	if len(value) != 8 {
+		return ""
+	}
+	return value[:4] + "-" + value[4:6] + "-" + value[6:]
 }
 
 func mergeEdgeBars(old, fresh []edgecore.DailyBar) []edgecore.DailyBar {
@@ -1052,6 +1088,7 @@ func populateRPCEdgeResult(out *rpc.EdgeResult, in edgecore.Result, horizon, lim
 		out.Patterns = append(out.Patterns, rpcEdgeDecisionPattern(pattern))
 	}
 	out.Options = rpcEdgeOptionReview(in.Options, optionOffset, optionLimit)
+	out.Verdicts = rpcEdgeVerdicts(in)
 	out.Headline = edgeHeadline(out)
 }
 
@@ -1178,7 +1215,8 @@ func rpcEdgeAccount(in *edgecore.AccountResult) *rpc.EdgeAccountResult {
 // a repeat.
 func rpcEdgeOptionReview(in edgecore.OptionReview, offset, limit int) rpc.EdgeOptionReview {
 	out := rpc.EdgeOptionReview{
-		Cycles: rpcEdgeOptionCycles(in.Cycles, offset, limit),
+		Cycles:    rpcEdgeOptionCycles(in.Cycles, offset, limit),
+		Decisions: rpcEdgeOptionDecisions(in.Decisions),
 		Coverage: rpc.EdgeOptionCoverage{
 			ExecutionEpisodes: in.Coverage.ExecutionEpisodes, OpeningEpisodes: in.Coverage.OpeningEpisodes,
 			OpeningOnlyZeroEpisodes: in.Coverage.OpeningOnlyZeroEpisodes, ClosingEpisodes: in.Coverage.ClosingEpisodes,
@@ -1386,6 +1424,31 @@ func rpcEdgeChange(in edgecore.Change) *rpc.EdgeChangeDetail {
 			row.HorizonDay = &day
 		}
 		out.Scores = append(out.Scores, row)
+	}
+	out.Verdict = rpcEdgeVerdict(in.Verdict)
+	return out
+}
+
+func rpcEdgeVerdict(in edgecore.Verdict) rpc.EdgeVerdict {
+	if in.Label == "" {
+		// A publication written before verdicts existed.
+		return rpc.EdgeVerdict{Label: edgecore.VerdictNone}
+	}
+	return rpc.EdgeVerdict{Label: in.Label, Basis: in.Basis, Sessions: in.Sessions, ImpactBase: cloneAmount(in.ImpactBase), Reason: in.Reason}
+}
+
+// rpcEdgeVerdicts lists the newest decisions first; in.Changes is in
+// execution order.
+func rpcEdgeVerdicts(in edgecore.Result) rpc.EdgeVerdicts {
+	out := rpc.EdgeVerdicts{Counts: []rpc.EdgeVerdictCount{}, Recent: []rpc.EdgeTradeVerdict{}}
+	for _, row := range in.Verdicts {
+		out.Counts = append(out.Counts, rpc.EdgeVerdictCount{AssetClass: row.AssetClass, Helped: row.Helped, Hurt: row.Hurt, NoDifference: row.NoDifference, None: row.None})
+	}
+	for _, change := range slices.Backward(in.Changes) {
+		if len(out.Recent) == rpc.MaxEdgeRecentVerdicts {
+			break
+		}
+		out.Recent = append(out.Recent, rpc.EdgeTradeVerdict{ChangeID: change.ID, Symbol: change.Symbol, AssetClass: change.AssetClass, Action: change.Action, Direction: change.Direction, ExecutedAt: change.ExecutedAt, Verdict: rpcEdgeVerdict(change.Verdict)})
 	}
 	return out
 }

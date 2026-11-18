@@ -43,7 +43,22 @@ type OptionCycle struct {
 }
 
 func buildOptionCycles(ev evidence, from, to time.Time, base string, protection map[string]ProtectionRecord, initial map[int64]float64, unbalanced map[int64]bool) OptionCycles {
+	out, _ := buildOptionPositions(ev, from, to, base, protection, initial, unbalanced)
+	return out
+}
+
+// buildOptionPositions walks every option contract once. It returns the
+// in-window cycles and a ledger from each retained execution to the
+// flat-to-flat position it belonged to, so a decision can be read against
+// what its position went on to do.
+func buildOptionPositions(ev evidence, from, to time.Time, base string, protection map[string]ProtectionRecord, initial map[int64]float64, unbalanced map[int64]bool) (OptionCycles, map[string]*optionPosition) {
 	out := OptionCycles{Reasons: map[string]int{}, Cycles: []OptionCycle{}}
+	ledger := map[string]*optionPosition{}
+	link := func(rows []flexstmt.Trade, position *optionPosition) {
+		for _, row := range rows {
+			ledger[row.RecordID] = position
+		}
+	}
 	byContract := map[int64][]flexstmt.Trade{}
 	executed := map[string]bool{}
 	for _, trade := range ev.trades {
@@ -109,6 +124,7 @@ func buildOptionCycles(ev evidence, from, to time.Time, base string, protection 
 		if reason != "" {
 			out.ExcludedContracts++
 			out.Reasons[reason]++
+			link(rows, &optionPosition{state: OptionPositionUnproved, reason: reason})
 			continue
 		}
 		quantity := initial[id]
@@ -132,11 +148,7 @@ func buildOptionCycles(ev evidence, from, to time.Time, base string, protection 
 			// A nonzero initial position can close without a retained opening.
 			if !startedFlat || len(active) == 0 || !strings.EqualFold(active[0].OpenClose, "O") {
 				out.Reasons["opening_unproved"]++
-				active = nil
-				continue
-			}
-			if tradeStatementDay(active[0]).Before(dayStart(from)) {
-				out.Reasons["opened_before_window"]++
+				link(active, &optionPosition{state: OptionPositionUnproved, reason: "opening_unproved"})
 				active = nil
 				continue
 			}
@@ -144,6 +156,15 @@ func buildOptionCycles(ev evidence, from, to time.Time, base string, protection 
 			cycle.ClosedBy = "trade"
 			if last := active[len(active)-1]; last.TradeID != "" && closedBy[lifecycleTradeKey(last.ConID, last.TradeID)] != "" {
 				cycle.ClosedBy = closedBy[lifecycleTradeKey(last.ConID, last.TradeID)]
+			}
+			// A position opened before the window is not an in-window cycle,
+			// but the decisions made in it inside the window still have its
+			// outcome.
+			link(active, optionPositionFromRows(active, cycle, OptionPositionClosed, 0, nil))
+			if tradeStatementDay(active[0]).Before(dayStart(from)) {
+				out.Reasons["opened_before_window"]++
+				active = nil
+				continue
 			}
 			out.CompletedCount++
 			if cycle.PNLStatus == OptionPNLComplete {
@@ -158,6 +179,14 @@ func buildOptionCycles(ev evidence, from, to time.Time, base string, protection 
 		}
 		if !almostEqual(quantity, 0) {
 			out.OpenContractCount++
+			if len(active) > 0 {
+				if !startedFlat || !strings.EqualFold(active[0].OpenClose, "O") {
+					link(active, &optionPosition{state: OptionPositionUnproved, reason: "opening_unproved"})
+				} else {
+					cycle := optionCycleFromRows(active, base, ev.fxRates, protection)
+					link(active, optionPositionFromRows(active, cycle, OptionPositionOpen, math.Abs(quantity), optionMarkPrice(ev.currentPositions, id)))
+				}
+			}
 		}
 	}
 	if known > 0 {
@@ -176,7 +205,7 @@ func buildOptionCycles(ev evidence, from, to time.Time, base string, protection 
 		}
 		return out.Cycles[i].ID < out.Cycles[j].ID
 	})
-	return out
+	return out, ledger
 }
 
 // optionCycleCloser names the lifecycle events that close an exact-contract

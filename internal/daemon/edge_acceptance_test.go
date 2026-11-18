@@ -54,8 +54,10 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 			t.Fatalf("APEX add %d-session hand calculation mismatch: %+v", want.sessions, score)
 		}
 	}
-	if score := acceptanceScore(t, acceptanceChange(t, core.Changes, "APEX", edgecore.ActionOpen), 20); score.Reason != edgecore.ReasonInterveningChange || score.DecisionImpactBase != nil {
-		t.Fatalf("intervening add did not suppress the earlier open: %+v", score)
+	// The later add does not block the open's score: its 20-session close
+	// is the same close the add is measured against.
+	if score := acceptanceScore(t, acceptanceChange(t, core.Changes, "APEX", edgecore.ActionOpen), 20); score.Reason != "" || score.DecisionImpactBase == nil || score.HorizonClose == nil {
+		t.Fatalf("a later add blocked the earlier open: %+v", score)
 	}
 	option := acceptanceOption(core.Options.Realized.Episodes, edgecore.OptionGroupingExactOrder)
 	if option == nil || option.RealizedPNLBase == nil || *option.RealizedPNLBase != 90 || len(option.Legs) != 2 {
@@ -92,7 +94,9 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 	if len(result.Findings) != 3 || result.Findings[0].Symbol != "GAMMA" || result.Findings[0].Action != edgecore.ActionAdd || result.Findings[1].DecisionImpactBase <= 0 {
 		t.Fatalf("decision-useful finding rank mismatch: %+v", result.Findings)
 	}
-	if result.Coverage.ScoredByHorizon[20] != 7 || result.Coverage.TradeChanges != 17 || result.Coverage.EligibleChanges != 15 {
+	// The two option changes count as decisions to score; no close was
+	// retained for them, so they are in the denominator without a figure.
+	if result.Coverage.ScoredByHorizon[20] != 11 || result.Coverage.ReasonCounts[edgecore.ReasonInterveningChange] != 0 || result.Coverage.TradeChanges != 17 || result.Coverage.EligibleChanges != 17 || result.Coverage.ReasonCounts[edgecore.ReasonMarketDataUnavailable] != 2 {
 		t.Fatalf("acceptance coverage mismatch: %+v", result.Coverage)
 	}
 

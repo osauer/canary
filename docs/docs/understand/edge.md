@@ -84,7 +84,8 @@ FX; it is not a pure local-currency price return.
 
 The original matrix remains visible, with an explicit different-samples label.
 Its columns cannot tell the user to hold longer or exit earlier because their
-populations change as intervening activity excludes longer horizons. The matched
+populations change as later horizons run out of closes or meet a transfer,
+lifecycle event or corporate action. The matched
 comparisons answer the narrower question of how later closes changed the fixed
 counterfactual for exactly the same observed decisions.
 
@@ -148,7 +149,7 @@ sections through the [existing reporting setup](../start/reporting.md#optional-s
 
 ## Options: broker actual, in separate scopes
 
-Options are a first-class review surface, but they cannot credibly use the stock/ETF counterfactual. Edge therefore keeps three broker-evidence scopes separate:
+Options are a first-class review surface. An option decision is scored like a stock decision wherever the broker recorded the contract's close on the horizon session (see [Option decisions and verdicts](#option-decisions-and-verdicts)). Beside that, Edge keeps three broker-evidence scopes separate:
 
 - **Activity coverage** counts exact execution episodes as opening, closing, mixed, or unknown lifecycle, plus unmatched exercise, assignment, and expiration events. An opening-only execution with broker-reported zero realized P/L remains visible in coverage and is not promoted into the realized ranking.
 - **Realized episodes** use only broker-reported realized P/L inside the selected review window. Executions share one episode only when they carry the same IBKR order identity on the same day. A row without order linkage remains its own execution episode. An `OptionEAE` row is a separate lifecycle event unless its broker trade identity matches an already retained trade.
@@ -158,7 +159,42 @@ The option lists rank rows by absolute broker P/L and seat at least one gain and
 
 Tap an option row in the app, pass `--option option_…` to the CLI, or pass `option_id` to `canary_edge` to read the evidence behind that opaque result. A realized detail carries exact contracts, opening/closing indicator, side, quantity, execution price, multiplier, broker realized P/L, and direct costs where reported. An open detail carries the dated contract, side, quantity, mark, cost basis, and broker open P/L. This is evidence expansion, not a trading control.
 
-Exact shared-order grouping does not assert a strategy name. A mixed opening-and-closing order is reported as `mixed`, not called a roll. Edge does not infer trade intent, holding period, return on risk, max risk, Greeks, IV, theta, or a cross-order strategy identity. It also never manufactures an expired-option price series; an unavailable historical option counterfactual remains unavailable. See [IBKR historical-data limitations](https://interactivebrokers.github.io/tws-api/historical_limitations.html).
+Exact shared-order grouping does not assert a strategy name. A mixed opening-and-closing order is reported as `mixed`, not called a roll. Edge does not infer trade intent, holding period, return on risk, max risk, Greeks, IV, theta, or a cross-order strategy identity. It also never manufactures an option price: a horizon without a broker-recorded close for that exact session has no figure. See [IBKR historical-data limitations](https://interactivebrokers.github.io/tws-api/historical_limitations.html).
+
+## Option decisions and verdicts
+
+An option's close comes from the broker, never from a model. Two sources are
+used: the mark in each daily statement for a contract held that day, and the
+daily closes Canary fetches for every traded option contract while it is still
+alive (the broker drops them at expiry). The 1st, 5th and 20th sessions are
+counted on the market calendar, and only a close on that exact session counts.
+With one, the option decision gets the same Decision price impact as a stock
+decision.
+
+`options.decisions` also reads every option decision against its own
+flat-to-flat position, from executions alone:
+
+- An **open** or **add** compares the price paid with the average price the
+  position's contracts were closed at. Contracts still held are valued at the
+  latest statement mark.
+- A **trim** or **exit** compares the price taken with the position's average
+  entry price. Where contracts were closed later, `later_exit` compares the
+  price taken with what those fetched: positive means the contracts kept did
+  better than the ones sold.
+- An expiry is a sale at zero. A position closed by exercise or assignment,
+  or without a proven opening, has no price reading.
+
+Entry rows and sale rows describe the same money and are never added. Money
+figures there are before costs.
+
+Every decision carries a **verdict**: `helped`, `hurt` or `no_difference`,
+with the money behind it. It rests on Decision price impact after costs at
+five sessions; at one session when five has no figure; and, for an option
+decision with neither, on the outcome of its own position less the decision's
+costs. A result no larger than the decision's own costs is `no_difference`.
+A decision with no figure at all has verdict `none` and the reason.
+`verdicts.counts` counts them by asset class and `verdicts.recent` lists the
+20 newest decisions. Verdict money is per decision and is never totalled.
 
 ## Completed option positions
 
@@ -284,7 +320,7 @@ negative price impact while still having been sensible risk management.
 
 ## Coverage is part of the result
 
-Every snapshot says how many changes were found, how many stock/ETF changes were eligible by asset class, how many were scored at each horizon, which query sections were present, and why other values were unavailable. Eligibility does not disappear merely because an intervening trade suppressed every horizon; this keeps high-turnover behavior in the coverage denominator instead of comparing only isolated decisions. Reporting labels a Trades container that was not returned as `absent`; it is not evidence that the account had no trades. A present but empty Trades section is broker evidence of zero reported executions for that report. Edge preserves that distinction and keeps a valid account-P/L result visible even when no decision review can be proved. Common exclusion reasons include:
+Every snapshot says how many changes were found, how many stock, ETF and option changes were eligible by asset class, how many were scored at each horizon, which query sections were present, and why other values were unavailable. A later trade in the same contract does not remove a decision from scoring: where the price stood N sessions after a decision does not depend on what was traded in between, and scoring only the decisions left alone afterwards would choose the sample by what happened next. `intervening_change` now means a transfer or option lifecycle event before the horizon. Reporting labels a Trades container that was not returned as `absent`; it is not evidence that the account had no trades. A present but empty Trades section is broker evidence of zero reported executions for that report. Edge preserves that distinction and keeps a valid account-P/L result visible even when no decision review can be proved. Common exclusion reasons include:
 
 - `missing_horizon`
 - `intervening_change`

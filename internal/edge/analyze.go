@@ -94,6 +94,10 @@ type scoringIndex struct {
 	barsByConID      map[int64][]DailyBar
 	rawBarsByConID   map[int64]bool
 	contextBars      map[string][]DailyBar
+	// sessionDays is the calendar an option horizon is counted on. A
+	// contract's own closes are too sparse to count sessions with: it has
+	// one only on the days it was held or traded.
+	sessionDays []DailyBar
 }
 
 // Analyze deterministically computes one 90- or 365-day Edge result.
@@ -126,11 +130,11 @@ func Analyze(input Input) (Result, error) {
 
 	groups := groupTrades(ev.trades, input.BaseCurrency, ev.fxRates)
 	mutations := buildMutations(groups, ev)
-	index := buildScoringIndex(input, mutations)
+	index := buildScoringIndex(input, mutations, ev)
 	unbalanced := unbalancedContracts(groups, index.mutationsByConID, ev)
 	windowStart := asOf.AddDate(0, 0, -input.WindowDays)
 	positions := initialPositions(groups, index.mutationsByConID, ev)
-	cycles := buildOptionCycles(ev, windowStart, asOf, input.BaseCurrency, input.ProtectionRecords, positions, unbalanced)
+	cycles, optionLedger := buildOptionPositions(ev, windowStart, asOf, input.BaseCurrency, input.ProtectionRecords, positions, unbalanced)
 	groupByKey := make(map[string]groupedTrade, len(groups))
 	for _, group := range groups {
 		groupByKey[group.key] = group
@@ -158,6 +162,10 @@ func Analyze(input Input) (Result, error) {
 				pathReason = ReasonPositionPathUnbalanced
 			}
 			change := buildChange(group, part, before, input, index, ev.fxRates, pathReason)
+			if strings.EqualFold(group.assetClass, "OPT") {
+				change.Position = optionPositionOutcome(change, group, optionLedger)
+			}
+			change.Verdict = changeVerdict(change)
 			before += part.delta
 			result.Changes = append(result.Changes, change)
 		}
@@ -177,6 +185,8 @@ func Analyze(input Input) (Result, error) {
 	result.Findings = buildFindings(result.Changes, startingEquity)
 	result.Options = buildOptionReview(ev, windowStart, asOf, input.BaseCurrency, ev.fxRates)
 	result.Options.Cycles = cycles
+	result.Options.Decisions = buildOptionDecisions(result.Changes)
+	result.Verdicts = buildVerdictCounts(result.Changes)
 	populateCoverage(&result.Coverage, result.Changes)
 	result.Fingerprint, err = fingerprint(result)
 	if err != nil {
@@ -595,7 +605,7 @@ func lifecycleTradeKey(conid int64, tradeID string) string {
 	return strconv.FormatInt(conid, 10) + "\x00" + tradeID
 }
 
-func buildScoringIndex(input Input, mutations []mutation) scoringIndex {
+func buildScoringIndex(input Input, mutations []mutation, ev evidence) scoringIndex {
 	index := scoringIndex{
 		mutationsByConID: make(map[int64][]mutation),
 		barsByConID:      make(map[int64][]DailyBar, len(input.Bars)),
@@ -612,7 +622,40 @@ func buildScoringIndex(input Input, mutations []mutation) scoringIndex {
 	for symbol, bars := range input.ContextBars {
 		index.contextBars[strings.ToUpper(strings.TrimSpace(symbol))] = normalizedBars(bars, input.AsOf)
 	}
+	// The broker's statement mark is the close of every option held that
+	// day. A fetched close for the same day wins; a mark fills the rest.
+	marks := map[int64][]DailyBar{}
+	for _, position := range ev.positions {
+		if !strings.EqualFold(position.AssetClass, "OPT") || position.ConID == 0 || position.MarkPrice == nil || *position.MarkPrice <= 0 || position.ReportDate.IsZero() {
+			continue
+		}
+		marks[position.ConID] = append(marks[position.ConID], DailyBar{Day: position.ReportDate, Close: *position.MarkPrice})
+	}
+	for conid, bars := range marks {
+		index.rawBarsByConID[conid] = true
+		index.barsByConID[conid] = normalizedBars(append(bars, input.Bars[conid]...), input.AsOf)
+	}
+	var calendar []DailyBar
+	for _, bars := range index.contextBars {
+		calendar = append(calendar, bars...)
+	}
+	for conid, bars := range input.Bars {
+		if marks[conid] == nil {
+			calendar = append(calendar, bars...)
+		}
+	}
+	index.sessionDays = normalizedBars(calendar, input.AsOf)
 	return index
+}
+
+// optionHorizonBar finds the option's close on the Nth market session after
+// the execution. A close on any other day is not that horizon.
+func optionHorizonBar(bars, sessionDays []DailyBar, after time.Time, sessions int) (DailyBar, bool) {
+	session, ok := horizonBar(sessionDays, after, sessions)
+	if !ok {
+		return DailyBar{}, false
+	}
+	return contextEndBar(bars, session.Day)
 }
 
 func initialPositions(groups []groupedTrade, mutationsByConID map[int64][]mutation, ev evidence) map[int64]float64 {
@@ -794,6 +837,9 @@ func scoreHorizon(change Change, group groupedTrade, sessions int, input Input, 
 		return score
 	}
 	bar, ok := horizonBar(index.barsByConID[group.conid], group.executedAt, sessions)
+	if strings.EqualFold(group.assetClass, "OPT") {
+		bar, ok = optionHorizonBar(index.barsByConID[group.conid], index.sessionDays, group.executedAt, sessions)
+	}
 	if !ok {
 		score.Reason = ReasonMissingHorizon
 		return score
@@ -918,7 +964,14 @@ func interveningReason(group groupedTrade, horizon time.Time, mutations []mutati
 		if item.at.After(endOfDay(horizon)) {
 			break
 		}
-		if item.key != group.key {
+		// A later trade in the same contract does not block the score: the
+		// question is where the price stood N sessions after this decision,
+		// and that does not depend on what was traded in between. Scoring
+		// only the decisions left alone afterwards chose the sample by what
+		// the owner did next (owner decision 2026-11-18 19:04 CET). A
+		// transfer, lifecycle event or corporate action still blocks it:
+		// the position or the price is then no longer comparable.
+		if item.key != group.key && item.kind != "trade" {
 			return mutationInterveningReason(item)
 		}
 	}
@@ -1646,7 +1699,7 @@ func scoreFor(change Change, sessions int) *HorizonScore {
 }
 func eligibleAsset(asset string) bool {
 	asset = strings.ToUpper(strings.TrimSpace(asset))
-	return asset == "STK" || asset == "ETF"
+	return asset == "STK" || asset == "ETF" || asset == "OPT"
 }
 func sectionPresent(coverage []flexstmt.SectionCoverage, key string) bool {
 	for _, row := range coverage {

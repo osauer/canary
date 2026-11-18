@@ -136,6 +136,7 @@ type Result struct {
 	Changes       []Change          `json:"changes"`
 	Patterns      []DecisionPattern `json:"patterns"`
 	Options       OptionReview      `json:"options"`
+	Verdicts      []VerdictCount    `json:"verdicts"`
 	Coverage      Coverage          `json:"coverage"`
 	Method        Method            `json:"method"`
 	Fingerprint   string            `json:"fingerprint"`
@@ -175,6 +176,11 @@ type Change struct {
 	ExecutionNotionalBase *float64          `json:"execution_notional_base,omitempty"`
 	DirectCostsBase       *float64          `json:"direct_costs_base,omitempty"`
 	Scores                []HorizonScore    `json:"scores"`
+	// Position is set for option changes only: the outcome of the
+	// flat-to-flat position the decision belonged to.
+	Position *PositionOutcome `json:"position,omitempty"`
+	// Verdict is the one-word reading of the decision.
+	Verdict Verdict `json:"verdict"`
 }
 
 // HorizonScore is one observed fixed-price-path comparison or its typed
@@ -256,10 +262,11 @@ type Finding struct {
 // point-in-time open-position snapshot. The two scopes deliberately have no
 // combined P/L field.
 type OptionReview struct {
-	Cycles   OptionCycles         `json:"cycles"`
-	Coverage OptionCoverage       `json:"coverage"`
-	Realized OptionRealizedReview `json:"realized"`
-	Open     OptionOpenReview     `json:"open"`
+	Cycles    OptionCycles         `json:"cycles"`
+	Decisions OptionDecisions      `json:"decisions"`
+	Coverage  OptionCoverage       `json:"coverage"`
+	Realized  OptionRealizedReview `json:"realized"`
+	Open      OptionOpenReview     `json:"open"`
 }
 
 // OptionCoverage accounts for option execution and lifecycle evidence that is
@@ -392,7 +399,7 @@ type Method struct {
 func defaultMethod() Method {
 	return Method{
 		Metric:              "Decision price impact",
-		Counterfactual:      "Leave the exact-contract pre-trade position unchanged.",
+		Counterfactual:      "Leave the exact-contract pre-trade position unchanged. Each decision is scored on its own: a later trade in the same contract does not remove it, while a transfer, option lifecycle event or corporate action before the horizon does.",
 		HorizonDefinition:   "The 1st, 5th, and 20th available IBKR daily closes after the execution session; horizon FX is the latest broker conversion at or before that close, no more than seven calendar days old.",
 		HeadlineSelection:   "Among action and direction groups that clear the evidence and account-materiality gates, select the one with the most clean observations at the selected horizon; ties use open, add, trim, then exit, with long before short. A described price outcome requires at least 3 observations, absolute total impact of at least 0.10% of starting equity, and an absolute median impact of at least 0.02% of starting equity.",
 		FindingRanking:      "After account-relative materiality gates, absolute Decision price impact as a percentage of disclosed execution notional, then absolute base-currency impact, then opaque change ID.",
@@ -401,7 +408,7 @@ func defaultMethod() Method {
 		MarketContext:       "For SPY, QQQ, DIA, and VIX, compare the last daily close before the execution session with the close on the decision horizon day. QQQ and DIA are ETF proxies. Context is informational and never changes Decision price impact.",
 		AccountDefinition:   "Ending equity minus starting equity minus statement-confirmed external flows.",
 		Exclusions:          "Decision price impact excludes distributions, financing and borrow, market impact, and effects outside the fixed price-path comparison.",
-		OptionsMethod:       "Proven exact-contract flat-to-flat positions opened and closed inside the window are a subset of broker-reported realized option episodes; a close by expiry, exercise or assignment counts once with the broker's realized P/L for the option leg, never a stock-leg P/L. Both are separate from the latest dated open-position P/L snapshot. Opening-only zero-P/L executions remain coverage, gains and losses are seated before magnitude ranking, missing evidence is never zero-filled, and no historical option counterfactual or cross-order strategy identity is synthesized.",
+		OptionsMethod:       "Proven exact-contract flat-to-flat positions opened and closed inside the window are a subset of broker-reported realized option episodes; a close by expiry, exercise or assignment counts once with the broker's realized P/L for the option leg, never a stock-leg P/L. Both are separate from the latest dated open-position P/L snapshot. Opening-only zero-P/L executions remain coverage, gains and losses are seated before magnitude ranking, missing evidence is never zero-filled, and no historical option counterfactual or cross-order strategy identity is synthesized. Each option decision is also read against its own flat-to-flat position from broker executions: an open or add compares the price paid with the average price the position's contracts were closed at, with contracts still held valued at the latest statement mark; a trim or exit compares the price taken with the position's average entry price and, where contracts were closed later, with the average price those fetched. Entry readings and exit readings describe the same booked money and are never added together. A position closed by exercise or assignment, or without a proven opening, carries no price reading. Option decisions also carry Decision price impact: the close on the horizon session is the broker's statement mark for a contract held that day, or a retained daily close; a contract with neither on that exact session has no figure. Every decision carries a verdict: helped, hurt or no difference (a result no larger than the decision's own costs) from Decision price impact after costs at five sessions, else at one session, else, for an option, from the outcome of its own position.",
 		NoCausalClaim:       true,
 		NoPredictiveClaim:   true,
 		NotInvestmentAdvice: true,

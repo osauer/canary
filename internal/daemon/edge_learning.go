@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"strings"
 
@@ -159,4 +160,18 @@ func withholdEdgeProtectionContext(out *rpc.EdgeResult) {
 	if out.Change != nil {
 		out.Change.ProtectionContext = rpc.EdgeProtectionContext{Status: "unavailable", ExecutionCount: out.Change.ProtectionContext.ExecutionCount}
 	}
+}
+
+func rpcEdgeOptionDecisions(in edgecore.OptionDecisions) rpc.EdgeOptionDecisions {
+	out := rpc.EdgeOptionDecisions{Changes: in.Changes, WithOutcome: in.WithOutcome, Reasons: map[string]int{}, Actions: []rpc.EdgeOptionDecisionRoll{}}
+	maps.Copy(out.Reasons, in.Reasons)
+	for _, roll := range in.Actions {
+		out.Actions = append(out.Actions, rpc.EdgeOptionDecisionRoll{
+			Action: roll.Action, Changes: roll.Changes, WithResult: roll.WithResult, Losses: roll.Losses,
+			MedianResultPct: cloneAmount(roll.MedianResultPct), TotalResultBase: cloneAmount(roll.TotalResultBase),
+			WithLaterExit: roll.WithLaterExit, LaterExitBetter: roll.LaterExitBetter,
+			MedianLaterExitPct: cloneAmount(roll.MedianLaterExitPct), TotalLaterExitBase: cloneAmount(roll.TotalLaterExitBase),
+		})
+	}
+	return out
 }

@@ -99,8 +99,12 @@ func TestAnalyzeInterveningChangeAndFlip(t *testing.T) {
 		t.Fatalf("changes = %d, want open + flip exit + flip open", len(result.Changes))
 	}
 	first := result.Changes[0]
-	if scoreFor(first, 1).DecisionImpactBase == nil || scoreFor(first, 5).Reason != ReasonInterveningChange || scoreFor(first, 20).Reason != ReasonInterveningChange {
-		t.Fatalf("first decision overlap = %+v", first.Scores)
+	// The sale on the 8th does not block the buy's later horizons: where the
+	// price stood N sessions after the buy does not depend on it.
+	for _, sessions := range Horizons {
+		if score := scoreFor(first, sessions); score.DecisionImpactBase == nil || score.Reason != "" {
+			t.Fatalf("a later trade blocked the %d-session score: %+v", sessions, first.Scores)
+		}
 	}
 	if result.Changes[1].Action != ActionExit || result.Changes[1].DeltaQuantity != -10 || result.Changes[2].Action != ActionOpen || result.Changes[2].Direction != DirectionShort || result.Changes[2].DeltaQuantity != -5 {
 		t.Fatalf("flip split = %+v / %+v", result.Changes[1], result.Changes[2])
@@ -177,8 +181,9 @@ func TestAnalyzeExactOptionGroupingAndNoCounterfactual(t *testing.T) {
 	for _, change := range result.Changes {
 		if change.AssetClass == "OPT" {
 			for _, score := range change.Scores {
-				if score.Reason != ReasonUnsupportedAsset || score.DecisionImpactBase != nil {
-					t.Fatalf("option counterfactual was scored: %+v", change)
+				// No close was retained for this contract: no figure is invented.
+				if score.Reason != ReasonMarketDataUnavailable || score.DecisionImpactBase != nil {
+					t.Fatalf("option scored without a close: %+v", change)
 				}
 			}
 		}
@@ -360,7 +365,7 @@ func TestScoringIndexPartitionsMutationsAndNormalizesBarsOnce(t *testing.T) {
 			{ConID: 123, Day: day("2026-01-07"), Close: 103},
 		},
 	}}
-	index := buildScoringIndex(input, mutations)
+	index := buildScoringIndex(input, mutations, evidence{})
 	if len(index.mutationsByConID[123]) != 2 || len(index.mutationsByConID[456]) != 1 {
 		t.Fatalf("mutation index=%+v", index.mutationsByConID)
 	}
@@ -725,7 +730,7 @@ func TestCoverageKeepsOverlappedStockDecisionsInTheEligibleDenominator(t *testin
 	coverage := Coverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}
 	populateCoverage(&coverage, []Change{
 		{ID: "change_stock", AssetClass: "STK", Scores: []HorizonScore{{Sessions: 1, Reason: ReasonInterveningChange}, {Sessions: 5, Reason: ReasonInterveningChange}, {Sessions: 20, Reason: ReasonInterveningChange}}},
-		{ID: "change_option", AssetClass: "OPT", Scores: []HorizonScore{{Sessions: 1, Reason: ReasonUnsupportedAsset}}},
+		{ID: "change_currency", AssetClass: "CASH", Scores: []HorizonScore{{Sessions: 1, Reason: ReasonUnsupportedAsset}}},
 	})
 	if coverage.TradeChanges != 2 || coverage.EligibleChanges != 1 || coverage.ScoredByHorizon[20] != 0 || coverage.ReasonCounts[ReasonInterveningChange] != 1 {
 		t.Fatalf("coverage=%+v", coverage)

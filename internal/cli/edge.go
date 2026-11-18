@@ -153,6 +153,7 @@ func renderEdgeView(env *Env, result rpc.EdgeResult, paged bool, optionLimit int
 	renderEdgeAccount(env, result, width)
 	renderEdgeMatrix(env, result, width)
 	renderEdgeFindings(env, result)
+	renderEdgeVerdicts(env, result)
 	renderEdgeOptions(env, result, paged)
 	if paged {
 		renderEdgeOptionPage(env, result)
@@ -392,6 +393,7 @@ func renderEdgeOptions(env *Env, result rpc.EdgeResult, paged bool) {
 	currency := edgeBaseCurrency(result)
 	fmt.Fprintf(out, "\nOptions  %s\n", env.dim("broker actuals in separate scopes; they do not add together"))
 	renderEdgeOptionCycles(env, result, paged)
+	renderEdgeOptionDecisions(env, result)
 	if options.Realized.TotalCount == 0 {
 		edgeRow(env, "Realized episodes", "no broker-reported episode available in the selected window")
 	} else {
@@ -435,6 +437,98 @@ func renderEdgeOptions(env *Env, result rpc.EdgeResult, paged bool) {
 	}
 	if n := options.Coverage.OpeningOnlyZeroEpisodes; n > 0 {
 		edgeRow(env, "Activity", fmt.Sprintf("%d opening-only zero-P/L %s retained as coverage, not realized results", n, pluralWord(n, "episode", "episodes")))
+	}
+}
+
+// edgeVerdictText is the one-line verdict of a decision: the word, the money
+// and what it rests on.
+func edgeVerdictText(env *Env, verdict rpc.EdgeVerdict, currency string) string {
+	words := map[string]string{"helped": "helped", "hurt": "hurt", "no_difference": "no difference"}
+	word, ok := words[verdict.Label]
+	if !ok || verdict.ImpactBase == nil {
+		reason := strings.ReplaceAll(verdict.Reason, "_", " ")
+		if reason == "" {
+			reason = "no figure"
+		}
+		return "no verdict: " + reason
+	}
+	basis := "by its position's outcome"
+	if verdict.Basis == "horizon" {
+		basis = "after " + edgeSessionCount(verdict.Sessions)
+	}
+	return fmt.Sprintf("%s %s %s", word, edgeSignedMoney(env, *verdict.ImpactBase, currency), basis)
+}
+
+// renderEdgeVerdicts counts every decision's verdict and lists the newest
+// decisions. Verdict money is per decision and is never totalled.
+func renderEdgeVerdicts(env *Env, result rpc.EdgeResult) {
+	verdicts := result.Verdicts
+	if len(verdicts.Counts) == 0 {
+		return
+	}
+	currency := edgeBaseCurrency(result)
+	fmt.Fprintf(env.Stdout, "\nVerdicts  %s\n", env.dim("per decision, after costs; a result within the decision's own costs is no difference"))
+	names := map[string]string{"STK": "Stocks", "ETF": "ETFs", "OPT": "Options", "CASH": "Currency"}
+	for _, row := range verdicts.Counts {
+		name := names[row.AssetClass]
+		if name == "" {
+			name = row.AssetClass
+		}
+		edgeRow(env, name, fmt.Sprintf("%d helped", row.Helped), fmt.Sprintf("%d hurt", row.Hurt), fmt.Sprintf("%d no difference", row.NoDifference), fmt.Sprintf("%d without a verdict", row.None))
+	}
+	for i, row := range verdicts.Recent {
+		if i == 10 {
+			break
+		}
+		edgeRow(env, "  "+row.ExecutedAt.Format("2006-01-02"), fmt.Sprintf("%s %s %s", row.Action, row.Direction, row.Symbol), edgeVerdictText(env, row.Verdict, currency))
+	}
+}
+
+// renderEdgeOptionDecisions says how each kind of option decision turned out
+// inside its own position. Entries and sales are two readings of the same
+// money, so their totals are shown apart and never summed.
+func renderEdgeOptionDecisions(env *Env, result rpc.EdgeResult) {
+	decisions := result.Options.Decisions
+	if decisions.Changes == 0 {
+		return
+	}
+	ccy := edgeBaseCurrency(result)
+	edgeRow(env, "Decisions", fmt.Sprintf("%d option %s read against their own position", decisions.Changes, pluralWord(decisions.Changes, "decision", "decisions")),
+		fmt.Sprintf("%d with a price reading", decisions.WithOutcome),
+		"buys and sales are two readings of the same money, not a sum")
+	labels := map[string]string{"open": "  Opens", "add": "  Adds", "trim": "  Partial sales", "exit": "  Final sales"}
+	for _, roll := range decisions.Actions {
+		if roll.WithResult == 0 {
+			continue
+		}
+		entry := roll.Action == "open" || roll.Action == "add"
+		lost := fmt.Sprintf("%d of %d closed below the entry price", roll.Losses, roll.WithResult)
+		if entry {
+			lost = fmt.Sprintf("%d of %d ended below the price paid", roll.Losses, roll.WithResult)
+		}
+		values := []string{lost}
+		if roll.MedianResultPct != nil {
+			values = append(values, "median "+edgeSignedPercent(roll.MedianResultPct))
+		}
+		if roll.TotalResultBase != nil {
+			values = append(values, edgeSignedMoney(env, *roll.TotalResultBase, ccy)+" before costs")
+		}
+		if roll.WithLaterExit > 0 {
+			later := fmt.Sprintf("the contracts kept went on to fetch more after %d of %d", roll.LaterExitBetter, roll.WithLaterExit)
+			if roll.TotalLaterExitBase != nil {
+				later += ", " + edgeSignedMoney(env, *roll.TotalLaterExitBase, ccy) + " had these been held to the later sales"
+			}
+			values = append(values, later)
+		}
+		edgeRow(env, labels[roll.Action], values...)
+	}
+	if len(decisions.Reasons) > 0 {
+		reasons := make([]string, 0, len(decisions.Reasons))
+		for reason, count := range decisions.Reasons {
+			reasons = append(reasons, fmt.Sprintf("%d %s", count, strings.ReplaceAll(reason, "_", " ")))
+		}
+		sort.Strings(reasons)
+		edgeRow(env, "  No reading", strings.Join(reasons, "; "))
 	}
 }
 
