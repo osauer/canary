@@ -182,7 +182,9 @@ func TestAnalyzeExactOptionGroupingAndNoCounterfactual(t *testing.T) {
 		if change.AssetClass == "OPT" {
 			for _, score := range change.Scores {
 				// No close was retained for this contract: no figure is invented.
-				if score.Reason != ReasonMarketDataUnavailable || score.DecisionImpactBase != nil {
+				// And it is a missing horizon, never a pending fetch: the
+				// publication must not read as backfilling because of it.
+				if score.Reason != ReasonMissingHorizon || score.DecisionImpactBase != nil {
 					t.Fatalf("option scored without a close: %+v", change)
 				}
 			}

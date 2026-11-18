@@ -95,8 +95,10 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 		t.Fatalf("decision-useful finding rank mismatch: %+v", result.Findings)
 	}
 	// The two option changes count as decisions to score; no close was
-	// retained for them, so they are in the denominator without a figure.
-	if result.Coverage.ScoredByHorizon[20] != 11 || result.Coverage.ReasonCounts[edgecore.ReasonInterveningChange] != 0 || result.Coverage.TradeChanges != 17 || result.Coverage.EligibleChanges != 17 || result.Coverage.ReasonCounts[edgecore.ReasonMarketDataUnavailable] != 2 {
+	// retained for them, so they are in the denominator without a figure,
+	// as missing horizons. They must not hold the publication in
+	// backfilling: result.State is asserted current above.
+	if result.Coverage.ScoredByHorizon[20] != 11 || result.Coverage.ReasonCounts[edgecore.ReasonInterveningChange] != 0 || result.Coverage.TradeChanges != 17 || result.Coverage.EligibleChanges != 17 || result.Coverage.ReasonCounts[edgecore.ReasonMarketDataUnavailable] != 0 {
 		t.Fatalf("acceptance coverage mismatch: %+v", result.Coverage)
 	}
 

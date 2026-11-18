@@ -833,7 +833,15 @@ func scoreHorizon(change Change, group groupedTrade, sessions int, input Input, 
 		return score
 	}
 	if !index.rawBarsByConID[group.conid] {
+		// For a stock, no series means the daemon has bars still to fetch,
+		// and the publication reads as backfilling until it has them. An
+		// option with no close on record will never get one (the broker
+		// drops it at expiry), so it is a missing horizon, not a pending
+		// fetch: otherwise Edge would read as backfilling for ever.
 		score.Reason = ReasonMarketDataUnavailable
+		if strings.EqualFold(group.assetClass, "OPT") {
+			score.Reason = ReasonMissingHorizon
+		}
 		return score
 	}
 	bar, ok := horizonBar(index.barsByConID[group.conid], group.executedAt, sessions)

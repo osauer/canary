@@ -56,3 +56,33 @@ func TestEdgeVerdictsListNewestFirst(t *testing.T) {
 		t.Fatalf("counts=%+v", out.Counts)
 	}
 }
+
+// An option decision with no close on record is a missing horizon. It must
+// not hold the publication in backfilling: nothing is left to fetch for it,
+// and a console that waits for "current" would show no Edge at all.
+func TestOptionWithoutACloseDoesNotKeepEdgeBackfilling(t *testing.T) {
+	coverage := edgecore.Coverage{TradeChanges: 2, EligibleChanges: 2, PresentSections: []string{"trades"}, ReasonCounts: map[string]int{edgecore.ReasonMissingHorizon: 2}}
+	if state, reason := edgePublicationStatus(map[string]edgecore.Result{"365d": {Coverage: coverage}}, 0); state != rpc.EdgeStateCurrent || reason != "" {
+		t.Fatalf("state=%s reason=%s", state, reason)
+	}
+	quantity, price, multiplier, zero := 1.0, 2.0, 100.0, 0.0
+	executed := time.Date(2026, 1, 5, 15, 0, 0, 0, time.UTC)
+	statement := flexstmt.Statement{
+		AccountID: "U", FromDate: executed.AddDate(0, 0, -30), ToDate: executed.AddDate(0, 0, 20), WhenGenerated: executed.AddDate(0, 0, 21), ManifestVersion: flexstmt.ManifestVersion,
+		Trades:    []flexstmt.Trade{{RecordID: "t1", AccountID: "U", ConID: 9, Symbol: "SYNX 260320C00100000", AssetClass: "OPT", Currency: "EUR", OrderID: "o1", ExecutionID: "e1", ExecutedAt: executed, Side: "BUY", OpenClose: "O", Quantity: &quantity, Price: &price, Multiplier: &multiplier, Commission: &zero, Taxes: &zero, LevelOfDetail: "EXECUTION"}},
+		Positions: []flexstmt.OpenPosition{{RecordID: "p1", AccountID: "U", ConID: 9, AssetClass: "OPT", ReportDate: executed.AddDate(0, 0, 20), Quantity: &quantity}},
+	}
+	for _, section := range flexstmt.CanonicalQueryManifest() {
+		statement.Coverage = append(statement.Coverage, flexstmt.SectionCoverage{Key: section.Key, Present: true})
+	}
+	result, err := edgecore.Analyze(edgecore.Input{AsOf: executed.AddDate(0, 0, 25), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{statement}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Coverage.TradeChanges != 1 || result.Coverage.ReasonCounts[edgecore.ReasonMarketDataUnavailable] != 0 {
+		t.Fatalf("coverage=%+v", result.Coverage)
+	}
+	if state, reason := edgePublicationStatus(map[string]edgecore.Result{"365d": result}, 0); state != rpc.EdgeStateCurrent {
+		t.Fatalf("an option without a close kept Edge %s (%s)", state, reason)
+	}
+}
