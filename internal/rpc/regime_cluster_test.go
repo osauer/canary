@@ -13,10 +13,12 @@ func TestCreditProxyRedCountsOnlyBesideAWitness(t *testing.T) {
 		return BuildRegimeClusterBands(r).Confirmed[RegimeClusterCredit]
 	}
 	for name, shape := range map[string]func(cs *RegimeCreditSpreads){
-		"a fresh green cash read":     func(*RegimeCreditSpreads) {},
-		"no cash read":                func(cs *RegimeCreditSpreads) { *cs = RegimeCreditSpreads{} },
-		"a cash read twelve days old": func(cs *RegimeCreditSpreads) { cs.AsOfDate = "2026-08-29" },
-		"cash widening 0.6 points":    func(cs *RegimeCreditSpreads) { cs.Band, cs.HY20DChange = "yellow", new(0.6) },
+		"a fresh green cash read": func(*RegimeCreditSpreads) {},
+		"no cash read":            func(cs *RegimeCreditSpreads) { *cs = RegimeCreditSpreads{} },
+		"a stale cash read": func(cs *RegimeCreditSpreads) {
+			cs.Status, cs.Freshness = RegimeStatusStale, &RegimeFreshness{Class: RegimeFreshnessStale}
+		},
+		"cash widening 0.6 points": func(cs *RegimeCreditSpreads) { cs.Band, cs.HY20DChange = "yellow", new(0.6) },
 	} {
 		if got := credit(shape); got != "yellow" {
 			t.Errorf("proxy red beside %s: credit cluster = %q, want yellow", name, got)
@@ -49,21 +51,27 @@ func TestCoSignRedsCountOnlyBesideAWitness(t *testing.T) {
 	}
 }
 
-// An isolated equity-vol red needs its own corroboration or another witness.
-// A co-sign cannot rescue it: the co-sign would then be confirming the very
-// witness it leans on.
-func TestIsolatedEquityVolRedIsNotRescuedByACoSign(t *testing.T) {
+// A witness red that is not eligible does not stand, and a co-sign cannot
+// rescue it: the co-sign would then be confirming the very witness it leans
+// on. An eligible witness red stands with no further condition.
+func TestWitnessRedThatMayNotConfirmIsNotRescuedByACoSign(t *testing.T) {
 	r := calmRegime()
-	red(&r.VolOfVol.RegimeIndicatorMeta, true)
-	r.VolOfVol.Last = new(112.0)
+	red(&r.VolOfVol.RegimeIndicatorMeta, false)
 	red(&r.Breadth.RegimeIndicatorMeta, true)
 	cb := BuildRegimeClusterBands(r)
-	if cb.Confirmed[RegimeClusterEquityVol] != "yellow" || cb.Confirmed[RegimeClusterBreadth] != "yellow" {
-		t.Fatalf("vol %q, breadth %q; want both yellow", cb.Confirmed[RegimeClusterEquityVol], cb.Confirmed[RegimeClusterBreadth])
+	if cb.Confirmed[RegimeClusterEquityVol] != "red" || cb.Confirmed[RegimeClusterBreadth] != "yellow" || cb.EligibleRedCount() != 0 {
+		t.Fatalf("vol %q, breadth %q, %d eligible reds; want a red that does not confirm, a yellow, and none",
+			cb.Confirmed[RegimeClusterEquityVol], cb.Confirmed[RegimeClusterBreadth], cb.EligibleRedCount())
 	}
 
 	red(&r.FundingStress.RegimeIndicatorMeta, true)
-	if got := BuildRegimeClusterBands(r).EligibleRedCount(); got != 3 {
-		t.Fatalf("eligible reds = %d, want 3 once funding stands beside the VVIX red", got)
+	if got := BuildRegimeClusterBands(r).EligibleRedCount(); got != 2 {
+		t.Fatalf("eligible reds = %d, want funding and breadth once funding stands", got)
+	}
+
+	red(&r.VolOfVol.RegimeIndicatorMeta, true)
+	r.FundingStress.Band, r.FundingStress.Eligibility = "green", nil
+	if cb := BuildRegimeClusterBands(r); cb.EligibleRedCount() != 2 {
+		t.Fatalf("an eligible VVIX red with breadth red: %d eligible reds, want 2", cb.EligibleRedCount())
 	}
 }

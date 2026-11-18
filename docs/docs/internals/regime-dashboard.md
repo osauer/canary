@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-11-18 13:25 CET
+Updated: 2026-11-18 13:53 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -81,13 +81,17 @@ Rows play one of two roles in the count.
 A **stress witness** measures stress directly: the equity-volatility cluster,
 funding, and the cash credit row (HY OAS). Only a witness starts a warning. A
 witness stands when its red is eligible to confirm (see
-[Eligibility gates](#eligibility-gates)); an equity-volatility red must also
-pass the corroboration described under that cluster.
+[Eligibility gates](#eligibility-gates)). When a witness row cannot be read
+and a co-sign is red, the read is `data_quality`, never a calm stage: a dark
+witness is not a calm one.
 
 A **co-sign** strengthens a warning a witness has started: the HYG/SPY proxy,
 USD/JPY, dealer gamma and breadth. A co-sign row still turns red by itself and
 stays visible, but its cluster counts as yellow until a witness stands, and
-co-signs never confirm each other. A co-sign alone changes neither the stage,
+co-signs never confirm each other. Each served row says which it is: `role`
+(`witness` or `co_sign`) and, when the row is red, `red` (`counts`, `waiting`
+or `context`), in `row_standings` on the snapshot and per indicator in the
+monitor view. A co-sign alone changes neither the stage,
 nor the headline, nor the tone; where a sentence is needed the read says
 "Context, not a stress reading on its own" and names it. In a replay of 1,003 sessions to
 2026-11-17 the HYG/SPY row was red on 30% of them and SPY's next 20 sessions
@@ -104,20 +108,12 @@ longer-term fear. VVIX, how volatile VIX itself is expected to be, asks whether
 traders are paying up for large volatility moves. When both worsen, equity
 stress is usually becoming more urgent.
 
-VIX/VIX3M backwardation is stress-level evidence by itself. So is a VVIX red
-on the session it turns red: the row turns red at 120, which is deep enough to
-count by itself. A VVIX red that is held between 115 and 120 after the index
-has eased is noisier: the row remains red and visible, but the
-equity-volatility cluster counts as yellow unless VIX is up at least 20% on
-the day, SPY is down at least 1% on the day, the term structure is inverted,
-or another stress witness (funding or cash credit) is an eligible red. A
-co-sign cannot supply that corroboration.
-
-Isolated red equity-volatility clusters are the main source of repeated false
-alarms in the expanded Tier 1 backtest. They are not dropped, because major
-stress often starts in volatility before credit, funding, or FX confirms. The
-downgrade keeps volatility warnings visible without letting a standalone
-vol-of-vol pop dominate the broad-market read.
+VIX/VIX3M backwardation is stress-level evidence by itself, and so is a VVIX
+red: the row turns red at 120, which is deep enough to be eligible on its
+first session, and an eligible witness red stands. A VVIX red held between
+115 and 120 after the index has eased keeps standing until it is released
+below 115. A witness that was eligible in its window also keeps standing
+after the window closes, while no newer observation can exist.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
@@ -544,7 +540,7 @@ Raw indicator counts may also appear. Cluster counts are the primary signal
 because related rows, such as VIX and VVIX, are not fully independent votes;
 `cluster_eligible_red_count` counts the red clusters that may confirm.
 `cluster_provisional_red_count` counts the stress witnesses that warn without
-confirming: a witness red held back for depth, persistence or corroboration,
+confirming: a witness red held back for depth, persistence or currency,
 or cash credit widening. A co-sign red with no witness beside it is in
 neither; `lifecycle.unconfirmed` names it and `lifecycle.suppressed` marks it
 as context. The stress read serves the same split for a reader in
@@ -561,7 +557,7 @@ and VIX moves, read only on a session that is not a closed date.
 | `data_quality` | Fewer than three clusters are ranked, or the input-currency rules in [How inputs report currency](#how-inputs-report-currency) send the read here. |
 | `panic` | SPY down 4% or more with at least one eligible red; or SPY down 7% or more. Red clusters without a fall, however many, are `confirmed_stress`. |
 | `confirmed_stress` | Two or more eligible red clusters, which takes a standing stress witness plus a co-sign or a second witness; or one eligible red with SPY down 2.5% or more, or with VIX up 20% or more; or SPY down 4% or more with at least two clusters yellow or worse. |
-| `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, a VVIX red held between 115 and 120); a current cash credit row with HY OAS 0.50 pp or more wider over 20 observations; three or more clusters yellow or worse of which at least one is a stress witness at yellow; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing. |
+| `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, a witness red on a row that is not current); a current cash credit row with HY OAS 0.50 pp or more wider over 20 observations; three or more clusters yellow or worse of which at least one is a stress witness at yellow; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing. |
 | `opportunity` | No red, at most one cluster at yellow, at least three ranked clusters, SPY up 1.5% or more and VIX down 10% or more. Every cluster counts, co-signs included, and a co-sign red with no stress witness standing is one yellow. This is broad-market context only, not a trade instruction. |
 | `stabilization` | No red, one or two stress witnesses at yellow, and SPY up 1% or more or VIX down 10% or more. Stress is easing, but this is not yet an opportunity. A day whose only yellows are co-signs is `quiet`. |
 | `quiet` | None of the above. |
@@ -571,8 +567,9 @@ stale, partial, computing, or degraded; the severity governor additionally caps
 the demanded response when the CONFIRMING clusters themselves are impaired.
 
 An eligible red cluster always includes a standing stress witness, because a
-co-sign red counts only beside one. Two co-signs cannot confirm each other,
-and a co-sign cannot corroborate an isolated equity-volatility red.
+co-sign red counts only beside one. Two co-signs cannot confirm each other.
+The tape can confirm stress while every red is a co-sign (SPY down 4% or
+more with two clusters yellow or worse); `confirmed_by` then names `tape`.
 
 ## Method notes
 

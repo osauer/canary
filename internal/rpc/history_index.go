@@ -732,7 +732,7 @@ var regimeGates = map[string]RegimeGate{
 	// depth = VIX/VIX3M ratio. Inversion is already discrete; fast path on a
 	// deep day-one inversion.
 	RegimeIndicatorVIXTerm: {MinSessions: 2, MinDepth: 1.00, FastDepth: 1.05},
-	// depth = VVIX level. 120 keeps the existing isolated-VVIX rule's level.
+	// depth = VVIX level.
 	// Since the row turns red at 120 (vvix_daily_v3) a red is at the fast
 	// depth on its first session, and the minimum depth no longer binds.
 	RegimeIndicatorVolOfVol: {MinSessions: 2, MinDepth: 110, FastDepth: 120},
@@ -899,6 +899,16 @@ func EvaluateRegimeEligibility(in RegimeEligibilityInput) *RegimeEligibility {
 	// Currency is an allowlist on fresh, never a denylist of known-bad classes:
 	// a class added later must fail closed until its authority is decided
 	if !in.Fresh || !RegimeCurrencyMayConfirm(in.FreshnessClass) {
+		// A stress witness that earned eligibility in its window keeps it
+		// through its own not-due window: no newer observation can exist, so
+		// the close of the window is not evidence that the stress ended.
+		// Overdue, stale or pending evidence still drops it, and a co-sign's
+		// prior-date reading stays context.
+		if in.Latched && regimeCurrencyClass(in.FreshnessClass) == RegimeFreshnessNotDue &&
+			RegimeIndicatorRole(in.Indicator) == RegimeRoleWitness {
+			out.Eligible, out.Latched = true, true
+			return out
+		}
 		out.Reasons = append(out.Reasons, regimeEligibilityCurrencyReason(in.FreshnessClass))
 		return out
 	}
@@ -955,12 +965,123 @@ type RegimeClusterBands struct {
 	// cashWidening reports a current cash credit row whose HY OAS has widened
 	// by RegimeCreditWideningYellowPP or more over 20 observations.
 	cashWidening bool
+	// rows is what each red row is worth, by indicator (RowRed).
+	rows map[string]string
+	// witnessEligible marks the clusters whose witness row is an eligible red.
+	witnessEligible []bool
 }
 
 // RegimeContextNote is how every surface words a co-sign red with no stress
-// witness beside it. Wording proposed by the coordinating session on
-// 2026-11-18, awaiting the owner's approval.
+// witness beside it. The daemon serves it with the rows it applies to, so no
+// reader keeps a copy.
 const RegimeContextNote = "Context, not a stress reading on its own"
+
+// Roles of a regime row. A stress witness measures stress directly and can
+// start a warning. A co-sign strengthens what a witness has started and
+// opens nothing by itself.
+const (
+	RegimeRoleWitness = "witness"
+	RegimeRoleCoSign  = "co_sign"
+)
+
+// regimeRowRoles is the one list of which row has which role. The cluster
+// combination, the lifecycle, the stress read, the regime summary and the
+// row notes all read it.
+var regimeRowRoles = map[string]string{
+	RegimeIndicatorVIXTerm:   RegimeRoleWitness,
+	RegimeIndicatorVolOfVol:  RegimeRoleWitness,
+	RegimeIndicatorCredit:    RegimeRoleWitness,
+	RegimeIndicatorFunding:   RegimeRoleWitness,
+	RegimeIndicatorHYGSPY:    RegimeRoleCoSign,
+	RegimeIndicatorUSDJPY:    RegimeRoleCoSign,
+	RegimeIndicatorGammaZero: RegimeRoleCoSign,
+	RegimeIndicatorBreadth:   RegimeRoleCoSign,
+}
+
+// RegimeIndicatorRole returns a regime row's role.
+func RegimeIndicatorRole(indicator string) string {
+	return regimeRowRoles[indicator]
+}
+
+// What a red row is worth in the combination. A red that counts is eligible
+// and, for a co-sign, has a standing witness beside it. A red that is waiting
+// may still count: a witness red that is not eligible yet, or a co-sign red
+// beside a standing witness that has not passed its own gate. A co-sign red
+// with no witness standing is context.
+const (
+	RegimeRedCounts  = "counts"
+	RegimeRedWaiting = "waiting"
+	RegimeRedContext = "context"
+)
+
+// RowRed says what the red of one row is worth (RegimeRedCounts,
+// RegimeRedWaiting, RegimeRedContext), or "" when the row is not red.
+func (b RegimeClusterBands) RowRed(indicator string) string {
+	return b.rows[indicator]
+}
+
+// RegimeRowStanding is one row's role and, when the row is red, what that
+// red is worth in the cluster combination. Note carries the context sentence
+// for a red that is context, so a reader prints it without a copy of its own.
+type RegimeRowStanding struct {
+	Indicator string `json:"indicator"`
+	Name      string `json:"name"`
+	Role      string `json:"role"`
+	Red       string `json:"red,omitempty"`
+	Note      string `json:"note,omitempty"`
+}
+
+// RegimeRowStandings derives the standings of the eight rows from the one
+// place that decides them, BuildRegimeClusterBands.
+func RegimeRowStandings(r *RegimeSnapshotResult) []RegimeRowStanding {
+	if r == nil {
+		return nil
+	}
+	cb := BuildRegimeClusterBands(r)
+	rows := regimeRows(r)
+	out := make([]RegimeRowStanding, 0, len(rows))
+	for _, row := range rows {
+		standing := RegimeRowStanding{
+			Indicator: row.indicator, Name: RegimeRowName(row.indicator),
+			Role: RegimeIndicatorRole(row.indicator), Red: cb.RowRed(row.indicator),
+		}
+		if standing.Red == RegimeRedContext {
+			standing.Note = RegimeContextNote
+		}
+		out = append(out, standing)
+	}
+	return out
+}
+
+// regimeRow is one served row as the combination reads it.
+type regimeRow struct {
+	indicator string
+	cluster   int
+	band      string
+	eligible  bool
+	status    string
+	freshness *RegimeFreshness
+}
+
+// regimeRows lists the eight rows in indicator order with their served
+// bands. Dealer gamma votes only with a rankable profile.
+func regimeRows(r *RegimeSnapshotResult) []regimeRow {
+	row := func(indicator string, cluster int, meta RegimeIndicatorMeta, status string) regimeRow {
+		return regimeRow{indicator: indicator, cluster: cluster, band: meta.Band, eligible: redEligible(meta), status: status, freshness: meta.Freshness}
+	}
+	gamma := row(RegimeIndicatorGammaZero, RegimeClusterGamma, r.GammaZero.RegimeIndicatorMeta, r.GammaZero.Status)
+	gamma.band, gamma.eligible = rankableLifecycleGammaBand(r.GammaZero), gammaRedEligible(r.GammaZero)
+	return []regimeRow{
+		row(RegimeIndicatorVIXTerm, RegimeClusterEquityVol, r.VIXTermStructure.RegimeIndicatorMeta, r.VIXTermStructure.Status),
+		row(RegimeIndicatorVolOfVol, RegimeClusterEquityVol, r.VolOfVol.RegimeIndicatorMeta, r.VolOfVol.Status),
+		row(RegimeIndicatorHYGSPY, RegimeClusterCredit, r.HYGSPYDivergence.RegimeIndicatorMeta, r.HYGSPYDivergence.Status),
+		row(RegimeIndicatorCredit, RegimeClusterCredit, r.CreditSpreads.RegimeIndicatorMeta, r.CreditSpreads.Status),
+		row(RegimeIndicatorFunding, RegimeClusterFunding, r.FundingStress.RegimeIndicatorMeta, r.FundingStress.Status),
+		row(RegimeIndicatorUSDJPY, RegimeClusterFX, r.USDJPY.RegimeIndicatorMeta, r.USDJPY.Status),
+		gamma,
+		row(RegimeIndicatorBreadth, RegimeClusterBreadth, r.Breadth.RegimeIndicatorMeta, r.Breadth.Status),
+	}
+}
 
 // RegimeCreditWideningYellowPP is the 20-observation HY OAS widening, in
 // percentage points, at which the cash credit row turns yellow. It is the one
@@ -1003,6 +1124,12 @@ func (b RegimeClusterBands) EligibleRedCount() int {
 		}
 	}
 	return n
+}
+
+// witnessStands reports a cluster whose own stress witness is an eligible
+// red, as distinct from a cluster that confirms on a co-sign row.
+func (b RegimeClusterBands) witnessStands(i int) bool {
+	return b.confirms(i) && i < len(b.witness) && b.witness[i] == "red" && i < len(b.witnessEligible) && b.witnessEligible[i]
 }
 
 // confirms reports a cluster that is red and may confirm stress.
@@ -1048,12 +1175,11 @@ func (b RegimeClusterBands) witnessYellows() int {
 }
 
 // BuildRegimeClusterBands combines served row bands into the six cluster
-// bands and gives each red the weight of its role.
+// bands and gives each red the weight of its role (regimeRowRoles).
 //
-// A stress witness measures stress directly: the equity-vol cluster, funding,
-// and the cash credit row. A witness stands when its red is eligible; an
-// equity-vol red must also be corroborated on its own terms
-// (isolatedLifecycleEquityVolConfirmed) or by another standing witness.
+// A stress witness measures stress directly: the two equity-vol rows,
+// funding, and the cash credit row. A witness stands when its red is
+// eligible.
 //
 // The HYG proxy, the yen, dealer gamma and breadth are co-signs: they
 // strengthen what a witness has started. A co-sign red stays red, and may
@@ -1067,41 +1193,45 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 	if r == nil {
 		return RegimeClusterBands{}
 	}
-	raw := []string{
-		strongestLifecycleBand(r.VIXTermStructure.Band, r.VolOfVol.Band),
-		strongestLifecycleBand(r.HYGSPYDivergence.Band, r.CreditSpreads.Band),
-		strongestLifecycleBand(r.FundingStress.Band),
-		strongestLifecycleBand(r.USDJPY.Band),
-		strongestLifecycleBand(rankableLifecycleGammaBand(r.GammaZero)),
-		strongestLifecycleBand(r.Breadth.Band),
-	}
+	rows := regimeRows(r)
+	raw := make([]string, regimeClusterCount)
 	witness := make([]string, regimeClusterCount)
-	witness[RegimeClusterEquityVol] = raw[RegimeClusterEquityVol]
-	witness[RegimeClusterCredit] = strongestLifecycleBand(r.CreditSpreads.Band)
-	witness[RegimeClusterFunding] = raw[RegimeClusterFunding]
-
-	cash := redEligible(r.CreditSpreads.RegimeIndicatorMeta)
-	funding := redEligible(r.FundingStress.RegimeIndicatorMeta)
-	vol := redEligible(r.VIXTermStructure.RegimeIndicatorMeta) || redEligible(r.VolOfVol.RegimeIndicatorMeta)
-	confirmed := append([]string(nil), raw...)
-	if raw[RegimeClusterEquityVol] == "red" && !cash && !funding && !isolatedLifecycleEquityVolConfirmed(*r) {
-		confirmed[RegimeClusterEquityVol] = "yellow"
+	eligible := make([]bool, regimeClusterCount)
+	witnessEligible := make([]bool, regimeClusterCount)
+	stands := false
+	for _, row := range rows {
+		raw[row.cluster] = strongestLifecycleBand(raw[row.cluster], row.band)
+		if RegimeIndicatorRole(row.indicator) == RegimeRoleWitness {
+			witness[row.cluster] = strongestLifecycleBand(witness[row.cluster], row.band)
+			witnessEligible[row.cluster] = witnessEligible[row.cluster] || row.eligible
+			stands = stands || row.eligible
+		}
 	}
-	stands := cash || funding || (vol && confirmed[RegimeClusterEquityVol] == "red")
+	confirmed := append([]string(nil), raw...)
+	state := map[string]string{}
+	for _, row := range rows {
+		isWitness := RegimeIndicatorRole(row.indicator) == RegimeRoleWitness
+		if row.band == "red" {
+			switch {
+			case !isWitness && !stands:
+				state[row.indicator] = RegimeRedContext
+			case row.eligible:
+				state[row.indicator] = RegimeRedCounts
+			default:
+				state[row.indicator] = RegimeRedWaiting
+			}
+		}
+		// An eligible red makes its cluster eligible, except the proxy's
+		// inside the credit cluster with no witness standing: it cannot make
+		// a cash red that may not confirm into one that does.
+		if row.eligible && (isWitness || stands || row.cluster != RegimeClusterCredit) {
+			eligible[row.cluster] = true
+		}
+	}
 	for i := range confirmed {
 		if confirmed[i] == "red" && witness[i] != "red" && !stands {
 			confirmed[i] = "yellow"
 		}
-	}
-	eligible := []bool{
-		vol,
-		// The proxy co-signs inside the credit cluster: it cannot make a cash
-		// red that may not confirm into one that does.
-		cash || (stands && redEligible(r.HYGSPYDivergence.RegimeIndicatorMeta)),
-		funding,
-		redEligible(r.USDJPY.RegimeIndicatorMeta),
-		gammaRedEligible(r.GammaZero),
-		redEligible(r.Breadth.RegimeIndicatorMeta),
 	}
 	// A widening of cash spreads warns from the cash row's own yellow step,
 	// before the row is red: in the history replay of 2026-11-18 it preceded
@@ -1109,7 +1239,7 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 	// counts; an old series is a data gap, not a warning.
 	widening := RegimeCurrencyMayConfirm(RegimeRowCurrency(r.CreditSpreads.Status, r.CreditSpreads.Freshness)) &&
 		pctAtLeast(r.CreditSpreads.HY20DChange, RegimeCreditWideningYellowPP)
-	return RegimeClusterBands{Raw: raw, Confirmed: confirmed, Eligible: eligible, witness: witness, cashWidening: widening}
+	return RegimeClusterBands{Raw: raw, Confirmed: confirmed, Eligible: eligible, witness: witness, cashWidening: widening, rows: state, witnessEligible: witnessEligible}
 }
 
 func redEligible(meta RegimeIndicatorMeta) bool {
@@ -1875,6 +2005,9 @@ type StressMarketSummary struct {
 	// reds, in cluster order with the cash widening last: each unconfirmed
 	// red cluster and, when it opens a warning, the cash credit widening.
 	UnconfirmedSignals []StressUnconfirmedSignal `json:"unconfirmed_signals,omitempty"`
+	// ContextNote is the sentence a reader prints before the signals whose
+	// role is context. Served with them so no reader keeps a copy.
+	ContextNote string `json:"context_note,omitempty"`
 	// WarningOpeners is RegimeWarningOpeners for the regime read behind this
 	// summary: the arms that open a market warning.
 	WarningOpeners    []string `json:"warning_openers,omitempty"`

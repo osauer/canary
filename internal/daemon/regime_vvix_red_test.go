@@ -68,10 +68,10 @@ func regimeVotes(t *testing.T, days []regimeHistoryDay, first int) map[int]*rpc.
 }
 
 // The VVIX row turns red at 120 and leaves red below 115 (owner decision
-// 2026-11-18 12:59 CET; it was 110 and 105). A red on its first session is
-// therefore at the gate's day-one depth and at the isolated-VVIX level: it is
-// eligible at once and stands by itself. A red that exit hysteresis holds
-// between 115 and 120 is below that level and warns without standing.
+// 2026-11-18 12:59 CET; it was 110 and 105). A red on its first session is at
+// the gate's day-one depth, so it is eligible at once, and an eligible
+// witness red stands. A red that exit hysteresis holds between 115 and 120
+// keeps its eligibility and keeps standing until it is released.
 func TestVVIXRedLineAt120(t *testing.T) {
 	const first = 8
 	timeline := func(yenRed bool) map[int]*rpc.RegimeSnapshotResult {
@@ -112,9 +112,10 @@ func TestVVIXRedLineAt120(t *testing.T) {
 		t.Errorf("VVIX 121 beside an eligible yen red: yen band %q, stage %s; want red and confirmed_stress", beside.USDJPY.Band, beside.Lifecycle.Stage)
 	}
 
+	// Held red: still an eligible witness red, so it still stands.
 	if r := read[25]; r.VolOfVol.Band != "red" || r.Lifecycle.Stage != rpc.LifecycleEarlyWarning ||
-		!slices.Equal(openers(25), []string{rpc.RegimeWarningProvisionalWitness + ":vol"}) {
-		t.Errorf("VVIX 116 the session after a red: band %q, stage %s, openers %v; want red held, early_warning from a witness that does not stand",
+		!slices.Equal(openers(25), []string{rpc.RegimeWarningEligibleRed}) {
+		t.Errorf("VVIX 116 the session after a red: band %q, stage %s, openers %v; want red held, early_warning opened by an eligible red",
 			r.VolOfVol.Band, r.Lifecycle.Stage, openers(25))
 	}
 	if r := read[26]; r.VolOfVol.Band == "red" || len(openers(26)) != 0 {

@@ -123,6 +123,14 @@ type RegimeMonitorIndicator struct {
 	// stability).
 	Eligibility    *RegimeEligibility `json:"eligibility,omitempty"`
 	FreshnessClass string             `json:"freshness_class,omitempty"`
+	// Role, Red and Note are the row's served standing
+	// (RegimeSnapshotResult.RowStandings), passed through verbatim: the role
+	// (witness or co_sign), what a red is worth (counts, waiting, context)
+	// and, for a red that is context, the sentence to print. Empty when the
+	// daemon served no standings.
+	Role string `json:"role,omitempty"`
+	Red  string `json:"red,omitempty"`
+	Note string `json:"note,omitempty"`
 }
 
 // PositionsRiskResult is a bounded portfolio-risk projection. TopRisks is
@@ -241,6 +249,22 @@ func CompactRegimeMonitor(r *RegimeSnapshotResult) RegimeMonitorResult {
 		return RegimeMonitorResult{}
 	}
 	CompactRegimeSnapshot(r)
+	out := compactRegimeMonitor(r)
+	indicators := []string{
+		RegimeIndicatorVIXTerm, RegimeIndicatorVolOfVol, RegimeIndicatorHYGSPY, RegimeIndicatorCredit,
+		RegimeIndicatorFunding, RegimeIndicatorUSDJPY, RegimeIndicatorGammaZero, RegimeIndicatorBreadth,
+	}
+	for i := range out.Indicators {
+		for _, standing := range r.RowStandings {
+			if i < len(indicators) && standing.Indicator == indicators[i] {
+				out.Indicators[i].Role, out.Indicators[i].Red, out.Indicators[i].Note = standing.Role, standing.Red, standing.Note
+			}
+		}
+	}
+	return out
+}
+
+func compactRegimeMonitor(r *RegimeSnapshotResult) RegimeMonitorResult {
 	return RegimeMonitorResult{
 		AsOf:            r.AsOf,
 		AuthorityHealth: r.AuthorityHealth,

@@ -72,13 +72,8 @@ func TestRegimeVoteOnlyAStressWitnessStartsAWarning(t *testing.T) {
 		shape func(r *RegimeSnapshotResult)
 		want  string
 	}{
-		{"proxy red, cash credit unavailable", func(r *RegimeSnapshotResult) {
+		{"proxy red, cash credit current and green", func(r *RegimeSnapshotResult) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
-			r.CreditSpreads = RegimeCreditSpreads{Status: RegimeStatusUnavailable}
-		}, LifecycleQuiet},
-		{"proxy red, cash credit six days old", func(r *RegimeSnapshotResult) {
-			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
-			r.CreditSpreads.AsOfDate = r.AsOf.AddDate(0, 0, -6).Format("2006-01-02")
 		}, LifecycleQuiet},
 		{"proxy and breadth red, cash credit widening half a point", func(r *RegimeSnapshotResult) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
@@ -108,11 +103,14 @@ func TestRegimeVoteOnlyAStressWitnessStartsAWarning(t *testing.T) {
 			red(&r.VIXTermStructure.RegimeIndicatorMeta, true)
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 		}, LifecycleConfirmedStress},
-		{"isolated VVIX red with the proxy red", func(r *RegimeSnapshotResult) {
-			red(&r.VolOfVol.RegimeIndicatorMeta, true)
-			r.VolOfVol.Last = new(112.0)
+		{"a VVIX red that may not confirm yet, with the proxy red", func(r *RegimeSnapshotResult) {
+			red(&r.VolOfVol.RegimeIndicatorMeta, false)
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 		}, LifecycleEarlyWarning},
+		{"an eligible VVIX red with the proxy red", func(r *RegimeSnapshotResult) {
+			red(&r.VolOfVol.RegimeIndicatorMeta, true)
+			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+		}, LifecycleConfirmedStress},
 		{"three reds with a witness on a flat tape", func(r *RegimeSnapshotResult) {
 			red(&r.VIXTermStructure.RegimeIndicatorMeta, true)
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
@@ -262,10 +260,9 @@ func TestRegimeHeadlineAndToneFollowTheVote(t *testing.T) {
 		{"term inversion on its first day", func(r *RegimeSnapshotResult) {
 			red(&r.VIXTermStructure.RegimeIndicatorMeta, false)
 		}, LifecycleEarlyWarning, "Stress signal present", RegimeToneWatch},
-		{"isolated VVIX red", func(r *RegimeSnapshotResult) {
-			red(&r.VolOfVol.RegimeIndicatorMeta, true)
-			r.VolOfVol.Last = new(112.0)
-		}, LifecycleEarlyWarning, "Watch: one unconfirmed stress signal", RegimeToneWatch},
+		{"VVIX red that may not confirm yet", func(r *RegimeSnapshotResult) {
+			red(&r.VolOfVol.RegimeIndicatorMeta, false)
+		}, LifecycleEarlyWarning, "Stress signal present", RegimeToneWatch},
 		{"yellow VVIX alone", func(r *RegimeSnapshotResult) {
 			r.VolOfVol.Band = "yellow"
 		}, LifecycleQuiet, "Normal regime", RegimeToneWatch},

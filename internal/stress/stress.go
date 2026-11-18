@@ -907,6 +907,9 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 	slices.Sort(out.DegradedClusters)
 	slices.Sort(out.StaleClusters)
 	out.UnconfirmedSignals = stressUnconfirmedSignals(r, out)
+	if len(stressUnconfirmed(out, stressSignalName, rpc.StressSignalContext)) > 0 {
+		out.ContextNote = rpc.RegimeContextNote
+	}
 	out.RedClusters = len(out.RedClusterNames)
 	out.EligibleRedClusters = len(out.EligibleRedClusterNames)
 	out.YellowClusters = len(out.YellowClusterNames)
@@ -941,23 +944,9 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 		now = time.Now()
 	}
 	contextClusters := stressMarketContextClusters(r, now)
-	// A co-sign row's red counts only while its cluster stays red in the
-	// shared combination, which takes a standing stress witness.
-	confirmed := rpc.BuildRegimeClusterBands(&r).Confirmed
-	// served is the row's served band, which holds a red through its exit
-	// hysteresis after the renderer's own band has left it.
-	coSign := func(indicator, cluster, served string, band regimerows.Band) bool {
-		switch indicator {
-		case rpc.RegimeIndicatorHYGSPY, rpc.RegimeIndicatorUSDJPY, rpc.RegimeIndicatorGammaZero, rpc.RegimeIndicatorBreadth:
-			i := slices.Index(rpc.RegimeClusterNames, cluster)
-			return (band == regimerows.BandRed || served == "red") && i >= 0 && i < len(confirmed) && confirmed[i] != "red"
-		}
-		return false
-	}
-	servedBand := map[string]string{
-		rpc.RegimeIndicatorHYGSPY: r.HYGSPYDivergence.Band, rpc.RegimeIndicatorUSDJPY: r.USDJPY.Band,
-		rpc.RegimeIndicatorGammaZero: r.GammaZero.Band, rpc.RegimeIndicatorBreadth: r.Breadth.Band,
-	}
+	// What each red row is worth, decided once by the shared combination
+	// from the served bands.
+	cb := rpc.BuildRegimeClusterBands(&r)
 	rows := []struct {
 		indicator   string
 		cluster     string
@@ -995,7 +984,7 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 		}
 		status := stressIndicatorStatus(item.row.Band, item.status, contextOnly, item.eligibility)
 		eligibility := stressEligibilityComment(item.indicator, item.eligibility)
-		if coSign(item.indicator, item.cluster, servedBand[item.indicator], item.row.Band) {
+		if cb.RowRed(item.indicator) == rpc.RegimeRedContext {
 			// Shown, but not a stress reading: amber, never the red of a
 			// reading that counts.
 			if status == "red" {
@@ -1734,49 +1723,43 @@ func stressClusterWarning(m StressMarketSummary) bool {
 }
 
 // stressUnconfirmedSignals lists what a surface may name beside the confirmed
-// reds, in cluster order with the cash widening last. A stress witness the
-// regime names as provisional warns without confirming. A co-sign red whose
-// cluster stays red in the shared combination stands beside a witness and
-// waits on its own gate. Any other is a co-sign with no witness standing:
-// context, the same test as the indicator rows and the regime summary. Each
-// carries the reader's name of the row that is red; in the credit cluster
-// that is the cash row whenever the cash row is red.
+// reds, in cluster order with the cash widening last, row by row from the
+// shared combination (rpc.RegimeRowStandings). A stress witness the regime
+// names as provisional warns without confirming. A co-sign red beside a
+// standing witness waits on its own gate. A co-sign red with no witness
+// standing is context, also inside a credit cluster whose cash row is the
+// red that warns. Each carries the reader's name of the row that is red.
 func stressUnconfirmedSignals(r rpc.RegimeSnapshotResult, m StressMarketSummary) []rpc.StressUnconfirmedSignal {
-	rows := map[string][]struct{ indicator, band string }{
-		"vol":     {{rpc.RegimeIndicatorVIXTerm, r.VIXTermStructure.Band}, {rpc.RegimeIndicatorVolOfVol, r.VolOfVol.Band}},
-		"credit":  {{rpc.RegimeIndicatorCredit, r.CreditSpreads.Band}, {rpc.RegimeIndicatorHYGSPY, r.HYGSPYDivergence.Band}},
-		"funding": {{rpc.RegimeIndicatorFunding, r.FundingStress.Band}},
-		"fx":      {{rpc.RegimeIndicatorUSDJPY, r.USDJPY.Band}},
-		"gamma":   {{rpc.RegimeIndicatorGammaZero, r.GammaZero.Band}},
-		"breadth": {{rpc.RegimeIndicatorBreadth, r.Breadth.Band}},
-	}
+	standings := rpc.RegimeRowStandings(&r)
 	var out []rpc.StressUnconfirmedSignal
 	for _, cluster := range rpc.RegimeClusterNames {
 		if !slices.Contains(m.UnconfirmedRedClusterNames, cluster) {
 			continue
 		}
-		role := rpc.StressSignalContext
-		switch {
-		case slices.Contains(m.WarningOpeners, rpc.RegimeWarningProvisionalWitness+":"+cluster):
-			role = rpc.StressSignalWitness
-		case slices.Contains(m.RedClusterNames, cluster):
-			role = rpc.StressSignalWaiting
-		}
-		var names []string
-		for _, row := range rows[cluster] {
-			if row.band == "red" {
-				names = append(names, rpc.RegimeRowName(row.indicator))
-				if cluster == "credit" {
-					break
-				}
+		var witnesses []string
+		var coSigns []rpc.StressUnconfirmedSignal
+		for _, row := range standings {
+			if rpc.RegimeIndicatorCluster(row.Indicator) != cluster || row.Red == "" {
+				continue
+			}
+			switch {
+			case row.Role == rpc.RegimeRoleWitness:
+				witnesses = append(witnesses, row.Name)
+			case row.Red == rpc.RegimeRedContext:
+				coSigns = append(coSigns, rpc.StressUnconfirmedSignal{Cluster: cluster, Name: row.Name, Role: rpc.StressSignalContext})
+			case row.Red == rpc.RegimeRedWaiting:
+				coSigns = append(coSigns, rpc.StressUnconfirmedSignal{Cluster: cluster, Name: row.Name, Role: rpc.StressSignalWaiting})
 			}
 		}
-		name := strings.Join(names, " and ")
-		if name == "" {
-			// A red the cluster holds with no row red: keep the cluster key.
-			name = cluster
+		if slices.Contains(m.WarningOpeners, rpc.RegimeWarningProvisionalWitness+":"+cluster) {
+			name := strings.Join(witnesses, " and ")
+			if name == "" {
+				// A red the cluster holds with no row red: keep the cluster key.
+				name = cluster
+			}
+			out = append(out, rpc.StressUnconfirmedSignal{Cluster: cluster, Name: name, Role: rpc.StressSignalWitness})
 		}
-		out = append(out, rpc.StressUnconfirmedSignal{Cluster: cluster, Name: name, Role: role})
+		out = append(out, coSigns...)
 	}
 	if slices.Contains(m.WarningOpeners, rpc.RegimeWarningCashWidening) {
 		out = append(out, rpc.StressUnconfirmedSignal{Cluster: "credit", Name: rpc.RegimeCashWideningName(), Role: rpc.StressSignalWidening})

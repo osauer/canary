@@ -160,8 +160,8 @@ func TestRegimeHistoryReplay(t *testing.T) {
 		s := regimeReplaySession{row: i, date: d.date}
 		s.stage[0] = regimeReplayStage(vote, votePolicies)
 		s.stage[1] = regimeReplayStage(snap, policies)
-		if s.stage[0] == rpc.LifecycleDataQuality {
-			t.Errorf("%s: the vote-only series read data_quality, so an input the replay built is not usable", d.date)
+		if s.stage[0] == rpc.LifecycleDataQuality && !regimeReplayDarkWitness(vote) {
+			t.Errorf("%s: the vote-only series read data_quality with every stress witness readable, so an input the replay built is not usable", d.date)
 		}
 		for _, ind := range streakIndicators {
 			_, meta, _ := regimeDecisionRowView(vote, ind.key())
@@ -434,6 +434,20 @@ func regimeReplayStage(snap *rpc.RegimeSnapshotResult, policies map[string]regim
 	snap.Composite.Verdict = rpc.RegimeHeadline(snap.Composite, snap.Lifecycle.Stage)
 	snap.Posture = rpc.BuildRegimePosture(snap)
 	return snap.Lifecycle.Stage
+}
+
+// regimeReplayDarkWitness reports a stress witness row that has a reading in
+// the file but is off its own currency on this session, as the funding row
+// is once commercial paper has gone a week without a print. With a co-sign
+// red beside it the vote reads data_quality by rule, not by a replay defect.
+func regimeReplayDarkWitness(snap *rpc.RegimeSnapshotResult) bool {
+	dark := func(status string, meta rpc.RegimeIndicatorMeta) bool {
+		return rpc.RegimeCurrencyGrade(rpc.RegimeRowCurrency(status, meta.Freshness)) != rpc.RegimeCurrencyGradeNone
+	}
+	return dark(snap.VIXTermStructure.Status, snap.VIXTermStructure.RegimeIndicatorMeta) ||
+		dark(snap.VolOfVol.Status, snap.VolOfVol.RegimeIndicatorMeta) ||
+		dark(snap.CreditSpreads.Status, snap.CreditSpreads.RegimeIndicatorMeta) ||
+		dark(snap.FundingStress.Status, snap.FundingStress.RegimeIndicatorMeta)
 }
 
 // regimeBandLetter is one row's served band as a letter: g green, y yellow,

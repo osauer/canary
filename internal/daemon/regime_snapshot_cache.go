@@ -596,6 +596,8 @@ func materializeRegimeSnapshotCacheView(view regimeSnapshotCacheView, raw []byte
 		return regimeSnapshotCacheView{}, fmt.Errorf("decode in-memory authoritative regime snapshot: %w", err)
 	}
 	snapshot.AuthorityHealth = &view.Health
+	// Stamped at serve time with this binary's rules, never persisted.
+	snapshot.RowStandings = rpc.RegimeRowStandings(snapshot)
 	view.Snapshot = snapshot
 	return view, nil
 }
@@ -671,6 +673,7 @@ func encodeRegimeSnapshotDocument(snapshot *rpc.RegimeSnapshotResult) ([]byte, r
 	// Strip response-only cache metadata on a shallow value copy, then
 	withoutResponseMetadata := *snapshot
 	withoutResponseMetadata.AuthorityHealth = nil
+	withoutResponseMetadata.RowStandings = nil
 	raw, err := json.Marshal(&withoutResponseMetadata)
 	if err != nil {
 		return nil, rpc.Fingerprint{}, fmt.Errorf("encode regime snapshot: %w", err)
@@ -701,6 +704,9 @@ func decodeRegimeSnapshotDocument(raw []byte) (*rpc.RegimeSnapshotResult, error)
 	}
 	if snapshot.AuthorityHealth != nil {
 		return nil, errors.New("regime snapshot state document contains response-only authority health")
+	}
+	if snapshot.RowStandings != nil {
+		return nil, errors.New("regime snapshot state document contains response-only row standings")
 	}
 	if err := validatePersistedRegimeSnapshot(&snapshot); err != nil {
 		return nil, err

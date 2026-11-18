@@ -1207,13 +1207,17 @@ test("a co-sign red with no stress witness is context, not a provisional warning
   // the reader's name and what it is. A co-sign with no witness standing is
   // context, shown under its served name and never a warning.
   const context = (cluster, name) => ({ cluster, name, role: "context" });
+  const NOTE = "Context, not a stress reading on its own";
   const market = {
     unconfirmed_red_cluster_names: ["credit"],
     eligible_red_clusters: 0,
     yellow_cluster_names: ["credit"],
     unconfirmed_signals: [context("credit", "ETF credit proxy")],
+    context_note: NOTE,
   };
   assert.equal(stress.regimeGovernedNote({}, market), "Context, not a stress reading on its own: ETF credit proxy");
+  // The sentence is the served one: the app keeps no copy.
+  assert.equal(stress.regimeGovernedNote({}, { ...market, context_note: "Served sentence" }), "Served sentence: ETF credit proxy");
   assert.equal(stress.regimeGovernedNote({}, market, true), "", "context does not replace the action on the master line");
   for (const confirmation of ["none", "partial"]) {
     const current = { market_confirmation: confirmation, market, summary: "served summary" };
@@ -1224,7 +1228,7 @@ test("a co-sign red with no stress witness is context, not a provisional warning
 
   // Every co-sign is named, in the served order, and no full stop sits before
   // the part that follows.
-  const all = { unconfirmed_signals: [context("credit", "ETF credit proxy"), context("fx", "FX carry proxy"), context("gamma", "dealer gamma"), context("breadth", "breadth")] };
+  const all = { context_note: NOTE, unconfirmed_signals: [context("credit", "ETF credit proxy"), context("fx", "FX carry proxy"), context("gamma", "dealer gamma"), context("breadth", "breadth")] };
   assert.equal(stress.regimeGovernedNote({}, all), "Context, not a stress reading on its own: ETF credit proxy, FX carry proxy, dealer gamma, and breadth");
   const governed = { regime: { lifecycle: { governors: [{ action: "severity_capped", to: "watch", reason: "confirming_cluster_quality" }] } } };
   assert.equal(stress.regimeGovernedNote(governed, market),
@@ -1234,6 +1238,7 @@ test("a co-sign red with no stress witness is context, not a provisional warning
     unconfirmed_red_cluster_names: ["credit", "vol"],
     eligible_red_clusters: 0,
     unconfirmed_signals: [{ cluster: "vol", name: "vol-of-vol", role: "witness" }, context("credit", "ETF credit proxy")],
+    context_note: NOTE,
   };
   const witness = { market_confirmation: "partial", market: witnessMarket, summary: "served summary" };
   const explanation = stress.marketExplanation(witness);
@@ -1256,6 +1261,7 @@ test("a cash credit widening and a cash credit red are named as the cash row", (
       { cluster: "credit", name: "ETF credit proxy", role: "context" },
       { cluster: "credit", name: "cash credit spreads widening", role: "widening" },
     ],
+    context_note: "Context, not a stress reading on its own",
   };
   const current = { market_confirmation: "partial", market: widening, summary: "served summary" };
   assert.equal(stress.stressHasProvisionalOnlyMarketWarning(current), true);

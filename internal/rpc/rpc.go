@@ -1515,6 +1515,12 @@ type RegimeSnapshotResult struct {
 	// snapshot. Cold authorities fail with CodeRegimeUnavailable instead of
 	// manufacturing an empty or partial RegimeSnapshotResult.
 	AuthorityHealth *RegimeAuthorityHealth `json:"authority_health,omitempty"`
+	// RowStandings says, per row, its role and what its red is worth in the
+	// cluster combination. Response-only, like AuthorityHealth: the daemon
+	// stamps it on every served snapshot with its own rules and never
+	// persists it, so a reader compiled at another version shows the
+	// daemon's verdict and a retained snapshot keeps its shape.
+	RowStandings []RegimeRowStanding `json:"row_standings,omitempty"`
 	// TapeSessionState classifies the official US cash-equity calendar date
 	// tape terms keep full effect (fail-open). Excluded from the regime
 	TapeSessionState  string                 `json:"tape_session_state,omitempty"`

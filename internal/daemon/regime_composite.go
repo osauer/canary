@@ -111,72 +111,33 @@ func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 	if r == nil {
 		return nil
 	}
-	// A co-sign row's red counts only while its cluster stays red in the
-	// shared combination, which takes a standing stress witness.
-	confirmed := rpc.BuildRegimeClusterBands(r).Confirmed
-	context := func(row regimeEvidenceRow, cluster int) regimeEvidenceRow {
-		row.context = row.band == "red" && confirmed[cluster] != "red"
-		return row
+	cb := rpc.BuildRegimeClusterBands(r)
+	// served words a usable row by the band the daemon serves, which holds a
+	// red through its exit hysteresis, so the summary agrees with the
+	// clusters. A row with no usable reading keeps its unranked state.
+	row := func(indicator, scope, status, computed, message string, meta rpc.RegimeIndicatorMeta) regimeEvidenceRow {
+		band := computed
+		if computed != "" && meta.Band != "" {
+			band = meta.Band
+		}
+		return regimeEvidenceRow{
+			scope: scope, name: rpc.RegimeRowName(indicator), status: status, band: band, message: message,
+			// A co-sign red with no stress witness standing, decided per row.
+			context: band == "red" && cb.RowRed(indicator) == rpc.RegimeRedContext,
+		}
 	}
+	credit := row(rpc.RegimeIndicatorCredit, "credit_spreads", r.CreditSpreads.Status, bandForCreditSpreads(r.CreditSpreads), r.CreditSpreads.ErrorMessage, r.CreditSpreads.RegimeIndicatorMeta)
+	// The opener is listed only while the row is not red.
+	credit.widening = slices.Contains(rpc.RegimeWarningOpeners(r), rpc.RegimeWarningCashWidening)
 	return []regimeEvidenceRow{
-		{
-			scope:   "vix_term_structure",
-			name:    rpc.RegimeRowName(rpc.RegimeIndicatorVIXTerm),
-			status:  r.VIXTermStructure.Status,
-			band:    bandForVIX(r.VIXTermStructure),
-			message: r.VIXTermStructure.ErrorMessage,
-		},
-		{
-			scope:   "vol_of_vol",
-			name:    rpc.RegimeRowName(rpc.RegimeIndicatorVolOfVol),
-			status:  r.VolOfVol.Status,
-			band:    bandForVolOfVol(r.VolOfVol),
-			message: r.VolOfVol.ErrorMessage,
-		},
-		context(regimeEvidenceRow{
-			scope:   "hyg_spy_divergence",
-			name:    rpc.RegimeRowName(rpc.RegimeIndicatorHYGSPY),
-			status:  r.HYGSPYDivergence.Status,
-			band:    bandForHYGSPY(r.HYGSPYDivergence),
-			message: r.HYGSPYDivergence.ErrorMessage,
-		}, rpc.RegimeClusterCredit),
-		{
-			scope:   "credit_spreads",
-			name:    rpc.RegimeRowName(rpc.RegimeIndicatorCredit),
-			status:  r.CreditSpreads.Status,
-			band:    bandForCreditSpreads(r.CreditSpreads),
-			message: r.CreditSpreads.ErrorMessage,
-			// The opener is listed only while the row is not red.
-			widening: slices.Contains(rpc.RegimeWarningOpeners(r), rpc.RegimeWarningCashWidening),
-		},
-		{
-			scope:   "funding_stress",
-			name:    rpc.RegimeRowName(rpc.RegimeIndicatorFunding),
-			status:  r.FundingStress.Status,
-			band:    bandForFundingStress(r.FundingStress),
-			message: r.FundingStress.ErrorMessage,
-		},
-		context(regimeEvidenceRow{
-			scope:   "usd_jpy",
-			name:    rpc.RegimeRowName(rpc.RegimeIndicatorUSDJPY),
-			status:  r.USDJPY.Status,
-			band:    bandForUSDJPY(r.USDJPY),
-			message: r.USDJPY.ErrorMessage,
-		}, rpc.RegimeClusterFX),
-		context(regimeEvidenceRow{
-			scope:   "gamma_zero",
-			name:    rpc.RegimeRowName(rpc.RegimeIndicatorGammaZero),
-			status:  r.GammaZero.Status,
-			band:    bandForGamma(r.GammaZero),
-			message: r.GammaZero.Envelope.Error,
-		}, rpc.RegimeClusterGamma),
-		context(regimeEvidenceRow{
-			scope:   "breadth",
-			name:    rpc.RegimeRowName(rpc.RegimeIndicatorBreadth),
-			status:  r.Breadth.Status,
-			band:    bandForBreadth(r.Breadth),
-			message: "",
-		}, rpc.RegimeClusterBreadth),
+		row(rpc.RegimeIndicatorVIXTerm, "vix_term_structure", r.VIXTermStructure.Status, bandForVIX(r.VIXTermStructure), r.VIXTermStructure.ErrorMessage, r.VIXTermStructure.RegimeIndicatorMeta),
+		row(rpc.RegimeIndicatorVolOfVol, "vol_of_vol", r.VolOfVol.Status, bandForVolOfVol(r.VolOfVol), r.VolOfVol.ErrorMessage, r.VolOfVol.RegimeIndicatorMeta),
+		row(rpc.RegimeIndicatorHYGSPY, "hyg_spy_divergence", r.HYGSPYDivergence.Status, bandForHYGSPY(r.HYGSPYDivergence), r.HYGSPYDivergence.ErrorMessage, r.HYGSPYDivergence.RegimeIndicatorMeta),
+		credit,
+		row(rpc.RegimeIndicatorFunding, "funding_stress", r.FundingStress.Status, bandForFundingStress(r.FundingStress), r.FundingStress.ErrorMessage, r.FundingStress.RegimeIndicatorMeta),
+		row(rpc.RegimeIndicatorUSDJPY, "usd_jpy", r.USDJPY.Status, bandForUSDJPY(r.USDJPY), r.USDJPY.ErrorMessage, r.USDJPY.RegimeIndicatorMeta),
+		row(rpc.RegimeIndicatorGammaZero, "gamma_zero", r.GammaZero.Status, bandForGamma(r.GammaZero), r.GammaZero.Envelope.Error, r.GammaZero.RegimeIndicatorMeta),
+		row(rpc.RegimeIndicatorBreadth, "breadth", r.Breadth.Status, bandForBreadth(r.Breadth), "", r.Breadth.RegimeIndicatorMeta),
 	}
 }
 
@@ -654,4 +615,4 @@ func bandForBreadth(r rpc.RegimeBreadth) string {
 	return classifyBreadthBand(r.Envelope.PctAbove50DMA)
 }
 
-// Cluster combination (raw worst-of bands, isolated-red downgrades,
+// Cluster combination (raw worst-of bands, the weight of each row's role,

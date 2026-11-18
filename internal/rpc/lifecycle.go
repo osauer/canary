@@ -297,10 +297,16 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 	}
 	if state.Stage == LifecycleConfirmedStress || state.Stage == LifecyclePanic {
 		state.ConfirmedBy = confirmedNames
+		if len(confirmedNames) == 0 {
+			// No cluster confirms: the tape arm did, with every red a
+			// co-sign shown as context.
+			state.ConfirmedBy = []string{RegimeConfirmedByTape}
+		}
 	}
 	inputs := regimeLifecycleInputVerdict(*r)
-	if inputs.any() {
-		blanks := inputs.global ||
+	darkWitness := regimeLifecycleDarkWitness(state.Stage, *r)
+	if inputs.any() || darkWitness {
+		blanks := darkWitness || inputs.global ||
 			len(inputs.defects)+len(inputs.impaired) >= RegimeCurrencyBlankFloor ||
 			!regimeLifecycleStageEvidenceCurrent(state, *r, cb, inputs)
 		if blanks {
@@ -328,6 +334,33 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 	return state
 }
 
+// RegimeConfirmedByTape is the confirmed_by entry of a stress stage that the
+// tape confirmed while no cluster did.
+const RegimeConfirmedByTape = "tape"
+
+// regimeLifecycleDarkWitness reports a calm stage that would rest on a stress
+// witness nobody can read. Quiet, opportunity and stabilization claim an
+// absence of stress. With a co-sign red on the panel and a witness row whose
+// currency costs the read anything (stale, overdue, failed; not a typed
+// not-due or pending schedule), that absence is unknown: the read is
+// undefined, and the rulebook's stage latch holds. Operator decision
+// 2026-08-11: unknown cash evidence never softens a live warning.
+func regimeLifecycleDarkWitness(stage string, r RegimeSnapshotResult) bool {
+	if !stageCalm(stage) {
+		return false
+	}
+	coSignRed, dark := false, false
+	for _, row := range regimeRows(&r) {
+		switch RegimeIndicatorRole(row.indicator) {
+		case RegimeRoleCoSign:
+			coSignRed = coSignRed || row.band == "red"
+		case RegimeRoleWitness:
+			dark = dark || RegimeCurrencyGrade(RegimeRowCurrency(row.status, row.freshness)) != RegimeCurrencyGradeNone
+		}
+	}
+	return coSignRed && dark
+}
+
 // regimeLifecycleHasIndependentCurrentStress permits a stress/panic stage to
 // survive an unrelated broken input only when the stage has its own current
 // survives only when none of its confirming clusters is impaired.
@@ -335,7 +368,10 @@ func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSn
 	if state.Stage != LifecycleConfirmedStress && state.Stage != LifecyclePanic {
 		return false
 	}
-	cleanRed, cleanAtLeastYellow := 0, 0
+	// A co-sign's red counts only beside a standing witness, so it survives
+	// only beside a clean one: with every standing witness in a broken
+	// cluster the co-signs have nothing current to lean on.
+	cleanRed, cleanCoSignRed, cleanWitness, cleanAtLeastYellow := 0, 0, false, 0
 	for i, name := range RegimeClusterNames {
 		if i >= len(cb.Confirmed) || !regimeLifecycleClusterCurrent(r, name) {
 			continue
@@ -344,11 +380,19 @@ func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSn
 		case "red":
 			cleanAtLeastYellow++
 			if i < len(cb.Eligible) && cb.Eligible[i] {
-				cleanRed++
+				if cb.witnessStands(i) {
+					cleanWitness = true
+					cleanRed++
+				} else {
+					cleanCoSignRed++
+				}
 			}
 		case "yellow":
 			cleanAtLeastYellow++
 		}
+	}
+	if cleanWitness {
+		cleanRed += cleanCoSignRed
 	}
 	spyCurrent := regimeLifecycleSPYTapeCurrent(r)
 	vixCurrent := regimeLifecycleVIXTapeCurrent(r)
@@ -486,6 +530,7 @@ func regimeTapeConfirmable(r RegimeSnapshotResult) bool {
 func regimePendingBacktestClusters(r *RegimeSnapshotResult, confirmedBy []string) []string {
 	var out []string
 	for _, name := range confirmedBy {
+		// The tape entry is not a cluster and has no threshold set.
 		for _, meta := range regimeClusterRowMetas(r, name) {
 			if meta.Band == "red" && meta.Thresholds != nil && meta.Thresholds.PendingBacktest {
 				out = append(out, name)
@@ -501,7 +546,7 @@ func regimePendingBacktestClusters(r *RegimeSnapshotResult, confirmedBy []string
 func regimeImpairedConfirmingClusters(r *RegimeSnapshotResult, confirmedBy []string) []string {
 	var out []string
 	for _, name := range confirmedBy {
-		if !regimeLifecycleClusterCurrent(*r, name) {
+		if regimeClusterKnown(name) && !regimeLifecycleClusterCurrent(*r, name) {
 			out = append(out, name)
 		}
 	}
@@ -911,8 +956,9 @@ func RegimeWarningOpeners(r *RegimeSnapshotResult) []string {
 
 // Opportunity and stabilization are tape-driven recovery stages: a frozen
 // closed-date print cannot enter them. Opportunity counts every cluster at
-// yellow, co-signs included: it is the stage a reader may act on, and the
-// roles did not loosen it. Stabilization counts the stress witnesses only: a
+// yellow, co-signs included, and a co-sign red with no witness standing is
+// one of those yellows: the rule is the old one, but such a red no longer
+// blocks it as a red did. Stabilization counts the stress witnesses only: a
 // day whose only yellows are co-signs has nothing to stabilize from and is
 // quiet.
 func regimeLifecycleOpportunity(r RegimeSnapshotResult, t regimeClusterTally) bool {
@@ -1107,7 +1153,10 @@ func regimeLifecycleStageEvidenceCurrent(state LifecycleState, r RegimeSnapshotR
 		// warning — it is missing evidence, and stays data_quality.
 		t := tallyRegimeClusters(cb)
 		for i, name := range RegimeClusterNames {
-			if regimeWarningArm(cb, t, i) != "" && !inputs.clusterDefective(name) {
+			// The widening is the cash row's own and opens only while that
+			// row is current, whatever the proxy row beside it can serve.
+			arm := regimeWarningArm(cb, t, i)
+			if arm == RegimeWarningCashWidening || (arm != "" && !inputs.clusterDefective(name)) {
 				return true
 			}
 		}
@@ -1379,21 +1428,6 @@ func strongestLifecycleBand(bands ...string) string {
 		return "green"
 	}
 	return ""
-}
-
-// isolatedLifecycleEquityVolConfirmed corroborates an isolated equity-vol
-// change terms here deliberately stay session-blind: they only preserve a red that live-session
-func isolatedLifecycleEquityVolConfirmed(r RegimeSnapshotResult) bool {
-	if r.VIXTermStructure.Band == "red" {
-		return true
-	}
-	if r.VolOfVol.Last != nil && *r.VolOfVol.Last >= 120 {
-		return true
-	}
-	if r.VIXTermStructure.VIXChangePct != nil && *r.VIXTermStructure.VIXChangePct >= 20 {
-		return true
-	}
-	return r.HYGSPYDivergence.SPYChangePct != nil && *r.HYGSPYDivergence.SPYChangePct <= -1
 }
 
 func pctAtMost(v *float64, threshold float64) bool {

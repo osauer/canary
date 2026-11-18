@@ -201,6 +201,62 @@ func TestRegimeMonitorCLIUsesSharedAuthorityProjection(t *testing.T) {
 	}
 }
 
+// A co-sign red the daemon serves as context does not print as RED under
+// "Red stressed": it reads amber with the served sentence, in the text view
+// and in the monitor JSON.
+func TestRegimeCLIShowsAContextCoSignAsContext(t *testing.T) {
+	snapshot := rpc.RegimeSnapshotResult{
+		AuthorityHealth:  &rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityFresh, LastSuccessAt: new(time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)), LastSuccessAgeSeconds: new(int64(1))},
+		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{Status: rpc.RegimeStatusOK, RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "red", Eligibility: &rpc.RegimeEligibility{Eligible: true}}},
+		VIXTermStructure: rpc.RegimeVIXTerm{Status: rpc.RegimeStatusOK, RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "red", Eligibility: &rpc.RegimeEligibility{Eligible: true}}},
+	}
+	raw, err := json.Marshal(snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var served map[string]any
+	if err := json.Unmarshal(raw, &served); err != nil {
+		t.Fatal(err)
+	}
+	// What the daemon stamps on the served snapshot.
+	served["row_standings"] = []map[string]string{
+		{"indicator": "vix_term", "name": "volatility term structure", "role": "witness", "red": "counts"},
+		{"indicator": "hyg_spy", "name": "ETF credit proxy", "role": "co_sign", "red": "context", "note": "Context, not a stress reading on its own"},
+	}
+	var out bytes.Buffer
+	if Run(t.Context(), &Env{Conn: &riskReadConn{result: served}, Stdout: &out, Stderr: &out}, "regime", nil) != 0 {
+		t.Fatal(out.String())
+	}
+	var term, proxy string
+	lines := strings.Split(out.String(), "\n")
+	for i, line := range lines {
+		next := ""
+		if i+1 < len(lines) {
+			next = lines[i+1]
+		}
+		switch {
+		case strings.Contains(line, "VIX/VIX3M"):
+			term = line
+		case strings.Contains(line, "HYG/SPY"):
+			proxy = line + next
+		}
+	}
+	if !strings.Contains(term, "RED") {
+		t.Fatalf("the term row that counts does not read RED: %q", term)
+	}
+	if strings.Contains(proxy, "RED") || !strings.Contains(proxy, "AMBER") || !strings.Contains(proxy, "Context, not a stress reading on its own") {
+		t.Fatalf("the context co-sign row reads %q; want AMBER with the served sentence", proxy)
+	}
+
+	out.Reset()
+	if Run(t.Context(), &Env{Conn: &riskReadConn{result: served}, Stdout: &out, Stderr: &out}, "regime", []string{"--json", "--view", "monitor"}) != 0 {
+		t.Fatal(out.String())
+	}
+	if !strings.Contains(out.String(), `"role": "co_sign"`) || !strings.Contains(out.String(), `"red": "context"`) {
+		t.Fatalf("monitor JSON does not carry the served standing: %s", out.String())
+	}
+}
+
 // TestRiskWarnReadLineKeepsItsColour pins the stale-evidence warning: its
 // yellow survives sanitising, escape bytes in the data do not, and colour
 // leaves the wrap where it is without colour.

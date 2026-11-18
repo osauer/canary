@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-11-18 13:25 CET
+**Last update:** 2026-11-18 13:53 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -171,7 +171,7 @@ not a source failure. Provisional reds never:
 
 - count toward the red tally used by `confirmed_stress`,
 - rescue another cluster: only a standing stress witness makes a co-sign red
-  count, and only a witness corroborates an isolated equity-vol red (Part 8),
+  count (Part 8),
 - appear in `confirmed_by`,
 - carry `timing: contemporaneous` or `severity: act` in evidence rows.
 
@@ -202,7 +202,7 @@ includes hysteresis.
 | Indicator | Red band (unchanged) | Min depth for eligible red | Fast path (eligible day 1) | Min streak | Cadence-freshness for eligibility | Exit hysteresis (band re-arm) |
 |---|---|---|---|---|---|---|
 | VIX term (VIX/VIX3M) | ratio ≥ 1.00 | ratio ≥ 1.00 (inversion is already discrete) | ratio ≥ 1.05 | 2 | both legs live during their shared 09:31–16:15 ET window for confirmation; VIX3M prior-close carry is typed `not_due` outside that window only when VIX satisfies its own 03:15–09:25 and 09:31–16:15 ET schedule | leave red only when ratio < 0.98; re-enter at ≥ 1.00 |
-| VVIX | ≥ 120 (`vvix_daily_v3`, 2026-11-18; was ≥ 110, see Part 8) | ≥ 110 (unchanged; every red is deeper, so it no longer binds) | ≥ 120 (existing isolated rule, kept; every red reaches it on its first session) | 2 | latest official daily close (newest possible observation) | leave red < 115 (was < 105) |
+| VVIX | ≥ 120 (`vvix_daily_v3`, 2026-11-18; was ≥ 110, see Part 8) | ≥ 110 (unchanged; every red is deeper, so it no longer binds) | ≥ 120 (every red reaches it on its first session) | 2 | latest official daily close (newest possible observation) | leave red < 115 (was < 105) |
 | HYG/SPY credit proxy | HYG < 50DMA and SPY ≥ 97% of 52w high | HYG ≥ 0.25% below 50DMA | HYG ≥ 1.0% below 50DMA | 2 | RTH tick, or latest official close outside RTH (never a thin pre/post-market tick) | leave red only after HYG closes back above 50DMA |
 | Credit spreads (HY OAS) | ≥ 5.5 or 20-obs widening ≥ 1.00 pp | levels are already deep — no extra depth | n/a (official daily series) | 1 | series ≤ 7d old (as today) | leave red < 5.25 and widening < 0.85 pp |
 | Funding (CP−T-bill) | ≥ 75 bp | ≥ 75 bp | n/a | 1 | series ≤ 7d old (as today) | leave red < 65 bp |
@@ -310,8 +310,8 @@ only when a witness stands.
   || (SPY ≤ −4% && yellow-or-worse ≥ 2) || (eligibleRed ≥ 1 && VIX +20%)`. A
   standing witness plus one co-sign red confirms; two co-signs never do.
 - `early_warning` — a confirmed eligible red; or a witness cluster that is raw
-  red but provisional or not standing (a day-one term inversion, a VVIX red
-  held between 115 and 120); or a current cash credit row whose HY OAS is 0.50 pp or more
+  red but not eligible yet (a day-one term inversion, a witness red on a row
+  that is not current); or a current cash credit row whose HY OAS is 0.50 pp or more
   wider over 20 observations, the row's own yellow step; or three clusters at
   yellow or worse of which at least one is a witness at yellow; or
   `SPY ≤ −1.5%`; or `VIX +10%`. A red or yellow in co-sign clusters alone
@@ -358,10 +358,9 @@ state; the shared copy the stress tape row also keys on), stamped by the
 daemon at snapshot time and by the backtest replay from the observation
 clock, empty-and-fail-open outside embedded calendar coverage. Cluster-driven
 terms and the status-gated term-inversion co-sign are untouched. The isolated
-equity-vol corroboration inside cluster combination deliberately stays
-session-blind (decision 2026-07-19: bounded residual — it can only preserve a
-red that live-session banding produced, and its worst weekend effect is
-cluster-grade early warning; revisit with decision-event evidence). The rulebook's
+equity-vol corroboration, which stayed session-blind by the decision of
+2026-07-19, was removed on 2026-11-18 (Part 8, "Witness health and standing"):
+an eligible witness red stands. The rulebook's
 regime-stage latch skips closed-date snapshots so the last trading-date stage
 ages into the carried worse-of(carried, calm) path instead of a weekend stage
 re-latching fresh.
@@ -949,17 +948,16 @@ the proxy and breadth had confirmed each other with VIX at 15.5 and HY OAS at
   (`credit_spreads`) inside the credit cluster. Only a witness starts a
   warning.
 - **Co-signs** are the HYG proxy row, breadth, USD/JPY and dealer gamma. A
-  co-sign strengthens a warning a witness has started. It never starts or
-  confirms one, alone or together with other co-signs.
+  co-sign strengthens a warning a witness has started. It never starts one,
+  and no co-sign cluster confirms one, alone or together with other co-signs.
+  The tape can confirm stress while every red is a co-sign (`SPY ≤ −4%` with
+  two clusters at yellow or worse); `confirmed_by` then names `tape` and the
+  co-signs stay context.
 
-A witness **stands** when its red is eligible. An equity-vol red must also be
-corroborated: `isolatedLifecycleEquityVolConfirmed` holds (a term inversion,
-VVIX at 120 or more, VIX up 20%, or SPY down 1%), or funding or cash credit is
-an eligible red. A co-sign cannot corroborate it, because the co-sign would
-then confirm the witness it leans on. Since the VVIX row turns red at 120
-("VVIX red line at 120" below), a VVIX red carries that corroboration on the
-session it turns red; the rule still holds back a red that exit hysteresis
-keeps between 115 and 120.
+A witness **stands** when its red is eligible, with no further condition. The
+roles live in one list, `regimeRowRoles` in `internal/rpc`, which the
+combination, the lifecycle, the stress read, the regime summary and the row
+notes read.
 
 In the confirmed cluster bands (`rpc.BuildRegimeClusterBands`) a co-sign
 cluster that is raw red stays red only while a witness stands; otherwise it is
@@ -1126,21 +1124,20 @@ What changed: the VVIX row turns red at 120 (it was 110) and leaves red below
 115 (it was 105). The threshold set is `vvix_daily_v3` and its published
 texts read "VVIX >= 120" and "trips >=120". The yellow rule, the eligibility
 gate (minimum depth 110, day-one depth 120, minimum streak 2) and the
-isolated-VVIX rule (120) are as they were. The band stays `pending_backtest`:
+isolated-VVIX rule (120) were left as they were; the isolated-VVIX rule was
+removed later the same day (next section). The band stays `pending_backtest`:
 this rests on the history replay, not on the forward decisions Part 4 asks
 for.
 
-In plain words: a VVIX red is now deep enough on the session it turns red to
-be eligible at once and to stand by itself, because the red line, the gate's
-day-one depth and the isolated-VVIX level are the same number. One case is
-different. A red that exit hysteresis holds between 115 and 120 is below the
-isolated-VVIX level: it stays red on the row and warns, but it does not stand
-by itself, and it needs its second banked session to be eligible.
+In plain words: a VVIX red is deep enough on the session it turns red to be
+eligible at once, because the red line and the gate's day-one depth are the
+same number, and an eligible witness red stands. A red that exit hysteresis
+holds between 115 and 120 keeps its eligibility and keeps standing until it
+is released.
 
 What that leaves of the older numbers: the gate's minimum depth of 110 no
-longer binds; its minimum streak binds only for a held red whose first
-session was not banked; the isolated-VVIX level matters only in the 115 to
-120 hold. None was removed.
+longer binds, and its minimum streak binds only for a held red whose first
+session was not banked.
 
 Evidence, the replay with the line at 110 against the line at 120 (vote
 only, 1,003 sessions):
@@ -1172,6 +1169,74 @@ A VVIX red entered under the old line is therefore held while VVIX stays at
 or above 115, even though it never reached 120; it releases below 115 like
 any other. The replay starts from an empty store and does not show this.
 
+### Witness health and standing
+
+Review of 2026-11-18 (coordinator's instruction of that day, after an
+independent review of this change). Five rules, each with a test that failed
+before it.
+
+- **A dark stress witness never reads as a calm one.** When a witness row
+  (VIX term, VVIX, cash credit, funding) is off its currency (stale, overdue
+  or failed; a typed `not_due` or `pending` schedule is not), and a co-sign
+  row is red, the stage cannot be `quiet`, `opportunity` or `stabilization`:
+  it is `data_quality` with the "data incomplete" headline, and the rulebook's
+  stage latch holds its last bucket. The operator decision of 2026-08-11
+  stands: unknown cash evidence never softens a live warning. The roles
+  change had reversed it without a record, by treating a proxy red beside an
+  unreadable cash row as context on a quiet day; this rule keeps the decision
+  for every witness row. A stage that healthy evidence establishes (a
+  standing witness, a current tape arm) keeps its own rules.
+  `TestRegimeDarkWitnessIsNeverCalm`.
+- **A witness keeps standing through its own not-due window.** A witness red
+  that was eligible in its window stays eligible while its row is on a typed
+  `not_due` schedule; the eligibility latch of the red streak carries it.
+  Overdue, stale or failed evidence still drops it, and a co-sign's
+  prior-date reading stays context. A confirmed stress resting on a term
+  inversion therefore no longer drops to `early_warning` at the close and
+  returns at 09:31. The quality governor still holds such a stage at watch
+  while its confirming witness is not current.
+  `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow`.
+- **An eligible witness red stands.** The isolated equity-vol corroboration
+  is removed. With the VVIX line at 120 it decided only a red held between
+  115 and 120, where its "SPY down 1%" and "VIX up 20%" terms turned every
+  co-sign from context into confirmation on one tick, with no hysteresis.
+  `TestRegimeEligibleWitnessStandsWhateverTheTape`.
+- **The widening is judged by the cash row.** It opens while the cash row is
+  current, whatever the proxy row beside it can serve.
+  `TestRegimeCashWideningIsJudgedByTheCashRow`.
+- **A confirmed stress does not rest on co-signs beside a broken witness.**
+  A co-sign's red survives a broken input only beside a clean standing
+  witness. `TestRegimeConfirmedStressDoesNotRestOnCoSignsWhenItsWitnessIsBroken`.
+
+Each row's standing is decided once, in `rpc.BuildRegimeClusterBands`, row by
+row: a red `counts`, is `waiting` (a witness red that is not eligible yet, or
+a co-sign red beside a standing witness that has not passed its own gate), or
+is `context` (a co-sign red with no witness standing). The daemon stamps it
+on every served snapshot as `row_standings` (indicator, reader's name, role,
+red, and the context sentence for a red that is context). The field is
+response-only, like `authority_health`: it is never persisted, so a retained
+snapshot keeps its shape and a rollback still loads it. The monitor view
+passes role, red and note through per indicator, the CLI prints a context
+co-sign as amber with the served sentence, and the stress read serves
+`market.context_note` with its context signals, so the app keeps no copy of
+the sentence. In a credit cluster whose cash row is red but may not confirm
+and whose proxy is red with no witness standing, the cash row warns and the
+proxy row is context; `lifecycle.suppressed`, which is keyed by cluster,
+does not list that cluster. The regime summary words a usable row by its
+served band, so a red held by exit hysteresis reads stressed there too.
+
+In the replay this moves four sessions of 1,003: three held VVIX reds beside
+co-signs read `confirmed_stress` where they read `early_warning`
+(2025-11-21, 2026-03-16, 2026-03-19), and 2026-09-18 reads `data_quality`
+where it read `quiet`, because commercial paper had gone a week without a
+print and the proxy and breadth were red. `confirmed_stress` is 4.9% of
+sessions against 4.6%.
+
+What the replay cannot see: it evaluates once a session at noon New York and
+leaves inputs with no reading out of the vote, so it shows neither a row
+going dark inside a session nor the close of a row's window. The tests named
+above cover those cases.
+
 ### Lifecycle fingerprint v3, and what happens at the install
 
 The lifecycle fingerprint is `lifecycle-fp-v3`. Its fields are unchanged; what
@@ -1187,7 +1252,13 @@ The lifecycle fingerprint is `lifecycle-fp-v3`. Its fields are unchanged; what
 - On the first start the alert producer refuses the retained regime snapshot
   once as alert evidence (`evidence_fingerprint_invalid`), until the first
   new publication replaces it. Until then the previous stage and headline can
-  be served, for up to about four minutes.
+  be served, for up to about four minutes. In that window the stress read
+  applies the new rules to the retained rows while the stored posture is
+  served, so "No market-context stress action" can stand beside a stored
+  "Confirmed stress regime".
+- The streak store keeps each row's last band across a restart. A VVIX red
+  entered under the old line of 110 is held while VVIX stays at or above 115,
+  though it never reached 120, and releases below 115 like any other.
 - The page-hold after a restart is taken from the stored lifecycle even when
   its evidence is refused. This is known and is not changed here.
 - Opportunity keeps its rule: no red, and at most one cluster at yellow of

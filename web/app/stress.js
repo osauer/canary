@@ -1591,8 +1591,8 @@ function regimeGovernedNote(snap, market, compact = false) {
   // A co-sign red with no stress witness beside it is context, every one
   // named. The compact line stays with the action: context is not a reason
   // to replace it.
-  if (context.length > 0 && !compact) {
-    parts.push(`Context, not a stress reading on its own: ${humanList(context, context.length)}`);
+  if (context.length > 0 && !compact && market?.context_note) {
+    parts.push(`${market.context_note}: ${humanList(context, context.length)}`);
   }
   for (const g of snap.regime?.lifecycle?.governors || []) {
     if (g?.action === "severity_capped") {
