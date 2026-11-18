@@ -91,11 +91,11 @@ func volOfVolPublicationPending(res *rpc.RegimeSnapshotResult, nowNY time.Time) 
 	if err != nil || date.After(nowNY) || volOfVolCadenceClass(res, nowNY) != rpc.RegimeFreshnessOverdue {
 		return regimePublicationPending{}, false
 	}
-	// Overdue once past the age budget and once the next session completed,
-	// which otherwise keeps a holiday-weekend close not_due.
-	since := date.Add(volOfVolMaxAgeDays * 24 * time.Hour)
-	if next, ok := optionsSessionAfter(row.AsOfDate, 1, nowNY); ok && next.Close.After(since) {
-		since = next.Close
+	// Overdue from the close of the second session after the file's date
+	// (volOfVolDue); outside calendar coverage, from the end of the budget.
+	since, ok := volOfVolDue(row.AsOfDate, nowNY)
+	if !ok {
+		since = date.Add(volOfVolMaxAgeDays * 24 * time.Hour)
 	}
 	if since.After(nowNY) {
 		return regimePublicationPending{}, false

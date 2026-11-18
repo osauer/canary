@@ -53,14 +53,17 @@ func regimeHealthRows(t *testing.T, r *rpc.RegimeSnapshotResult, now time.Time, 
 // read, a row limited for another reason, or an outdated publication does not.
 func TestRegimeHealthNamesCboePublicationGap(t *testing.T) {
 	friday := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)   // 06:00 New York, before the window
-	saturday := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC) // past VVIX's four-day budget
+	saturday := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC) // Wednesday's and Thursday's closes are due
 	for _, tc := range []struct {
 		name, id, want string
 		now            time.Time
 		since          time.Time
 	}{
 		{"vix_term", "regime:vix_term", "Cboe publication pending · last official close 2026-09-22 · unverified since 2026-09-24 20:30Z", friday, time.Date(2026, 9, 24, 20, 30, 0, 0, time.UTC)},
-		{"vvix", "regime:vvix", "Cboe publication pending · last official close 2026-09-22 · overdue since 2026-09-26 00:00Z", saturday, time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)},
+		// A close is due at 09:30 New York the morning after the next session
+		// (volOfVolDue): Wednesday's close, the first after 2026-09-22, was
+		// due on Thursday at 09:30 (13:30Z).
+		{"vvix", "regime:vvix", "Cboe publication pending · last official close 2026-09-22 · overdue since 2026-09-24 13:30Z", saturday, time.Date(2026, 9, 24, 13, 30, 0, 0, time.UTC)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			row := regimeHealthRows(t, cboePendingSnapshot(tc.now, "2026-09-22"), tc.now, tc.now)[tc.id]
@@ -75,8 +78,12 @@ func TestRegimeHealthNamesCboePublicationGap(t *testing.T) {
 			}
 		})
 	}
-	if row := regimeHealthRows(t, cboePendingSnapshot(friday, "2026-09-22"), friday, friday)["regime:vvix"]; row.Cause != "" || row.State == "limited" {
-		t.Fatalf("VVIX inside its budget named a gap: %+v", row)
+	// Friday 06:00 New York holding Wednesday's close: Thursday's close is not
+	// due until 09:30, so there is no gap to name.
+	onSchedule := cboePendingSnapshot(friday, "2026-09-22")
+	onSchedule.VolOfVol.AsOfDate = "2026-09-23"
+	if row := regimeHealthRows(t, onSchedule, friday, friday)["regime:vvix"]; row.Cause != "" || row.State == "limited" {
+		t.Fatalf("VVIX on its schedule named a gap: %+v", row)
 	}
 
 	failedRead := cboePendingSnapshot(friday, "2026-09-22")
@@ -111,13 +118,15 @@ func TestRegimeWarningsNameCboePublicationGap(t *testing.T) {
 		return out
 	}
 	friday := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)
-	got := codes(cboePendingSnapshot(friday, "2026-09-22"))
+	onSchedule := cboePendingSnapshot(friday, "2026-09-22")
+	onSchedule.VolOfVol.AsOfDate = "2026-09-23"
+	got := codes(onSchedule)
 	pending, ok := got["vix3m_official_close_pending"]
 	if !ok || strings.Contains(pending.Action, "reachable") || !strings.Contains(pending.Message, "2026-09-22") || !strings.Contains(pending.Message, "2026-09-24 20:30Z") {
 		t.Fatalf("VIX3M publication gap misreported: %+v", got)
 	}
 	if _, ok := got["vvix_official_close_pending"]; ok {
-		t.Fatal("VVIX inside its budget warned")
+		t.Fatal("VVIX on its schedule warned")
 	}
 	failedRead := cboePendingSnapshot(friday, "2026-09-22")
 	failedRead.VIXTermStructure.VIX3MOfficialDate = ""
@@ -127,7 +136,7 @@ func TestRegimeWarningsNameCboePublicationGap(t *testing.T) {
 
 	saturday := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
 	vvix, ok := codes(cboePendingSnapshot(saturday, "2026-09-22"))["vvix_official_close_pending"]
-	if !ok || strings.Contains(vvix.Action, "reachable") || !strings.Contains(vvix.Message, "2026-09-26 00:00Z") {
+	if !ok || strings.Contains(vvix.Action, "reachable") || !strings.Contains(vvix.Message, "2026-09-24 13:30Z") || strings.Contains(vvix.Impact, "four-day budget") {
 		t.Fatalf("overdue VVIX stayed silent or misreported: %+v", vvix)
 	}
 	stale := cboePendingSnapshot(time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC), "2026-09-22")

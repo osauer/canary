@@ -315,6 +315,7 @@ func healthyStressRegime() rpc.RegimeSnapshotResult {
 	} {
 		meta.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh}
 	}
+	r.HYGSPYDivergence.SPYQuality = &rpc.Quality{AsOf: stressTestNow, FreshnessClass: rpc.FreshnessLive}
 	return r
 }
 

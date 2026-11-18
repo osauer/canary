@@ -305,16 +305,9 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 	}
 	inputs := regimeLifecycleInputVerdict(*r)
 	if inputs.any() {
-		floor := inputs.global || len(inputs.defects)+len(inputs.impaired) >= RegimeCurrencyBlankFloor
-		if !floor && state.Stage == LifecyclePanic {
-			// Panic is a fall on a current tape. Without one, three reds that
-			// stand on current evidence are confirmed stress.
-			if panicCurrent, confirmedCurrent := regimeLifecycleIndependentCurrentStress(*r, cb); !panicCurrent && confirmedCurrent {
-				state.Stage, state.Severity = LifecycleConfirmedStress, "act"
-				state.Governors = append(state.Governors, GovernorAction{
-					Action: "stage_downgraded", From: LifecyclePanic, To: LifecycleConfirmedStress, Reason: "tape_not_current",
-				})
-			}
+		floor := inputs.global || regimeLifecycleFloorCount(cb, inputs) >= RegimeCurrencyBlankFloor
+		if !floor {
+			regimeLifecycleFallBack(&state, *r, cb, inputs)
 		}
 		if floor || !regimeLifecycleStageEvidenceCurrent(state, *r, cb, inputs) {
 			state.Stage = LifecycleDataQuality
@@ -339,6 +332,67 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 	applyRegimeSeverityGovernor(&state, r, tally)
 	state.Fingerprint = lifecycleFingerprint(state)
 	return state
+}
+
+// regimeLifecycleFloorCount counts the defective or impaired clusters toward
+// the blanking floor. While a dark witness warns beside a current weak
+// co-sign, only witness clusters count: an outage of a co-sign row (gamma,
+// breadth, the yen, or the proxy inside the credit cluster) cannot turn the
+// warning into data incomplete. The credit cluster then counts only while its
+// cash row is dark. Two dark witness clusters close the warning itself
+// (BuildRegimeClusterBands) and still blank.
+func regimeLifecycleFloorCount(cb RegimeClusterBands, inputs regimeLifecycleInputs) int {
+	n := len(inputs.defects) + len(inputs.impaired)
+	if !cb.darkWitnessWarns() {
+		return n
+	}
+	n = 0
+	for i, name := range RegimeClusterNames {
+		if !slices.Contains(inputs.defects, name) && !slices.Contains(inputs.impaired, name) {
+			continue
+		}
+		switch i {
+		case RegimeClusterEquityVol, RegimeClusterFunding:
+			n++
+		case RegimeClusterCredit:
+			if cb.darkIn(i) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+// regimeLifecycleFallBack moves a stress stage that cannot survive an input
+// defect to the highest stage its current evidence proves: a panic without a
+// current tape to confirmed stress, and a stress stage that cannot stand to
+// early warning, each disclosed as a governor record. A stage that proves
+// nothing is left for the required-input gate to blank.
+func regimeLifecycleFallBack(state *LifecycleState, r RegimeSnapshotResult, cb RegimeClusterBands, inputs regimeLifecycleInputs) {
+	if state.Stage != LifecyclePanic && state.Stage != LifecycleConfirmedStress {
+		return
+	}
+	panicCurrent, confirmedCurrent := regimeLifecycleIndependentCurrentStress(r, cb)
+	if state.Stage == LifecyclePanic && !panicCurrent && confirmedCurrent {
+		state.Stage, state.Severity = LifecycleConfirmedStress, "act"
+		state.Governors = append(state.Governors, GovernorAction{
+			Action: "stage_downgraded", From: LifecyclePanic, To: LifecycleConfirmedStress, Reason: "tape_not_current",
+		})
+		return
+	}
+	if (state.Stage == LifecyclePanic && panicCurrent) || (state.Stage == LifecycleConfirmedStress && confirmedCurrent) {
+		return
+	}
+	warning := *state
+	warning.Stage = LifecycleEarlyWarning
+	if !regimeLifecycleStageEvidenceCurrent(warning, r, cb, inputs) {
+		return
+	}
+	from := state.Stage
+	state.Stage, state.Severity, state.Timing, state.ConfirmedBy = LifecycleEarlyWarning, "watch", LifecycleTimingForwardWarning, nil
+	state.Governors = append(state.Governors, GovernorAction{
+		Action: "stage_downgraded", From: from, To: LifecycleEarlyWarning, Reason: "stress_not_current",
+	})
 }
 
 // RegimeConfirmedByTape is the confirmed_by entry of a stress stage that the
@@ -1309,9 +1363,10 @@ func regimeLifecycleClusterCurrent(r RegimeSnapshotResult, name string) bool {
 	}
 }
 
+// regimeLifecycleSPYTapeCurrent gates the arms that read the SPY print, on
+// the print's own currency (RegimeSPYTapeCurrency).
 func regimeLifecycleSPYTapeCurrent(r RegimeSnapshotResult) bool {
-	return regimeTapeConfirmable(r) && regimeLifecycleClusterCurrent(r, "credit") &&
-		r.HYGSPYDivergence.SPYChangePct != nil
+	return regimeTapeConfirmable(r) && RegimeCurrencyMayConfirm(RegimeSPYTapeCurrency(r))
 }
 
 // regimeLifecycleVIXTapeCurrent gates the arms that read only the VIX

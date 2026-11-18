@@ -229,15 +229,19 @@ stage rests on produce `data_quality`, blocked readiness, and the label
 A stress witness that cannot be read beside a co-sign at yellow or red reads
 `early_warning`, not `data_quality` and never a calm stage (owner ruling
 2026-11-18 14:47 CET: "Early warning"; what cannot be read is assumed to be
-the worst). The trading rulebook then uses its early-warning thresholds. This
-warning also shows while an input arrives late: VVIX on a Monday evening
-until Cboe's Monday close is read, the VIX/VIX3M row from 09:31 until the
-first VIX3M tick or after a missed tick. From the retained readings since
-2026-10-06, an estimate puts it at about 20% of the time. What still bounds
-risk: a calm read only rises, a confirmed stress keeps its own rules, and the
-early-warning thresholds are stricter than calm; the one loosening is a
-confirmed stress resting on the VIX/VIX3M row while that row is dark, which
-reads `early_warning` until the row returns.
+the worst). The trading rulebook then uses its early-warning thresholds. A
+reading that is not published yet is not dark: VVIX holds its last close until
+a newer one is due (09:30 New York the morning after the next session), and
+the VIX/VIX3M row holds the prior VIX3M close for five minutes from 09:31.
+The warning shows on real gaps, such as a due VVIX close that was not read or
+no VIX3M tick by 09:36. An earlier estimate of about 20% of the time applied
+before these cadence rules and has not been re-measured. A crash day is
+judged by the SPY print's own currency, and a stress stage that cannot stand
+on current evidence falls to the highest stage that can, never straight to
+`data_quality` because a neighbouring row is down. What still bounds risk: a
+calm read only rises and the early-warning thresholds are stricter than calm;
+the one loosening is a confirmed stress resting on the VIX/VIX3M row while
+that row is dark, which reads `early_warning` until the row returns.
 
 Thresholds and severity governors labeled `heuristic` and `pending_backtest` are
 reviewed starting assumptions awaiting point-in-time calibration, not proven

@@ -306,8 +306,9 @@ only when a witness stands.
 
 - `panic` — a fall on the tape: `(SPY ≤ −4% && eligibleRed ≥ 1) || SPY ≤ −7%`.
   Reds alone, however many, are `confirmed_stress`. With an input impaired,
-  panic stands only on a current SPY print; without one it is
-  `confirmed_stress` when that stands on current evidence (Part 8).
+  panic stands only on a current SPY print, judged by the print's own
+  currency; without one it falls to `confirmed_stress`, or to
+  `early_warning`, whichever its current evidence proves (Part 8).
 - `confirmed_stress` — `eligibleRed ≥ 2 || (eligibleRed ≥ 1 && SPY ≤ −2.5%)
   || (SPY ≤ −4% && yellow-or-worse ≥ 2) || (eligibleRed ≥ 1 && VIX +20%)`. A
   standing witness plus one co-sign red confirms; two co-signs never do.
@@ -354,7 +355,10 @@ defective. When the defect is local (one cluster, attributable) and a stress
 witness row is dark beside a co-sign at yellow or red, the gate does not
 blank the stage: it is `early_warning` (Part 8, owner ruling 2026-11-18 14:47
 CET). Two or more defective clusters, or an unattributable defect, still
-produce `data_quality`.
+produce `data_quality`; while that warning is open only witness clusters
+count toward the two. A stress stage that fails its survival test falls to
+the highest stage its current evidence proves before the gate blanks
+anything (Part 8, pass 7).
 
 **Closed-date tape gating (added 2026-07-19).** Every tape term above reads
 the direct SPY/VIX day-change prints, which freeze at last-session values on
@@ -1199,14 +1203,16 @@ before it.
   The rule: a witness row (VIX term, VVIX, cash credit, funding) is dark when
   its own row is failed, unavailable, stale or overdue, cannot fill a field
   it needs to band, or is older than its cluster's age bound (VVIX on its
-  dated not-due schedule: past its next due close) (`regimeWitnessRowDark` in
+  dated not-due schedule: past its next due close) (`regimeRowDark` in
   `internal/rpc`). A valid typed `not_due` or `pending` schedule inside the
   bound is not dark, and each row is judged by itself, the cash row as much
   as the term row. These are the row-level parts of the input verdict; a
   defect that only the served data-quality items or source health carry is
   not a dark witness, because the summary reads the openers before those are
-  stamped. When at least one witness row is dark and at least one co-sign row is
-  served at yellow or red, the opener `witness_unavailable` is in
+  stamped. When at least one witness row is dark, in fewer than two witness
+  clusters, and at least one co-sign row is a current reading at yellow or
+  red (a band held on an overdue co-sign row is not one), the opener
+  `witness_unavailable` is in
   `rpc.RegimeWarningOpeners`, so a stage that would be `quiet`,
   `opportunity` or `stabilization` is `early_warning` at watch and the
   rulebook moves to its early-warning bucket. A tape-made `opportunity` or
@@ -1214,37 +1220,46 @@ before it.
   blanked to `data_quality` because the witness that is dark sits in a
   defective cluster: that witness is the reason for the warning. Stages that
   a readable witness or a current tape arm establish (`early_warning`,
-  `confirmed_stress`, `panic`) keep their rules: a `confirmed_stress` or
-  `panic` that fails its survival test is `data_quality` as before, and the
-  rulebook's latch holds. The headline is "Watch: one unconfirmed
+  `confirmed_stress`, `panic`) keep their rules; a stress stage that fails
+  its survival test falls to what its current evidence proves (below). The
+  headline is "Watch: one unconfirmed
   stress signal" (`composite.cluster_provisional_red_count` counts each
   cluster with a dark witness while the condition holds), the tone is watch
-  although readiness is degraded, the regime summary words the co-signs as
+  although readiness is degraded. In that read a co-sign red is the named
+  cause, "weak", on every surface: its row standing is `red: weak` with the
+  sentence "Weak beside a stress reading that is unavailable"
+  (`rpc.RegimeWeakNote`), which the monitor passes through and the CLI and
+  the stress indicators print amber; the regime summary words the co-signs as
   weak ("ETF credit proxy is weak; … volatility term structure is
-  unavailable."), and the stress read names the cause: "An early market
+  unavailable."); and the stress read names the cause, "An early market
   warning is flashing (volatility term structure unavailable; ETF credit
   proxy and breadth weak, not confirmed yet)", from
-  `market.unconfirmed_signals` rows with the roles `unavailable` and `weak`.
+  `market.unconfirmed_signals`, which lists each such row once, with the
+  roles `unavailable` and `weak`. Outside that read a co-sign red with no
+  witness standing stays `context` with the context sentence.
 
-  The existing floor still applies: with two or more clusters defective or
-  impaired, or a defect that is not attributable to a cluster, the read is
-  `data_quality` and the rulebook's latch holds. Such a read is
-  "Market state undefined — data incomplete", not calm, but the latch it
-  holds can be calm.
+  The blanking floor (pass 7, 2026-11-18): while the warning is open, only
+  witness clusters count toward the floor of two defective or impaired
+  clusters (vol and funding, and credit only while its cash row is dark), so
+  an outage of a co-sign row (gamma, breadth, the yen, the proxy) cannot
+  turn the warning into data incomplete beside a stress read that names it.
+  Two dark witness clusters close the warning itself and the read is
+  `data_quality`, in the stress read too; so is a defect not attributable to
+  a cluster. Such a read is "Market state undefined — data incomplete", not
+  calm, but the rulebook latch it holds can be calm.
+  `TestRegimeBlankFloorCountsDarkWitnessesBesideTheWarning`,
+  `TestStressAgreesWithTheVoteOnTheBlankFloor`.
 
-  What still bounds risk: a calm stage only rises; a stress stage keeps its
-  rules; the early-warning bucket is stricter than calm. The worst case is a
-  loosening: where an early warning used to be blanked to `data_quality`,
-  which held the rulebook's latch, it now writes the early-warning bucket.
-  When a confirmed stress rests on a term inversion and the term row goes
-  overdue (from 09:31 until the first live VIX3M tick, or off the window
-  when Cboe's close does not vouch), the latched red drops, the vol red is a
-  provisional witness, and beside red co-signs the read is `early_warning`:
-  the rulebook moves from its confirmed thresholds to its early-warning ones
-  until the row returns, minutes in the usual case. At 994c9be6 the read was
-  `data_quality` and the latch held confirmed.
-  `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow` pins this. The
-  other cost is false warnings while inputs arrive late (below).
+  What still bounds risk: a calm stage only rises; the early-warning bucket
+  is stricter than calm. The worst case is a loosening: when a confirmed
+  stress rests on a term inversion and the term row goes overdue (off the
+  window when Cboe's close does not vouch for the leg, or from 09:36 when
+  VIX3M has not ticked), the latched red drops, and beside red co-signs the
+  read is `early_warning`: the rulebook moves from its confirmed thresholds
+  to its early-warning ones until the row returns. At 994c9be6 the read was
+  `data_quality` and the latch held confirmed. Since pass 7 the 09:31 to
+  09:36 minutes no longer do this (the open grace below).
+  `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow` pins both.
   `TestRegimeDarkWitnessBesideAWeakCoSignIsAnEarlyWarning`,
   `TestRegimeTwoDarkClustersStillBlankTheRead`,
   `TestDarkWitnessWarningMovesTheRulebookBucket`,
@@ -1259,15 +1274,33 @@ before it.
   read agrees ("Confirmed stress held at watch").
   `TestRegimeWitnessIsJudgedByItsOwnRow`,
   `TestStressAgreesWithTheVoteWhenTheCashRowsMateIsDark`.
-- **Panic needs a current tape.** With an input impaired, panic survives only
-  on a current confirmable SPY print. Three current eligible reds without one
-  are `confirmed_stress` at act, confirmed by those clusters, and the
-  lifecycle discloses the downgrade as a governor record (`stage_downgraded`,
-  panic to confirmed_stress, `tape_not_current`).
-  `TestRegimePanicNeedsACurrentTape`. The SPY print is judged by the credit
-  cluster (`regimeLifecycleSPYTapeCurrent`), not by the proxy row it rides
-  on, so an outage of the cash row alone also makes it not current; that is
-  unchanged here.
+- **Panic needs a current tape.** With an input impaired, panic survives
+  only on a current confirmable SPY print. Three current eligible reds with
+  SPY down 4.5% on a print that is not current are `confirmed_stress` at act,
+  confirmed by those clusters, and the downgrade is disclosed as a governor
+  record (`stage_downgraded`, panic to confirmed_stress, `tape_not_current`).
+  `TestRegimePanicNeedsACurrentTape`.
+- **A crash day is not data incomplete because a neighbouring row is down**
+  (pass 7). The SPY print is judged by its own currency
+  (`rpc.RegimeSPYTapeCurrency`: a live typed SPY tick carrying a day change),
+  as the VIX tape is by the VIX leg's, not by the credit cluster or the HYG
+  row it rides on. A panic or confirmed stress that fails its survival test
+  falls to the highest stage its current evidence proves, confirmed stress
+  and then early warning, each disclosed (`stage_downgraded`, reasons
+  `tape_not_current` and `stress_not_current`); only a stage that proves
+  nothing is blanked. SPY down 7.5% on a current print reads panic with the
+  HYG row stale or the cash row unavailable; with the print itself not
+  current and VVIX at 140 it reads early warning or better. The stress read
+  applies the same test: a SPY move whose print is not current is shown
+  ("print not current") but no tape row, signal or confirmation reads it
+  (`market.spy_change_not_current`). The print's currency gates what the
+  required-input gate and the governor read (survival, the tape co-sign, the
+  tape arm of an early warning); the stage pickers still read the SPY move
+  on the session test alone, as before, so with every input clean a SPY fall
+  on a print that is not current can still pick panic while the stress read
+  does not act on it. That disagreement is open.
+  `TestRegimeCrashDayIsNotDataIncompleteBecauseANeighbourIsDown`,
+  `TestStressTapeRowNeedsACurrentSPYPrint`.
 - **A witness keeps standing through its own not-due window.** A witness red
   that was eligible in its window stays eligible while its own row is typed
   `not_due` and still red (exit hysteresis included); the eligibility latch
@@ -1279,8 +1312,8 @@ before it.
   does not survive the gate, and the dark VVIX beside the co-signs makes the
   read `early_warning`. A confirmed stress resting on a term inversion
   therefore no longer drops to `early_warning` at the close and returns at
-  09:31: it holds the same evening, the next morning before 09:31 and over
-  the weekend. Its severity still falls from act to watch at the close: the
+  09:31: it holds the same evening, the next morning before 09:31, through
+  the open grace to 09:36, and over the weekend. Its severity still falls from act to watch at the close: the
   provenance gate's term-inversion co-sign needs a same-session row.
   `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow`.
 - **An eligible witness red stands.** The isolated equity-vol corroboration
@@ -1293,9 +1326,10 @@ before it.
   `TestRegimeCashWideningIsJudgedByTheCashRow`.
 - **A confirmed stress does not rest on co-signs beside a broken witness.**
   A co-sign's red survives a broken input only beside a clean standing
-  witness. With the term row in error and its red held, the proxy and
-  breadth red read `early_warning` by the dark-witness rule, not confirmed
-  stress. `TestRegimeConfirmedStressDoesNotRestOnCoSignsWhenItsWitnessIsBroken`.
+  witness. A confirmed stress on a latched term inversion with VVIX
+  unavailable at the same time falls to `early_warning` (the dark VVIX
+  beside the red co-signs), disclosed as a downgrade.
+  `TestRegimeConfirmedStressDoesNotRestOnCoSignsWhenItsWitnessIsBroken`.
 
 Each row's standing is decided once, in `rpc.BuildRegimeClusterBands`, row by
 row: a red `counts`, is `waiting` (a witness red that is not eligible yet, or
@@ -1329,52 +1363,54 @@ sessions (13.0% before), 19.0% in 2026 (18.6%); after it a low 5% or more
 below follows on 18.9% and 8% or more on 11.0% (19.0% and 11.1%). The first
 warnings and confirmations before the four falls are unchanged.
 
+Pass 7 (2026-11-18) moves no session of the vote-only replay: stage shares,
+outcomes and the recall list are identical. The "as served" series, which
+keeps the replay's permanently unavailable rows (dealer gamma, and breadth
+and cash credit where the file has none), moves from `data_quality` on 95.9%
+of sessions to 57.1%, mostly to `early_warning` (35.6%): with the floor
+counting witness clusters only beside the warning, an unavailable co-sign row
+no longer blanks a dark-witness read, and stress stages fall back instead of
+blanking. That series is not production's shape, where gamma is served.
+
 What the replay cannot see: it evaluates once a session at noon New York and
 leaves inputs with no reading out of the vote, so it shows neither a row
 going dark inside a session nor the close of a row's window. The tests named
 above cover those cases.
 
-**When a witness reads dark on a normal week.** From the cadence rules in
-`internal/daemon/regime_indicators.go` (`vixTermCadenceClass`,
-`volOfVolCadenceClass`, `volOfVolNextDue`), not changed here and pinned at
-named instants by `TestWitnessDarkHoursOnANormalWeek`:
+**A reading not published yet is not dark** (pass 7, 2026-11-18). Two
+cadence rules in `internal/daemon/regime_indicators.go`, pinned at named
+instants by `TestWitnessDarkHoursOnANormalWeek`:
 
-- VVIX is current while Cboe's latest dated close is at most 4 days old,
-  measured from midnight UTC of its date. On Tuesday to Friday the previous
-  session's close always is. On a Monday, Friday's close passes 4 days at
-  19:00 New York (20:00 in summer time), the session has closed, and the row
-  is overdue until Canary reads Cboe's Monday close. After a holiday the
-  last session's close is on its typed `not_due` schedule during the next
-  session, and the row is overdue from that session's close until its own
-  close is read. Any delay at Cboe beyond 4 days is overdue too.
-- The VIX/VIX3M row is current inside VIX3M's window (09:31 to 15 minutes
-  after the close) only with both legs live. At 09:31 the VIX3M leg is the
-  previous session's print, which no carry rule accepts, so the row is
-  overdue until the first live VIX3M tick. A missed tick inside the window is
-  stale for up to 15 minutes while VIX moves less than 1%, then overdue.
-  Outside the window the row is `not_due` while Cboe's dated close vouches
-  for the gateway leg (agree, official only, or publication pending) and
-  overdue when it does not (disagree, or no Cboe close within one session).
-  A lost VIX3M subscription (row status error) is overdue at all hours.
+- **VVIX** (`volOfVolCadenceClass`, `volOfVolDue`). A Cboe close is due at
+  09:30 New York on the morning after the next options session's close: the
+  allowance assumes Cboe's daily file carries a close by the next morning's
+  open. It is an assumption of this rule, not a measurement; the existing
+  code granted Cboe's VIX3M file one whole session
+  (`vix3mUnverifiedSince`). Until a newer close is due the row holds its
+  close: fresh within the 4-day budget, `not_due` past it (Monday evening
+  with Friday's close; the evening of the first session after a holiday),
+  and overdue once the newer close is due and was not read (Tuesday from
+  09:30 with Friday's close). Outside the embedded calendar's coverage the
+  flat 4-day budget decides, fresh or overdue, as before. The
+  `vvix_official_close_pending` warning dates the gap from the same instant.
+- **VIX/VIX3M** (`vixTermCadenceClass`, `vix3mOpenGrace`). For five minutes
+  from 09:31, with VIX live and the VIX3M leg still the last session's print
+  (observed inside the last completed publication window), the row is
+  `not_due`, carrying the prior close as it did at 09:30. VIX3M ticks every
+  15 seconds once disseminated; five minutes covers the first tick and a
+  regime refresh to read it, and is a third of the 15-minute in-session
+  carry tolerance. From 09:36 without a tick it is overdue, as before. A
+  latched term inversion keeps standing through the grace.
 
-In those hours only the vol cluster is defective, so the blank floor of two
-clusters is not reached. This is inferred from the fetchers and
-`regimeLifecycleInputVerdict`, not tested at those instants: off-hours the
-HYG row bands on the official close and stays ok, the cash and funding rows
-are ok while FRED answers, USD/JPY trades on Monday evening, and gamma and
-breadth are on their own typed schedules. A second outage at the same time
-(for example the HYG row stale) reaches the floor and the read is
-`data_quality`. Proof pending: the next Monday evening and the next 09:31. With a co-sign at yellow or red the
-read is `early_warning` and the rulebook moves to its early-warning bucket,
-then back to calm when the row returns: on a day the HYG proxy is below its
-average this can happen at 09:31 for the minutes before VIX3M's first tick,
-and on Monday evenings until Cboe's close is read. The early-warning bucket is
-stricter than calm, so this flip tightens the rulebook and never loosens it.
-An estimate from the readings the daemon retained since 2026-10-06 puts a
-witness dark beside a co-sign red at about 20% of the time (the stage then
-read `data_quality` 12% of the time); it is an estimate from retained
-decisions, not a measurement of this rule, and yellow co-signs would add to
-it.
+The dark-witness warning can still show in these hours, all real gaps: VVIX
+when a newer close is due and was not read; VIX/VIX3M from 09:36 with no
+VIX3M tick, after a carried tick older than 15 minutes, off the window when
+Cboe's dated close does not vouch for the gateway leg, and whenever the row
+fails (a lost subscription); the cash and funding rows when FRED does not
+answer or a series is past its age bound. The estimate given before pass 7
+(a witness dark beside a co-sign red about 20% of the time, from the
+readings retained since 2026-10-06) applied to the cadence rules before these
+fixes and has not been re-measured.
 
 ### Lifecycle fingerprint v3, and what happens at the install
 

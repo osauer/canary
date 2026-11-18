@@ -15,7 +15,10 @@ func TestVVIXHolidayCadence(t *testing.T) {
 	}{
 		{"Labor Day preopen", "2026-09-08T07:00:00Z", "2026-09-04", "ok", "not_due", 84},
 		{"Labor Day intraday", "2026-09-08T18:00:00Z", "2026-09-04", "ok", "not_due", 84},
-		{"missed Tuesday close", "2026-09-08T22:00:00Z", "2026-09-04", "ok", "overdue", 84},
+		// Tuesday's close is due at 09:30 New York on Wednesday (volOfVolDue):
+		// Tuesday evening still holds Friday's close, as Monday evening does.
+		{"Tuesday evening after Labor Day", "2026-09-08T22:00:00Z", "2026-09-04", "ok", "not_due", 84},
+		{"missed Tuesday close", "2026-09-09T14:00:00Z", "2026-09-04", "ok", "overdue", 84},
 		{"missing Friday", "2026-09-08T07:00:00Z", "2026-09-03", "ok", "overdue", 84},
 		{"ordinary budget", "2026-09-05T07:00:00Z", "2026-09-04", "ok", "fresh", 84},
 		{"holiday", "2026-09-07T18:00:00Z", "2026-09-04", "ok", "fresh", 84},

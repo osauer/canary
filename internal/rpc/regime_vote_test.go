@@ -26,7 +26,10 @@ func calmRegime() *RegimeSnapshotResult {
 		VIXQuality: &Quality{AsOf: asOf, FreshnessClass: FreshnessLive},
 	}
 	r.VolOfVol = RegimeVolOfVol{RegimeIndicatorMeta: meta(), Status: RegimeStatusOK, Last: new(85.0)}
-	r.HYGSPYDivergence = RegimeHYGSPYDivergence{RegimeIndicatorMeta: meta(), Status: RegimeStatusOK, SPYChangePct: new(0.0)}
+	r.HYGSPYDivergence = RegimeHYGSPYDivergence{
+		RegimeIndicatorMeta: meta(), Status: RegimeStatusOK, SPYChangePct: new(0.0),
+		SPYQuality: &Quality{AsOf: asOf, FreshnessClass: FreshnessLive},
+	}
 	r.CreditSpreads = RegimeCreditSpreads{
 		RegimeIndicatorMeta: meta(), Status: RegimeStatusOK,
 		HYOAS: new(3.0), HY20DChange: new(0.1), AsOfDate: asOf.Format("2006-01-02"),

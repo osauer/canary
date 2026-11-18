@@ -629,7 +629,7 @@ func regimeRowWithinMaxAge(r RegimeSnapshotResult, row regimeRow) bool {
 	return now.IsZero() || row.asOf.IsZero() || now.Sub(row.asOf) < time.Duration(maxAge)*time.Second
 }
 
-// regimeWitnessRowDark reports a stress witness row nobody can read: failed,
+// regimeRowDark reports a row nobody can read: failed,
 // unavailable, stale or overdue by its own currency, missing a field it
 // needs to band, or older than its cluster's age bound (for VVIX on its
 // dated not-due schedule, past its next due close). A valid typed not-due or
@@ -639,7 +639,7 @@ func regimeRowWithinMaxAge(r RegimeSnapshotResult, row regimeRow) bool {
 // served data-quality items and source health, which are stamped after the
 // summary reads the warning openers, so a defect only they carry is not a
 // dark witness.
-func regimeWitnessRowDark(r RegimeSnapshotResult, row regimeRow) bool {
+func regimeRowDark(r RegimeSnapshotResult, row regimeRow) bool {
 	if RegimeCurrencyGrade(RegimeRowCurrency(row.status, row.freshness)) != RegimeCurrencyGradeNone {
 		return true
 	}
@@ -692,6 +692,20 @@ func gammaQualityBlockedOnSessionCadence(q *GammaSignalQuality) bool {
 func RegimeVIXTapeCurrency(r RegimeSnapshotResult) string {
 	q := r.VIXTermStructure.VIXQuality
 	if q == nil || q.AsOf.IsZero() || r.VIXTermStructure.VIX == nil {
+		return RegimeFreshnessOverdue
+	}
+	if !strings.EqualFold(strings.TrimSpace(q.FreshnessClass), FreshnessLive) {
+		return RegimeFreshnessOverdue
+	}
+	return RegimeFreshnessFresh
+}
+
+// RegimeSPYTapeCurrency is the SPY print's own currency, as the VIX tape's
+// is the VIX leg's: a live typed tick that carries a day change is current.
+// The row it rides on (HYG/SPY) and that row's cluster-mate do not decide it.
+func RegimeSPYTapeCurrency(r RegimeSnapshotResult) string {
+	q := r.HYGSPYDivergence.SPYQuality
+	if q == nil || q.AsOf.IsZero() || r.HYGSPYDivergence.SPYChangePct == nil {
 		return RegimeFreshnessOverdue
 	}
 	if !strings.EqualFold(strings.TrimSpace(q.FreshnessClass), FreshnessLive) {
@@ -996,6 +1010,9 @@ type RegimeClusterBands struct {
 	// nobody can read (regimeWitnessRowDark) and the co-sign rows served at
 	// yellow or red. Together they open the dark-witness warning.
 	darkWitnesses, weakCoSigns []string
+	// darkWarns is the dark-witness warning: a dark witness beside a current
+	// weak co-sign, in fewer witness clusters than the blanking floor.
+	darkWarns bool
 	// witnessRedLit marks the clusters with a witness row that is red and
 	// not dark; witnessStandsFresh, those with a witness row that is an
 	// eligible red on a current reading. A witness is judged by its own row,
@@ -1052,11 +1069,19 @@ func RegimeWitnessNames() []string {
 // may still count: a witness red that is not eligible yet, or a co-sign red
 // beside a standing witness that has not passed its own gate. A co-sign red
 // with no witness standing is context.
+//
+// Beside a stress witness nobody can read, a co-sign red with no witness
+// standing is weak: the dark-witness warning names it as its cause.
 const (
 	RegimeRedCounts  = "counts"
 	RegimeRedWaiting = "waiting"
 	RegimeRedContext = "context"
+	RegimeRedWeak    = "weak"
 )
+
+// RegimeWeakNote is how every surface words a co-sign red that a
+// dark-witness warning names as its cause.
+const RegimeWeakNote = "Weak beside a stress reading that is unavailable"
 
 // RowRed says what the red of one row is worth (RegimeRedCounts,
 // RegimeRedWaiting, RegimeRedContext), or "" when the row is not red.
@@ -1089,8 +1114,11 @@ func RegimeRowStandings(r *RegimeSnapshotResult) []RegimeRowStanding {
 			Indicator: row.indicator, Name: RegimeRowName(row.indicator),
 			Role: RegimeIndicatorRole(row.indicator), Red: cb.RowRed(row.indicator),
 		}
-		if standing.Red == RegimeRedContext {
+		switch standing.Red {
+		case RegimeRedContext:
 			standing.Note = RegimeContextNote
+		case RegimeRedWeak:
+			standing.Note = RegimeWeakNote
 		}
 		out = append(out, standing)
 	}
@@ -1224,7 +1252,7 @@ func (b RegimeClusterBands) provisionalWitnessCount() int {
 // decision of 2026-08-11 that unknown cash evidence never softens a live
 // warning: what cannot be read is assumed to be the worst.
 func (b RegimeClusterBands) darkWitnessWarns() bool {
-	return len(b.darkWitnesses) > 0 && len(b.weakCoSigns) > 0
+	return b.darkWarns
 }
 
 // darkIn reports a dark witness row in cluster i.
@@ -1296,23 +1324,36 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 			witness[row.cluster] = strongestLifecycleBand(witness[row.cluster], row.band)
 			witnessEligible[row.cluster] = witnessEligible[row.cluster] || row.eligible
 			stands = stands || row.eligible
-			dark := regimeWitnessRowDark(*r, row)
+			dark := regimeRowDark(*r, row)
 			if dark {
 				darkWitnesses = append(darkWitnesses, row.indicator)
 			}
 			witnessRedLit[row.cluster] = witnessRedLit[row.cluster] || (row.band == "red" && !dark)
 			witnessStandsFresh[row.cluster] = witnessStandsFresh[row.cluster] ||
 				(row.eligible && RegimeCurrencyMayConfirm(RegimeRowCurrency(row.status, row.freshness)))
-		} else if row.band == "yellow" || row.band == "red" {
+		} else if (row.band == "yellow" || row.band == "red") && !regimeRowDark(*r, row) {
+			// A weak co-sign is a current reading at yellow or red; a band
+			// held on an overdue row is not a reading.
 			weakCoSigns = append(weakCoSigns, row.indicator)
 		}
 	}
+	darkClusters := map[string]bool{}
+	for _, indicator := range darkWitnesses {
+		darkClusters[RegimeIndicatorCluster(indicator)] = true
+	}
+	// Two or more witness clusters nobody can read are data incomplete by the
+	// required-input floor (RegimeCurrencyBlankFloor), not a warning.
+	darkWarns := len(darkWitnesses) > 0 && len(weakCoSigns) > 0 && len(darkClusters) < RegimeCurrencyBlankFloor
 	confirmed := append([]string(nil), raw...)
 	state := map[string]string{}
 	for _, row := range rows {
 		isWitness := RegimeIndicatorRole(row.indicator) == RegimeRoleWitness
 		if row.band == "red" {
 			switch {
+			case !isWitness && !stands && darkWarns:
+				// Beside a witness nobody can read the co-sign is what the
+				// warning names: weak, not context.
+				state[row.indicator] = RegimeRedWeak
 			case !isWitness && !stands:
 				state[row.indicator] = RegimeRedContext
 			case row.eligible:
@@ -1341,7 +1382,7 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 		pctAtLeast(r.CreditSpreads.HY20DChange, RegimeCreditWideningYellowPP)
 	return RegimeClusterBands{
 		Raw: raw, Confirmed: confirmed, Eligible: eligible, witness: witness, cashWidening: widening, rows: state,
-		witnessEligible: witnessEligible, darkWitnesses: darkWitnesses, weakCoSigns: weakCoSigns,
+		witnessEligible: witnessEligible, darkWitnesses: darkWitnesses, weakCoSigns: weakCoSigns, darkWarns: darkWarns,
 		witnessRedLit: witnessRedLit, witnessStandsFresh: witnessStandsFresh,
 	}
 }
@@ -2128,8 +2169,11 @@ type StressMarketSummary struct {
 	StaleClusters     []string `json:"stale_clusters,omitempty"`
 	SPYPrice          *float64 `json:"spy_price,omitempty"`
 	SPYChangePct      *float64 `json:"spy_change_pct,omitempty"`
-	VIX               *float64 `json:"vix,omitempty"`
-	VIXChangePct      *float64 `json:"vix_change_pct,omitempty"`
+	// SPYChangeNotCurrent marks a SPY day change on a trading date whose print
+	// is not current (RegimeSPYTapeCurrency): shown, but no decision reads it.
+	SPYChangeNotCurrent bool     `json:"spy_change_not_current,omitempty"`
+	VIX                 *float64 `json:"vix,omitempty"`
+	VIXChangePct        *float64 `json:"vix_change_pct,omitempty"`
 	// TapeSessionState classifies the official US cash-equity calendar date
 	// coverage: severity behaves as before (fail-open).
 	TapeSessionState  string     `json:"tape_session_state,omitempty"`

@@ -264,6 +264,24 @@ func vix3mLastDisseminationWindow(now time.Time) (start, end time.Time, ok bool)
 	return start, end, true
 }
 
+// vix3mOpenGrace is how long after 09:31 the VIX3M leg may still hold the
+// last session's print before the row is overdue. VIX3M is disseminated every
+// 15 seconds once the window opens; five minutes covers the first tick and a
+// regime refresh to read it, and is a third of the in-session carry
+// tolerance below, so a feed that never ticks is a gap within minutes.
+const vix3mOpenGrace = 5 * time.Minute
+
+// vix3mHoldsLastSession reports a VIX3M leg observed inside the last
+// completed session's publication window: the prior close, typed.
+func vix3mHoldsLastSession(row rpc.RegimeVIXTerm, now time.Time) bool {
+	start, end, ok := vix3mLastDisseminationWindow(now)
+	if !ok || row.VIX3M == nil || *row.VIX3M <= 0 || row.VIX3MQuality == nil {
+		return false
+	}
+	observed := row.VIX3MQuality.AsOf
+	return !observed.Before(start) && !observed.After(end)
+}
+
 // In-session VIX3M carry tolerance. A carried leg distorts the printed ratio
 const (
 	vix3mCarryMaxVIXMovePct = 1.0
@@ -345,9 +363,15 @@ func vixTermCadenceClass(res *rpc.RegimeSnapshotResult, nowNY time.Time) string 
 				return rpc.RegimeFreshnessFresh
 			}
 			// A missed poll inside the window is a failed refresh: stale while
-			// overdue past it. Never not_due — the window is open.
+			// overdue past it.
 			if vixClass == rpc.FreshnessLive && vix3mCarryWithinTolerance(row, local) {
 				return rpc.RegimeFreshnessStale
+			}
+			// The one exception: for vix3mOpenGrace from 09:31 VIX3M's first
+			// tick may not have arrived, and the leg still holding the last
+			// session's print is the newest that exists, as it was at 09:30.
+			if vixClass == rpc.FreshnessLive && local.Before(vix3mStart.Add(vix3mOpenGrace)) && vix3mHoldsLastSession(row, nowNY) {
+				return rpc.RegimeFreshnessNotDue
 			}
 			return rpc.RegimeFreshnessOverdue
 		}
@@ -479,20 +503,27 @@ func (volOfVolStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 }
 
 // volOfVolMaxAgeDays is VVIX's ordinary freshness budget, which includes a
-// weekend and Cboe's publication lag.
+// weekend and Cboe's publication lag. Within it a valid close is current;
+// past it the close is current context on its schedule (not_due) while the
+// calendar says no newer close is due yet.
 const volOfVolMaxAgeDays = 4
 
-// VVIX's ordinary freshness budget includes weekend + publication lag.
+// VVIX is fresh, and its sessions bank, only on the cadence class's word.
 func (volOfVolStreaks) fresh(res *rpc.RegimeSnapshotResult, nowNY time.Time) bool {
-	if res.VolOfVol.Status != rpc.RegimeStatusOK {
-		return false
-	}
-	return officialDateWithinDays(res.VolOfVol.AsOfDate, nowNY, volOfVolMaxAgeDays)
+	return volOfVolCadenceClass(res, nowNY) == rpc.RegimeFreshnessFresh
 }
 
-// volOfVolCadenceClass preserves the ordinary age budget but recognizes the
-// exact latest completed options session across a long holiday weekend. That
-// dated close is non-confirming context, never another banked stress session.
+// volOfVolCadenceClass reads VVIX's dated official close against the US
+// options calendar. A close not published yet is not a gap. The close of the
+// next options session after the row's date is due at 09:30 New York the
+// morning after that session (volOfVolDue): Cboe's daily file is assumed to
+// carry a close by the next morning's open, an assumption of this rule, not a
+// measurement. Until then the row holds its close: Monday evening holds
+// Friday's close, and so does the evening of the first session after a
+// holiday. Within the 4-day budget that close is fresh; past it it is not_due
+// context that cannot bank a session. Once the newer close is due and was not
+// read the row is overdue. Outside the embedded calendar's coverage the flat
+// budget decides, fresh or overdue, as before.
 func volOfVolCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 	if res == nil || now.IsZero() || res.VolOfVol.Status != rpc.RegimeStatusOK {
 		return rpc.RegimeFreshnessOverdue
@@ -502,27 +533,42 @@ func volOfVolCadenceClass(res *rpc.RegimeSnapshotResult, now time.Time) string {
 	if err != nil || date.After(now) || row.Last == nil || *row.Last <= 0 || math.IsNaN(*row.Last) || math.IsInf(*row.Last, 0) {
 		return rpc.RegimeFreshnessOverdue
 	}
-	if (volOfVolStreaks{}).fresh(res, now) {
+	withinBudget := officialDateWithinDays(row.AsOfDate, now, volOfVolMaxAgeDays)
+	due, ok := volOfVolDue(row.AsOfDate, now)
+	switch {
+	case !ok && withinBudget:
 		return rpc.RegimeFreshnessFresh
-	}
-	if volOfVolNextDue(res, now) != nil {
+	case !ok || !due.After(now):
+		return rpc.RegimeFreshnessOverdue
+	case withinBudget:
+		return rpc.RegimeFreshnessFresh
+	default:
 		return rpc.RegimeFreshnessNotDue
 	}
-	return rpc.RegimeFreshnessOverdue
 }
 
+// volOfVolDue is when a VVIX file ending at date stops being the newest the
+// schedule allows: 09:30 New York on the day after the close of the next
+// options session. ok is false outside the embedded calendar's coverage.
+func volOfVolDue(date string, now time.Time) (time.Time, bool) {
+	session, ok := optionsSessionAfter(date, 1, now)
+	if !ok {
+		return time.Time{}, false
+	}
+	closed := session.Close.In(newYorkLocation())
+	return time.Date(closed.Year(), closed.Month(), closed.Day()+1, 9, 30, 0, 0, closed.Location()), true
+}
+
+// volOfVolNextDue is the instant a not_due VVIX close turns overdue.
 func volOfVolNextDue(res *rpc.RegimeSnapshotResult, now time.Time) *time.Time {
-	completed, current, ok := lastCompletedOptionsSession(now)
-	if !ok || res.VolOfVol.AsOfDate != completed {
+	if volOfVolCadenceClass(res, now) != rpc.RegimeFreshnessNotDue {
 		return nil
 	}
-	if current.Close.After(now) {
-		return &current.Close
+	due, ok := volOfVolDue(res.VolOfVol.AsOfDate, now)
+	if !ok {
+		return nil
 	}
-	if current.NextClose != nil && current.NextClose.After(now) {
-		return current.NextClose
-	}
-	return nil
+	return &due
 }
 
 // Exit hysteresis: leave red below 115, five points under the red line as

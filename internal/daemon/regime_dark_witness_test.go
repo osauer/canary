@@ -20,7 +20,10 @@ func currentRegimeRows() *rpc.RegimeSnapshotResult {
 	r := &rpc.RegimeSnapshotResult{AsOf: asOf, TapeSessionState: rpc.TapeSessionTradingDate}
 	r.VIXTermStructure = rpc.RegimeVIXTerm{RegimeIndicatorMeta: meta(), Status: rpc.RegimeStatusOK, VIX: new(16.0), VIX3M: new(18.0), Ratio: new(16.0 / 18.0), VIXChangePct: new(0.0)}
 	r.VolOfVol = rpc.RegimeVolOfVol{RegimeIndicatorMeta: meta(), Status: rpc.RegimeStatusOK, Last: new(85.0)}
-	r.HYGSPYDivergence = rpc.RegimeHYGSPYDivergence{RegimeIndicatorMeta: meta(), Status: rpc.RegimeStatusOK, SPYChangePct: new(0.0)}
+	r.HYGSPYDivergence = rpc.RegimeHYGSPYDivergence{
+		RegimeIndicatorMeta: meta(), Status: rpc.RegimeStatusOK, SPYChangePct: new(0.0),
+		SPYQuality: &rpc.Quality{AsOf: asOf, FreshnessClass: rpc.FreshnessLive},
+	}
 	r.CreditSpreads = rpc.RegimeCreditSpreads{RegimeIndicatorMeta: meta(), Status: rpc.RegimeStatusOK, HYOAS: new(3.0), HY20DChange: new(0.1)}
 	r.FundingStress = rpc.RegimeFundingStress{RegimeIndicatorMeta: meta(), Status: rpc.RegimeStatusOK}
 	r.USDJPY = rpc.RegimeUSDJPY{RegimeIndicatorMeta: meta(), Status: rpc.RegimeStatusOK, Last: new(150.0)}
@@ -122,6 +125,7 @@ func TestDarkWitnessWarningMovesTheRulebookBucket(t *testing.T) {
 			r.HYGSPYDivergence.SPYChangePct = new(-4.5)
 			r.HYGSPYDivergence.Status = rpc.RegimeStatusStale
 			r.HYGSPYDivergence.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessStale}
+			r.HYGSPYDivergence.SPYQuality.FreshnessClass = rpc.FreshnessFrozen
 		}, rpc.LifecycleConfirmedStress, risk.RegimeBucketConfirmed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -167,12 +171,13 @@ func annotateCurrentRows(r *rpc.RegimeSnapshotResult) {
 	}
 }
 
-// The hours a stress witness reads dark on a normal week, by the cadence
-// rules as they stand (the contract names them; this pins them). VVIX: a
-// Monday evening from 4 days after Friday's dated close until Monday's close
-// is read, and after a Monday holiday from Tuesday's close. VIX/VIX3M: from
-// 09:31 until the first live VIX3M tick, a carried tick past 15 minutes, and
-// off the window when Cboe's dated close does not vouch for the leg.
+// The hours a stress witness reads dark on a normal week. A reading that is
+// not published yet is not dark: VVIX holds the last session's close as
+// not_due until the next session's close has passed, and the VIX/VIX3M row
+// holds the prior close for a five-minute grace from 09:31 until VIX3M's
+// first tick. Dark are the real gaps: a close missing past its allowance,
+// no VIX3M tick after the grace, a carried tick past 15 minutes, an
+// off-window leg nothing vouches for.
 func TestWitnessDarkHoursOnANormalWeek(t *testing.T) {
 	ny := newYorkLocation()
 	at := func(day string, hour, minute int) time.Time {
@@ -190,12 +195,16 @@ func TestWitnessDarkHoursOnANormalWeek(t *testing.T) {
 		now        time.Time
 		want       string
 	}{
-		{"Monday 18:30, Friday's close", "2026-11-13", at("2026-11-16", 18, 30), rpc.RegimeFreshnessFresh},
-		{"Monday 19:30, Friday's close", "2026-11-13", at("2026-11-16", 19, 30), rpc.RegimeFreshnessOverdue},
+		{"Monday 10:00, Friday's close", "2026-11-13", at("2026-11-16", 10, 0), rpc.RegimeFreshnessFresh},
+		{"Monday 19:30, Friday's close", "2026-11-13", at("2026-11-16", 19, 30), rpc.RegimeFreshnessNotDue},
+		{"Tuesday 09:00, Friday's close", "2026-11-13", at("2026-11-17", 9, 0), rpc.RegimeFreshnessNotDue},
+		{"Tuesday 10:00, Friday's close", "2026-11-13", at("2026-11-17", 10, 0), rpc.RegimeFreshnessOverdue},
+		{"Tuesday 19:30, Friday's close", "2026-11-13", at("2026-11-17", 19, 30), rpc.RegimeFreshnessOverdue},
 		{"Tuesday 10:00, Monday's close", "2026-11-16", at("2026-11-17", 10, 0), rpc.RegimeFreshnessFresh},
 		{"Thursday 20:00, Wednesday's close", "2026-11-18", at("2026-11-19", 20, 0), rpc.RegimeFreshnessFresh},
 		{"Tuesday noon after a Monday holiday, Friday's close", "2026-01-16", at("2026-01-20", 12, 0), rpc.RegimeFreshnessNotDue},
-		{"Tuesday 17:00 after a Monday holiday, Friday's close", "2026-01-16", at("2026-01-20", 17, 0), rpc.RegimeFreshnessOverdue},
+		{"Tuesday 19:30 after a Monday holiday, Friday's close", "2026-01-16", at("2026-01-20", 19, 30), rpc.RegimeFreshnessNotDue},
+		{"Wednesday 19:30 after a Monday holiday, Friday's close", "2026-01-16", at("2026-01-21", 19, 30), rpc.RegimeFreshnessOverdue},
 	} {
 		if got := vvix(tc.date, tc.now); got != tc.want {
 			t.Errorf("VVIX %s: %s, want %s", tc.name, got, tc.want)
@@ -213,13 +222,15 @@ func TestWitnessDarkHoursOnANormalWeek(t *testing.T) {
 	q := func(asOf time.Time, class string) *rpc.Quality {
 		return &rpc.Quality{AsOf: asOf, FreshnessClass: class, Confidence: rpc.ConfidenceFirm}
 	}
-	open, tick := at("2026-11-17", 9, 31).Add(30*time.Second), at("2026-11-17", 9, 50)
+	tick := at("2026-11-17", 9, 50)
 	for _, tc := range []struct {
 		name string
 		got  string
 		want string
 	}{
-		{"09:31, VIX3M still yesterday's print", term(open, rpc.RegimeStatusOK, q(open, rpc.FreshnessLive), q(prevWindowEnd, rpc.FreshnessFrozen), rpc.VIX3MCrossCheckAgree), rpc.RegimeFreshnessOverdue},
+		{"09:32, VIX3M still yesterday's last print", term(at("2026-11-17", 9, 32), rpc.RegimeStatusOK, q(at("2026-11-17", 9, 32), rpc.FreshnessLive), q(prevWindowEnd, rpc.FreshnessFrozen), ""), rpc.RegimeFreshnessNotDue},
+		{"09:40, still no VIX3M tick", term(at("2026-11-17", 9, 40), rpc.RegimeStatusOK, q(at("2026-11-17", 9, 40), rpc.FreshnessLive), q(prevWindowEnd, rpc.FreshnessFrozen), ""), rpc.RegimeFreshnessOverdue},
+		{"09:32, VIX3M leg two sessions old", term(at("2026-11-17", 9, 32), rpc.RegimeStatusOK, q(at("2026-11-17", 9, 32), rpc.FreshnessLive), q(at("2026-11-13", 16, 15), rpc.FreshnessFrozen), ""), rpc.RegimeFreshnessOverdue},
 		{"09:45, both legs live", term(at("2026-11-17", 9, 45), rpc.RegimeStatusOK, q(at("2026-11-17", 9, 45), rpc.FreshnessLive), q(at("2026-11-17", 9, 45), rpc.FreshnessLive), ""), rpc.RegimeFreshnessFresh},
 		{"10:00, VIX3M carried 10 minutes", term(at("2026-11-17", 10, 0), rpc.RegimeStatusOK, q(at("2026-11-17", 10, 0), rpc.FreshnessLive), q(tick, rpc.FreshnessFrozen), ""), rpc.RegimeFreshnessStale},
 		{"10:20, VIX3M carried 30 minutes", term(at("2026-11-17", 10, 20), rpc.RegimeStatusOK, q(at("2026-11-17", 10, 20), rpc.FreshnessLive), q(tick, rpc.FreshnessFrozen), ""), rpc.RegimeFreshnessOverdue},
@@ -229,5 +240,23 @@ func TestWitnessDarkHoursOnANormalWeek(t *testing.T) {
 		if tc.got != tc.want {
 			t.Errorf("VIX/VIX3M %s: %s, want %s", tc.name, tc.got, tc.want)
 		}
+	}
+
+	// Monday 19:30 with Friday's VVIX close is quiet beside red co-signs.
+	now := at("2026-11-16", 19, 30)
+	r := currentRegimeRows()
+	r.AsOf = now
+	r.VolOfVol.AsOfDate = "2026-11-13"
+	r.VolOfVol.Freshness = &rpc.RegimeFreshness{Class: volOfVolCadenceClass(r, now), NextDueAt: volOfVolNextDue(r, now)}
+	r.VolOfVol.AsOf = &rpc.RegimeAsOfSummary{Time: at("2026-11-13", 16, 15)}
+	redRow(&r.HYGSPYDivergence.RegimeIndicatorMeta)
+	redRow(&r.Breadth.RegimeIndicatorMeta)
+	for _, meta := range []*rpc.RegimeIndicatorMeta{&r.VIXTermStructure.RegimeIndicatorMeta, &r.HYGSPYDivergence.RegimeIndicatorMeta, &r.CreditSpreads.RegimeIndicatorMeta, &r.FundingStress.RegimeIndicatorMeta, &r.USDJPY.RegimeIndicatorMeta, &r.GammaZero.RegimeIndicatorMeta, &r.Breadth.RegimeIndicatorMeta} {
+		meta.AsOf = &rpc.RegimeAsOfSummary{Time: now}
+	}
+	r.HYGSPYDivergence.SPYQuality.AsOf = now
+	assembleRegimeRead(r)
+	if r.Lifecycle.Stage != rpc.LifecycleQuiet || slices.Contains(rpc.RegimeWarningOpeners(r), rpc.RegimeWarningWitnessUnavailable) {
+		t.Fatalf("Monday 19:30 with Friday's VVIX close (%s): stage %s, openers %v; want quiet", r.VolOfVol.Freshness.Class, r.Lifecycle.Stage, rpc.RegimeWarningOpeners(r))
 	}
 }

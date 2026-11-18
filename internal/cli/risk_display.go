@@ -95,9 +95,10 @@ func renderRegimeIndicator(env *Env, row rpc.RegimeMonitorIndicator, display reg
 	case "yellow":
 		label = "AMBER"
 	}
-	// A co-sign red with no stress witness standing is context: the daemon
-	// says so on the row, and it reads amber here, as its cluster counts.
-	context := usable && row.Red == rpc.RegimeRedContext
+	// A co-sign red with no stress witness standing is context, or weak
+	// beside a witness nobody can read: the daemon says which on the row, and
+	// it reads amber here, as its cluster counts.
+	context := usable && (row.Red == rpc.RegimeRedContext || row.Red == rpc.RegimeRedWeak)
 	if context {
 		band, label = "yellow", "AMBER"
 	}

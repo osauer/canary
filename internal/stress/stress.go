@@ -833,6 +833,8 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 		VIXChangePct:  r.VIXTermStructure.VIXChangePct,
 	}
 	out.TapeSessionState, out.TapeSessionReason, out.TapeNextOpen = stressTapeSession(now)
+	out.SPYChangeNotCurrent = out.SPYChangePct != nil && stressTapeConfirmable(out) &&
+		!rpc.RegimeCurrencyMayConfirm(rpc.RegimeSPYTapeCurrency(r))
 	contextClusters := stressMarketContextClusters(r, now)
 	// Shared rpc combination: raw worst-of bands, eligibility-keyed
 	cb := rpc.BuildRegimeClusterBands(&r)
@@ -984,13 +986,20 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 		}
 		status := stressIndicatorStatus(item.row.Band, item.status, contextOnly, item.eligibility)
 		eligibility := stressEligibilityComment(item.indicator, item.eligibility)
-		if cb.RowRed(item.indicator) == rpc.RegimeRedContext {
+		switch cb.RowRed(item.indicator) {
+		case rpc.RegimeRedContext:
 			// Shown, but not a stress reading: amber, never the red of a
 			// reading that counts.
 			if status == "red" {
 				status = "amber"
 			}
 			eligibility = stressCoSignComment(item.indicator, item.eligibility)
+		case rpc.RegimeRedWeak:
+			// The cause a dark-witness warning names: amber, with its sentence.
+			if status == "red" {
+				status = "amber"
+			}
+			eligibility = strings.ToLower(rpc.RegimeWeakNote[:1]) + rpc.RegimeWeakNote[1:]
 		}
 		out = append(out, StressMarketIndicator{
 			Name:    item.row.Name,
@@ -1341,9 +1350,9 @@ func stressTapeShockRow(p StressPortfolioSummary, m StressMarketSummary) StressR
 	if m.SPYChangePct == nil && m.VIXChangePct == nil {
 		return stressRow("Index tape shock", risk.DirectionDataQuality, risk.SeverityWatch, "Direct SPY/VIX tape is unavailable; do not treat quiet regime clusters as complete overnight coverage.", evidence)
 	}
-	spyDrop := pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct)
-	spyHardDrop := pctAtMost(m.SPYChangePct, stressPolicy.SPYHardDropPct)
-	spyCrash := pctAtMost(m.SPYChangePct, stressPolicy.SPYCrashPct)
+	spyDrop := pctAtMost(stressSPYMove(m), stressPolicy.SPYDropPct)
+	spyHardDrop := pctAtMost(stressSPYMove(m), stressPolicy.SPYHardDropPct)
+	spyCrash := pctAtMost(stressSPYMove(m), stressPolicy.SPYCrashPct)
 	vixSpike := pctAtLeast(m.VIXChangePct, stressPolicy.VIXSpikePct)
 	vixHardSpike := pctAtLeast(m.VIXChangePct, stressPolicy.VIXHardSpikePct)
 	if !stressTapeConfirmable(m) {
@@ -1365,8 +1374,21 @@ func stressTapeShockRow(p StressPortfolioSummary, m StressMarketSummary) StressR
 	case spyDrop || vixSpike:
 		return stressRow("Index tape shock", risk.DirectionDefensive, risk.SeverityWatch, "Freeze new risk; direct SPY/VIX tape is flashing early stress but not enough for defensive action alone.", evidence)
 	default:
+		if m.SPYChangeNotCurrent && pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct) {
+			return stressRow("Index tape shock", "", risk.SeverityObserve, "The SPY print is not current, so its move cannot confirm stress; confirm on a live print.", evidence)
+		}
 		return stressRow("Index tape shock", "", risk.SeverityObserve, stressTapeQuiet(m), evidence)
 	}
+}
+
+// stressSPYMove is the SPY day change a decision may read: none while the
+// SPY print is not current (rpc.RegimeSPYTapeCurrency), the same test the
+// regime vote applies. The evidence still shows the move.
+func stressSPYMove(m StressMarketSummary) *float64 {
+	if m.SPYChangeNotCurrent {
+		return nil
+	}
+	return m.SPYChangePct
 }
 
 // stressTapeQuiet is the quiet row's guidance, naming only the tape that was
@@ -1823,19 +1845,19 @@ func partialMarketPressure(m StressMarketSummary) bool {
 	return m.RedClusters >= 1 ||
 		stressClusterWarning(m) ||
 		(stressTapeConfirmable(m) &&
-			(pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct) ||
+			(pctAtMost(stressSPYMove(m), stressPolicy.SPYDropPct) ||
 				pctAtLeast(m.VIXChangePct, stressPolicy.VIXSpikePct)))
 }
 
 func confirmedConstructiveTape(m StressMarketSummary) bool {
 	return stressTapeConfirmable(m) &&
-		(pctAtLeast(m.SPYChangePct, stressPolicy.SPYHardRallyPct) ||
+		(pctAtLeast(stressSPYMove(m), stressPolicy.SPYHardRallyPct) ||
 			pctAtMost(m.VIXChangePct, stressPolicy.VIXHardCrushPct))
 }
 
 func partialConstructiveTape(m StressMarketSummary) bool {
 	return stressTapeConfirmable(m) &&
-		(pctAtLeast(m.SPYChangePct, stressPolicy.SPYRallyPct) ||
+		(pctAtLeast(stressSPYMove(m), stressPolicy.SPYRallyPct) ||
 			pctAtMost(m.VIXChangePct, stressPolicy.VIXCrushPct))
 }
 
@@ -2009,7 +2031,7 @@ func stressHasConfirmedConstructiveSignal(signals []risk.Signal) bool {
 func stressPanicMarket(m StressMarketSummary) bool {
 	return (m.EligibleRedClusters >= 3 && stressGovernedSeverityAllows(m, risk.SeverityUrgent)) ||
 		(stressTapeConfirmable(m) &&
-			(pctAtMost(m.SPYChangePct, stressPolicy.SPYCrashPct) ||
+			(pctAtMost(stressSPYMove(m), stressPolicy.SPYCrashPct) ||
 				(pctAtLeast(m.VIXChangePct, stressPolicy.VIXHardSpikePct) && m.EligibleRedClusters >= 1)))
 }
 
@@ -2226,24 +2248,24 @@ func stressTapeSignals(p StressPortfolioSummary, m StressMarketSummary) []risk.S
 		// tape signals until live prints return at the next open.
 		return out
 	}
-	spyDrop := pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct)
+	spyDrop := pctAtMost(stressSPYMove(m), stressPolicy.SPYDropPct)
 	vixSpike := pctAtLeast(m.VIXChangePct, stressPolicy.VIXSpikePct)
 	confirmedDrop := (spyDrop && vixSpike) || m.EligibleRedClusters >= 1
 	confirmedVIXSpike := spyDrop || m.EligibleRedClusters >= 1
-	if m.SPYChangePct != nil {
+	if spy := stressSPYMove(m); spy != nil {
 		switch {
-		case *m.SPYChangePct <= stressPolicy.SPYCrashPct:
+		case *spy <= stressPolicy.SPYCrashPct:
 			severity, blockedBy := confirmedSignalSeverity(confirmedDrop)
-			out = append(out, tapeSignal(risk.SignalMarketSelloffViolent, risk.DirectionDefensive, severity, "spy_change_pct", *m.SPYChangePct, stressPolicy.SPYCrashPct, blockedBy...))
-		case *m.SPYChangePct <= stressPolicy.SPYHardDropPct:
+			out = append(out, tapeSignal(risk.SignalMarketSelloffViolent, risk.DirectionDefensive, severity, "spy_change_pct", *spy, stressPolicy.SPYCrashPct, blockedBy...))
+		case *spy <= stressPolicy.SPYHardDropPct:
 			severity, blockedBy := confirmedSignalSeverity(confirmedDrop)
-			out = append(out, tapeSignal(risk.SignalMarketSelloffViolent, risk.DirectionDefensive, severity, "spy_change_pct", *m.SPYChangePct, stressPolicy.SPYHardDropPct, blockedBy...))
-		case *m.SPYChangePct <= stressPolicy.SPYDropPct:
-			out = append(out, tapeSignal(risk.SignalMarketSelloffViolent, risk.DirectionDefensive, risk.SeverityWatch, "spy_change_pct", *m.SPYChangePct, stressPolicy.SPYDropPct))
-		case *m.SPYChangePct >= stressPolicy.SPYHardRallyPct:
-			out = append(out, tapeSignal(risk.SignalMarketRallyViolent, risk.DirectionConstructive, risk.SeverityAct, "spy_change_pct", *m.SPYChangePct, stressPolicy.SPYHardRallyPct))
-		case *m.SPYChangePct >= stressPolicy.SPYRallyPct:
-			out = append(out, tapeSignal(risk.SignalMarketRallyViolent, risk.DirectionConstructive, risk.SeverityWatch, "spy_change_pct", *m.SPYChangePct, stressPolicy.SPYRallyPct))
+			out = append(out, tapeSignal(risk.SignalMarketSelloffViolent, risk.DirectionDefensive, severity, "spy_change_pct", *spy, stressPolicy.SPYHardDropPct, blockedBy...))
+		case *spy <= stressPolicy.SPYDropPct:
+			out = append(out, tapeSignal(risk.SignalMarketSelloffViolent, risk.DirectionDefensive, risk.SeverityWatch, "spy_change_pct", *spy, stressPolicy.SPYDropPct))
+		case *spy >= stressPolicy.SPYHardRallyPct:
+			out = append(out, tapeSignal(risk.SignalMarketRallyViolent, risk.DirectionConstructive, risk.SeverityAct, "spy_change_pct", *spy, stressPolicy.SPYHardRallyPct))
+		case *spy >= stressPolicy.SPYRallyPct:
+			out = append(out, tapeSignal(risk.SignalMarketRallyViolent, risk.DirectionConstructive, risk.SeverityWatch, "spy_change_pct", *spy, stressPolicy.SPYRallyPct))
 		}
 	}
 	if m.VIXChangePct != nil {
@@ -3559,7 +3581,11 @@ func stressMarketEvidence(m StressMarketSummary) string {
 func stressTapeEvidence(m StressMarketSummary) string {
 	parts := []string{}
 	if m.SPYChangePct != nil {
-		parts = append(parts, fmt.Sprintf("SPY %+.2f%% (drop trigger %.1f%%)", *m.SPYChangePct, stressPolicy.SPYDropPct))
+		spy := fmt.Sprintf("SPY %+.2f%% (drop trigger %.1f%%)", *m.SPYChangePct, stressPolicy.SPYDropPct)
+		if m.SPYChangeNotCurrent {
+			spy += ", print not current"
+		}
+		parts = append(parts, spy)
 	} else {
 		parts = append(parts, "SPY change unavailable")
 	}
@@ -3606,8 +3632,8 @@ func confirmedTapeStress(m StressMarketSummary) bool {
 		// Frozen prints cannot confirm; only the cluster-side carry-unwind
 		return stressFastCarryUnwind(m)
 	}
-	spyDrop := pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct)
-	spyHardDrop := pctAtMost(m.SPYChangePct, stressPolicy.SPYHardDropPct)
+	spyDrop := pctAtMost(stressSPYMove(m), stressPolicy.SPYDropPct)
+	spyHardDrop := pctAtMost(stressSPYMove(m), stressPolicy.SPYHardDropPct)
 	vixSpike := pctAtLeast(m.VIXChangePct, stressPolicy.VIXSpikePct)
 	vixHardSpike := pctAtLeast(m.VIXChangePct, stressPolicy.VIXHardSpikePct)
 	return (spyHardDrop && (vixSpike || m.EligibleRedClusters >= 1)) ||
@@ -3623,7 +3649,7 @@ func stressFastCarryUnwind(m StressMarketSummary) bool {
 		return false
 	}
 	tapeConfirms := stressTapeConfirmable(m) &&
-		(pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct) ||
+		(pctAtMost(stressSPYMove(m), stressPolicy.SPYDropPct) ||
 			pctAtLeast(m.VIXChangePct, stressPolicy.VIXSpikePct))
 	return tapeConfirms ||
 		slices.Contains(m.YellowClusterNames, "breadth") ||

@@ -58,35 +58,62 @@ func TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow(t *testing.T) {
 		snap.VIXTermStructure.Status = rpc.RegimeStatusStale
 		snap.VIXTermStructure.VIXQuality, snap.VIXTermStructure.VIX3MQuality = frozen, frozen
 		snap.VIXTermStructure.VIX3MCrossCheck = crossCheck
+		// VVIX holds the newest close its schedule allows: session i's until
+		// the next session has closed, then that one's.
 		snap.VolOfVol.AsOfDate = days[i].date
+		if late.Weekday() == time.Saturday {
+			snap.VolOfVol.AsOfDate = days[i+1].date
+		}
 		snap.Breadth.Envelope.SessionKey = days[i].date
 		return evaluate(snap)
 	}
 	ny := newYorkLocation()
 	session := time.Date(days[i].day.Year(), days[i].day.Month(), days[i].day.Day(), 0, 0, 0, 0, ny)
+
+	// At the next open VIX ticks from 09:31 and VIX3M still holds session
+	// i's last print: for five minutes that is the prior close, not a gap.
+	open := func(late time.Time) *rpc.RegimeSnapshotResult {
+		snap := in.snapshot(t.Context(), i, late, ownDate[i])
+		snap.VIXTermStructure.VIXQuality = &rpc.Quality{AsOf: late, FreshnessClass: rpc.FreshnessLive, Confidence: rpc.ConfidenceFirm}
+		snap.VIXTermStructure.VIX3MQuality = &rpc.Quality{AsOf: session.Add(16*time.Hour + 15*time.Minute), FreshnessClass: rpc.FreshnessFrozen, Confidence: rpc.ConfidenceFirm}
+		snap.VolOfVol.AsOfDate = days[i].date
+		snap.Breadth.Envelope.SessionKey = days[i].date
+		return evaluate(snap)
+	}
+	nextMorning := session.AddDate(0, 0, 1)
+	// In time order, so the streak store sees the instants as the daemon would.
 	for _, tc := range []struct {
-		name string
-		at   time.Time
+		name   string
+		at     time.Time
+		atOpen bool
+		want   string
 	}{
-		{"17:30 on the same trading date", at[i].Add(5*time.Hour + 30*time.Minute)},
-		{"08:30 the next morning, before VIX3M's first tick", session.AddDate(0, 0, 1).Add(8*time.Hour + 30*time.Minute)},
-		{"noon on the Saturday after", session.AddDate(0, 0, 2).Add(12 * time.Hour)},
+		{"17:30 on the same trading date", at[i].Add(5*time.Hour + 30*time.Minute), false, rpc.LifecycleConfirmedStress},
+		{"08:30 the next morning, before VIX3M's window", nextMorning.Add(8*time.Hour + 30*time.Minute), false, rpc.LifecycleConfirmedStress},
+		{"09:32 the next morning, before VIX3M's first tick", nextMorning.Add(9*time.Hour + 32*time.Minute), true, rpc.LifecycleConfirmedStress},
+		{"09:40 the next morning, still no VIX3M tick", nextMorning.Add(9*time.Hour + 40*time.Minute), true, rpc.LifecycleEarlyWarning},
+		{"noon on the Saturday after", session.AddDate(0, 0, 2).Add(12 * time.Hour), false, rpc.LifecycleConfirmedStress},
 	} {
 		if tc.at.Weekday() == time.Saturday != (tc.name == "noon on the Saturday after") {
 			t.Fatalf("%s falls on a %s; the fixture's session %s moved", tc.name, tc.at.Weekday(), days[i].date)
+		}
+		if tc.atOpen {
+			if got := open(tc.at); got.Lifecycle.Stage != tc.want {
+				t.Errorf("%s: stage %s, term %+v; want %s", tc.name, got.Lifecycle.Stage, got.VIXTermStructure.Freshness, tc.want)
+			}
+			continue
 		}
 		after := offWindow(tc.at, rpc.VIX3MCrossCheckAgree)
 		if class := after.VIXTermStructure.Freshness; class == nil || class.Class != rpc.RegimeFreshnessNotDue {
 			t.Fatalf("%s the term row reads %+v, want not_due", tc.name, class)
 		}
-		if after.Lifecycle.Stage != rpc.LifecycleConfirmedStress {
-			t.Errorf("%s: stage %s, term eligibility %+v, unconfirmed %v; want confirmed_stress still",
-				tc.name, after.Lifecycle.Stage, after.VIXTermStructure.Eligibility, after.Lifecycle.Unconfirmed)
+		if after.Lifecycle.Stage != tc.want {
+			t.Errorf("%s: stage %s, term eligibility %+v, unconfirmed %v; want %s",
+				tc.name, after.Lifecycle.Stage, after.VIXTermStructure.Eligibility, after.Lifecycle.Unconfirmed, tc.want)
 		}
 		// With the row overdue the latched red drops, and the dark term row
 		// beside the red co-signs is the early warning: the rulebook moves from
-		// its confirmed bucket to the early-warning one (owner ruling
-		// 2026-11-18 14:47 CET; the contract names this worst case).
+		// its confirmed bucket to the early-warning one.
 		if overdue := offWindow(tc.at, ""); overdue.Lifecycle.Stage != rpc.LifecycleEarlyWarning ||
 			bucketRegimeStage(overdue.Lifecycle.Stage) != risk.RegimeBucketEarlyWarning {
 			t.Errorf("%s with the term row overdue: stage %s, bucket %q; want early_warning in the early-warning bucket",

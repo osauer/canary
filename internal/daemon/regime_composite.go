@@ -354,7 +354,7 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 			Scope:    "vol_of_vol",
 			Severity: "info",
 			Message:  fmt.Sprintf("Cboe has not published a VVIX close after %s; the row is overdue since %s", pending.OfficialDate, pending.Since.UTC().Format("2006-01-02 15:04Z")),
-			Impact:   "The newest VVIX close is older than its four-day budget, so the row cannot confirm stress and its band is prior-session context. The delay is Cboe's publication, not a Canary or broker fault.",
+			Impact:   "A newer VVIX close was due by 09:30 New York the morning after its session and has not been read, so the row cannot confirm stress and its band is prior-session context. The delay is Cboe's publication, not a Canary or broker fault.",
 			Action:   "Nothing to fix locally: Canary re-reads Cboe's VVIX file on every regime refresh and the row recovers once Cboe publishes.",
 		})
 	}

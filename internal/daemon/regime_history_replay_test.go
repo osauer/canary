@@ -336,7 +336,7 @@ func (in *regimeReplayInputs) snapshot(ctx context.Context, i int, at time.Time,
 	// fetchRegimeHYGSPY: HYG against the average of its last 50 closes, SPY
 	// against the highest of its last 252 bars, and SPY's day change.
 	snap.HYGSPYDivergence = rpc.RegimeHYGSPYDivergence{
-		Status: rpc.RegimeStatusOK, HYGDataType: rpc.MarketDataLive, HYGQuality: live,
+		Status: rpc.RegimeStatusOK, HYGDataType: rpc.MarketDataLive, HYGQuality: live, SPYQuality: live,
 		HYGPrice: new(d.hyg), HYG50DMA: new(averageClose(in.hyg[:i+1], 50)),
 		SPYPrice: new(d.spy), SPY52WHigh: new(maxHigh(in.spy[:i+1], 252)),
 		SPYPrevClose: new(prev.spy), SPYChange: new(d.spy - prev.spy), SPYChangePct: new((d.spy - prev.spy) / prev.spy * 100),

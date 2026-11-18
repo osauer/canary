@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/osauer/canary/v3/internal/risk"
 	"github.com/osauer/canary/v3/internal/rpc"
 )
 
@@ -16,6 +17,7 @@ func stressAfterVote(shape func(r *rpc.RegimeSnapshotResult)) (rpc.RegimeSnapsho
 	r.AsOf = stressTestNow
 	r.TapeSessionState = rpc.TapeSessionTradingDate
 	r.HYGSPYDivergence.SPYChangePct = new(0.0)
+	r.HYGSPYDivergence.SPYQuality = &rpc.Quality{AsOf: stressTestNow, FreshnessClass: rpc.FreshnessLive}
 	r.VIXTermStructure.VIXChangePct = new(0.0)
 	shape(&r)
 	r.SourceHealth = rpc.BuildRegimeSourceHealth(&r, r.AsOf)
@@ -96,5 +98,79 @@ func TestStressAgreesWithTheVoteWhenTheCashRowsMateIsDark(t *testing.T) {
 			titles = append(titles, row.Title)
 		}
 		t.Fatalf("regime confirmed_stress at %s; stress rows %v, want %q", r.Lifecycle.Severity, titles, title)
+	}
+}
+
+// The stress read and the vote agree beside a dark witness whatever else is
+// down: one dark witness with an overdue co-sign is the early warning in
+// both, two dark witnesses are data incomplete in both.
+func TestStressAgreesWithTheVoteOnTheBlankFloor(t *testing.T) {
+	t.Parallel()
+	termLost := func(r *rpc.RegimeSnapshotResult) {
+		r.VIXTermStructure.Status = rpc.RegimeStatusError
+		r.VIXTermStructure.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue}
+		r.HYGSPYDivergence.Band = "yellow"
+	}
+	for _, tc := range []struct {
+		name  string
+		shape func(r *rpc.RegimeSnapshotResult)
+		stage string
+	}{
+		{"term row lost, proxy yellow, breadth overdue", func(r *rpc.RegimeSnapshotResult) {
+			termLost(r)
+			r.Breadth.Status = rpc.RegimeStatusStale
+			r.Breadth.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue}
+		}, rpc.LifecycleEarlyWarning},
+		{"term row and funding lost, proxy yellow", func(r *rpc.RegimeSnapshotResult) {
+			termLost(r)
+			r.FundingStress = rpc.RegimeFundingStress{Status: rpc.RegimeStatusError}
+		}, rpc.LifecycleDataQuality},
+	} {
+		r, res := stressAfterVote(tc.shape)
+		flashing := strings.Contains(res.Summary, "early market warning is flashing")
+		if r.Lifecycle.Stage != tc.stage || flashing != (tc.stage == rpc.LifecycleEarlyWarning) {
+			t.Errorf("%s: regime %s, stress summary %q; want %s and the stress read to agree", tc.name, r.Lifecycle.Stage, res.Summary, tc.stage)
+		}
+	}
+}
+
+// The stress tape row judges the SPY print by its own currency: a -7.5%
+// move on a print that is not current does not read as a crash.
+func TestStressTapeRowNeedsACurrentSPYPrint(t *testing.T) {
+	t.Parallel()
+	_, res := stressAfterVote(func(r *rpc.RegimeSnapshotResult) {
+		r.HYGSPYDivergence.SPYChangePct = new(-7.5)
+		r.HYGSPYDivergence.SPYQuality.FreshnessClass = rpc.FreshnessFrozen
+	})
+	row := stressRowByTitle(res.Rows, "Index tape shock")
+	if row == nil || row.Severity != risk.SeverityObserve || strings.Contains(row.Guidance, "Cut broad equity beta") {
+		t.Fatalf("tape row %+v; want an observe row that does not read a crash from a print that is not current", row)
+	}
+	_, res = stressAfterVote(func(r *rpc.RegimeSnapshotResult) { r.HYGSPYDivergence.SPYChangePct = new(-7.5) })
+	if row := stressRowByTitle(res.Rows, "Index tape shock"); row == nil || row.Severity == risk.SeverityObserve {
+		t.Fatalf("tape row %+v on a current -7.5%% print; want it to act", row)
+	}
+}
+
+// Inside a dark-witness read a co-sign red is listed once, as weak, and its
+// indicator says so; there is no context sentence for it.
+func TestStressNamesACoSignOnceBesideADarkWitness(t *testing.T) {
+	t.Parallel()
+	_, res := stressAfterVote(func(r *rpc.RegimeSnapshotResult) {
+		r.VIXTermStructure.Status = rpc.RegimeStatusError
+		r.VIXTermStructure.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue}
+		stressRed(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+	})
+	n := 0
+	for _, s := range res.Market.UnconfirmedSignals {
+		if s.Name == "ETF credit proxy" {
+			n++
+			if s.Role != rpc.StressSignalWeak {
+				t.Fatalf("proxy signal %+v; want weak", s)
+			}
+		}
+	}
+	if n != 1 || res.Market.ContextNote != "" || strings.Contains(stressText(res), "context, not a stress reading") {
+		t.Fatalf("proxy listed %d times, context note %q; want once, as weak, with no context sentence\n%s", n, res.Market.ContextNote, stressText(res))
 	}
 }
