@@ -279,6 +279,24 @@ func (s *Semaphore) Acquire(ctx context.Context) error {
 	}
 }
 
+// acquireUntil is Acquire for a slot that only exists while its session does:
+// it fails with errMarketDataAdmissionEnded once ended closes.
+func (s *Semaphore) acquireUntil(ctx context.Context, ended <-chan struct{}) error {
+	select {
+	case <-ended:
+		return errMarketDataAdmissionEnded
+	default:
+	}
+	select {
+	case s.ch <- struct{}{}:
+		return nil
+	case <-ended:
+		return errMarketDataAdmissionEnded
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // TryAcquire attempts to acquire without blocking
 func (s *Semaphore) TryAcquire() bool {
 	select {

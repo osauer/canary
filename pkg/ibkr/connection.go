@@ -465,8 +465,14 @@ type Connection struct {
 	cancel      context.CancelFunc
 
 	// Tracks which reqIDs currently hold a market data slot. The error
-	marketDataSlotsMu  sync.Mutex
-	marketDataSlots    map[int]marketDataSlot
+	marketDataSlotsMu sync.Mutex
+	marketDataSlots   map[int]marketDataSlot
+	// marketDataAdmission closes when the outbound session it was made for is
+	// revoked; guarded by marketDataSlotsMu (see marketDataAdmissionEnded).
+	marketDataAdmission chan struct{}
+	// cancelRetryWait overrides the first retry wait of an owed cancel; zero
+	// means marketDataCancelRetry. Tests shorten it.
+	cancelRetryWait    time.Duration
 	marketDataCensusAt time.Time
 
 	// Start API failure tracking for adaptive backoff
@@ -2758,6 +2764,9 @@ type marketDataSlot struct {
 	epoch    uint64
 	acquired time.Time
 	owner    string
+	// cancelOwed marks a line whose cancel is still to be sent
+	// (settleMarketDataCancel).
+	cancelOwed bool
 }
 
 // logMarketDataSlotCensus reports bounded owner/age counts, never contracts or
@@ -2795,7 +2804,7 @@ func (c *Connection) acquireMarketDataSlotForEpoch(ctx context.Context, reqID in
 	if c.rateLimiter.marketDataSubs.Count() == cap(c.rateLimiter.marketDataSubs.ch) {
 		c.logMarketDataSlotCensus()
 	}
-	if err := c.rateLimiter.AcquireMarketDataSlot(ctx); err != nil {
+	if err := c.rateLimiter.marketDataSubs.acquireUntil(ctx, c.marketDataAdmissionEnded(c.outboundSessionState.Load())); err != nil {
 		return err
 	}
 	c.marketDataSlotsMu.Lock()
@@ -2816,6 +2825,51 @@ func (c *Connection) acquireMarketDataSlotForEpoch(ctx context.Context, reqID in
 	c.marketDataSlots[reqID] = marketDataSlot{epoch: epoch, acquired: time.Now(), owner: owner}
 	c.marketDataSlotsMu.Unlock()
 	return nil
+}
+
+// errMarketDataAdmissionEnded refuses a request whose session ended while it
+// waited for a market-data line.
+var errMarketDataAdmissionEnded = errors.New("broker session ended while the request waited for a market-data line")
+
+// closedMarketDataAdmission is the admission of a session that has ended.
+var closedMarketDataAdmission = func() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}()
+
+// marketDataAdmissionEnded returns a channel that closes when the outbound
+// session generation admitted ends. A line held on a session is released by
+// its holder or, on a Connection that reconnects, wholesale at the reconnect
+// (invalidateUnstampedObservationAuthority). The daemon redials on a new
+// Connection instead, so the old pool is never drained and a request parked
+// on it would wait for as long as its context lives: on 2026-11-18 the
+// dealer-gamma refresh, whose context has no deadline, was parked on a full
+// pool when the 16:30:48 redial replaced the connection, and no gamma was
+// computed until the daemon restarted. It is the line pool's counterpart of
+// withSessionTransport. A request that arrives with no live session (the
+// state's low bit) is refused at once: no line can be requested then.
+func (c *Connection) marketDataAdmissionEnded(admitted uint64) <-chan struct{} {
+	c.marketDataSlotsMu.Lock()
+	defer c.marketDataSlotsMu.Unlock()
+	if admitted&1 != 0 || c.outboundSessionState.Load() != admitted {
+		return closedMarketDataAdmission
+	}
+	if c.marketDataAdmission == nil {
+		c.marketDataAdmission = make(chan struct{})
+	}
+	return c.marketDataAdmission
+}
+
+// endMarketDataAdmission wakes every request waiting for a line on the
+// outbound session generation that was just revoked.
+func (c *Connection) endMarketDataAdmission() {
+	c.marketDataSlotsMu.Lock()
+	if c.marketDataAdmission != nil {
+		close(c.marketDataAdmission)
+		c.marketDataAdmission = nil
+	}
+	c.marketDataSlotsMu.Unlock()
 }
 
 // releaseMarketDataSlot releases a market data slot iff this reqID currently
@@ -7082,8 +7136,79 @@ func (c *Connection) cancelMarketDataForEpoch(ctx context.Context, reqID int, ep
 	err := c.sendMessageWithTypeContextForEpoch(ctx, msg, RequestTypeMarketDataCancel, epoch, true)
 	if err == nil {
 		c.releaseMarketDataSlotAtEpoch(reqID, epoch)
+		return nil
 	}
+	c.settleMarketDataCancel(msg, reqID, epoch)
 	return err
+}
+
+// marketDataCancelRetry is the first wait before a cancel that could not be
+// sent is tried again; it doubles up to marketDataCancelRetryMax. Engineering
+// pacing for a debt the connection owes the Gateway, not a limit on anything.
+const (
+	marketDataCancelRetry    = time.Second
+	marketDataCancelRetryMax = 30 * time.Second
+)
+
+// settleMarketDataCancel keeps a cancel that could not be sent owed until it
+// is sent or its session ends. Callers cancel once, most within a release
+// window of a few seconds, and by then have dropped their record of the line,
+// so a cancel that missed its window was never tried again: the Gateway kept
+// streaming the line, its pool slot stayed held, and each such line was gone
+// until the next redial. Lines nobody reads then fill the pool and their ticks
+// keep the reader busy. On 2026-11-12, 17 and 18 the full pool held 45 to 71
+// option lines, more than the option readers of those days account for; the
+// log could not say which were orphans. The slot stays held while the cancel
+// is owed, because the Gateway still counts the line. A reconnect on this
+// Connection releases every slot itself, and the Gateway drops every line of
+// a closed socket.
+func (c *Connection) settleMarketDataCancel(msg []byte, reqID int, epoch uint64) {
+	c.marketDataSlotsMu.Lock()
+	slot, held := c.marketDataSlots[reqID]
+	owed := held && slot.epoch == epoch && !slot.cancelOwed
+	if owed {
+		slot.cancelOwed = true
+		c.marketDataSlots[reqID] = slot
+	}
+	c.marketDataSlotsMu.Unlock()
+	if !owed {
+		return
+	}
+	ended := c.marketDataAdmissionEnded(c.outboundSessionState.Load())
+	wait := c.cancelRetryWait
+	if wait <= 0 {
+		wait = marketDataCancelRetry
+	}
+	go func() {
+		// The retries end with the session: its sends are refused from then on.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			select {
+			case <-ended:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		timer := time.NewTimer(wait)
+		defer timer.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-timer.C:
+			}
+			if c.BrokerSessionEpoch() != epoch {
+				return
+			}
+			if err := c.sendMessageWithTypeContextForEpoch(ctx, msg, RequestTypeMarketDataCancel, epoch, true); err == nil {
+				c.releaseMarketDataSlotAtEpoch(reqID, epoch)
+				return
+			}
+			wait = min(2*wait, marketDataCancelRetryMax)
+			timer.Reset(wait)
+		}
+	}()
 }
 
 // parsePositionMultiSnapshotRow reads the legacy PositionMulti callback:
@@ -7600,6 +7725,7 @@ func (c *Connection) publishRevokedOutboundSession() uint64 {
 		nextGeneration := (old >> 1) + 1
 		next := (nextGeneration << 1) | 1
 		if c.outboundSessionState.CompareAndSwap(old, next) {
+			c.endMarketDataAdmission()
 			return next
 		}
 	}
