@@ -144,10 +144,12 @@ The two rows play different roles. The cash row is a stress witness: a red
 HY OAS keeps the cluster red and can start a warning. HYG/SPY is a co-sign: it
 can still show a red row by itself, but for the cluster count a red from the
 proxy alone is a yellow watch until a stress witness stands, whatever the cash
-row beside it reads short of red. HYG's price falls with rates as well as with
-credit, so the proxy can sit below its average for months while cash spreads
-stay calm. The row stays visible either way; it does not get to call stress
-alone.
+row beside it reads short of red. The proxy can sit below its average for
+months while cash spreads stay calm: in the replay it was red on two sessions
+in three of 2026 and the cash row was never red. One cause is known: the
+50-day average is built from unadjusted closes, so each monthly distribution
+steps the price below it. The row stays visible either way; it does not get
+to call stress alone.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |

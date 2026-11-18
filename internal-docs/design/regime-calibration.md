@@ -974,9 +974,10 @@ sessions and cash credit 752. Inputs with no reading are left out of the vote.
 | USD/JPY row red | 13% | 14% | 1% |
 | Breadth row red | 23% of 204 | 20% | 0% |
 
-The first three rows are the witnesses' red conditions read straight from the
-file; the last three are served row bands from the replay, exit hysteresis
-included. A term inversion and a widening of cash spreads precede falls at
+The first three rows are witness conditions read straight from the file: the
+term inversion and VVIX at 110 are those rows' red, while a 0.5 pp widening is
+the cash row's yellow (its red needs 1.0 pp or a level of 5.5). The last three
+are served row bands from the replay, exit hysteresis included. A term inversion and a widening of cash spreads precede falls at
 about three to twelve times the base rate, VVIX at about one and a half
 times. The proxy precedes fewer falls than an average session and the yen
 does no better than average. Breadth turned red 30 sessions into the 2026
@@ -1027,6 +1028,16 @@ and the stress read keeps its own rows. The worst case is a fall that only
 co-signs foresaw. Among the sessions with 20 more after them, none of the 278
 with the proxy red and none of the 46 with breadth red was followed by a low
 8% or more below; one of the 126 with the yen red was.
+
+### Open: the cash row's yellow
+
+The strongest condition in the table is a yellow. A cash yellow opens a
+warning only through the three-yellows arm, so of the 36 sessions in the
+replay with HY OAS 0.5 pp wider, 30 read `early_warning` or worse and six do
+not: 2026-10-01, 2026-10-21 and four sessions from 2025-03-17 to 2025-03-20,
+three weeks before the April 2025 low. Those four did not warn before this
+change either. Whether a widening should open a warning by itself is a
+threshold decision and is not made here.
 
 ### Not changed
 
