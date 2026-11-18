@@ -432,6 +432,24 @@ on the panel, named in `unconfirmed` and `suppressed`.
    readiness is `degraded`; an impaired confirming cluster never qualifies as
    an independent witness. Pure tape also has to pass its typed SPY/VIX
    freshness and source-health checks.
+2a. **Three standing stress witnesses page** (owner ruling 2026-11-18 16:56
+   CET). Asked "Three real stress readings red with a flat market: should
+   that page your phone?" with the options "Yes, keep the page" and "No page,
+   watch only", the owner answered "Yes, keep the page". When all three
+   stress-witness clusters (equity volatility, funding, cash credit) are
+   eligible red and standing, on current evidence or on their valid typed
+   schedules, a `confirmed_stress` is exempt from both caps above and reads
+   act, so the alert composer pages it as the running build (4dcf00c4) does
+   for the same input. Co-signs do not count toward the three; a dark
+   witness row does not stand. The stage stays `confirmed_stress` (panic
+   still needs a fall), and with fewer than three witness clusters the caps
+   apply as before. This restores the page the roles change had lost: with
+   the co-signs no longer confirming, a flat-market read on three witness
+   reds had fallen to watch. `TestRegimeThreeStandingWitnessesReadAct`,
+   `TestThreeStandingWitnessesPage` (through the composer's
+   `alertShadowRegimePageRank`). The history replay moves no session and no
+   tone (inferred: the file carries funding on 42 sessions only, so three
+   standing witness clusters do not occur in it).
 3. **Disclosure.** Any cap or downgrade emits a governor record (new
    `lifecycle.governors[]`, Part 5): `{action: "severity_capped", from:
    "act", to: "watch", reason: "pending_backtest_no_tape_cosign", clusters:
@@ -443,7 +461,7 @@ Severity reachability after this design:
 |---|---|
 | observe | default / stabilization |
 | watch | any warning state; the ceiling for heuristic-only `confirmed_stress` without co-sign, and for quality-impaired confirmation |
-| act | stage `confirmed_stress` (any branch) with promotion or tape co-sign and quality-clean confirmers; a panic without a current SPY print is `confirmed_stress` since 2026-11-18 |
+| act | stage `confirmed_stress` (any branch) with promotion or tape co-sign and quality-clean confirmers, or with all three stress-witness clusters standing (2026-11-18 16:56 CET); a panic without a current SPY print is `confirmed_stress` since 2026-11-18 |
 | urgent | panic on a current tape: SPY ≤ −7%, or ≤ −4% with an eligible red — the tape is act-grade by construction |
 
 Heuristic eligible reds without a tape co-sign read watch, two or five alike;

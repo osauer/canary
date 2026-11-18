@@ -521,6 +521,15 @@ label still stays "Confirmed stress regime" so the evidence balance is not
 watered down. On a calm stage a co-sign's yellow or red does not colour the
 read; a stress witness at yellow keeps it on watch.
 
+Three stress witnesses page. When equity volatility, funding and cash credit
+are all eligible red and standing, current or on their valid schedules, a
+confirmed stress reads act and pages your phone, also on a flat market and
+without a tape co-sign. The owner ruled this on 2026-11-18 at 16:56 CET,
+answering "Yes, keep the page" to "Three real stress readings red with a
+flat market: should that page your phone?"; it restores the page the
+witness and co-sign roles had removed. Co-signs do not count toward the
+three, and with fewer than three the caps apply as before.
+
 ### Closed-date tape gating
 
 Every lifecycle term that reads the direct SPY/VIX day-change prints requires

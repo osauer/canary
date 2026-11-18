@@ -317,3 +317,41 @@ func TestOvernightStressKeepsItsBucket(t *testing.T) {
 		})
 	}
 }
+
+// The page the running build sends for three standing stress witnesses is
+// kept (owner ruling 2026-11-18 16:56 CET, "Yes, keep the page"): the
+// composer's own page rank pages the three-witness read and not the read of
+// two witnesses and a co-sign.
+func TestThreeStandingWitnessesPage(t *testing.T) {
+	read := func(witnesses int) rpc.LifecycleState {
+		r := currentRegimeRows()
+		rows := []struct {
+			meta      *rpc.RegimeIndicatorMeta
+			indicator string
+		}{
+			{&r.VolOfVol.RegimeIndicatorMeta, rpc.RegimeIndicatorVolOfVol},
+			{&r.FundingStress.RegimeIndicatorMeta, rpc.RegimeIndicatorFunding},
+			{&r.CreditSpreads.RegimeIndicatorMeta, rpc.RegimeIndicatorCredit},
+			{&r.Breadth.RegimeIndicatorMeta, rpc.RegimeIndicatorBreadth},
+		}
+		pick := rows[:3]
+		if witnesses == 2 {
+			pick = []struct {
+				meta      *rpc.RegimeIndicatorMeta
+				indicator string
+			}{rows[0], rows[1], rows[3]}
+		}
+		for _, row := range pick {
+			redRow(row.meta)
+			row.meta.Thresholds = rpc.RegimeThresholdsFor(row.indicator)
+		}
+		assembleRegimeRead(r)
+		return r.Lifecycle
+	}
+	if got := read(3); alertShadowRegimePageRank(got) == 0 {
+		t.Fatalf("three standing witnesses: stage %s at %s does not page", got.Stage, got.Severity)
+	}
+	if got := read(2); alertShadowRegimePageRank(got) != 0 {
+		t.Fatalf("two witnesses and a co-sign: stage %s at %s pages", got.Stage, got.Severity)
+	}
+}

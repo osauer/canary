@@ -244,6 +244,11 @@ calm read only rises and the early-warning thresholds are stricter than calm;
 the one loosening is a confirmed stress resting on the VIX/VIX3M row while
 that row is dark, which reads `early_warning` until the row returns.
 
+When all three stress witnesses (volatility, funding, cash credit spreads)
+are eligible red and standing, a confirmed stress reads act and pages, also
+on a flat market (owner ruling 2026-11-18 16:56 CET: "Yes, keep the page");
+co-signs do not count toward the three.
+
 Thresholds and severity governors labeled `heuristic` and `pending_backtest` are
 reviewed starting assumptions awaiting point-in-time calibration, not proven
 market laws. The result exposes governors so a lower severity beside red rows is

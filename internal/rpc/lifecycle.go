@@ -491,6 +491,14 @@ func applyRegimeSeverityGovernor(state *LifecycleState, r *RegimeSnapshotResult,
 	}
 	// The exemption requires a confirmable tape: a frozen closed-date print
 	tapePanic := state.Stage == LifecyclePanic && regimeLifecycleSPYTapeCurrent(*r) && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0)
+	// Owner ruling 2026-11-18 16:56 CET. Asked "Three real stress readings
+	// red with a flat market: should that page your phone?", the owner
+	// answered "Yes, keep the page". A confirmed stress on which all three
+	// stress-witness clusters stand is exempt from the watch caps and reads
+	// act, so the alert composer pages it as it did before the roles change.
+	if state.Stage == LifecycleConfirmedStress && regimeStandingWitnessClusters(BuildRegimeClusterBands(r)) >= 3 {
+		return
+	}
 	pending := regimePendingBacktestClusters(r, state.ConfirmedBy)
 	if len(pending) > 0 && !tapePanic && !regimeTapeCosign(r) {
 		from := state.Severity
@@ -524,6 +532,19 @@ func applyRegimeSeverityGovernor(state *LifecycleState, r *RegimeSnapshotResult,
 			Clusters: impaired,
 		})
 	}
+}
+
+// regimeStandingWitnessClusters counts the stress-witness clusters (equity
+// volatility, cash credit, funding) whose witness stands on an eligible red
+// that is current or on its valid schedule. Co-signs do not count.
+func regimeStandingWitnessClusters(cb RegimeClusterBands) int {
+	n := 0
+	for _, i := range []int{RegimeClusterEquityVol, RegimeClusterCredit, RegimeClusterFunding} {
+		if cb.witnessStands(i) && i < len(cb.witnessStandsFresh) && cb.witnessStandsFresh[i] {
+			n++
+		}
+	}
+	return n
 }
 
 func severityRank(severity string) int {
