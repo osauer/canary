@@ -22,7 +22,7 @@ const (
 	vvixRise5D         = 3.0 // % rise over 5 sessions that makes an at-level VVIX an amber transition (vvix_daily_v2)
 	hyOASYellow        = 4.0
 	hyOASRed           = 5.5
-	hyOASWidenYellow   = 0.50 // percentage points over ~20 observations
+	hyOASWidenYellow   = rpc.RegimeCreditWideningYellowPP // percentage points over ~20 observations
 	hyOASWidenRed      = 1.00
 	fundingYellowBps   = 25.0
 	fundingRedBps      = 75.0

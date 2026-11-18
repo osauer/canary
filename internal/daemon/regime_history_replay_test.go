@@ -63,14 +63,15 @@ type regimeReplayInputs struct {
 
 // regimeReplaySession is one replayed session: the stage in each series, one
 // letter per indicator in streakIndicators order (see regimeBandLetter), and,
-// for the vote-only series, the headline and the arms that open a warning.
+// for the vote-only series, the headline, the tone and the arms that open a
+// warning.
 type regimeReplaySession struct {
-	row      int
-	date     string
-	stage    [2]string
-	bands    []byte
-	headline string
-	openers  []string
+	row            int
+	date           string
+	stage          [2]string
+	bands          []byte
+	headline, tone string
+	openers        []string
 }
 
 // TestRegimeHistoryReplay is the history harness for the Regime stage vote:
@@ -166,7 +167,7 @@ func TestRegimeHistoryReplay(t *testing.T) {
 			_, meta, _ := regimeDecisionRowView(vote, ind.key())
 			s.bands = append(s.bands, regimeBandLetter(meta))
 		}
-		s.headline, s.openers = vote.Composite.Verdict, rpc.RegimeWarningOpeners(vote)
+		s.headline, s.tone, s.openers = vote.Posture.Label, vote.Posture.Tone, rpc.RegimeWarningOpeners(vote)
 		sessions = append(sessions, s)
 	}
 
@@ -176,7 +177,7 @@ func TestRegimeHistoryReplay(t *testing.T) {
 		filepath.Base(path), len(days), days[0].date, days[len(days)-1].date, len(sessions), first.date)
 	b.WriteString("A session is evaluated once, at 12:00 New York, on that day's closes and that day's official values.\n")
 	b.WriteString("vote only: an input with no reading is left out of the vote. as served: it is the unavailable row the daemon would serve.\n")
-	b.WriteString("Headlines and warning openers are those of the vote-only series.\n")
+	b.WriteString("Headlines, tones and warning openers are those of the vote-only series.\n")
 	fmt.Fprintf(&b, "Outcome: SPY over the next %d sessions against that day's close; the last %d sessions of the file have none.\n", regimeReplayAhead, regimeReplayAhead)
 
 	regimeReplayWindow(&b, "whole file", spy, sessions)
@@ -431,6 +432,7 @@ func regimeReplayStage(snap *rpc.RegimeSnapshotResult, policies map[string]regim
 	snap.SourceHealth = rpc.BuildRegimeSourceHealth(snap, snap.AsOf)
 	snap.Lifecycle = rpc.BuildRegimeLifecycle(snap)
 	snap.Composite.Verdict = rpc.RegimeHeadline(snap.Composite, snap.Lifecycle.Stage)
+	snap.Posture = rpc.BuildRegimePosture(snap)
 	return snap.Lifecycle.Stage
 }
 
@@ -501,7 +503,7 @@ func regimeReplayWindow(b *strings.Builder, name string, spy []float64, sessions
 		b.WriteByte('\n')
 	}
 
-	// What a quiet session still says in its headline, and which arms opened
+	// What each stage says in its headline and tone, and which arms opened
 	// each early warning, both as shares of all sessions in the window.
 	share := func(title, column string, keep func(regimeReplaySession) []string) {
 		count, alone := map[string]int{}, map[string]int{}
@@ -517,20 +519,17 @@ func regimeReplayWindow(b *strings.Builder, name string, spy []float64, sessions
 		if len(count) == 0 {
 			return
 		}
-		fmt.Fprintln(b, strings.TrimRight(fmt.Sprintf("%-44s %8s %8s %13s", title, "sessions", "share", column), " "))
+		fmt.Fprintln(b, strings.TrimRight(fmt.Sprintf("%-72s %8s %8s %13s", title, "sessions", "share", column), " "))
 		for _, label := range slices.Sorted(maps.Keys(count)) {
-			line := fmt.Sprintf("%-44s %8d %8s", label, count[label], regimeReplayShare(count[label], len(sessions)))
+			line := fmt.Sprintf("%-72s %8d %8s", label, count[label], regimeReplayShare(count[label], len(sessions)))
 			if column != "" {
 				line += fmt.Sprintf(" %13s", regimeReplayShare(alone[label], len(sessions)))
 			}
 			fmt.Fprintln(b, line)
 		}
 	}
-	share("headline on quiet sessions", "", func(s regimeReplaySession) []string {
-		if s.stage[0] != rpc.LifecycleQuiet {
-			return nil
-		}
-		return []string{s.headline}
+	share("headline by stage (stage · headline · tone)", "", func(s regimeReplaySession) []string {
+		return []string{s.stage[0] + " · " + s.headline + " · " + s.tone}
 	})
 	share("early_warning opened by", "the only arm", func(s regimeReplaySession) []string {
 		if s.stage[0] != rpc.LifecycleEarlyWarning {
@@ -645,9 +644,9 @@ func regimeReplayDaily(b *strings.Builder, days []regimeHistoryDay, sessions []r
 	for _, ind := range streakIndicators {
 		b.WriteString(" " + ind.key())
 	}
-	fmt.Fprintf(b, "\n%-10s %-16s %-16s %-8s %8s  %s\n", "date", regimeReplaySeries[0], regimeReplaySeries[1], "bands", "SPY", "warning openers")
+	fmt.Fprintf(b, "\n%-10s %-16s %-16s %-8s %8s  %s\n", "date", regimeReplaySeries[0], regimeReplaySeries[1], "bands", "SPY", "tone | headline | warning openers")
 	for _, s := range sessions {
-		line := fmt.Sprintf("%-10s %-16s %-16s %-8s %8.2f  %s", s.date, s.stage[0], s.stage[1], s.bands, days[s.row].spy, strings.Join(s.openers, " "))
+		line := fmt.Sprintf("%-10s %-16s %-16s %-8s %8.2f  %s | %s | %s", s.date, s.stage[0], s.stage[1], s.bands, days[s.row].spy, s.tone, s.headline, strings.Join(s.openers, " "))
 		fmt.Fprintln(b, strings.TrimRight(line, " "))
 	}
 }

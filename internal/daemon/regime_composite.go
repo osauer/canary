@@ -98,11 +98,21 @@ type regimeEvidenceRow struct {
 	status  string
 	band    string
 	message string
+	// context marks a co-sign row that is red while no stress witness
+	// stands: shown, but not a stress reading on its own.
+	context bool
 }
 
 func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 	if r == nil {
 		return nil
+	}
+	// A co-sign row's red counts only while its cluster stays red in the
+	// shared combination, which takes a standing stress witness.
+	confirmed := rpc.BuildRegimeClusterBands(r).Confirmed
+	context := func(row regimeEvidenceRow, cluster int) regimeEvidenceRow {
+		row.context = row.band == "red" && confirmed[cluster] != "red"
+		return row
 	}
 	return []regimeEvidenceRow{
 		{
@@ -119,13 +129,13 @@ func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 			band:    bandForVolOfVol(r.VolOfVol),
 			message: r.VolOfVol.ErrorMessage,
 		},
-		{
+		context(regimeEvidenceRow{
 			scope:   "hyg_spy_divergence",
 			name:    "ETF credit proxy",
 			status:  r.HYGSPYDivergence.Status,
 			band:    bandForHYGSPY(r.HYGSPYDivergence),
 			message: r.HYGSPYDivergence.ErrorMessage,
-		},
+		}, rpc.RegimeClusterCredit),
 		{
 			scope:   "credit_spreads",
 			name:    "cash credit spreads",
@@ -140,27 +150,27 @@ func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 			band:    bandForFundingStress(r.FundingStress),
 			message: r.FundingStress.ErrorMessage,
 		},
-		{
+		context(regimeEvidenceRow{
 			scope:   "usd_jpy",
 			name:    "FX carry proxy",
 			status:  r.USDJPY.Status,
 			band:    bandForUSDJPY(r.USDJPY),
 			message: r.USDJPY.ErrorMessage,
-		},
-		{
+		}, rpc.RegimeClusterFX),
+		context(regimeEvidenceRow{
 			scope:   "gamma_zero",
 			name:    "dealer gamma",
 			status:  r.GammaZero.Status,
 			band:    bandForGamma(r.GammaZero),
 			message: r.GammaZero.Envelope.Error,
-		},
-		{
+		}, rpc.RegimeClusterGamma),
+		context(regimeEvidenceRow{
 			scope:   "breadth",
 			name:    "breadth",
 			status:  r.Breadth.Status,
 			band:    bandForBreadth(r.Breadth),
 			message: "",
-		},
+		}, rpc.RegimeClusterBreadth),
 	}
 }
 
@@ -227,7 +237,7 @@ func hasStaleRegimeEvidence(rows []regimeEvidenceRow) bool {
 func regimeDominantRisks(rows []regimeEvidenceRow) []string {
 	var out []string
 	for _, row := range rows {
-		if row.band == "red" {
+		if row.band == "red" && !row.context {
 			out = append(out, row.name)
 		}
 	}
@@ -241,7 +251,10 @@ func regimePunchLine(rows []regimeEvidenceRow) string {
 	groups := map[string][]string{}
 	for _, row := range rows {
 		key := row.band
-		if key == "" {
+		switch {
+		case row.context:
+			key = "context"
+		case key == "":
 			key = unrankedEvidenceState(row.status)
 		}
 		groups[key] = append(groups[key], row.name)
@@ -268,7 +281,7 @@ func regimePunchLine(rows []regimeEvidenceRow) string {
 		}
 		parts = append(parts, fmt.Sprintf("%s %s %s", joinHuman(names), verb, spec.word))
 	}
-	if len(parts) == 0 {
+	if len(parts) == 0 && len(groups["context"]) == 0 {
 		return "No regime indicators produced a rankable reading."
 	}
 	if names := staleRegimeEvidenceNames(rows); len(names) > 0 {
@@ -278,7 +291,14 @@ func regimePunchLine(rows []regimeEvidenceRow) string {
 		}
 		parts = append(parts, fmt.Sprintf("%s %s ranked from stale data", joinHuman(names), verb))
 	}
-	return strings.Join(parts, "; ") + "."
+	sentences := []string{}
+	if len(parts) > 0 {
+		sentences = append(sentences, strings.Join(parts, "; ")+".")
+	}
+	if names := groups["context"]; len(names) > 0 {
+		sentences = append(sentences, rpc.RegimeContextNote+": "+joinHuman(names)+".")
+	}
+	return strings.Join(sentences, " ")
 }
 
 func staleRegimeEvidenceNames(rows []regimeEvidenceRow) []string {

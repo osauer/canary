@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-11-18 10:19 CET
+**Last update:** 2026-11-18 11:14 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -311,18 +311,22 @@ only when a witness stands.
   standing witness plus one co-sign red confirms; two co-signs never do.
 - `early_warning` — a confirmed eligible red; or a witness cluster that is raw
   red but provisional or not standing (a day-one term inversion, an isolated
-  VVIX red); or three clusters at yellow or worse of which at least one is a
-  witness at yellow; or `SPY ≤ −1.5%`; or `VIX +10%`. A red or yellow in
-  co-sign clusters alone opens nothing. All of it only when the required
-  input set is usable.
-- `opportunity` — no red, at most one yellow, at least three ranked clusters,
-  `SPY ≥ +1.5%` and `VIX ≤ −10%`.
-- `stabilization` — no red, one or two yellows, and `SPY ≥ +1%` or
-  `VIX ≤ −10%`. A co-sign red reads yellow here, so a co-sign-only day with
-  such a tape is `stabilization`.
-- `quiet` — none of the above. A quiet read still names every provisional red
-  in `unconfirmed` and repeats it in `suppressed`, so a co-sign red stays on
-  the panel as context.
+  VVIX red); or a current cash credit row whose HY OAS is 0.50 pp or more
+  wider over 20 observations, the row's own yellow step; or three clusters at
+  yellow or worse of which at least one is a witness at yellow; or
+  `SPY ≤ −1.5%`; or `VIX +10%`. A red or yellow in co-sign clusters alone
+  opens nothing. All of it only when the required input set is usable.
+- `opportunity` — no red, at most one stress witness at yellow, at least three
+  ranked clusters, `SPY ≥ +1.5%` and `VIX ≤ −10%`.
+- `stabilization` — no red, one or two stress witnesses at yellow, and
+  `SPY ≥ +1%` or `VIX ≤ −10%`. Co-sign yellows are not counted in either: a
+  day whose only yellows are co-signs has nothing to stabilize from and is
+  `quiet`, and co-sign yellows do not hold a rebound back.
+- `quiet` — none of the above.
+
+Every provisional red is named in `unconfirmed`. The co-sign reds among them
+are repeated in `suppressed` in every stage, so a reader tells a co-sign shown
+as context from a witness waiting to confirm.
 
 `rpc.RegimeWarningOpeners` names the arms that open a warning on a snapshot;
 the stage vote and the required-input gate read the same list.
@@ -460,9 +464,16 @@ match wins:
 | eligible red ≥ 3 | Broad stress regime | stress |
 | stage == confirmed_stress and severity == watch | Confirmed stress regime | watch |
 | stage == confirmed_stress and severity >= act | Confirmed stress regime | stress |
-| raw red ≥ 1 (provisional or single eligible without tape) | Stress signal present | watch |
+| stage is quiet, opportunity or stabilization | Normal regime | normal; watch for stabilization, or while a stress witness is yellow |
+| a red cluster (a witness red, eligible or not, or a co-sign red beside a standing witness) | Stress signal present | watch |
+| one stress witness warning without confirming (a held-back witness red, or cash credit widening) | Watch: one unconfirmed stress signal | watch |
+| more than one | Watch: unconfirmed stress signals | watch |
 | yellow ≥ 3 | Elevated stress watch | watch |
-| otherwise | Normal regime | normal |
+| otherwise (an early warning the tape alone opened) | Normal regime | watch |
+
+A co-sign's red or yellow changes neither the headline nor the tone. Where a
+surface needs a sentence for it, the sentence is "Context, not a stress
+reading on its own: <names>." (`rpc.RegimeContextNote`).
 
 This fixes the red==2 drift (incident headline), makes "Broad" mean broad
 again, and removes the label/stage mismatch when a tape-corroborated single
@@ -908,7 +919,7 @@ act on differently. That is a caution about reading stage-agreement percentages
 as if they measured impact: measure severity and the action it implies, not
 the stage label.
 
-## Part 8 — Stress witnesses and co-signs (2026-11-18 10:19 CET)
+## Part 8 — Stress witnesses and co-signs (2026-11-18 11:14 CET)
 
 Owner instruction, 2026-11-18 08:29 CET, as recorded in the regime-fix handoff
 of that morning: a Regime warning on every trading day is wrong and needs a
@@ -985,21 +996,12 @@ fall, 13 before its low, and again from 2026-09-09, when no 8% fall followed.
 Dealer gamma could not be measured; the product describes it as a conditional
 amplifier, which is a co-sign's job.
 
-Stage shares over the same sessions, before and after:
-
-| Stage | Before | After | After: low 5% or more below | After: low 8% or more below |
-|---|---|---|---|---|
-| `quiet` | 47% | 71% | 10% | 2% |
-| `early_warning` | 40% | 17% | 17% | 6% |
-| `confirmed_stress` | 6% | 5% | 17% | 2% |
-| `panic` | 3% | 0.4% | three sessions | |
-| `stabilization` | 4% | 7% | 14% | 3% |
-
 Before the change `early_warning` was followed by a 5% low after 12% of
 sessions, the base rate. Of the four falls of 8% or more that the replay
 covers (highs of 2023-07-31, 2024-07-16, 2025-02-19 and 2026-01-27),
-`early_warning` came 16 sessions before the high, 2 after, 16 before and 6
-before; `confirmed_stress` came before the low in three of the four.
+`early_warning` now comes 16 sessions before the high, 2 after, 16 before and
+6 before; `confirmed_stress` comes before the low in three of the four. The
+stage shares are under Result below.
 
 ### What this rests on, and what still bounds risk
 
@@ -1010,16 +1012,9 @@ promotion criteria in Part 4 require; those criteria still bind every
 threshold set.
 
 A session that now reads `quiet` moves the trading rulebook's regime-stage
-latch from its early-warning bucket to calm on the days only a co-sign is red.
-A co-sign-only day with SPY up 1% or VIX down 10% reads `stabilization`, which
-the rulebook keeps in its early-warning bucket: 66 sessions in the replay, 42
-of them with no witness row at yellow. Over the replay the share of sessions
-in the early-warning bucket or worse falls from 53% to 29%.
-
-272 sessions that warned before the change no longer do (241 `quiet`, 30
-`stabilization`, one `opportunity`). None was followed by a low 8% or more
-below and 9% by a low 5% or more below, under the base rate; no session warns
-now that did not before.
+latch from its early-warning bucket to calm on the days only a co-sign is
+red. `stabilization` stays in the early-warning bucket and needs a stress
+witness at yellow.
 
 What still bounds risk on such a day: the rulebook's calm thresholds still
 apply; every witness still warns from its first red session; the SPY and VIX
@@ -1029,24 +1024,78 @@ co-signs foresaw. Among the sessions with 20 more after them, none of the 278
 with the proxy red and none of the 46 with breadth red was followed by a low
 8% or more below; one of the 126 with the yen red was.
 
-### Open: the cash row's yellow
+### Cash credit widening opens a warning
 
-The strongest condition in the table is a yellow. A cash yellow opens a
-warning only through the three-yellows arm, so of the 36 sessions in the
-replay with HY OAS 0.5 pp wider, 30 read `early_warning` or worse and six do
-not: 2026-10-01, 2026-10-21 and four sessions from 2025-03-17 to 2025-03-20,
-three weeks before the April 2025 low. Those four did not warn before this
-change either. Whether a widening should open a warning by itself is a
-threshold decision and is not made here.
+The strongest condition in the table is a yellow: a 0.5 pp widening of HY OAS
+is the cash row's yellow step. From that step the cash row opens
+`early_warning` as a stress witness that warns without a red, provided the
+row is current. It counts with the provisional witnesses in the headline and
+has its own opener, `cash_widening`: the credit cluster can hold the proxy's
+red at the same time, and that red stays a co-sign shown as context. A yellow
+from the level alone (HY OAS between 4.0 and 5.5 without widening) opens
+nothing. The number has one copy, `rpc.RegimeCreditWideningYellowPP`, which
+the row classifiers also band on.
 
-### Not changed
+The evidence is thin and is stated as such: 36 sessions in five runs
+(2024-08-05, 2025-03-11 to 03-20, 2025-03-28 to 04-24, 2026-10-01 and
+2026-10-14 to 10-22), followed by a 5% low on 44% and an 8% low on 35%,
+against 12% and 3% for all sessions. Five runs are three market episodes.
+Four of those sessions, 2025-03-17 to 03-20, read `quiet` or `stabilization`
+before this opener existed, three weeks before the April 2025 low.
 
-The headline table (`rpc.RegimeHeadline`) still reads "Watch: one unconfirmed
-stress signal" for any provisional red, a co-sign's included, and the display
-tone is watch on any yellow cluster: in the replay 24% of all sessions read
-`quiet` under a Watch headline. The stress read (`internal/stress`) keeps its
-own rules on the same cluster bands. What those labels and rows should say is
-a separate decision.
+### Every surface follows the vote
+
+- **Headline and tone** (`rpc.RegimeHeadline`, `BuildRegimePosture`). A calm
+  stage reads "Normal regime". The Watch headlines count stress witnesses that
+  warn without confirming, and `composite.cluster_provisional_red_count` is
+  that count. A co-sign's yellow or red does not colour a calm read; a stress
+  witness at yellow still keeps it on watch.
+- **Regime summary** (`summary.punch_line`, `summary.dominant_risks`). A
+  co-sign red with no witness beside it is named in the context sentence, not
+  as stressed and not as a dominant risk.
+- **Stress read** (`internal/stress`). `market.warning_openers` carries
+  `rpc.RegimeWarningOpeners` for the regime read behind the summary, and the
+  market rows follow it: market pressure is partial only when a cluster arm
+  opens a warning or the tape does; three yellow clusters are a deteriorating
+  tape only with a witness among them; the fast carry unwind reads the
+  confirmed FX band; and "an early warning is flashing" names only a witness.
+  A co-sign indicator that is red with no witness standing is amber and
+  carries the context sentence.
+- **App.** A provisional warning is an unconfirmed red that
+  `market.warning_openers` names as a provisional witness. Any other
+  unconfirmed red is context.
+
+Over the replay every session that reads `quiet` reads "Normal regime". 193
+of the 744 quiet sessions keep the watch tone because a stress witness is
+yellow; 191 did before any of this. 48 `early_warning` sessions read "Normal
+regime" on a watch tone: the tape alone opened them.
+
+### Result
+
+| Stage | Before | After | After: low 5% or more below | After: low 8% or more below |
+|---|---|---|---|---|
+| `quiet` | 47% | 74% | 10% | 2% |
+| `early_warning` | 40% | 17% | 18% | 8% |
+| `confirmed_stress` | 6% | 5% | 17% | 2% |
+| `panic` | 3% | 0.4% | three sessions | |
+| `stabilization` | 4% | 2% | 25% of 20 | 0% |
+| `opportunity` | 1% | 1% | 0% of 10 | 0% |
+
+270 sessions that warned before no longer do; none was followed by a low 8%
+or more below and 9% by a low 5% or more below, under the base rate. Four
+sessions warn that did not: the March 2025 widening. The share of sessions in
+the rulebook's early-warning bucket or worse falls from 53% to 25%.
+
+### Lifecycle fingerprint v3
+
+The lifecycle fingerprint is `lifecycle-fp-v3`. Its fields are unchanged; what
+`confirmed` and `suppressed` mean changed. The alert producer therefore
+refuses a regime snapshot the previous binary retained until the first
+publication replaces it, and keys afresh after that. The bump does not mark
+the decision events: a decision line carries the regime fingerprint, which
+hashes the lifecycle's fields and no lifecycle version, so decisions either
+side of this change are told apart by date and commit, as at the change of
+2026-10-05.
 
 ## Review log
 

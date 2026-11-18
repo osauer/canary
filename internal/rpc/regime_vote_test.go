@@ -60,8 +60,9 @@ func regimeVote(r *RegimeSnapshotResult) LifecycleState {
 //
 // The shapes are the ones the history replay found: the HYG proxy below its
 // average on most sessions of 2026 while cash spreads read calm, proxy plus
-// breadth reading confirmed stress on 2026-10-14, and proxy, breadth and yen
-// reading panic on 2026-09-10 with SPY flat.
+// breadth reading confirmed stress on 2026-10-14 (now an early warning, which
+// the widening cash spread opens), and proxy, breadth and yen reading panic
+// on 2026-09-10 with SPY flat.
 func TestRegimeVoteOnlyAStressWitnessStartsAWarning(t *testing.T) {
 	if calm := regimeVote(calmRegime()); calm.Stage != LifecycleQuiet || calm.Readiness != "ready" {
 		t.Fatalf("the calm fixture reads %s/%s, want quiet/ready", calm.Stage, calm.Readiness)
@@ -83,7 +84,7 @@ func TestRegimeVoteOnlyAStressWitnessStartsAWarning(t *testing.T) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 			red(&r.Breadth.RegimeIndicatorMeta, true)
 			r.CreditSpreads.Band, r.CreditSpreads.HY20DChange = "yellow", new(0.5)
-		}, LifecycleQuiet},
+		}, LifecycleEarlyWarning},
 		{"proxy, breadth and yen red on a flat tape", func(r *RegimeSnapshotResult) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 			red(&r.Breadth.RegimeIndicatorMeta, true)
@@ -216,5 +217,137 @@ func TestRegimeWarningOpenersNameTheArm(t *testing.T) {
 		if got := RegimeWarningOpeners(r); !slices.Equal(got, tc.want) {
 			t.Errorf("%s: openers = %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// regimePosture finishes the snapshot as the daemon does and returns what a
+// reader sees: the stage, the headline and the tone.
+func regimePosture(r *RegimeSnapshotResult) RegimePosture {
+	ApplyRegimeClusterTallies(&r.Composite, BuildRegimeClusterBands(r))
+	r.Lifecycle = regimeVote(r)
+	return BuildRegimePosture(r)
+}
+
+// Every surface follows the vote. A co-sign alone is context: it changes
+// neither the stage, nor the headline, nor the tone, and it does not hold a
+// rebound back from reading as one. The Watch headlines are for a stress
+// witness that warns without confirming, which includes cash credit spreads
+// widening by the cash row's own yellow step.
+func TestRegimeHeadlineAndToneFollowTheVote(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		shape              func(r *RegimeSnapshotResult)
+		stage, label, tone string
+	}{
+		{"proxy red alone", func(r *RegimeSnapshotResult) {
+			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+		}, LifecycleQuiet, "Normal regime", RegimeToneNormal},
+		{"proxy, yen and breadth yellow", func(r *RegimeSnapshotResult) {
+			r.HYGSPYDivergence.Band, r.USDJPY.Band, r.Breadth.Band = "yellow", "yellow", "yellow"
+		}, LifecycleQuiet, "Normal regime", RegimeToneNormal},
+		{"proxy red on a day VIX jumps 12%", func(r *RegimeSnapshotResult) {
+			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+			r.VIXTermStructure.VIXChangePct = new(12.0)
+		}, LifecycleEarlyWarning, "Normal regime", RegimeToneWatch},
+		{"proxy red on a day SPY gains 1%", func(r *RegimeSnapshotResult) {
+			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+			r.HYGSPYDivergence.SPYChangePct = new(1.0)
+		}, LifecycleQuiet, "Normal regime", RegimeToneNormal},
+		{"proxy and breadth yellow on a strong rebound", func(r *RegimeSnapshotResult) {
+			r.HYGSPYDivergence.Band, r.Breadth.Band = "yellow", "yellow"
+			r.HYGSPYDivergence.SPYChangePct, r.VIXTermStructure.VIXChangePct = new(1.6), new(-11.0)
+		}, LifecycleOpportunity, "Normal regime", RegimeToneNormal},
+		{"term inversion on its first day", func(r *RegimeSnapshotResult) {
+			red(&r.VIXTermStructure.RegimeIndicatorMeta, false)
+		}, LifecycleEarlyWarning, "Stress signal present", RegimeToneWatch},
+		{"isolated VVIX red", func(r *RegimeSnapshotResult) {
+			red(&r.VolOfVol.RegimeIndicatorMeta, true)
+			r.VolOfVol.Last = new(112.0)
+		}, LifecycleEarlyWarning, "Watch: one unconfirmed stress signal", RegimeToneWatch},
+		{"yellow VVIX alone", func(r *RegimeSnapshotResult) {
+			r.VolOfVol.Band = "yellow"
+		}, LifecycleQuiet, "Normal regime", RegimeToneWatch},
+		{"yellow VVIX on a day SPY gains 1%", func(r *RegimeSnapshotResult) {
+			r.VolOfVol.Band = "yellow"
+			r.HYGSPYDivergence.SPYChangePct = new(1.0)
+		}, LifecycleStabilization, "Normal regime", RegimeToneWatch},
+		{"cash credit 0.5 points wider", func(r *RegimeSnapshotResult) {
+			r.CreditSpreads.Band, r.CreditSpreads.HY20DChange = "yellow", new(0.5)
+		}, LifecycleEarlyWarning, "Watch: one unconfirmed stress signal", RegimeToneWatch},
+		{"cash credit at 4.5 without widening", func(r *RegimeSnapshotResult) {
+			r.CreditSpreads.Band, r.CreditSpreads.HYOAS = "yellow", new(4.5)
+		}, LifecycleQuiet, "Normal regime", RegimeToneWatch},
+		{"2025-03-17: yellow term structure and proxy, cash credit widening", func(r *RegimeSnapshotResult) {
+			r.VIXTermStructure.Band, r.HYGSPYDivergence.Band = "yellow", "yellow"
+			r.CreditSpreads.Band, r.CreditSpreads.HY20DChange = "yellow", new(0.62)
+		}, LifecycleEarlyWarning, "Watch: one unconfirmed stress signal", RegimeToneWatch},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := calmRegime()
+			tc.shape(r)
+			got := regimePosture(r)
+			if got.Stage != tc.stage || got.Label != tc.label || got.Tone != tc.tone {
+				t.Fatalf("stage %s, headline %q, tone %s; want %s, %q, %s", got.Stage, got.Label, got.Tone, tc.stage, tc.label, tc.tone)
+			}
+		})
+	}
+}
+
+// Cash credit widening opens a warning as the credit witness, but only from
+// a current cash row: an old series is a data gap, not a warning.
+func TestRegimeCashCreditWideningOpensAWarning(t *testing.T) {
+	r := calmRegime()
+	r.CreditSpreads.Band, r.CreditSpreads.HY20DChange = "yellow", new(0.5)
+	if got := RegimeWarningOpeners(r); !slices.Equal(got, []string{"cash_widening"}) {
+		t.Fatalf("openers = %v, want the cash widening", got)
+	}
+
+	r.CreditSpreads.Status = RegimeStatusStale
+	r.CreditSpreads.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
+	if got := RegimeWarningOpeners(r); len(got) != 0 {
+		t.Fatalf("openers from an overdue cash row = %v, want none", got)
+	}
+}
+
+// A co-sign red is listed as suppressed context in every stage, so a reader
+// can tell it from a witness that is waiting to confirm.
+func TestRegimeCoSignRedIsSuppressedContextInEveryStage(t *testing.T) {
+	r := calmRegime()
+	red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+	red(&r.VIXTermStructure.RegimeIndicatorMeta, false)
+	got := regimeVote(r)
+	if got.Stage != LifecycleEarlyWarning || !slices.Equal(got.Unconfirmed, []string{"vol", "credit"}) || !slices.Equal(got.Suppressed, []string{"credit"}) {
+		t.Fatalf("stage %s, unconfirmed %v, suppressed %v; want early_warning with both unconfirmed and only credit suppressed", got.Stage, got.Unconfirmed, got.Suppressed)
+	}
+}
+
+// The lifecycle fingerprint is versioned by what its fields mean. v3: a
+// co-sign red confirms only beside a standing stress witness, and suppressed
+// names the co-sign reds in every stage.
+func TestLifecycleFingerprintVersion(t *testing.T) {
+	if got := BuildLifecycleFingerprint(LifecycleState{}).Version; got != "lifecycle-fp-v3" {
+		t.Fatalf("lifecycle fingerprint version = %q, want lifecycle-fp-v3", got)
+	}
+}
+
+// The credit cluster can hold both roles at once: the proxy red, a co-sign,
+// beside a cash row that is widening, a witness that warns without a red.
+// The widening opens the warning; the proxy red stays context, so no surface
+// names the proxy as the warning that is waiting to confirm (2026-10-14).
+func TestRegimeProxyRedBesideCashWideningStaysContext(t *testing.T) {
+	r := calmRegime()
+	red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+	red(&r.Breadth.RegimeIndicatorMeta, true)
+	r.CreditSpreads.Band, r.CreditSpreads.HY20DChange = "yellow", new(0.5)
+	posture := regimePosture(r)
+	got := r.Lifecycle
+	if got.Stage != LifecycleEarlyWarning || posture.Label != "Watch: one unconfirmed stress signal" {
+		t.Fatalf("stage %s, headline %q; want early_warning under the one-signal Watch headline", got.Stage, posture.Label)
+	}
+	if openers := RegimeWarningOpeners(r); !slices.Equal(openers, []string{"cash_widening"}) {
+		t.Fatalf("openers = %v, want the cash widening alone", openers)
+	}
+	if want := []string{"credit", "breadth"}; !slices.Equal(got.Unconfirmed, want) || !slices.Equal(got.Suppressed, want) {
+		t.Fatalf("unconfirmed %v, suppressed %v; want both co-sign reds in both lists", got.Unconfirmed, got.Suppressed)
 	}
 }

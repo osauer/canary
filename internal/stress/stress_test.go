@@ -446,13 +446,13 @@ func TestHYGSPYIndicatorShowsGapAndProvisionalConfirmation(t *testing.T) {
 		}
 	}
 	if got.Status != "amber" {
-		t.Fatalf("status = %q, want amber while confirmation is provisional", got.Status)
+		t.Fatalf("status = %q, want amber while the proxy red counts for nothing", got.Status)
 	}
 	if !strings.Contains(got.Reading, "0.24% below 50d 79.70") {
 		t.Fatalf("reading = %q, want measured gap and average", got.Reading)
 	}
-	if !strings.Contains(got.Comment, "confirmation starts at 0.25%") {
-		t.Fatalf("comment = %q, want confirmation floor", got.Comment)
+	if !strings.Contains(got.Comment, "counts beside a stress witness from 0.25% below the 50-day average") {
+		t.Fatalf("comment = %q, want the floor from which the proxy counts", got.Comment)
 	}
 
 	r.HYGSPYDivergence.Eligibility = nil
@@ -463,7 +463,11 @@ func TestHYGSPYIndicatorShowsGapAndProvisionalConfirmation(t *testing.T) {
 		}
 	}
 
+	// The proxy is a co-sign: eligible, it reads red only beside a standing
+	// stress witness.
 	r.HYGSPYDivergence.Eligibility = &rpc.RegimeEligibility{Eligible: true}
+	r.VIXTermStructure.Band = "red"
+	r.VIXTermStructure.Eligibility = &rpc.RegimeEligibility{Eligible: true}
 	rows = stressMarketIndicators(r, stressTestNow)
 	for _, row := range rows {
 		if row.Name == "HYG vs SPY" && row.Status != "red" {

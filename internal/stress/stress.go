@@ -898,6 +898,9 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 	slices.Sort(out.YellowClusterNames)
 	slices.Sort(out.EligibleRedClusterNames)
 	slices.Sort(out.UnconfirmedRedClusterNames)
+	// The regime's own list of what opens a market warning decides which of
+	// those reds is a warning and which is context (stressUnconfirmedReds).
+	out.WarningOpeners = rpc.RegimeWarningOpeners(&r)
 	slices.Sort(out.AmbiguousClusters)
 	slices.Sort(out.PartialClusters)
 	slices.Sort(out.ComputingClusters)
@@ -937,6 +940,23 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 		now = time.Now()
 	}
 	contextClusters := stressMarketContextClusters(r, now)
+	// A co-sign row's red counts only while its cluster stays red in the
+	// shared combination, which takes a standing stress witness.
+	confirmed := rpc.BuildRegimeClusterBands(&r).Confirmed
+	// served is the row's served band, which holds a red through its exit
+	// hysteresis after the renderer's own band has left it.
+	coSign := func(indicator, cluster, served string, band regimerows.Band) bool {
+		switch indicator {
+		case rpc.RegimeIndicatorHYGSPY, rpc.RegimeIndicatorUSDJPY, rpc.RegimeIndicatorGammaZero, rpc.RegimeIndicatorBreadth:
+			i := slices.Index(rpc.RegimeClusterNames, cluster)
+			return (band == regimerows.BandRed || served == "red") && i >= 0 && i < len(confirmed) && confirmed[i] != "red"
+		}
+		return false
+	}
+	servedBand := map[string]string{
+		rpc.RegimeIndicatorHYGSPY: r.HYGSPYDivergence.Band, rpc.RegimeIndicatorUSDJPY: r.USDJPY.Band,
+		rpc.RegimeIndicatorGammaZero: r.GammaZero.Band, rpc.RegimeIndicatorBreadth: r.Breadth.Band,
+	}
 	rows := []struct {
 		indicator   string
 		cluster     string
@@ -972,12 +992,22 @@ func stressMarketIndicators(r rpc.RegimeSnapshotResult, now time.Time) []StressM
 		if item.cluster == "gamma" && contextOnly && strings.EqualFold(strings.TrimSpace(item.status), rpc.RegimeStatusStale) {
 			reading = "Last-session read"
 		}
+		status := stressIndicatorStatus(item.row.Band, item.status, contextOnly, item.eligibility)
+		eligibility := stressEligibilityComment(item.indicator, item.eligibility)
+		if coSign(item.indicator, item.cluster, servedBand[item.indicator], item.row.Band) {
+			// Shown, but not a stress reading: amber, never the red of a
+			// reading that counts.
+			if status == "red" {
+				status = "amber"
+			}
+			eligibility = stressCoSignComment(item.indicator, item.eligibility)
+		}
 		out = append(out, StressMarketIndicator{
 			Name:    item.row.Name,
-			Status:  stressIndicatorStatus(item.row.Band, item.status, contextOnly, item.eligibility),
+			Status:  status,
 			AsOf:    stressIndicatorAsOf(item.asOf, item.date, item.row.AsOf),
 			Reading: reading,
-			Comment: stressIndicatorComment(item.row, reading, contextOnly, stressEligibilityComment(item.indicator, item.eligibility)),
+			Comment: stressIndicatorComment(item.row, reading, contextOnly, eligibility),
 			Trip:    stressBandTrip(item.row.Band, item.thresholds, item.trip),
 		})
 	}
@@ -1102,6 +1132,23 @@ func stressEligibilityComment(indicator string, eligibility *rpc.RegimeEligibili
 		}
 	}
 	return "Provisional: waiting for confirmation"
+}
+
+// stressCoSignComment words a co-sign row that is red with no stress witness
+// beside it. For the HYG row it keeps the figure its own gate still asks for.
+func stressCoSignComment(indicator string, eligibility *rpc.RegimeEligibility) string {
+	if indicator == rpc.RegimeIndicatorHYGSPY && eligibility != nil && !eligibility.Eligible {
+		gate, _ := rpc.RegimeGateFor(indicator)
+		if slices.Contains(eligibility.Reasons, "depth_below_min") {
+			return fmt.Sprintf("%s; counts beside a stress witness from %.2f%% below the 50-day average", rpc.RegimeContextNote, gate.MinDepth)
+		}
+		for _, reason := range eligibility.Reasons {
+			if strings.HasPrefix(reason, "streak_") {
+				return fmt.Sprintf("%s; counts beside a stress witness after %d sessions", rpc.RegimeContextNote, gate.MinSessions)
+			}
+		}
+	}
+	return rpc.RegimeContextNote
 }
 
 func stressGammaDegraded(r rpc.RegimeSnapshotResult) bool {
@@ -1282,12 +1329,12 @@ func stressMarketRow(m StressMarketSummary) StressRow {
 		return stressRow("Stress pending confirmation", risk.DirectionDefensive, risk.SeverityWatch, "Stress clusters are visible but not confirmed yet (need more depth, persistence, or fresh data); hold de-risking at watch.", evidence)
 	case m.RedClusters == 1 && m.YellowClusters >= 1:
 		return stressRow("Early stress filtered", risk.DirectionDefensive, risk.SeverityWatch, "Wait for a second independent red cluster before major de-risking.", evidence)
-	case m.YellowClusters >= 3:
+	case m.YellowClusters >= 3 && stressClusterWarning(m):
 		return stressRow("Deteriorating tape", risk.DirectionDefensive, risk.SeverityWatch, "Freeze new risk and review hedges; no urgent action without red confirmation.", evidence)
 	default:
-		if len(m.UnconfirmedRedClusterNames) > 0 {
+		if witnesses, _ := stressUnconfirmedReds(m); len(witnesses) > 0 {
 			// The overall summary calls this warning out; the check still
-			return stressRow("Market stress", "", risk.SeverityObserve, "An early warning is flashing ("+stressClusterList(m.UnconfirmedRedClusterNames)+" red, not confirmed); below the de-risking trigger.", evidence)
+			return stressRow("Market stress", "", risk.SeverityObserve, "An early warning is flashing ("+stressClusterList(witnesses)+" red, not confirmed); below the de-risking trigger.", evidence)
 		}
 		return stressRow("Market stress", "", risk.SeverityObserve, "No market-regime de-risking trigger.", evidence)
 	}
@@ -1669,10 +1716,33 @@ func confirmedMarketStress(m StressMarketSummary) bool {
 	return (m.EligibleRedClusters >= 2 && len(unhealthyConfirmingClusters(m)) == 0 && stressGovernedSeverityAllows(m, risk.SeverityAct)) || confirmedTapeStress(m)
 }
 
+// stressClusterWarning reports whether a cluster arm opens a market warning
+// in the regime read: a red that confirms, a stress witness that warns
+// without confirming, or three clusters at yellow or worse with a witness
+// among them. The regime's tape arms are left out; Stress has its own.
+func stressClusterWarning(m StressMarketSummary) bool {
+	return slices.ContainsFunc(m.WarningOpeners, func(arm string) bool {
+		return arm != rpc.RegimeWarningSPYTape && arm != rpc.RegimeWarningVIXTape
+	})
+}
+
+// stressUnconfirmedReds splits the unconfirmed reds by role: a stress
+// witness that is red without confirming is a warning, a co-sign red with no
+// witness beside it is context.
+func stressUnconfirmedReds(m StressMarketSummary) (witnesses, context []string) {
+	for _, name := range m.UnconfirmedRedClusterNames {
+		if slices.Contains(m.WarningOpeners, rpc.RegimeWarningProvisionalWitness+":"+name) {
+			witnesses = append(witnesses, name)
+		} else {
+			context = append(context, name)
+		}
+	}
+	return witnesses, context
+}
+
 func partialMarketPressure(m StressMarketSummary) bool {
 	return m.RedClusters >= 1 ||
-		m.YellowClusters >= 3 ||
-		len(m.UnconfirmedRedClusterNames) > 0 ||
+		stressClusterWarning(m) ||
 		(stressTapeConfirmable(m) &&
 			(pctAtMost(m.SPYChangePct, stressPolicy.SPYDropPct) ||
 				pctAtLeast(m.VIXChangePct, stressPolicy.VIXSpikePct)))
@@ -1967,8 +2037,8 @@ func stressDecisionSummary(r StressResult) string {
 }
 
 func stressPartialMarketSummary(m StressMarketSummary) string {
-	if m.EligibleRedClusters == 0 && len(m.UnconfirmedRedClusterNames) > 0 {
-		return "An early market warning is flashing (" + stressClusterList(m.UnconfirmedRedClusterNames) + " red, not confirmed yet)"
+	if witnesses, _ := stressUnconfirmedReds(m); m.EligibleRedClusters == 0 && len(witnesses) > 0 {
+		return "An early market warning is flashing (" + stressClusterList(witnesses) + " red, not confirmed yet)"
 	}
 	if m.EligibleRedClusters >= 2 && !stressGovernedSeverityAllows(m, risk.SeverityAct) {
 		return "Confirmed market stress is held at watch by regime policy"
@@ -3389,8 +3459,13 @@ func stressMarketEvidence(m StressMarketSummary) string {
 	if len(parts) == 0 {
 		parts = append(parts, "no stressed clusters")
 	}
-	if len(m.UnconfirmedRedClusterNames) > 0 {
-		parts = append(parts, "red but unconfirmed: "+stressClusterList(m.UnconfirmedRedClusterNames))
+	witnesses, context := stressUnconfirmedReds(m)
+	if len(witnesses) > 0 {
+		parts = append(parts, "red but unconfirmed: "+stressClusterList(witnesses))
+	}
+	if len(context) > 0 {
+		// Lower case: this is one clause in a semicolon list.
+		parts = append(parts, strings.ToLower(rpc.RegimeContextNote[:1])+rpc.RegimeContextNote[1:]+": "+stressClusterList(context))
 	}
 	total := m.RankedClusters + m.UnrankedClusters
 	if m.RankedClusters < total {
@@ -3462,8 +3537,9 @@ func confirmedTapeStress(m StressMarketSummary) bool {
 }
 
 func stressFastCarryUnwind(m StressMarketSummary) bool {
-	fxRed := slices.Contains(m.RedClusterNames, "fx") || slices.Contains(m.UnconfirmedRedClusterNames, "fx")
-	if !fxRed {
+	// The confirmed FX band: the yen is a co-sign, red there only while a
+	// stress witness stands.
+	if !slices.Contains(m.RedClusterNames, "fx") {
 		return false
 	}
 	tapeConfirms := stressTapeConfirmable(m) &&

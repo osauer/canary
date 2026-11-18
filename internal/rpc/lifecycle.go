@@ -277,11 +277,11 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		state.Stage = LifecycleEarlyWarning
 		state.Severity = "watch"
 		state.Timing = LifecycleTimingForwardWarning
-	case regimeLifecycleOpportunity(*r, tally):
+	case regimeLifecycleOpportunity(*r, cb, tally):
 		state.Stage = LifecycleOpportunity
 		state.Severity = "watch"
 		state.Timing = LifecycleTimingRecovery
-	case regimeLifecycleStabilization(*r, tally):
+	case regimeLifecycleStabilization(*r, cb, tally):
 		state.Stage = LifecycleStabilization
 		state.Severity = "observe"
 		state.Timing = LifecycleTimingRecovery
@@ -289,9 +289,9 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		state.Stage = LifecycleQuiet
 		state.Timing = "current"
 	}
-	if len(unconfirmed) > 0 && (state.Stage == LifecycleQuiet || state.Stage == LifecycleOpportunity || state.Stage == LifecycleStabilization) {
-		state.Suppressed = append(state.Suppressed, unconfirmed...)
-	}
+	// A co-sign red that does not count is context in every stage; a reader
+	// tells it from a witness waiting to confirm by this list.
+	state.Suppressed = regimeCoSignRedNames(cb)
 	if len(yellowNames) > 0 && state.Stage == LifecycleQuiet {
 		state.RejectedBy = append(state.RejectedBy, yellowNames...)
 	}
@@ -310,7 +310,7 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 			state.Timing = LifecycleTimingDataQuality
 			state.Confidence = "low"
 			state.ConfirmedBy = nil
-			state.Suppressed = append(state.Suppressed, unconfirmed...)
+			state.Suppressed = append([]string(nil), unconfirmed...)
 		} else if state.Readiness == "ready" {
 			state.Readiness = "degraded"
 			state.Confidence = capLifecycleConfidence(state.Confidence)
@@ -552,6 +552,20 @@ func regimeProvisionalRedNames(cb RegimeClusterBands) []string {
 	return out
 }
 
+// regimeCoSignRedNames lists the provisional reds that are not a stress
+// witness's: co-sign reds with no standing witness beside them, or not yet
+// eligible beside one. The credit cluster is among them when its red is the
+// proxy's, even while its cash row is widening.
+func regimeCoSignRedNames(cb RegimeClusterBands) []string {
+	var out []string
+	for i, band := range cb.Raw {
+		if band == "red" && i < len(RegimeClusterNames) && !cb.confirms(i) && !cb.witnessRed(i) {
+			out = append(out, RegimeClusterNames[i])
+		}
+	}
+	return out
+}
+
 func regimeClusterNamesWithBand(bands []string, want string) []string {
 	var out []string
 	for i, band := range bands {
@@ -579,7 +593,7 @@ func BuildRegimePosture(r *RegimeSnapshotResult) RegimePosture {
 	if confidence == "" {
 		confidence = strings.TrimSpace(r.Summary.Confidence)
 	}
-	tone := regimePostureTone(r.Composite, r.Lifecycle)
+	tone := regimePostureTone(r.Composite, r.Lifecycle, BuildRegimeClusterBands(r).witnessYellows() > 0)
 	return RegimePosture{
 		Label:      label,
 		Tone:       tone,
@@ -592,7 +606,7 @@ func BuildRegimePosture(r *RegimeSnapshotResult) RegimePosture {
 }
 
 // regimePostureTone maps the unified headline + lifecycle state to the display
-func regimePostureTone(c RegimeComposite, lifecycle LifecycleState) string {
+func regimePostureTone(c RegimeComposite, lifecycle LifecycleState, witnessYellow bool) string {
 	label := RegimeHeadline(c, lifecycle.Stage)
 	if label == "Full risk-off conditions" {
 		return RegimeToneRiskOff
@@ -621,7 +635,9 @@ func regimePostureTone(c RegimeComposite, lifecycle LifecycleState) string {
 	case LifecycleEarlyWarning, LifecycleStabilization:
 		return RegimeToneWatch
 	}
-	if c.ClusterYellowCount > 0 {
+	// A stress witness at yellow keeps a calm read on watch. A co-sign's
+	// yellow or red is context and does not colour the read.
+	if witnessYellow {
 		return RegimeToneWatch
 	}
 	if lifecycle.Stage == LifecycleOpportunity {
@@ -787,8 +803,13 @@ func lifecycleFingerprint(state LifecycleState) Fingerprint {
 		RejectedBy:  cleanSorted(state.RejectedBy),
 		Governors:   cleanSorted(governors),
 	}
-	// lifecycle-fp-v2: eligibility-aware evidence (Confirmed now means
-	return semanticFingerprint("lifecycle-fp-v2", projection)
+	// lifecycle-fp-v2: eligibility-aware evidence and governor tokens.
+	// lifecycle-fp-v3 (2026-11-18): stress witnesses and co-signs. Confirmed
+	// is true for a co-sign red only beside a standing witness, and
+	// Suppressed names the co-sign reds in every stage. The fields are the
+	// same; what they mean changed, so readers that dedupe on this
+	// fingerprint re-key once.
+	return semanticFingerprint("lifecycle-fp-v3", projection)
 }
 
 // regimeLifecyclePanic is a fall on the tape: SPY down 4% beside an eligible
@@ -810,32 +831,40 @@ func regimeLifecycleConfirmedStress(r RegimeSnapshotResult, t regimeClusterTally
 			(t.eligibleRed >= 1 && pctAtLeast(r.VIXTermStructure.VIXChangePct, 20.0)))
 }
 
-// Early-warning arms, as RegimeWarningOpeners names them.
+// Early-warning arms, as RegimeWarningOpeners names them. A provisional
+// witness is a witness red that does not confirm and carries its cluster:
+// "provisional_witness:vol". Cash credit widening has its own arm because it
+// warns without a red: the credit cluster can hold the proxy's red, a
+// co-sign, at the same time, and a shared name would call that red the
+// warning.
 const (
-	regimeWarningEligibleRed        = "eligible_red"
-	regimeWarningProvisionalWitness = "provisional_witness"
-	regimeWarningThreeYellows       = "three_yellows"
-	regimeWarningSPYTape            = "spy_tape"
-	regimeWarningVIXTape            = "vix_tape"
+	RegimeWarningEligibleRed        = "eligible_red"
+	RegimeWarningProvisionalWitness = "provisional_witness"
+	RegimeWarningCashWidening       = "cash_widening"
+	RegimeWarningThreeYellows       = "three_yellows"
+	RegimeWarningSPYTape            = "spy_tape"
+	RegimeWarningVIXTape            = "vix_tape"
 )
 
 // regimeWarningArm names the early-warning arm that cluster i's evidence
 // opens, or "". Only a stress witness opens one: a red that confirms (a
 // co-sign red confirms only beside a standing witness, so it is covered), a
-// witness red that is provisional or does not stand, or a witness at yellow
-// when three clusters are at yellow or worse. A red or yellow in co-sign
-// clusters alone opens nothing.
+// witness red that is provisional or does not stand, cash credit widening,
+// or a witness at yellow when three clusters are at yellow or worse. A red
+// or yellow in co-sign clusters alone opens nothing.
 func regimeWarningArm(cb RegimeClusterBands, t regimeClusterTally, i int) string {
 	if i >= len(cb.Confirmed) || i >= len(cb.Eligible) || i >= len(cb.witness) {
 		return ""
 	}
 	switch {
-	case cb.Confirmed[i] == "red" && cb.Eligible[i]:
-		return regimeWarningEligibleRed
-	case cb.witness[i] == "red":
-		return regimeWarningProvisionalWitness
+	case cb.confirms(i):
+		return RegimeWarningEligibleRed
+	case cb.witnessRed(i):
+		return RegimeWarningProvisionalWitness
+	case cb.widening(i):
+		return RegimeWarningCashWidening
 	case cb.witness[i] == "yellow" && t.atLeastYellow() >= 3:
-		return regimeWarningThreeYellows
+		return RegimeWarningThreeYellows
 	}
 	return ""
 }
@@ -847,7 +876,7 @@ func regimeWarningOpeners(r RegimeSnapshotResult, cb RegimeClusterBands, t regim
 	var out []string
 	for i, name := range RegimeClusterNames {
 		arm := regimeWarningArm(cb, t, i)
-		if arm == regimeWarningProvisionalWitness {
+		if arm == RegimeWarningProvisionalWitness {
 			arm += ":" + name
 		}
 		if arm != "" && !slices.Contains(out, arm) {
@@ -856,10 +885,10 @@ func regimeWarningOpeners(r RegimeSnapshotResult, cb RegimeClusterBands, t regim
 	}
 	if regimeTapeConfirmable(r) {
 		if pctAtMost(r.HYGSPYDivergence.SPYChangePct, -1.5) {
-			out = append(out, regimeWarningSPYTape)
+			out = append(out, RegimeWarningSPYTape)
 		}
 		if pctAtLeast(r.VIXTermStructure.VIXChangePct, 10.0) {
-			out = append(out, regimeWarningVIXTape)
+			out = append(out, RegimeWarningVIXTape)
 		}
 	}
 	return out
@@ -867,7 +896,8 @@ func regimeWarningOpeners(r RegimeSnapshotResult, cb RegimeClusterBands, t regim
 
 // RegimeWarningOpeners names the arms that open early_warning on this
 // snapshot, for a reader that explains or measures a warning: "eligible_red",
-// "provisional_witness:<cluster>", "three_yellows", "spy_tape", "vix_tape".
+// "provisional_witness:<cluster>", "cash_widening", "three_yellows",
+// "spy_tape", "vix_tape".
 // The stage vote reads the same list; a higher stage may still win.
 func RegimeWarningOpeners(r *RegimeSnapshotResult) []string {
 	if r == nil {
@@ -878,19 +908,24 @@ func RegimeWarningOpeners(r *RegimeSnapshotResult) []string {
 }
 
 // Opportunity and stabilization are tape-driven recovery stages: a frozen
-func regimeLifecycleOpportunity(r RegimeSnapshotResult, t regimeClusterTally) bool {
+// closed-date print cannot enter them. Their yellow counts read the stress
+// witnesses only: a day whose only yellows are co-signs has nothing to
+// stabilize from and is quiet, and co-sign yellows do not hold a rebound
+// back from reading as an opportunity.
+func regimeLifecycleOpportunity(r RegimeSnapshotResult, cb RegimeClusterBands, t regimeClusterTally) bool {
 	return t.red == 0 &&
-		t.yellow <= 1 &&
+		cb.witnessYellows() <= 1 &&
 		t.ranked >= 3 &&
 		regimeTapeConfirmable(r) &&
 		pctAtLeast(r.HYGSPYDivergence.SPYChangePct, 1.5) &&
 		pctAtMost(r.VIXTermStructure.VIXChangePct, -10.0)
 }
 
-func regimeLifecycleStabilization(r RegimeSnapshotResult, t regimeClusterTally) bool {
+func regimeLifecycleStabilization(r RegimeSnapshotResult, cb RegimeClusterBands, t regimeClusterTally) bool {
+	yellow := cb.witnessYellows()
 	return t.red == 0 &&
-		t.yellow > 0 &&
-		t.yellow <= 2 &&
+		yellow > 0 &&
+		yellow <= 2 &&
 		regimeTapeConfirmable(r) &&
 		(pctAtLeast(r.HYGSPYDivergence.SPYChangePct, 1.0) || pctAtMost(r.VIXTermStructure.VIXChangePct, -10.0))
 }

@@ -509,7 +509,7 @@ func classifyCreditSpreadsBand(r rpc.RegimeCreditSpreads) string {
 	if *r.HYOAS >= 5.5 || (r.HY20DChange != nil && *r.HY20DChange >= 1.0) {
 		return "red"
 	}
-	if *r.HYOAS >= 4.0 || (r.HY20DChange != nil && *r.HY20DChange >= 0.5) {
+	if *r.HYOAS >= 4.0 || (r.HY20DChange != nil && *r.HY20DChange >= rpc.RegimeCreditWideningYellowPP) {
 		return "yellow"
 	}
 	return "green"

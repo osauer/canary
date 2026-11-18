@@ -664,12 +664,25 @@ function stressGovernedHold(stress = {}) {
     String(posture.severity || "").toLowerCase() === "watch";
 }
 
+// The served list of what opens a market warning decides which unconfirmed
+// red is a warning. A stress witness named there is provisional: it will
+// confirm or clear. Any other unconfirmed red is a co-sign, shown as context.
+function unconfirmedMarketReds(market = {}) {
+  const prefix = "provisional_witness:";
+  const witnesses = (market.warning_openers || [])
+    .map((arm) => String(arm || "").trim().toLowerCase())
+    .filter((arm) => arm.startsWith(prefix))
+    .map((arm) => arm.slice(prefix.length));
+  const names = Array.isArray(market.unconfirmed_red_cluster_names) ? market.unconfirmed_red_cluster_names : [];
+  const isWitness = (name) => witnesses.includes(String(name || "").trim().toLowerCase());
+  return { witnesses: names.filter(isWitness), context: names.filter((name) => !isWitness(name)) };
+}
+
 function stressHasProvisionalOnlyMarketWarning(stress) {
   const market = stress.market || {};
   return String(stress.market_confirmation || "").toLowerCase() === "partial" &&
     Number(market.eligible_red_clusters || 0) === 0 &&
-    Array.isArray(market.unconfirmed_red_cluster_names) &&
-    market.unconfirmed_red_cluster_names.length > 0;
+    unconfirmedMarketReds(market).witnesses.length > 0;
 }
 
 function stressNeedsInputCheck(stress) {
@@ -701,7 +714,7 @@ function marketExplanation(stress) {
   }
   if (confirmation === "partial") {
     if (stressHasProvisionalOnlyMarketWarning(stress)) {
-      const names = humanList((stress.market?.unconfirmed_red_cluster_names || []).map(clusterInputLabel), 3);
+      const names = humanList(unconfirmedMarketReds(stress.market || {}).witnesses.map(clusterInputLabel), 3);
       return {
         label: "Market",
         title: "Provisional warning",
@@ -1554,7 +1567,7 @@ function regimeStaleBudgetMinutes(snap) {
 // so the panel never shows an unqualified red while the engine itself is
 function regimeGovernedNote(snap, market, compact = false) {
   const parts = [];
-  const unconfirmed = market?.unconfirmed_red_cluster_names || [];
+  const { witnesses: unconfirmed, context } = unconfirmedMarketReds(market || {});
   if (unconfirmed.length > 0) {
     // Name the actual signal, not its cluster key ("HYG 50-DMA", not
     // "credit"), and say that confirmation is Canary's job with both
@@ -1564,6 +1577,11 @@ function regimeGovernedNote(snap, market, compact = false) {
     const subject = humanList(unconfirmed.map(clusterInputLabel), 2);
     const verb = unconfirmed.length === 1 ? "is provisional" : "are provisional";
     parts.push(compact ? `${subject} awaiting confirmation` : `${subject} ${verb}; Canary will confirm or clear ${unconfirmed.length === 1 ? "it" : "them"} on the next fresh read`);
+  }
+  // A co-sign red with no stress witness beside it is context. The compact
+  // line stays with the action: context is not a reason to replace it.
+  if (context.length > 0 && !compact) {
+    parts.push(`Context, not a stress reading on its own: ${humanList(context.map(clusterInputLabel), 2)}.`);
   }
   for (const g of snap.regime?.lifecycle?.governors || []) {
     if (g?.action === "severity_capped") {

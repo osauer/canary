@@ -1603,8 +1603,9 @@ type RegimeComposite struct {
 	// ClusterEligibleRedCount counts the red clusters that may confirm
 	// stress: eligible evidence that survived the cluster combination, where
 	// a co-sign red counts only beside a standing stress witness.
-	// ClusterProvisionalRedCount counts the other raw reds: visible context,
-	// never confirmation.
+	// ClusterProvisionalRedCount counts the stress witnesses that warn
+	// without confirming: a provisional witness red, or cash credit widening.
+	// A co-sign red with no witness beside it is context and is not counted.
 	ClusterEligibleRedCount    int `json:"cluster_eligible_red_count"`
 	ClusterProvisionalRedCount int `json:"cluster_provisional_red_count,omitempty"`
 }

@@ -950,7 +950,21 @@ type RegimeClusterBands struct {
 	// witness is each cluster's band as a stress witness, "" where the
 	// cluster has none (see BuildRegimeClusterBands).
 	witness []string
+	// cashWidening reports a current cash credit row whose HY OAS has widened
+	// by RegimeCreditWideningYellowPP or more over 20 observations.
+	cashWidening bool
 }
+
+// RegimeContextNote is how every surface words a co-sign red with no stress
+// witness beside it. Wording proposed by the coordinating session on
+// 2026-11-18, awaiting the owner's approval.
+const RegimeContextNote = "Context, not a stress reading on its own"
+
+// RegimeCreditWideningYellowPP is the 20-observation HY OAS widening, in
+// percentage points, at which the cash credit row turns yellow. It is the one
+// copy of that number: the row classifier bands on it, and from the same step
+// the cash row opens a warning as a stress witness (BuildRegimeClusterBands).
+const RegimeCreditWideningYellowPP = 0.50
 
 // EligibleRedCount counts clusters that survive downgrades as red AND carry
 // eligible evidence — the only reds that may confirm stress.
@@ -964,18 +978,44 @@ func (b RegimeClusterBands) EligibleRedCount() int {
 	return n
 }
 
-// ProvisionalRedCount counts raw reds that may NOT confirm: either the row
-// evidence failed the eligibility gates or the cluster was downgraded.
-func (b RegimeClusterBands) ProvisionalRedCount() int {
+// confirms reports a cluster that is red and may confirm stress.
+func (b RegimeClusterBands) confirms(i int) bool {
+	return i < len(b.Confirmed) && b.Confirmed[i] == "red" && i < len(b.Eligible) && b.Eligible[i]
+}
+
+// witnessRed reports a stress witness in cluster i whose red does not
+// confirm: it is provisional or does not stand. A cluster that is red only
+// through a co-sign row is not one, whatever else its witness shows.
+func (b RegimeClusterBands) witnessRed(i int) bool {
+	return i < len(b.witness) && b.witness[i] == "red" && !b.confirms(i)
+}
+
+// widening reports cash credit widening in cluster i while the cluster does
+// not confirm: a witness that warns without a red.
+func (b RegimeClusterBands) widening(i int) bool {
+	return i == RegimeClusterCredit && b.cashWidening && !b.confirms(i)
+}
+
+// provisionalWitnessCount counts the stress witnesses that warn without
+// confirming: a witness red or cash credit widening, once per cluster.
+// Co-sign reds are context and are not counted.
+func (b RegimeClusterBands) provisionalWitnessCount() int {
 	n := 0
-	for i, band := range b.Raw {
-		if band != "red" {
-			continue
+	for i := range b.witness {
+		if b.witnessRed(i) || b.widening(i) {
+			n++
 		}
-		if i < len(b.Confirmed) && b.Confirmed[i] == "red" && i < len(b.Eligible) && b.Eligible[i] {
-			continue
+	}
+	return n
+}
+
+// witnessYellows counts the clusters whose stress witness reads yellow.
+func (b RegimeClusterBands) witnessYellows() int {
+	n := 0
+	for _, band := range b.witness {
+		if band == "yellow" {
+			n++
 		}
-		n++
 	}
 	return n
 }
@@ -1036,7 +1076,13 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 		gammaRedEligible(r.GammaZero),
 		redEligible(r.Breadth.RegimeIndicatorMeta),
 	}
-	return RegimeClusterBands{Raw: raw, Confirmed: confirmed, Eligible: eligible, witness: witness}
+	// A widening of cash spreads warns from the cash row's own yellow step,
+	// before the row is red: in the history replay of 2026-11-18 it preceded
+	// a 5% fall on 44% of 36 sessions, in five episodes. Only a current row
+	// counts; an old series is a data gap, not a warning.
+	widening := RegimeCurrencyMayConfirm(RegimeRowCurrency(r.CreditSpreads.Status, r.CreditSpreads.Freshness)) &&
+		pctAtLeast(r.CreditSpreads.HY20DChange, RegimeCreditWideningYellowPP)
+	return RegimeClusterBands{Raw: raw, Confirmed: confirmed, Eligible: eligible, witness: witness, cashWidening: widening}
 }
 
 func redEligible(meta RegimeIndicatorMeta) bool {
@@ -1071,7 +1117,7 @@ func ApplyRegimeClusterTallies(c *RegimeComposite, cb RegimeClusterBands) {
 		}
 	}
 	c.ClusterEligibleRedCount = cb.EligibleRedCount()
-	c.ClusterProvisionalRedCount = cb.ProvisionalRedCount()
+	c.ClusterProvisionalRedCount = cb.provisionalWitnessCount()
 }
 
 // RegimeHeadline is the single wording table for the regime headline. Both
@@ -1089,11 +1135,16 @@ func RegimeHeadline(c RegimeComposite, stage string) string {
 		return "Broad stress regime"
 	case stageConfirmsStress(stage):
 		return "Confirmed stress regime"
+	// A calm stage keeps the calm headline: whatever is red or yellow there
+	// is a co-sign with no stress witness beside it, shown as context.
+	case stageCalm(stage):
+		return "Normal regime"
 	case c.ClusterRedCount >= 1 || c.ClusterEligibleRedCount >= 1:
 		return "Stress signal present"
-	// A provisional red is one the cluster logic itself refused to count —
-	// demoted for a missing co-sign or an unmet depth/persistence gate. The
-	// headline must not read louder than the composite's own verdict.
+	// A provisional witness warns without confirming: a witness red the
+	// cluster logic held back for depth, persistence or corroboration, or
+	// cash credit widening. The headline must not read louder than the
+	// composite's own verdict.
 	case c.ClusterProvisionalRedCount == 1:
 		return "Watch: one unconfirmed stress signal"
 	case c.ClusterProvisionalRedCount > 1:
@@ -1102,6 +1153,15 @@ func RegimeHeadline(c RegimeComposite, stage string) string {
 		return "Elevated stress watch"
 	default:
 		return "Normal regime"
+	}
+}
+
+func stageCalm(stage string) bool {
+	switch strings.ToLower(strings.TrimSpace(stage)) {
+	case LifecycleQuiet, LifecycleOpportunity, LifecycleStabilization:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -1763,15 +1823,20 @@ type StressMarketSummary struct {
 	RedClusterNames            []string `json:"red_cluster_names,omitempty"`
 	YellowClusterNames         []string `json:"yellow_cluster_names,omitempty"`
 	UnconfirmedRedClusterNames []string `json:"unconfirmed_red_cluster_names,omitempty"`
-	AmbiguousClusters          []string `json:"ambiguous_clusters,omitempty"`
-	PartialClusters            []string `json:"partial_clusters,omitempty"`
-	ComputingClusters          []string `json:"computing_clusters,omitempty"`
-	DegradedClusters           []string `json:"degraded_clusters,omitempty"`
-	StaleClusters              []string `json:"stale_clusters,omitempty"`
-	SPYPrice                   *float64 `json:"spy_price,omitempty"`
-	SPYChangePct               *float64 `json:"spy_change_pct,omitempty"`
-	VIX                        *float64 `json:"vix,omitempty"`
-	VIXChangePct               *float64 `json:"vix_change_pct,omitempty"`
+	// WarningOpeners is RegimeWarningOpeners for the regime read behind this
+	// summary: the arms that open a market warning. An unconfirmed red that
+	// is not named here as a provisional witness is a co-sign shown as
+	// context.
+	WarningOpeners    []string `json:"warning_openers,omitempty"`
+	AmbiguousClusters []string `json:"ambiguous_clusters,omitempty"`
+	PartialClusters   []string `json:"partial_clusters,omitempty"`
+	ComputingClusters []string `json:"computing_clusters,omitempty"`
+	DegradedClusters  []string `json:"degraded_clusters,omitempty"`
+	StaleClusters     []string `json:"stale_clusters,omitempty"`
+	SPYPrice          *float64 `json:"spy_price,omitempty"`
+	SPYChangePct      *float64 `json:"spy_change_pct,omitempty"`
+	VIX               *float64 `json:"vix,omitempty"`
+	VIXChangePct      *float64 `json:"vix_change_pct,omitempty"`
 	// TapeSessionState classifies the official US cash-equity calendar date
 	// coverage: severity behaves as before (fail-open).
 	TapeSessionState  string     `json:"tape_session_state,omitempty"`

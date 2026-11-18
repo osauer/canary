@@ -1132,7 +1132,7 @@ const (
 var regimeOfficialSeriesBudget = 12 * time.Second
 var regimeTreasurySeriesBudget = 30 * time.Second
 
-const creditSpreadsNotes = "Cash credit spreads from official ICE BofA OAS series via FRED/St. Louis Fed: high-yield OAS (BAMLH0A0HYM2) and investment-grade corporate OAS (BAMLC0A0CM). Units are percentage points. Default heuristic bands use HY OAS: <4.0 green, 4.0-5.5 yellow, >5.5 red; a 20-observation HY OAS widening of >0.50 pp is mixed and >1.00 pp is stressed. This complements HYG/SPY: HYG is faster intraday, OAS is the official cash-credit close. Confirmation gate: the red levels are already deep, so a fresh red confirms after 1 session."
+const creditSpreadsNotes = "Cash credit spreads from official ICE BofA OAS series via FRED/St. Louis Fed: high-yield OAS (BAMLH0A0HYM2) and investment-grade corporate OAS (BAMLC0A0CM). Units are percentage points. Default heuristic bands use HY OAS: <4.0 green, 4.0-5.5 yellow, >5.5 red; a 20-observation HY OAS widening of >0.50 pp is mixed and >1.00 pp is stressed. This complements HYG/SPY: HYG is faster intraday, OAS is the official cash-credit close. Confirmation gate: the red levels are already deep, so a fresh red confirms after 1 session. This row is a stress witness: a current row opens an early warning by itself from its yellow widening step, before it is red; a yellow from the level alone does not."
 
 func fetchRegimeCreditSpreads(ctx context.Context, deps *regimeDeps) rpc.RegimeCreditSpreads {
 	out := rpc.RegimeCreditSpreads{
