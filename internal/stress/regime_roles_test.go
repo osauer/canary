@@ -182,3 +182,18 @@ func TestStressProxyRedBesideCashWideningIsContext(t *testing.T) {
 		t.Fatalf("the proxy and breadth reds are not worded as context:\n%s", text)
 	}
 }
+
+// Beside a standing witness a co-sign red that has yet to pass its own gate
+// is waiting to confirm: red but unconfirmed, in the words the read used
+// before, and not context.
+func TestStressCoSignRedBesideAStandingWitnessIsUnconfirmed(t *testing.T) {
+	t.Parallel()
+	res := stressOn(func(r *rpc.RegimeSnapshotResult) {
+		stressRed(&r.VIXTermStructure.RegimeIndicatorMeta, true)
+		stressRed(&r.HYGSPYDivergence.RegimeIndicatorMeta, false)
+	})
+	row := stressRowByTitle(res.Rows, "Stress pending confirmation")
+	if row == nil || !strings.Contains(row.Evidence, "red but unconfirmed: credit") || strings.Contains(stressText(res), "ontext, not a stress reading") {
+		t.Fatalf("a proxy red waiting beside a standing term inversion is not worded as unconfirmed:\n%s", stressText(res))
+	}
+}

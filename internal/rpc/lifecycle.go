@@ -289,8 +289,8 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		state.Stage = LifecycleQuiet
 		state.Timing = "current"
 	}
-	// A co-sign red that does not count is context in every stage; a reader
-	// tells it from a witness waiting to confirm by this list.
+	// A co-sign red with no witness standing is context in every stage; a
+	// reader tells it from a red waiting to confirm by this list.
 	state.Suppressed = regimeCoSignRedNames(cb)
 	if len(yellowNames) > 0 && state.Stage == LifecycleQuiet {
 		state.RejectedBy = append(state.RejectedBy, yellowNames...)
@@ -552,14 +552,16 @@ func regimeProvisionalRedNames(cb RegimeClusterBands) []string {
 	return out
 }
 
-// regimeCoSignRedNames lists the provisional reds that are not a stress
-// witness's: co-sign reds with no standing witness beside them, or not yet
-// eligible beside one. The credit cluster is among them when its red is the
-// proxy's, even while its cash row is widening.
+// regimeCoSignRedNames lists the reds that are context: co-sign reds with no
+// standing witness beside them, which the combination holds at yellow. The
+// credit cluster is among them when its red is the proxy's, even while its
+// cash row is widening. A co-sign red beside a standing witness is not: it
+// keeps its cluster red and waits on its own gate, as a provisional witness
+// waits.
 func regimeCoSignRedNames(cb RegimeClusterBands) []string {
 	var out []string
 	for i, band := range cb.Raw {
-		if band == "red" && i < len(RegimeClusterNames) && !cb.confirms(i) && !cb.witnessRed(i) {
+		if band == "red" && i < len(RegimeClusterNames) && cb.Confirmed[i] != "red" && !cb.witnessRed(i) {
 			out = append(out, RegimeClusterNames[i])
 		}
 	}
@@ -806,9 +808,9 @@ func lifecycleFingerprint(state LifecycleState) Fingerprint {
 	// lifecycle-fp-v2: eligibility-aware evidence and governor tokens.
 	// lifecycle-fp-v3 (2026-11-18): stress witnesses and co-signs. Confirmed
 	// is true for a co-sign red only beside a standing witness, and
-	// Suppressed names the co-sign reds in every stage. The fields are the
-	// same; what they mean changed, so readers that dedupe on this
-	// fingerprint re-key once.
+	// Suppressed names the co-sign reds that are context, in every stage. The
+	// fields are the same; what they mean changed, so readers that dedupe on
+	// this fingerprint re-key once.
 	return semanticFingerprint("lifecycle-fp-v3", projection)
 }
 

@@ -899,7 +899,7 @@ func summarizeStressMarket(r rpc.RegimeSnapshotResult, now time.Time) StressMark
 	slices.Sort(out.EligibleRedClusterNames)
 	slices.Sort(out.UnconfirmedRedClusterNames)
 	// The regime's own list of what opens a market warning decides which of
-	// those reds is a warning and which is context (stressUnconfirmedReds).
+	// those reds is a warning (stressUnconfirmedReds).
 	out.WarningOpeners = rpc.RegimeWarningOpeners(&r)
 	slices.Sort(out.AmbiguousClusters)
 	slices.Sort(out.PartialClusters)
@@ -1332,7 +1332,7 @@ func stressMarketRow(m StressMarketSummary) StressRow {
 	case m.YellowClusters >= 3 && stressClusterWarning(m):
 		return stressRow("Deteriorating tape", risk.DirectionDefensive, risk.SeverityWatch, "Freeze new risk and review hedges; no urgent action without red confirmation.", evidence)
 	default:
-		if witnesses, _ := stressUnconfirmedReds(m); len(witnesses) > 0 {
+		if witnesses, _, _ := stressUnconfirmedReds(m); len(witnesses) > 0 {
 			// The overall summary calls this warning out; the check still
 			return stressRow("Market stress", "", risk.SeverityObserve, "An early warning is flashing ("+stressClusterList(witnesses)+" red, not confirmed); below the de-risking trigger.", evidence)
 		}
@@ -1726,18 +1726,25 @@ func stressClusterWarning(m StressMarketSummary) bool {
 	})
 }
 
-// stressUnconfirmedReds splits the unconfirmed reds by role: a stress
-// witness that is red without confirming is a warning, a co-sign red with no
-// witness beside it is context.
-func stressUnconfirmedReds(m StressMarketSummary) (witnesses, context []string) {
+// stressUnconfirmedReds splits the unconfirmed reds by what they wait for.
+// witnesses are the stress witnesses that warn without confirming. waiting
+// adds the co-sign reds beside a standing witness: they keep their cluster
+// red and count once they pass their own gate. context is the rest, a
+// co-sign red with no witness standing, which the cluster combination holds
+// at yellow (the same test as the indicator rows and the regime summary).
+func stressUnconfirmedReds(m StressMarketSummary) (witnesses, waiting, context []string) {
 	for _, name := range m.UnconfirmedRedClusterNames {
-		if slices.Contains(m.WarningOpeners, rpc.RegimeWarningProvisionalWitness+":"+name) {
+		switch {
+		case slices.Contains(m.WarningOpeners, rpc.RegimeWarningProvisionalWitness+":"+name):
 			witnesses = append(witnesses, name)
-		} else {
+			waiting = append(waiting, name)
+		case slices.Contains(m.RedClusterNames, name):
+			waiting = append(waiting, name)
+		default:
 			context = append(context, name)
 		}
 	}
-	return witnesses, context
+	return witnesses, waiting, context
 }
 
 func partialMarketPressure(m StressMarketSummary) bool {
@@ -2037,7 +2044,7 @@ func stressDecisionSummary(r StressResult) string {
 }
 
 func stressPartialMarketSummary(m StressMarketSummary) string {
-	if witnesses, _ := stressUnconfirmedReds(m); m.EligibleRedClusters == 0 && len(witnesses) > 0 {
+	if witnesses, _, _ := stressUnconfirmedReds(m); m.EligibleRedClusters == 0 && len(witnesses) > 0 {
 		return "An early market warning is flashing (" + stressClusterList(witnesses) + " red, not confirmed yet)"
 	}
 	if m.EligibleRedClusters >= 2 && !stressGovernedSeverityAllows(m, risk.SeverityAct) {
@@ -3459,9 +3466,9 @@ func stressMarketEvidence(m StressMarketSummary) string {
 	if len(parts) == 0 {
 		parts = append(parts, "no stressed clusters")
 	}
-	witnesses, context := stressUnconfirmedReds(m)
-	if len(witnesses) > 0 {
-		parts = append(parts, "red but unconfirmed: "+stressClusterList(witnesses))
+	_, waiting, context := stressUnconfirmedReds(m)
+	if len(waiting) > 0 {
+		parts = append(parts, "red but unconfirmed: "+stressClusterList(waiting))
 	}
 	if len(context) > 0 {
 		// Lower case: this is one clause in a semicolon list.

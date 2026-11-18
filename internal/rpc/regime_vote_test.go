@@ -323,7 +323,7 @@ func TestRegimeCoSignRedIsSuppressedContextInEveryStage(t *testing.T) {
 
 // The lifecycle fingerprint is versioned by what its fields mean. v3: a
 // co-sign red confirms only beside a standing stress witness, and suppressed
-// names the co-sign reds in every stage.
+// names the co-sign reds that are context in every stage.
 func TestLifecycleFingerprintVersion(t *testing.T) {
 	if got := BuildLifecycleFingerprint(LifecycleState{}).Version; got != "lifecycle-fp-v3" {
 		t.Fatalf("lifecycle fingerprint version = %q, want lifecycle-fp-v3", got)
@@ -349,5 +349,18 @@ func TestRegimeProxyRedBesideCashWideningStaysContext(t *testing.T) {
 	}
 	if want := []string{"credit", "breadth"}; !slices.Equal(got.Unconfirmed, want) || !slices.Equal(got.Suppressed, want) {
 		t.Fatalf("unconfirmed %v, suppressed %v; want both co-sign reds in both lists", got.Unconfirmed, got.Suppressed)
+	}
+}
+
+// Beside a standing witness a co-sign red that has not passed its own gate is
+// waiting to confirm, as a provisional witness is: it is unconfirmed, and it
+// is not context.
+func TestRegimeCoSignRedBesideAStandingWitnessIsNotContext(t *testing.T) {
+	r := calmRegime()
+	red(&r.VIXTermStructure.RegimeIndicatorMeta, true)
+	red(&r.HYGSPYDivergence.RegimeIndicatorMeta, false)
+	got := regimeVote(r)
+	if got.Stage != LifecycleEarlyWarning || !slices.Equal(got.Unconfirmed, []string{"credit"}) || len(got.Suppressed) != 0 {
+		t.Fatalf("stage %s, unconfirmed %v, suppressed %v; want early_warning with credit unconfirmed and nothing suppressed", got.Stage, got.Unconfirmed, got.Suppressed)
 	}
 }

@@ -664,18 +664,27 @@ function stressGovernedHold(stress = {}) {
     String(posture.severity || "").toLowerCase() === "watch";
 }
 
-// The served list of what opens a market warning decides which unconfirmed
-// red is a warning. A stress witness named there is provisional: it will
-// confirm or clear. Any other unconfirmed red is a co-sign, shown as context.
+// An unconfirmed red is provisional when it will confirm or clear: a stress
+// witness the served list of warning openers names, or a co-sign whose
+// cluster the daemon still serves red, which takes a standing witness beside
+// it. Any other unconfirmed red is a co-sign with no witness standing, shown
+// as context.
 function unconfirmedMarketReds(market = {}) {
   const prefix = "provisional_witness:";
-  const witnesses = (market.warning_openers || [])
-    .map((arm) => String(arm || "").trim().toLowerCase())
+  const lower = (list) => (Array.isArray(list) ? list : []).map((item) => String(item || "").trim().toLowerCase());
+  const witnesses = lower(market.warning_openers)
     .filter((arm) => arm.startsWith(prefix))
     .map((arm) => arm.slice(prefix.length));
+  const red = lower(market.red_cluster_names);
   const names = Array.isArray(market.unconfirmed_red_cluster_names) ? market.unconfirmed_red_cluster_names : [];
-  const isWitness = (name) => witnesses.includes(String(name || "").trim().toLowerCase());
-  return { witnesses: names.filter(isWitness), context: names.filter((name) => !isWitness(name)) };
+  const key = (name) => String(name || "").trim().toLowerCase();
+  const isWitness = (name) => witnesses.includes(key(name));
+  const isProvisional = (name) => isWitness(name) || red.includes(key(name));
+  return {
+    witnesses: names.filter(isWitness),
+    provisional: names.filter(isProvisional),
+    context: names.filter((name) => !isProvisional(name)),
+  };
 }
 
 function stressHasProvisionalOnlyMarketWarning(stress) {
@@ -1567,7 +1576,7 @@ function regimeStaleBudgetMinutes(snap) {
 // so the panel never shows an unqualified red while the engine itself is
 function regimeGovernedNote(snap, market, compact = false) {
   const parts = [];
-  const { witnesses: unconfirmed, context } = unconfirmedMarketReds(market || {});
+  const { provisional: unconfirmed, context } = unconfirmedMarketReds(market || {});
   if (unconfirmed.length > 0) {
     // Name the actual signal, not its cluster key ("HYG 50-DMA", not
     // "credit"), and say that confirmation is Canary's job with both

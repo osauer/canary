@@ -1231,6 +1231,20 @@ test("a co-sign red with no stress witness is context, not a provisional warning
   assert.equal(stress.stressHasProvisionalOnlyMarketWarning({ market_confirmation: "partial", market: widening }), false);
 });
 
+test("a co-sign red waiting on its own gate beside a standing witness stays provisional", () => {
+  // The credit cluster is red beside a confirmed volatility red: the proxy
+  // will count once it passes its own gate, so it is not context.
+  const market = {
+    red_cluster_names: ["credit", "vol"],
+    eligible_red_cluster_names: ["vol"],
+    eligible_red_clusters: 1,
+    unconfirmed_red_cluster_names: ["credit"],
+    warning_openers: ["eligible_red"],
+  };
+  assert.equal(stress.regimeGovernedNote({}, market), "HYG 50-DMA is provisional; Canary will confirm or clear it on the next fresh read");
+  assert.equal(stress.regimeGovernedNote({}, market, true), "HYG 50-DMA awaiting confirmation");
+});
+
 test("Monitor summaries distinguish alert findings, monitor-only findings, and data gaps", () => {
   reset();
   const rules = {

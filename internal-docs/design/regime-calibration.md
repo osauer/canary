@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-11-18 11:14 CET
+**Last update:** 2026-11-18 11:44 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -324,9 +324,11 @@ only when a witness stands.
   `quiet`, and co-sign yellows do not hold a rebound back.
 - `quiet` — none of the above.
 
-Every provisional red is named in `unconfirmed`. The co-sign reds among them
-are repeated in `suppressed` in every stage, so a reader tells a co-sign shown
-as context from a witness waiting to confirm.
+Every provisional red is named in `unconfirmed`. A co-sign red with no
+witness standing is context, and is repeated in `suppressed` in every stage. A
+co-sign red beside a standing witness that has not passed its own gate is not
+context: it keeps its cluster red and waits to confirm, as a provisional
+witness does, and is in `unconfirmed` only.
 
 `rpc.RegimeWarningOpeners` names the arms that open a warning on a snapshot;
 the stage vote and the required-input gate read the same list.
@@ -1062,8 +1064,14 @@ before this opener existed, three weeks before the April 2025 low.
   A co-sign indicator that is red with no witness standing is amber and
   carries the context sentence.
 - **App.** A provisional warning is an unconfirmed red that
-  `market.warning_openers` names as a provisional witness. Any other
-  unconfirmed red is context.
+  `market.warning_openers` names as a provisional witness. An unconfirmed red
+  whose cluster is still served red (`market.red_cluster_names`) is a co-sign
+  waiting on its own gate beside a standing witness; it keeps the provisional
+  wording. Any other unconfirmed red is context.
+- **One test for context.** A co-sign red is context when its cluster is not
+  red in the shared combination, which is when no witness stands. The regime
+  summary, `lifecycle.suppressed`, the stress rows and indicator rows and the
+  app all apply that test.
 
 Over the replay every session that reads `quiet` reads "Normal regime". 193
 of the 744 quiet sessions keep the watch tone because a stress witness is

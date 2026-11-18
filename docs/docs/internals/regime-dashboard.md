@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-11-18 11:14 CET
+Updated: 2026-11-18 11:44 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -365,8 +365,9 @@ A red row may CONFIRM stress only when its evidence is deep, persistent, and
 cadence-fresh, and a co-sign's red only while a stress witness stands.
 Otherwise it is PROVISIONAL: visible on the row and listed in
 `lifecycle.unconfirmed`. A witness's provisional red drives `early_warning`; a
-co-sign's opens nothing and is repeated in `lifecycle.suppressed` in every
-stage. A provisional red never counts toward `confirmed_stress`, never
+co-sign's opens nothing. With no witness standing it is context and is
+repeated in `lifecycle.suppressed` in every stage; beside a standing witness
+it waits on its own gate and is in `lifecycle.unconfirmed` only. A provisional red never counts toward `confirmed_stress`, never
 corroborates another cluster, and never reaches `confirmed_by`. This policy exists
 because of the 2026-06-12 false positive, where a 7 bps HYG break (one session
 old, thin pre-open tick) and a prior-evening gamma cache mutually confirmed
