@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-11-18 13:11 CET
+**Last update:** 2026-11-18 13:25 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -310,8 +310,8 @@ only when a witness stands.
   || (SPY ≤ −4% && yellow-or-worse ≥ 2) || (eligibleRed ≥ 1 && VIX +20%)`. A
   standing witness plus one co-sign red confirms; two co-signs never do.
 - `early_warning` — a confirmed eligible red; or a witness cluster that is raw
-  red but provisional or not standing (a day-one term inversion, an isolated
-  VVIX red); or a current cash credit row whose HY OAS is 0.50 pp or more
+  red but provisional or not standing (a day-one term inversion, a VVIX red
+  held between 115 and 120); or a current cash credit row whose HY OAS is 0.50 pp or more
   wider over 20 observations, the row's own yellow step; or three clusters at
   yellow or worse of which at least one is a witness at yellow; or
   `SPY ≤ −1.5%`; or `VIX +10%`. A red or yellow in co-sign clusters alone
@@ -1015,11 +1015,12 @@ stage shares are under Result below.
 
 ### What this rests on, and what still bounds risk
 
-Band boundaries, depth and streak gates and hysteresis are unchanged and stay
-`pending_backtest`. This change is to the vote, and it rests on a history
-replay with the limits above, not on the six months of forward decisions the
-promotion criteria in Part 4 require; those criteria still bind every
-threshold set.
+Band boundaries, depth and streak gates and hysteresis are unchanged, with
+one exception the owner decided on the same day: the VVIX red line and its
+exit ("VVIX red line at 120" below). All of them stay `pending_backtest`.
+This change is to the vote, and it rests on a history replay with the limits
+above, not on the six months of forward decisions the promotion criteria in
+Part 4 require; those criteria still bind every threshold set.
 
 A session that now reads `quiet` moves the trading rulebook's regime-stage
 latch from its early-warning bucket to calm on the days only a co-sign is
@@ -1163,8 +1164,8 @@ them, seven were followed by a low 5% or more below and none by 8%. Two of
 the 44 are 2026-11-02 and 2026-11-03, the sessions before the proxy-red
 rebound of 2026-11-04 and the 4.4% fall of 2026-11-05. VVIX between 110 and
 120 now reads yellow while it is rising, which adds sessions to the
-three-yellow opener (23 to 31), to `stabilization` and, on 2024-08-13, one to
-`opportunity`.
+three-yellow opener (23 to 31) and to `stabilization`. `opportunity` gains
+one session, 2024-08-13, where a VVIX of 114 is released from red.
 
 At the install: the streak store keeps the row's last band across a restart.
 A VVIX red entered under the old line is therefore held while VVIX stays at

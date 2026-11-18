@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-11-18 13:11 CET
+Updated: 2026-11-18 13:25 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -134,8 +134,9 @@ VVIX's yellow is a transition, not a zone (it came with vvix_daily_v2). The inde
 structural floor near 85-90, so the earlier static 90-110 band was amber on
 47% of calm days in a ten-year replay; requiring the level plus a 3% rise
 over five sessions cut that to 17% while every labeled 2015-2024 stress
-onset still lit ahead of its date. Red at 110 is unchanged, and a missing
-five-session change holds yellow at level rather than softening the warning.
+onset still lit ahead of its date. That change left the red line where it
+was, at 110 then and at 120 since 2026-11-18, and a missing five-session
+change holds yellow at level rather than softening the warning.
 
 ### Credit
 
@@ -560,7 +561,7 @@ and VIX moves, read only on a session that is not a closed date.
 | `data_quality` | Fewer than three clusters are ranked, or the input-currency rules in [How inputs report currency](#how-inputs-report-currency) send the read here. |
 | `panic` | SPY down 4% or more with at least one eligible red; or SPY down 7% or more. Red clusters without a fall, however many, are `confirmed_stress`. |
 | `confirmed_stress` | Two or more eligible red clusters, which takes a standing stress witness plus a co-sign or a second witness; or one eligible red with SPY down 2.5% or more, or with VIX up 20% or more; or SPY down 4% or more with at least two clusters yellow or worse. |
-| `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, an isolated VVIX red); a current cash credit row with HY OAS 0.50 pp or more wider over 20 observations; three or more clusters yellow or worse of which at least one is a stress witness at yellow; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing. |
+| `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, a VVIX red held between 115 and 120); a current cash credit row with HY OAS 0.50 pp or more wider over 20 observations; three or more clusters yellow or worse of which at least one is a stress witness at yellow; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing. |
 | `opportunity` | No red, at most one cluster at yellow, at least three ranked clusters, SPY up 1.5% or more and VIX down 10% or more. Every cluster counts, co-signs included, and a co-sign red with no stress witness standing is one yellow. This is broad-market context only, not a trade instruction. |
 | `stabilization` | No red, one or two stress witnesses at yellow, and SPY up 1% or more or VIX down 10% or more. Stress is easing, but this is not yet an opportunity. A day whose only yellows are co-signs is `quiet`. |
 | `quiet` | None of the above. |
