@@ -544,6 +544,22 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 	}
 
 	if slot.current != nil && slot.current.sessionKey == key {
+		// The budget above reaches a refresh only. With no last-good value
+		// the in-flight compute is slot.current, and stuck it read
+		// "computing" until a restart or the next session. It is cancelled
+		// and replaced at once: nothing is being served that a retry
+		// backoff could protect, and the budget itself paces this to one
+		// attempt per gammaComputeBudget. The cancelled job can no longer
+		// publish (it is not slot.current any more).
+		if stuck := slot.current; !stuck.isDone() && now.Sub(stuck.startedAt) >= gammaComputeBudget {
+			stuck.cancel()
+			slot.errStreak++
+			slot.lastFailAt = now
+			gammaLogf{inner: c.log}.Warnf("gamma compute: scope=%s first compute abandoned after %s without finishing, last progress %d%% (%s); starting again",
+				scope, now.Sub(stuck.startedAt).Round(time.Second), stuck.progress.Load(), gammaProgressStage(scope, stuck.progress.Load()))
+			job = c.startLocked(parent, scope, key, now, etaSeconds, compute)
+			return job, true
+		}
 		// Same session — but a cached error past the retry gate must NOT
 		// gate escalates with the slot's consecutive-failure streak
 		if slot.current.isDone() && slot.current.err != nil && slot.retryAllowed(now) {

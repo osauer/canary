@@ -88,6 +88,53 @@ func TestGammaStuckRefreshIsAbandonedAndRetried(t *testing.T) {
 	r.awaitPublication(t, retry)
 }
 
+// The same bound holds for a first compute. With no last-good value to serve
+// (a cold start, a rejected snapshot, a single-scope request) the job is the
+// slot's current one, not a refresh, and the budget of 54c272c8 did not reach
+// it: stuck, it read "computing" until a restart or the next session.
+func TestGammaStuckFirstComputeIsAbandonedAndReplaced(t *testing.T) {
+	cache := newGammaZeroCache()
+	logs := &gammaCaptureLog{}
+	cache.log = logs
+	hang := make(chan struct{})
+	t.Cleanup(func() { close(hang) })
+	var calls atomic.Int32
+	var firstCtx atomic.Pointer[context.Context]
+	compute := func(ctx context.Context, p *atomic.Int32) (*rpc.GammaZeroComputed, error) {
+		calls.Add(1)
+		firstCtx.CompareAndSwap(nil, &ctx)
+		<-hang // ignores ctx
+		return nil, errors.New("late return of an abandoned compute")
+	}
+	open := gammaRolloverNY(t, "2026-09-24 09:31")
+	first, fresh := cache.kickOrJoin(t.Context(), rpc.GammaZeroScopeCombined, open, 1, compute)
+	if !fresh || first == nil {
+		t.Fatal("a cold start did not start a compute")
+	}
+	for deadline := time.Now().Add(5 * time.Second); firstCtx.Load() == nil; time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the compute never started")
+		}
+	}
+	if job, _ := cache.kickOrJoin(t.Context(), rpc.GammaZeroScopeCombined, open.Add(gammaComputeBudget-time.Minute), 1, compute); job != first {
+		t.Fatal("a first compute inside its time budget was abandoned")
+	}
+	job, fresh := cache.kickOrJoin(t.Context(), rpc.GammaZeroScopeCombined, open.Add(gammaComputeBudget+time.Minute), 1, compute)
+	if job == first || !fresh {
+		t.Fatalf("a first compute stuck for more than %s still holds the slot", gammaComputeBudget)
+	}
+	if (*firstCtx.Load()).Err() == nil {
+		t.Fatal("the abandoned compute was not cancelled")
+	}
+	if got := logs.joined(); !strings.Contains(got, "first compute abandoned") || !strings.Contains(got, "last progress 0%") {
+		t.Fatalf("abandon warning: %q", got)
+	}
+	// The replacement has its own budget: it is not abandoned at once.
+	if again, _ := cache.kickOrJoin(t.Context(), rpc.GammaZeroScopeCombined, open.Add(gammaComputeBudget+2*time.Minute), 1, compute); again != job {
+		t.Fatal("the replacement compute was abandoned inside its own budget")
+	}
+}
+
 type gammaCaptureLog struct {
 	mu    sync.Mutex
 	lines []string
