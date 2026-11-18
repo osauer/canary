@@ -2,6 +2,7 @@ package ibkr
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -235,5 +236,141 @@ func TestOptionReleaseRemovesRoutingBeforeAdmittingSuccessor(t *testing.T) {
 	}
 	if admitted {
 		t.Fatal("replacement could be admitted while retired option routing still existed")
+	}
+}
+
+// The daemon redials on a new Connector and stops the old one. An option read
+// parked on the old connection's full line pool belongs to that session: no
+// line of an ended session is ever released, so the read must end with it.
+// On 2026-11-18 the dealer-gamma refresh, whose context carries no deadline,
+// was parked there when the 16:30:48 redial replaced the connector, and no
+// gamma was computed until the daemon restarted at 18:16.
+func TestOptionReadWaitingForALineEndsWithItsSession(t *testing.T) {
+	c, conn, _, _ := newQuoteFallbackFixture(t)
+	conn.optionContractCache[optionContractKey("SYNTH", "SYNTH", "20261218", 100, "C")] = ContractDetailsLite{
+		ConID: 900001, Symbol: "SYNTH", SecType: "OPT", TradingClass: "SYNTH", Expiry: "20261218", Strike: 100, Right: "C", Exchange: "SMART", Currency: "USD", Multiplier: 100,
+	}
+	for id := 10000; id < 10100; id++ {
+		if err := conn.acquireMarketDataSlot(t.Context(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conn.reqIDMu.Lock()
+	before := conn.reqIDSeq
+	conn.reqIDMu.Unlock()
+	// The reader's context lives as long as the process, as the refresh's does.
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := c.HoldOption(t.Context(), "SYNTH", "SYNTH", "20261218", 100, "C")
+		done <- err
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		c.subMu.RLock()
+		pending := len(c.optionPending)
+		c.subMu.RUnlock()
+		if pending != 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("reader never entered option admission")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// The reader has reached the pool once its request id is allocated.
+	for {
+		conn.reqIDMu.Lock()
+		allocated := conn.reqIDSeq > before
+		conn.reqIDMu.Unlock()
+		if allocated {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("reader never reached line admission")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(5 * time.Millisecond)
+
+	if !c.DropSession(context.Canceled) {
+		t.Fatal("session was not dropped")
+	}
+	if err := c.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a read was admitted to a line on an ended session")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the read is still waiting for a line on a session that ended; nothing will ever release one")
+	}
+	if got := marketDataSlotCount(conn); got != 100 {
+		t.Fatalf("the ended wait changed the pool: %d lines held, want 100", got)
+	}
+}
+
+// A release cancels its line once, inside a window of a few seconds, and has
+// dropped its record of the line by then. A cancel that misses the window
+// stays owed: the Gateway still streams the line, so the slot stays held, and
+// the connection sends the cancel as soon as it can. Before, the line was
+// held until the next redial and nothing ever cancelled it.
+func TestLineWhoseCancelMissedItsWindowIsStillCancelled(t *testing.T) {
+	c, conn, out, _ := newQuoteFallbackFixture(t)
+	conn.cancelRetryWait = 5 * time.Millisecond
+	conn.optionContractCache[optionContractKey("SYNTH", "SYNTH", "20261218", 100, "C")] = ContractDetailsLite{
+		ConID: 900001, Symbol: "SYNTH", SecType: "OPT", TradingClass: "SYNTH", Expiry: "20261218", Strike: 100, Right: "C", Exchange: "SMART", Currency: "USD", Multiplier: 100,
+	}
+	key, id, sub, err := c.acquireOption(t.Context(), "SYNTH", "SYNTH", "20261218", 100, "C")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The release window has already run out when the cancel is sent.
+	expired, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := c.unsubscribeMarketData(expired, key, nil, sub); err == nil {
+		t.Fatal("cancel was sent inside an expired window")
+	}
+	if !mdTSlotHeld(conn, id) {
+		t.Fatal("the slot was freed although the Gateway still streams the line")
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for mdTSlotHeld(conn, id) {
+		if time.Now().After(deadline) {
+			t.Fatal("the line is still held and no cancel was ever sent for it")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	cancels := outboundFramesByID(t, conn, out, cancelMktData)
+	if len(cancels) != 1 || cancels[0][2] != strconv.Itoa(id) {
+		t.Fatalf("owed cancel on the wire = %v, want one for request %d", cancels, id)
+	}
+}
+
+// An owed cancel belongs to its session: once the session ends the Gateway has
+// dropped the line, and nothing is sent or released on its behalf afterwards.
+func TestOwedCancelEndsWithItsSession(t *testing.T) {
+	c, conn, out, _ := newQuoteFallbackFixture(t)
+	conn.cancelRetryWait = 20 * time.Millisecond
+	conn.optionContractCache[optionContractKey("SYNTH", "SYNTH", "20261218", 100, "C")] = ContractDetailsLite{
+		ConID: 900001, Symbol: "SYNTH", SecType: "OPT", TradingClass: "SYNTH", Expiry: "20261218", Strike: 100, Right: "C", Exchange: "SMART", Currency: "USD", Multiplier: 100,
+	}
+	key, id, sub, err := c.acquireOption(t.Context(), "SYNTH", "SYNTH", "20261218", 100, "C")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired, cancel := context.WithCancel(t.Context())
+	cancel()
+	_ = c.unsubscribeMarketData(expired, key, nil, sub)
+	if !c.DropSession(context.Canceled) {
+		t.Fatal("session was not dropped")
+	}
+	time.Sleep(100 * time.Millisecond)
+	if cancels := outboundFramesByID(t, conn, out, cancelMktData); len(cancels) != 0 {
+		t.Fatalf("a cancel was written after its session ended: %v", cancels)
+	}
+	if !mdTSlotHeld(conn, id) {
+		t.Fatal("an ended session's slot was released by the retry")
 	}
 }
