@@ -1600,9 +1600,11 @@ type RegimeComposite struct {
 	ClusterRedCount      int    `json:"cluster_red_count"`
 	ClusterRankedCount   int    `json:"cluster_ranked_count"`
 	ClusterUnrankedCount int    `json:"cluster_unranked_count"`
-	// ClusterEligibleRedCount counts red clusters whose evidence passed the
-	// survived the isolated-red downgrades. Only these reds may confirm
-	// visible, early-warning evidence, never confirmation.
+	// ClusterEligibleRedCount counts the red clusters that may confirm
+	// stress: eligible evidence that survived the cluster combination, where
+	// a co-sign red counts only beside a standing stress witness.
+	// ClusterProvisionalRedCount counts the other raw reds: visible context,
+	// never confirmation.
 	ClusterEligibleRedCount    int `json:"cluster_eligible_red_count"`
 	ClusterProvisionalRedCount int `json:"cluster_provisional_red_count,omitempty"`
 }

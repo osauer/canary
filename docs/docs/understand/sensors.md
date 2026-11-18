@@ -1,6 +1,6 @@
 # Sensors
 
-Updated: 2026-11-07 07:52 CET
+Updated: 2026-11-18 10:19 CET
 
 A sensor is one measurement the daemon keeps current from broker and public
 sources, such as the market regime or the stress on the book you hold. Each
@@ -213,10 +213,13 @@ fingerprint, and one of `quiet`, `early_warning`, `confirmed_stress`, `panic`,
 
 Red does not automatically mean confirmed. Only a `fresh` observation may
 confirm, and the check is an allowlist: a state whose authority has not been
-decided cannot inherit confirmation. Depth, persistence, freshness, and cluster
-independence decide whether a red row may confirm stress. A provisional red
-stays visible and may support `early_warning` only when the required evidence
-set is otherwise usable. One cluster whose evidence has gone defective or stale
+decided cannot inherit confirmation. Depth, persistence and freshness decide
+whether a red row may confirm stress, and its role decides what that is worth:
+volatility, funding and cash credit spreads are stress witnesses and can start
+a warning; the HYG/SPY proxy, USD/JPY, gamma and breadth are co-signs that
+count only beside a standing witness. A provisional red stays visible. A
+witness's may support `early_warning` when the required evidence set is
+otherwise usable; a co-sign's opens nothing. One cluster whose evidence has gone defective or stale
 degrades readiness and is named rather than discarding the other five; two of
 them, an unattributable defect, or a defect in the very evidence the current
 stage rests on produce `data_quality`, blocked readiness, and the label

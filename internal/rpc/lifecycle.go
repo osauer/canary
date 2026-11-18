@@ -223,10 +223,13 @@ const (
 //
 // Confirmation policy (internal-docs/design/regime-calibration.md): only ELIGIBLE
 // reds — deep, persistent, cadence-fresh evidence per the shared gates —
-// count toward confirmed_stress/panic and confirmed_by. Provisional reds
-// stay visible and land in unconfirmed. They drive early_warning only while
-// the required input set is usable; broken or overdue evidence produces an
-// explicit data_quality state instead of masquerading as a market warning.
+// count toward confirmed_stress and confirmed_by, and a co-sign red counts
+// only beside a standing stress witness (BuildRegimeClusterBands). Panic
+// needs a fall on the tape. Provisional reds stay visible and land in
+// unconfirmed; only a witness's opens early_warning (regimeWarningArm), and
+// only while the required input set is usable: broken or overdue evidence
+// produces an explicit data_quality state instead of masquerading as a
+// market warning.
 // Independently current confirmed stress/panic is preserved even when an
 // unrelated source is impaired. A severity governor then applies the provenance gate (heuristic
 // pending_backtest evidence without a tape co-signature is capped one rung
@@ -270,7 +273,7 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		state.Stage = LifecycleConfirmedStress
 		state.Severity = "act"
 		state.Timing = LifecycleTimingContemporary
-	case regimeLifecycleEarlyWarning(*r, tally, unconfirmed):
+	case len(regimeWarningOpeners(*r, cb, tally)) > 0:
 		state.Stage = LifecycleEarlyWarning
 		state.Severity = "watch"
 		state.Timing = LifecycleTimingForwardWarning
@@ -363,20 +366,16 @@ func regimeLifecycleHasIndependentCurrentStress(state LifecycleState, r RegimeSn
 
 // regimeClusterTally is the lifecycle's working view of the combined cluster
 type regimeClusterTally struct {
-	ranked         int
-	green          int
-	yellow         int
-	red            int
-	unranked       int
-	eligibleRed    int
-	provisionalRed int
+	ranked      int
+	green       int
+	yellow      int
+	red         int
+	unranked    int
+	eligibleRed int
 }
 
 func tallyRegimeClusters(cb RegimeClusterBands) regimeClusterTally {
-	t := regimeClusterTally{
-		eligibleRed:    cb.EligibleRedCount(),
-		provisionalRed: cb.ProvisionalRedCount(),
-	}
+	t := regimeClusterTally{eligibleRed: cb.EligibleRedCount()}
 	for _, band := range cb.Confirmed {
 		switch band {
 		case "green":
@@ -792,12 +791,10 @@ func lifecycleFingerprint(state LifecycleState) Fingerprint {
 	return semanticFingerprint("lifecycle-fp-v2", projection)
 }
 
-// regimeLifecyclePanic: three deep/fresh/persistent independent reds, or
-// tape-grade crashes. Eligible reds only — provisional evidence never
+// regimeLifecyclePanic is a fall on the tape: SPY down 4% beside an eligible
+// red, or down 7%. Reds alone, however many, are confirmed stress: on
+// 2026-09-10 three eligible reds read panic with SPY flat.
 func regimeLifecyclePanic(r RegimeSnapshotResult, t regimeClusterTally) bool {
-	if t.eligibleRed >= 3 {
-		return true
-	}
 	return regimeTapeConfirmable(r) &&
 		((pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && t.eligibleRed >= 1) ||
 			pctAtMost(r.HYGSPYDivergence.SPYChangePct, -7.0))
@@ -813,18 +810,71 @@ func regimeLifecycleConfirmedStress(r RegimeSnapshotResult, t regimeClusterTally
 			(t.eligibleRed >= 1 && pctAtLeast(r.VIXTermStructure.VIXChangePct, 20.0)))
 }
 
-// regimeLifecycleEarlyWarning is the home of provisional reds: any raw red
-// (eligible or not) warns immediately, even though only eligible reds may
-// confirm. The direct tape triggers require a confirmable session; cluster
-// evidence warns on any date.
-func regimeLifecycleEarlyWarning(r RegimeSnapshotResult, t regimeClusterTally, unconfirmed []string) bool {
-	return t.eligibleRed+t.provisionalRed >= 1 ||
-		t.red >= 1 ||
-		t.atLeastYellow() >= 3 ||
-		len(unconfirmed) > 0 ||
-		(regimeTapeConfirmable(r) &&
-			(pctAtMost(r.HYGSPYDivergence.SPYChangePct, -1.5) ||
-				pctAtLeast(r.VIXTermStructure.VIXChangePct, 10.0)))
+// Early-warning arms, as RegimeWarningOpeners names them.
+const (
+	regimeWarningEligibleRed        = "eligible_red"
+	regimeWarningProvisionalWitness = "provisional_witness"
+	regimeWarningThreeYellows       = "three_yellows"
+	regimeWarningSPYTape            = "spy_tape"
+	regimeWarningVIXTape            = "vix_tape"
+)
+
+// regimeWarningArm names the early-warning arm that cluster i's evidence
+// opens, or "". Only a stress witness opens one: a red that confirms (a
+// co-sign red confirms only beside a standing witness, so it is covered), a
+// witness red that is provisional or does not stand, or a witness at yellow
+// when three clusters are at yellow or worse. A red or yellow in co-sign
+// clusters alone opens nothing.
+func regimeWarningArm(cb RegimeClusterBands, t regimeClusterTally, i int) string {
+	if i >= len(cb.Confirmed) || i >= len(cb.Eligible) || i >= len(cb.witness) {
+		return ""
+	}
+	switch {
+	case cb.Confirmed[i] == "red" && cb.Eligible[i]:
+		return regimeWarningEligibleRed
+	case cb.witness[i] == "red":
+		return regimeWarningProvisionalWitness
+	case cb.witness[i] == "yellow" && t.atLeastYellow() >= 3:
+		return regimeWarningThreeYellows
+	}
+	return ""
+}
+
+// regimeWarningOpeners lists every arm that opens early_warning: the cluster
+// arms above, then the direct tape arms, which need a confirmable session. A
+// provisional witness carries its cluster ("provisional_witness:vol").
+func regimeWarningOpeners(r RegimeSnapshotResult, cb RegimeClusterBands, t regimeClusterTally) []string {
+	var out []string
+	for i, name := range RegimeClusterNames {
+		arm := regimeWarningArm(cb, t, i)
+		if arm == regimeWarningProvisionalWitness {
+			arm += ":" + name
+		}
+		if arm != "" && !slices.Contains(out, arm) {
+			out = append(out, arm)
+		}
+	}
+	if regimeTapeConfirmable(r) {
+		if pctAtMost(r.HYGSPYDivergence.SPYChangePct, -1.5) {
+			out = append(out, regimeWarningSPYTape)
+		}
+		if pctAtLeast(r.VIXTermStructure.VIXChangePct, 10.0) {
+			out = append(out, regimeWarningVIXTape)
+		}
+	}
+	return out
+}
+
+// RegimeWarningOpeners names the arms that open early_warning on this
+// snapshot, for a reader that explains or measures a warning: "eligible_red",
+// "provisional_witness:<cluster>", "three_yellows", "spy_tape", "vix_tape".
+// The stage vote reads the same list; a higher stage may still win.
+func RegimeWarningOpeners(r *RegimeSnapshotResult) []string {
+	if r == nil {
+		return nil
+	}
+	cb := BuildRegimeClusterBands(r)
+	return regimeWarningOpeners(*r, cb, tallyRegimeClusters(cb))
 }
 
 // Opportunity and stabilization are tape-driven recovery stages: a frozen
@@ -1014,14 +1064,12 @@ func regimeLifecycleStageEvidenceCurrent(state LifecycleState, r RegimeSnapshotR
 	case LifecycleConfirmedStress, LifecyclePanic:
 		return regimeLifecycleHasIndependentCurrentStress(state, r, cb)
 	case LifecycleEarlyWarning:
-		// A warning needs at least one non-defective cluster carrying the
-		// visible evidence, or a current tape arm. An overdue red is not a
-		// market warning — it is missing evidence, and stays data_quality.
+		// A warning needs at least one non-defective cluster whose evidence
+		// opens it, or a current tape arm. An overdue red is not a market
+		// warning — it is missing evidence, and stays data_quality.
+		t := tallyRegimeClusters(cb)
 		for i, name := range RegimeClusterNames {
-			if i >= len(cb.Raw) || (cb.Raw[i] != "red" && cb.Raw[i] != "yellow") {
-				continue
-			}
-			if !inputs.clusterDefective(name) {
+			if regimeWarningArm(cb, t, i) != "" && !inputs.clusterDefective(name) {
 				return true
 			}
 		}

@@ -1,6 +1,6 @@
 # Concepts
 
-Updated: 2026-11-07 08:23 CET
+Updated: 2026-11-18 10:19 CET
 
 What the load-bearing context surfaces measure, in enough depth to read the output without mis-acting on it. This page is the mental model. [Sensors](sensors.md) owns authority, freshness, last-good behaviour, and the safe checks; the [regime dashboard contract](../internals/regime-dashboard.md) owns methodology.
 
@@ -61,7 +61,7 @@ The eight-row risk-regime dashboard summarises the market's current posture. Eac
 7. **Dealer zero-gamma** (SPX canonical, SPY corroboration). Whether the dealer book stabilises or amplifies day-over-day moves. See [Gamma](#gamma).
 8. **S&P 500 breadth**. Whether the index's strength is broad or carried by a handful of mega-caps. See [Breadth](#breadth).
 
-Every row bands green / yellow / red and carries a `streak` count of consecutive sessions in that band. A Day-1 stress event reads differently from a Day-5 one. The lifecycle layer keeps weak or unconfirmed red evidence visible while stopping a single noisy proxy from dominating the broad-market trigger.
+Every row bands green / yellow / red and carries a `streak` count of consecutive sessions in that band. A Day-1 stress event reads differently from a Day-5 one. The lifecycle layer keeps weak or unconfirmed red evidence visible while stopping a single noisy proxy from dominating the broad-market trigger: volatility, funding and cash credit spreads can start a warning, while the HYG/SPY proxy, USD/JPY, gamma and breadth only strengthen one that has started.
 
 Two things to expect on the wire. Gamma and breadth are heavy computes: gamma reports `status: "computing"` with an ETA, breadth `state: "computing"`, until a result is serveable. [Sensors](sensors.md) has the refresh and last-good rules. Live IBKR rows may carry a `fields_missing` array for optional sub-fields that missed the fetch budget; the primary measurement still landed, so treat it as a render hint, not an error.
 

@@ -61,13 +61,16 @@ type regimeReplayInputs struct {
 	fundingLast      int // last row both funding legs reach
 }
 
-// regimeReplaySession is one replayed session: the stage in each series and
-// one letter per indicator, in streakIndicators order (see regimeBandLetter).
+// regimeReplaySession is one replayed session: the stage in each series, one
+// letter per indicator in streakIndicators order (see regimeBandLetter), and,
+// for the vote-only series, the headline and the arms that open a warning.
 type regimeReplaySession struct {
-	row   int
-	date  string
-	stage [2]string
-	bands []byte
+	row      int
+	date     string
+	stage    [2]string
+	bands    []byte
+	headline string
+	openers  []string
 }
 
 // TestRegimeHistoryReplay is the history harness for the Regime stage vote:
@@ -163,6 +166,7 @@ func TestRegimeHistoryReplay(t *testing.T) {
 			_, meta, _ := regimeDecisionRowView(vote, ind.key())
 			s.bands = append(s.bands, regimeBandLetter(meta))
 		}
+		s.headline, s.openers = vote.Composite.Verdict, rpc.RegimeWarningOpeners(vote)
 		sessions = append(sessions, s)
 	}
 
@@ -172,6 +176,7 @@ func TestRegimeHistoryReplay(t *testing.T) {
 		filepath.Base(path), len(days), days[0].date, days[len(days)-1].date, len(sessions), first.date)
 	b.WriteString("A session is evaluated once, at 12:00 New York, on that day's closes and that day's official values.\n")
 	b.WriteString("vote only: an input with no reading is left out of the vote. as served: it is the unavailable row the daemon would serve.\n")
+	b.WriteString("Headlines and warning openers are those of the vote-only series.\n")
 	fmt.Fprintf(&b, "Outcome: SPY over the next %d sessions against that day's close; the last %d sessions of the file have none.\n", regimeReplayAhead, regimeReplayAhead)
 
 	regimeReplayWindow(&b, "whole file", spy, sessions)
@@ -391,8 +396,8 @@ func (in *regimeReplayInputs) snapshot(ctx context.Context, i int, at time.Time,
 // from its last reading. BuildRegimeLifecycle then votes on the inputs that
 // have readings, and its required-input gate has nothing to object to. The
 // assumption is that a missing input would have added neither a red nor a
-// green; in particular a missing cash credit read never vetoes the HYG row,
-// which is the daemon's own rule for an absent read.
+// green: without a cash credit read the credit cluster has no stress witness,
+// and without gamma or breadth a witness has one co-sign fewer.
 func regimeReplayVoteOnly(snap *rpc.RegimeSnapshotResult, policies map[string]regimeRowPolicy) (*rpc.RegimeSnapshotResult, map[string]regimeRowPolicy) {
 	vote, votePolicies := *snap, maps.Clone(policies)
 	silent := regimeRowPolicy{freshness: &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh}}
@@ -425,6 +430,7 @@ func regimeReplayStage(snap *rpc.RegimeSnapshotResult, policies map[string]regim
 	snap.DataQuality = regimeSnapshotDataQuality(snap)
 	snap.SourceHealth = rpc.BuildRegimeSourceHealth(snap, snap.AsOf)
 	snap.Lifecycle = rpc.BuildRegimeLifecycle(snap)
+	snap.Composite.Verdict = rpc.RegimeHeadline(snap.Composite, snap.Lifecycle.Stage)
 	return snap.Lifecycle.Stage
 }
 
@@ -494,6 +500,44 @@ func regimeReplayWindow(b *strings.Builder, name string, spy []float64, sessions
 		}
 		b.WriteByte('\n')
 	}
+
+	// What a quiet session still says in its headline, and which arms opened
+	// each early warning, both as shares of all sessions in the window.
+	share := func(title, column string, keep func(regimeReplaySession) []string) {
+		count, alone := map[string]int{}, map[string]int{}
+		for _, s := range sessions {
+			labels := keep(s)
+			for _, label := range labels {
+				count[label]++
+				if len(labels) == 1 {
+					alone[label]++
+				}
+			}
+		}
+		if len(count) == 0 {
+			return
+		}
+		fmt.Fprintln(b, strings.TrimRight(fmt.Sprintf("%-44s %8s %8s %13s", title, "sessions", "share", column), " "))
+		for _, label := range slices.Sorted(maps.Keys(count)) {
+			line := fmt.Sprintf("%-44s %8d %8s", label, count[label], regimeReplayShare(count[label], len(sessions)))
+			if column != "" {
+				line += fmt.Sprintf(" %13s", regimeReplayShare(alone[label], len(sessions)))
+			}
+			fmt.Fprintln(b, line)
+		}
+	}
+	share("headline on quiet sessions", "", func(s regimeReplaySession) []string {
+		if s.stage[0] != rpc.LifecycleQuiet {
+			return nil
+		}
+		return []string{s.headline}
+	})
+	share("early_warning opened by", "the only arm", func(s regimeReplaySession) []string {
+		if s.stage[0] != rpc.LifecycleEarlyWarning {
+			return nil
+		}
+		return s.openers
+	})
 
 	fmt.Fprintf(b, "%-18s %8s %7s %13s %7s   (shares of the sessions with a reading)\n", "indicator", "readings", "red", "red+eligible", "yellow")
 	for k, ind := range streakIndicators {
@@ -601,8 +645,9 @@ func regimeReplayDaily(b *strings.Builder, days []regimeHistoryDay, sessions []r
 	for _, ind := range streakIndicators {
 		b.WriteString(" " + ind.key())
 	}
-	fmt.Fprintf(b, "\n%-10s %-16s %-16s %-8s %8s\n", "date", regimeReplaySeries[0], regimeReplaySeries[1], "bands", "SPY")
+	fmt.Fprintf(b, "\n%-10s %-16s %-16s %-8s %8s  %s\n", "date", regimeReplaySeries[0], regimeReplaySeries[1], "bands", "SPY", "warning openers")
 	for _, s := range sessions {
-		fmt.Fprintf(b, "%-10s %-16s %-16s %-8s %8.2f\n", s.date, s.stage[0], s.stage[1], s.bands, days[s.row].spy)
+		line := fmt.Sprintf("%-10s %-16s %-16s %-8s %8.2f  %s", s.date, s.stage[0], s.stage[1], s.bands, days[s.row].spy, strings.Join(s.openers, " "))
+		fmt.Fprintln(b, strings.TrimRight(line, " "))
 	}
 }

@@ -1,84 +1,69 @@
 package rpc
 
-import (
-	"testing"
-	"time"
-)
+import "testing"
 
-// The cash-credit veto is an evidentiary claim: only a recent official read
-// that fails to corroborate may soften a row-confirmed HYG red. Absence,
-// staleness, a red band, or directional widening all leave the proxy red.
-func TestCreditCashVetoRequiresCurrentEvidence(t *testing.T) {
-	asOf := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
-	snap := func(cs RegimeCreditSpreads) *RegimeSnapshotResult {
-		r := &RegimeSnapshotResult{AsOf: asOf}
-		r.HYGSPYDivergence.RegimeIndicatorMeta = RegimeIndicatorMeta{Band: "red"}
-		r.CreditSpreads = cs
-		return r
+// The HYG proxy is a co-sign: alone, its red reads yellow in the cluster
+// count whatever the cash row beside it shows short of red. A cash red is a
+// witness red and keeps the cluster red.
+func TestCreditProxyRedCountsOnlyBesideAWitness(t *testing.T) {
+	credit := func(shape func(cs *RegimeCreditSpreads)) string {
+		r := calmRegime()
+		red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+		shape(&r.CreditSpreads)
+		return BuildRegimeClusterBands(r).Confirmed[RegimeClusterCredit]
 	}
-	oas := func(v float64) *float64 { return &v }
-
-	freshGreen := RegimeCreditSpreads{HYOAS: oas(2.7), AsOfDate: "2026-08-10",
-		Band: "green"}
-	if got := BuildRegimeClusterBands(snap(freshGreen)).Confirmed[RegimeClusterCredit]; got != "yellow" {
-		t.Fatalf("fresh green cash must veto the proxy: credit cluster = %q, want yellow", got)
+	for name, shape := range map[string]func(cs *RegimeCreditSpreads){
+		"a fresh green cash read":     func(*RegimeCreditSpreads) {},
+		"no cash read":                func(cs *RegimeCreditSpreads) { *cs = RegimeCreditSpreads{} },
+		"a cash read twelve days old": func(cs *RegimeCreditSpreads) { cs.AsOfDate = "2026-08-29" },
+		"cash widening 0.6 points":    func(cs *RegimeCreditSpreads) { cs.Band, cs.HY20DChange = "yellow", new(0.6) },
+	} {
+		if got := credit(shape); got != "yellow" {
+			t.Errorf("proxy red beside %s: credit cluster = %q, want yellow", name, got)
+		}
 	}
-
-	absent := RegimeCreditSpreads{}
-	if got := BuildRegimeClusterBands(snap(absent)).Confirmed[RegimeClusterCredit]; got != "red" {
-		t.Fatalf("an absent official gauge must abstain: credit cluster = %q, want red", got)
-	}
-
-	stale := RegimeCreditSpreads{HYOAS: oas(2.7), AsOfDate: "2026-07-30",
-		Band: "green"}
-	if got := BuildRegimeClusterBands(snap(stale)).Confirmed[RegimeClusterCredit]; got != "red" {
-		t.Fatalf("a stale official gauge must abstain: credit cluster = %q, want red", got)
-	}
-
-	widening := RegimeCreditSpreads{HYOAS: oas(2.9), HY20DChange: oas(0.6), AsOfDate: "2026-08-10",
-		Band: "yellow"}
-	if got := BuildRegimeClusterBands(snap(widening)).Confirmed[RegimeClusterCredit]; got != "red" {
-		t.Fatalf("fresh widening co-signs the proxy: credit cluster = %q, want red", got)
-	}
-
-	cashRed := RegimeCreditSpreads{HYOAS: oas(5.8), AsOfDate: "2026-08-10",
-		Band: "red"}
-	if got := BuildRegimeClusterBands(snap(cashRed)).Confirmed[RegimeClusterCredit]; got != "red" {
-		t.Fatalf("red cash corroborates the proxy: credit cluster = %q, want red", got)
+	if got := credit(func(cs *RegimeCreditSpreads) { red(&cs.RegimeIndicatorMeta, true) }); got != "red" {
+		t.Errorf("a red cash read is a witness: credit cluster = %q, want red", got)
 	}
 }
 
-// Only a stress cluster may override a fresh cash-credit veto. Breadth is the
-// other internals-versus-index divergence read and binds red on the same
-// "SPY near highs" anchor, so it cannot corroborate the HYG proxy against the
-// official HY OAS series (2026-10-05 false confirmation).
-func TestCreditCashVetoSurvivesBreadthRed(t *testing.T) {
-	asOf := time.Date(2026, 10, 5, 16, 0, 0, 0, time.UTC)
-	oas := func(v float64) *float64 { return &v }
-	eligibleRed := RegimeIndicatorMeta{Band: "red", Eligibility: &RegimeEligibility{Eligible: true}}
-	base := func() *RegimeSnapshotResult {
-		r := &RegimeSnapshotResult{AsOf: asOf}
-		r.HYGSPYDivergence.RegimeIndicatorMeta = eligibleRed
-		r.CreditSpreads = RegimeCreditSpreads{HYOAS: oas(3.1), HY20DChange: oas(0.42), AsOfDate: "2026-10-02", Band: "green"}
-		return r
+// Co-signs do not corroborate each other. On 2026-10-05 the HYG proxy, 2.6%
+// below its 50DMA for 21 sessions, and a 19-session breadth red read
+// confirmed stress together with VIX at 15.5 and HY OAS at 3.10%. Both count
+// once a witness stands.
+func TestCoSignRedsCountOnlyBesideAWitness(t *testing.T) {
+	r := calmRegime()
+	red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+	red(&r.Breadth.RegimeIndicatorMeta, true)
+	cb := BuildRegimeClusterBands(r)
+	if cb.Confirmed[RegimeClusterCredit] != "yellow" || cb.Confirmed[RegimeClusterBreadth] != "yellow" || cb.EligibleRedCount() != 0 {
+		t.Fatalf("credit %q, breadth %q, %d eligible reds; want two yellows and none", cb.Confirmed[RegimeClusterCredit], cb.Confirmed[RegimeClusterBreadth], cb.EligibleRedCount())
+	}
+	if stage := regimeVote(r).Stage; stage != LifecycleQuiet {
+		t.Fatalf("two co-sign reds read %q, want quiet", stage)
 	}
 
-	withBreadth := base()
-	withBreadth.Breadth.RegimeIndicatorMeta = eligibleRed
-	cb := BuildRegimeClusterBands(withBreadth)
-	if got := cb.Confirmed[RegimeClusterCredit]; got != "yellow" {
-		t.Fatalf("breadth red must not rescue the proxy from a fresh cash veto: credit cluster = %q, want yellow", got)
+	red(&r.VIXTermStructure.RegimeIndicatorMeta, true)
+	if got := BuildRegimeClusterBands(r).EligibleRedCount(); got != 3 {
+		t.Fatalf("eligible reds = %d, want 3 once the term inversion stands", got)
 	}
-	if got := cb.EligibleRedCount(); got != 1 {
-		t.Fatalf("eligible reds = %d, want 1 (breadth only)", got)
-	}
-	if stage := BuildRegimeLifecycle(withBreadth).Stage; stage == LifecycleConfirmedStress || stage == LifecyclePanic {
-		t.Fatalf("two divergence reads alone confirmed %q", stage)
+}
+
+// An isolated equity-vol red needs its own corroboration or another witness.
+// A co-sign cannot rescue it: the co-sign would then be confirming the very
+// witness it leans on.
+func TestIsolatedEquityVolRedIsNotRescuedByACoSign(t *testing.T) {
+	r := calmRegime()
+	red(&r.VolOfVol.RegimeIndicatorMeta, true)
+	r.VolOfVol.Last = new(112.0)
+	red(&r.Breadth.RegimeIndicatorMeta, true)
+	cb := BuildRegimeClusterBands(r)
+	if cb.Confirmed[RegimeClusterEquityVol] != "yellow" || cb.Confirmed[RegimeClusterBreadth] != "yellow" {
+		t.Fatalf("vol %q, breadth %q; want both yellow", cb.Confirmed[RegimeClusterEquityVol], cb.Confirmed[RegimeClusterBreadth])
 	}
 
-	withVol := base()
-	withVol.VIXTermStructure.RegimeIndicatorMeta = eligibleRed
-	if got := BuildRegimeClusterBands(withVol).Confirmed[RegimeClusterCredit]; got != "red" {
-		t.Fatalf("an eligible equity-vol red still corroborates the proxy: credit cluster = %q, want red", got)
+	red(&r.FundingStress.RegimeIndicatorMeta, true)
+	if got := BuildRegimeClusterBands(r).EligibleRedCount(); got != 3 {
+		t.Fatalf("eligible reds = %d, want 3 once funding stands beside the VVIX red", got)
 	}
 }

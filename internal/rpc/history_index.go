@@ -947,6 +947,9 @@ type RegimeClusterBands struct {
 	Raw       []string
 	Confirmed []string
 	Eligible  []bool
+	// witness is each cluster's band as a stress witness, "" where the
+	// cluster has none (see BuildRegimeClusterBands).
+	witness []string
 }
 
 // EligibleRedCount counts clusters that survive downgrades as red AND carry
@@ -978,7 +981,21 @@ func (b RegimeClusterBands) ProvisionalRedCount() int {
 }
 
 // BuildRegimeClusterBands combines served row bands into the six cluster
-// rescue counts ELIGIBLE reds only — a marginal or stale red can no longer
+// bands and gives each red the weight of its role.
+//
+// A stress witness measures stress directly: the equity-vol cluster, funding,
+// and the cash credit row. A witness stands when its red is eligible; an
+// equity-vol red must also be corroborated on its own terms
+// (isolatedLifecycleEquityVolConfirmed) or by another standing witness.
+//
+// The HYG proxy, the yen, dealer gamma and breadth are co-signs: they
+// strengthen what a witness has started. A co-sign red stays red, and may
+// confirm, only while a witness stands; otherwise its cluster reads yellow.
+// Co-signs never corroborate each other and never rescue a witness. In the
+// history replay of 2026-11-18 the proxy was red on 30% of sessions and the
+// market did no worse after it than after any other session
+// (internal-docs/design/regime-calibration.md, "Stress witnesses and
+// co-signs").
 func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 	if r == nil {
 		return RegimeClusterBands{}
@@ -991,113 +1008,44 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 		strongestLifecycleBand(rankableLifecycleGammaBand(r.GammaZero)),
 		strongestLifecycleBand(r.Breadth.Band),
 	}
+	witness := make([]string, regimeClusterCount)
+	witness[RegimeClusterEquityVol] = raw[RegimeClusterEquityVol]
+	witness[RegimeClusterCredit] = strongestLifecycleBand(r.CreditSpreads.Band)
+	witness[RegimeClusterFunding] = raw[RegimeClusterFunding]
+
+	cash := redEligible(r.CreditSpreads.RegimeIndicatorMeta)
+	funding := redEligible(r.FundingStress.RegimeIndicatorMeta)
+	vol := redEligible(r.VIXTermStructure.RegimeIndicatorMeta) || redEligible(r.VolOfVol.RegimeIndicatorMeta)
+	confirmed := append([]string(nil), raw...)
+	if raw[RegimeClusterEquityVol] == "red" && !cash && !funding && !isolatedLifecycleEquityVolConfirmed(*r) {
+		confirmed[RegimeClusterEquityVol] = "yellow"
+	}
+	stands := cash || funding || (vol && confirmed[RegimeClusterEquityVol] == "red")
+	for i := range confirmed {
+		if confirmed[i] == "red" && witness[i] != "red" && !stands {
+			confirmed[i] = "yellow"
+		}
+	}
 	eligible := []bool{
-		redEligible(r.VIXTermStructure.RegimeIndicatorMeta) || redEligible(r.VolOfVol.RegimeIndicatorMeta),
-		redEligible(r.HYGSPYDivergence.RegimeIndicatorMeta) || redEligible(r.CreditSpreads.RegimeIndicatorMeta),
-		redEligible(r.FundingStress.RegimeIndicatorMeta),
+		vol,
+		// The proxy co-signs inside the credit cluster: it cannot make a cash
+		// red that may not confirm into one that does.
+		cash || (stands && redEligible(r.HYGSPYDivergence.RegimeIndicatorMeta)),
+		funding,
 		redEligible(r.USDJPY.RegimeIndicatorMeta),
 		gammaRedEligible(r.GammaZero),
 		redEligible(r.Breadth.RegimeIndicatorMeta),
 	}
-	confirmed := append([]string(nil), raw...)
-	if r.HYGSPYDivergence.Band == "red" && creditCashVetoesProxy(r.CreditSpreads, r.AsOf) && !hasIndependentStressRed(raw, eligible, RegimeClusterCredit) {
-		confirmed[RegimeClusterCredit] = "yellow"
-	}
-	if r.USDJPY.Band == "red" && !hasIndependentEligibleRed(raw, eligible, RegimeClusterFX) {
-		confirmed[RegimeClusterFX] = "yellow"
-	}
-	if confirmed[RegimeClusterEquityVol] == "red" && !hasIndependentEligibleRed(confirmed, eligible, RegimeClusterEquityVol) && !isolatedLifecycleEquityVolConfirmed(*r) {
-		confirmed[RegimeClusterEquityVol] = "yellow"
-	}
-	return RegimeClusterBands{Raw: raw, Confirmed: confirmed, Eligible: eligible}
+	return RegimeClusterBands{Raw: raw, Confirmed: confirmed, Eligible: eligible, witness: witness}
 }
 
 func redEligible(meta RegimeIndicatorMeta) bool {
 	return meta.Band == "red" && meta.Eligibility != nil && meta.Eligibility.Eligible
 }
 
-// creditVetoMaxAgeDays bounds how old the official cash-credit read may be
-// and still soften the HYG proxy. OAS publishes T+1, so a weekend plus a
-// holiday naturally reaches four calendar days; anything older is an outage,
-// not a disagreement.
-const creditVetoMaxAgeDays = 5
-
-// creditWideningCoSignPP mirrors the published yellow threshold: a 20d HY
-// OAS widening at this pace is the cash market echoing the proxy's warning.
-const creditWideningCoSignPP = 0.50
-
-// creditCashVetoesProxy reports whether the official cash-credit gauge may
-// soften a row-confirmed HYG red to a cluster yellow. The veto is an
-// evidentiary claim — "current cash pricing disagrees" — so it requires an
-// affirmatively recent official read that fails to corroborate. A red band
-// or a fresh 20-observation widening corroborates the proxy (no veto), and
-// an absent or stale gauge abstains (no veto): unknown cash evidence never
-// softens a live warning. Operator decision 2026-08-11: when the official
-// state is unknown, assume the worst.
-func creditCashVetoesProxy(cs RegimeCreditSpreads, asOf time.Time) bool {
-	if cs.Band == "red" {
-		return false
-	}
-	if cs.HYOAS == nil || strings.TrimSpace(cs.AsOfDate) == "" {
-		return false
-	}
-	observed, err := time.Parse("2006-01-02", cs.AsOfDate)
-	if err != nil {
-		return false
-	}
-	if asOf.IsZero() || asOf.UTC().Sub(observed) > creditVetoMaxAgeDays*24*time.Hour {
-		return false
-	}
-	if cs.HY20DChange != nil && *cs.HY20DChange >= creditWideningCoSignPP {
-		return false
-	}
-	return true
-}
-
 // gammaRedEligible additionally requires the rankability gate the gamma vote
 func gammaRedEligible(g RegimeGammaZero) bool {
 	return rankableLifecycleGammaBand(g) == "red" && g.Eligibility != nil && g.Eligibility.Eligible
-}
-
-// regimeDivergenceCluster reports the internals-versus-index reads: the HYG
-// proxy (HYG below its 50DMA while SPY sits near its 52-week high) and SPX
-// breadth (members below their 50DMA while the index sits near highs). Both
-// describe narrow leadership, not market stress, and both bind red on the
-// same "SPY near highs" anchor, so one cannot corroborate the other.
-func regimeDivergenceCluster(i int) bool {
-	return i == RegimeClusterCredit || i == RegimeClusterBreadth
-}
-
-// hasIndependentStressRed is the corroboration the cash-credit veto may be
-// overridden by: an eligible red in a cluster that measures stress directly
-// (equity vol, funding, FX carry, dealer gamma). A fresh official HY OAS read
-// that disagrees with the HYG proxy is the direct measurement of the thing
-// the proxy approximates; only a stress cluster can outweigh it. Breadth
-// cannot — 2026-10-05: a 21-session HYG-below-50DMA red with HY OAS at 3.10%
-// (green, fresh) was rescued from the cash veto by a 19-session breadth red,
-// and the pair confirmed "stress" with VIX 15.5, VIX/VIX3M 0.86 and VVIX at
-// the 9th percentile of its year. That is the 2026-06-12 incident's "two
-// marginal reds rescued each other" shape again, this time between the two
-// divergence reads.
-func hasIndependentStressRed(bands []string, eligible []bool, self int) bool {
-	for i, band := range bands {
-		if i == self || regimeDivergenceCluster(i) {
-			continue
-		}
-		if band == "red" && i < len(eligible) && eligible[i] {
-			return true
-		}
-	}
-	return false
-}
-
-func hasIndependentEligibleRed(bands []string, eligible []bool, self int) bool {
-	for i, band := range bands {
-		if i != self && band == "red" && i < len(eligible) && eligible[i] {
-			return true
-		}
-	}
-	return false
 }
 
 // ApplyRegimeClusterTallies fills the cluster-level counts on a composite

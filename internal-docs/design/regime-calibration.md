@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-08-10
+**Last update:** 2026-11-18 10:19 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -134,9 +134,11 @@ evidence escalate to the strongest non-panic posture against a green tape.
 
 Introduce one concept that all four task questions hang off: a red cluster
 band is either **eligible** (may confirm stress) or **provisional** (may not
-confirm). A provisional red caused only by depth or persistence may warn when
-the required input set is otherwise usable. `data_overdue`, missing health,
-or an unavailable producer is instead a data-quality defect.
+confirm). A stress witness's provisional red caused only by depth or
+persistence may warn when the required input set is otherwise usable; a
+co-sign's provisional red is context and opens nothing (Part 8).
+`data_overdue`, missing health, or an unavailable producer is instead a
+data-quality defect.
 
 A red is *eligible* when all three hold:
 
@@ -161,36 +163,25 @@ eligibility drops with it; see the severity governor.)
 
 Provisional reds remain fully visible: the row renders red, the evidence list
 carries them with `confirmed: false`, and they appear in `unconfirmed`.
-Depth- or persistence-provisional reds may trigger `early_warning` only while
-all required inputs are usable. A broken or overdue input keeps the provisional
-measurement visible for diagnosis but changes the top-level state to
-`data_quality`; a typed `not_due` schedule remains context, not a source
-failure. Provisional reds no longer:
+A stress witness's depth- or persistence-provisional red may trigger
+`early_warning` only while all required inputs are usable. A broken or overdue
+input keeps the provisional measurement visible for diagnosis but changes the
+top-level state to `data_quality`; a typed `not_due` schedule remains context,
+not a source failure. Provisional reds never:
 
-- count toward the red tally used by `confirmed_stress` / `panic`,
-- rescue another cluster from its isolated-red downgrade
-  (`hasIndependentLifecycleRed` / `hasIndependentRedCluster` count *eligible*
-  reds only — this kills marginal mutual confirmation),
+- count toward the red tally used by `confirmed_stress`,
+- rescue another cluster: only a standing stress witness makes a co-sign red
+  count, and only a witness corroborates an isolated equity-vol red (Part 8),
 - appear in `confirmed_by`,
 - carry `timing: contemporaneous` or `severity: act` in evidence rows.
 
-**Cash veto corroboration is stress-only (2026-10-05 18:50 CEST).** The
-official HY OAS veto on a row-confirmed HYG red could be overridden by *any*
-independent eligible red. Breadth is the other internals-versus-index read and
-binds red on the same "SPY near highs" anchor as the HYG proxy, so the two
-corroborated each other: HYG 2.6% below its 50DMA for 21 sessions with HY OAS
-at 3.10% (fresh, green, 20d widening 0.42 pp) was rescued by a 19-session
-breadth red at 24.7%, and the pair reached `confirmed_stress` with VIX 15.5,
-VIX/VIX3M 0.86 and VVIX at the 9th percentile of its year — the incident's
-"two marginal reds rescued each other" shape, between the two divergence
-reads. `hasIndependentStressRed` now limits the override to an eligible red in
-a cluster that measures stress directly (equity vol, funding, FX carry, dealer
-gamma). With the veto standing, the credit cluster reads yellow, breadth is a
-single eligible red, and the stage is `early_warning`/watch; the same tape
-co-sign paths (SPY ≤ −2.5%, VIX +20%) still confirm from one red. The 2026-08-11
-operator decision stands: an absent or stale cash read never vetoes.
+**A co-sign red counts only beside a standing stress witness.** The HYG proxy,
+breadth, the yen and dealer gamma strengthen a warning that equity volatility,
+funding or cash credit has started; alone or together they read yellow in the
+cluster count and confirm nothing. The rule, its evidence and the two
+incidents behind it (2026-10-05 and 2026-09-10) are in Part 8.
 
-Known residual, not changed here: the HYG 50DMA is built from unadjusted
+Known residual: the HYG 50DMA is built from unadjusted
 `TRADES` closes, so each monthly distribution (≈0.5% of price) steps the price
 below a lagging average. In a flat-spread tape the proxy therefore sits a few
 tenths below its 50DMA by construction, above the 0.25% eligibility floor.
@@ -217,7 +208,7 @@ includes hysteresis.
 | Funding (CP−T-bill) | ≥ 75 bp | ≥ 75 bp | n/a | 1 | series ≤ 7d old (as today) | leave red < 65 bp |
 | USD/JPY | yen +≥2%/week | ≥ 2% (speed *is* the depth; Aug-2024-calibrated) | ≥ 2% in 3 days (existing spec prose, now enforced) | 1 | same-day tick or same-day close | leave red < 1.5% |
 | Dealer gamma | spot >2% below γ-zero / wholly short profile | see gamma paths below | see gamma paths below | 1 | current-options-session compute for confirmation; latest completed-session result is typed `not_due` context before the next options session | leave red when the depth gap > +0.5% |
-| SPX breadth | < 40% above 50DMA with SPX near highs | ≤ 38% | ≤ 30% | 2 | last completed session's compute (the newest possible observation) | leave red > 45% |
+| SPX breadth | < 40% above 50DMA (the value alone; the index level is not read) | ≤ 38% | ≤ 30% | 2 | last completed session's compute (the newest possible observation) | leave red > 45% |
 
 **Gamma eligibility, all three red paths** (red has three producers —
 `classifyGammaBand` gap path, no-crossing wholly-short profile
@@ -308,18 +299,33 @@ Small correctness fix, bundled because eligibility makes streaks load-bearing.
 
 ### Stage triggers (revised)
 
-`BuildRegimeLifecycle` (`internal/rpc/lifecycle.go:89`) keeps its shape; the
-red tallies change meaning. All existing branches are kept — including the
-`SPY ≤ −4% && yellow ≥ 2` branch (`lifecycle.go:358`) the tape can satisfy
-without any red:
+`BuildRegimeLifecycle` (`internal/rpc/lifecycle.go`) tests the stages in this
+order on the confirmed cluster bands of Part 8, where a co-sign red counts
+only beside a standing stress witness. `eligibleRed` is therefore at least 1
+only when a witness stands.
 
-- `panic` — `eligibleRed ≥ 3 || (SPY ≤ −4% && eligibleRed ≥ 1) || SPY ≤ −7%`.
+- `panic` — a fall on the tape: `(SPY ≤ −4% && eligibleRed ≥ 1) || SPY ≤ −7%`.
+  Reds alone, however many, are `confirmed_stress`.
 - `confirmed_stress` — `eligibleRed ≥ 2 || (eligibleRed ≥ 1 && SPY ≤ −2.5%)
-  || (SPY ≤ −4% && yellow ≥ 2) || (eligibleRed ≥ 1 && VIX +20%)`.
-- `early_warning` — the home of current but not-yet-confirmed stress:
-  `rawRed ≥ 1 || yellow ≥ 3 || provisional present || SPY ≤ −1.5% || VIX +10%`,
-  but only when the required input set is usable.
-- `opportunity` / `stabilization` / `quiet` — unchanged.
+  || (SPY ≤ −4% && yellow-or-worse ≥ 2) || (eligibleRed ≥ 1 && VIX +20%)`. A
+  standing witness plus one co-sign red confirms; two co-signs never do.
+- `early_warning` — a confirmed eligible red; or a witness cluster that is raw
+  red but provisional or not standing (a day-one term inversion, an isolated
+  VVIX red); or three clusters at yellow or worse of which at least one is a
+  witness at yellow; or `SPY ≤ −1.5%`; or `VIX +10%`. A red or yellow in
+  co-sign clusters alone opens nothing. All of it only when the required
+  input set is usable.
+- `opportunity` — no red, at most one yellow, at least three ranked clusters,
+  `SPY ≥ +1.5%` and `VIX ≤ −10%`.
+- `stabilization` — no red, one or two yellows, and `SPY ≥ +1%` or
+  `VIX ≤ −10%`. A co-sign red reads yellow here, so a co-sign-only day with
+  such a tape is `stabilization`.
+- `quiet` — none of the above. A quiet read still names every provisional red
+  in `unconfirmed` and repeats it in `suppressed`, so a co-sign red stays on
+  the panel as context.
+
+`rpc.RegimeWarningOpeners` names the arms that open a warning on a snapshot;
+the stage vote and the required-input gate read the same list.
 
 After stage selection, the required-input gate runs fail-closed. A blank or
 non-OK status, explicit `freshness: overdue`, missing source-health row,
@@ -355,10 +361,10 @@ For the 2026-06-12 regression fixture as recorded — HYG red provisional,
 gamma cadence-overdue, and volatility explicitly stale without a valid
 `not_due` contract — this now yields `data_quality / watch / blocked / low`
 and **“Market state undefined — data incomplete.”** The red measurements stay
-visible in `unconfirmed`, but they do not define a market warning. If the same
-marginal HYG break is later evaluated with a complete, current required-input
-set, `early_warning` is appropriate: that warning then describes market
-evidence rather than an ingestion defect.
+visible in `unconfirmed`, but they do not define a market warning. The same
+marginal HYG break evaluated with a complete, current required-input set reads
+`quiet`: the proxy is a co-sign, and with no stress witness red it is context
+on the panel, named in `unconfirmed` and `suppressed`.
 
 ### Severity governor (ordered, applied after stage selection)
 
@@ -371,12 +377,13 @@ evidence rather than an ingestion defect.
    > same-session VIX-term inversion at ratio ≥ 1.00 on a fresh tick) or
    > every confirming set has been promoted. Without a lift, heuristic
    > evidence is capped one severity rung down: stage `confirmed_stress`
-   > reads **watch** instead of act, and the `eligibleRed ≥ 3` panic branch
-   > reads **act** instead of urgent (three deep, fresh, persistent,
-   > independent reds have earned a strong response — but never the maximum
-   > on unvalidated thresholds alone). The pure-tape panic branches
-   > (SPY ≤ −7%; SPY ≤ −4%, which is itself act-grade tape) carry their
-   > co-signature by construction and always reach **urgent**.
+   > reads **watch** instead of act, however many eligible reds it has.
+   > Panic is entered only on the tape (SPY ≤ −7%; SPY ≤ −4% with an eligible
+   > red, which is itself act-grade tape). While that SPY print is current it
+   > carries its co-signature by construction and reads **urgent**. A panic
+   > that survives an input defect on three current eligible reds without a
+   > current SPY print passes through both caps like any heuristic
+   > confirmation.
    > A threshold set is promoted out of `pending_backtest` per versioned
    > label (e.g. `hyg_spy_credit_proxy_v1` → `_v2`) only through the backtest
    > plan, with documented precision/recall on the forward-collected
@@ -408,15 +415,15 @@ Severity reachability after this design:
 |---|---|
 | observe | default / stabilization |
 | watch | any warning state; the ceiling for heuristic-only `confirmed_stress` without co-sign, and for quality-impaired confirmation |
-| act | stage `confirmed_stress` (any branch) with promotion or tape co-sign and quality-clean confirmers; OR heuristic-only `eligibleRed ≥ 3` panic without co-sign (governor record: "urgent withheld") |
-| urgent | pure-tape panic (SPY ≤ −7%, or ≤ −4% with an eligible red — the tape is act-grade by construction); or `eligibleRed ≥ 3` panic with co-sign or full promotion |
+| act | stage `confirmed_stress` (any branch) with promotion or tape co-sign and quality-clean confirmers; OR a panic without a current SPY print that the provenance gate holds one rung down (governor record: "urgent withheld") |
+| urgent | panic on a current tape: SPY ≤ −7%, or ≤ −4% with an eligible red — the tape is act-grade by construction |
 
-The ladder is monotone in evidence: 2 heuristic eligible reds → watch, 3 →
-act, tape co-sign or promotion lifts each one rung. "Act" is reachable with a
+Heuristic eligible reds without a tape co-sign read watch, two or five alike;
+a tape co-sign or promotion lifts them to act. "Act" is reachable with a
 single eligible red **when the tape co-signs** (SPY ≤ −2.5% / VIX +20%
-branches) — intended; the tape is the second witness. Stage and severity stay
-separable throughout: a governed panic reads stage `panic`, severity `act`,
-with the governor record explaining the withheld rung.
+branches) — intended; the tape is the second witness. A same-session term
+inversion is itself a co-sign, so a confirmation that stands on the VIX term
+structure reads act. Stage and severity stay separable throughout.
 
 ### Tone follows governed severity — stated explicitly
 
@@ -900,6 +907,135 @@ throughout, and the stage-name disagreement had no consequence a desk would
 act on differently. That is a caution about reading stage-agreement percentages
 as if they measured impact: measure severity and the action it implies, not
 the stage label.
+
+## Part 8 — Stress witnesses and co-signs (2026-11-18 10:19 CET)
+
+Owner instruction, 2026-11-18 08:29 CET, as recorded in the regime-fix handoff
+of that morning: a Regime warning on every trading day is wrong and needs a
+solid fix, tested against history and tuned for proper sensitivity.
+
+### What was wrong
+
+The diagnosis of 2026-11-18 found no trading day reading `quiet` in the
+daemon's retained decisions from 2026-10-06 on. One row carried it: the HYG
+proxy is red whenever HYG closes below its 50-day average while SPY is within
+3% of its 52-week high, and any red, eligible or not, opened `early_warning`.
+A second red made `confirmed_stress`, and three made `panic` with no fall: in
+the replay the proxy, the yen and breadth read `panic` on 2026-09-10 with SPY
+2.6% below its highest close of the year and VIX/VIX3M at 0.90. On 2026-10-05
+the proxy and breadth had confirmed each other with VIX at 15.5 and HY OAS at
+3.10%.
+
+### The two roles
+
+- **Stress witnesses** measure stress directly: the equity-volatility cluster
+  (VIX term structure, VVIX), funding, and the cash credit row
+  (`credit_spreads`) inside the credit cluster. Only a witness starts a
+  warning.
+- **Co-signs** are the HYG proxy row, breadth, USD/JPY and dealer gamma. A
+  co-sign strengthens a warning a witness has started. It never starts or
+  confirms one, alone or together with other co-signs.
+
+A witness **stands** when its red is eligible. An equity-vol red must also be
+corroborated: `isolatedLifecycleEquityVolConfirmed` holds (a term inversion,
+VVIX at 120 or more, VIX up 20%, or SPY down 1%), or funding or cash credit is
+an eligible red. A co-sign cannot corroborate it, because the co-sign would
+then confirm the witness it leans on.
+
+In the confirmed cluster bands (`rpc.BuildRegimeClusterBands`) a co-sign
+cluster that is raw red stays red only while a witness stands; otherwise it is
+yellow. In the credit cluster a red cash row is a witness red; a red from the
+proxy alone is a co-sign red, and the proxy's eligibility never turns a cash
+red that may not confirm into one that does. This replaces the cash-credit
+veto of the proxy, the isolated-FX downgrade and the divergence-cluster rule
+with one rule.
+
+Stage triggers are in Part 2. Panic is a fall on the tape; three eligible
+reds without one are `confirmed_stress`, which the provenance gate holds at
+watch unless the tape co-signs.
+
+### Evidence
+
+History replay, `TestRegimeHistoryReplay` in `internal/daemon`: the daemon's
+band rules, streak and eligibility pass, cluster combination and stage vote,
+run once per session over a file of daily closes from 2021-11-18 to
+2026-11-17 (market data, kept outside Git). 1,003 sessions are replayed from
+2022-11-17. The outcome is SPY's lowest close in the next 20 sessions against
+that day's close. Gamma has no history and is absent; breadth covers 204
+sessions and cash credit 752. Inputs with no reading are left out of the vote.
+
+| Condition | Share of sessions | Low 5% or more below | Low 8% or more below |
+|---|---|---|---|
+| All sessions | 100% | 12% | 3% |
+| VIX/VIX3M at or above 1.00 | 5% | 33% | 14% |
+| HY OAS wider by 0.5 pp or more over 20 observations | 5% of 752 | 44% | 35% |
+| VVIX at or above 110 | 12% | 19% | 5% |
+| HYG proxy row red | 30% | 9% | 0% |
+| USD/JPY row red | 13% | 14% | 1% |
+| Breadth row red | 23% of 204 | 20% | 0% |
+
+The first three rows are the witnesses' red conditions read straight from the
+file; the last three are served row bands from the replay, exit hysteresis
+included. A term inversion and a widening of cash spreads precede falls at
+about three to twelve times the base rate, VVIX at about one and a half
+times. The proxy precedes fewer falls than an average session and the yen
+does no better than average. Breadth turned red 30 sessions into the 2026
+fall, 13 before its low, and again from 2026-09-09, when no 8% fall followed.
+Dealer gamma could not be measured; the product describes it as a conditional
+amplifier, which is a co-sign's job.
+
+Stage shares over the same sessions, before and after:
+
+| Stage | Before | After | After: low 5% or more below | After: low 8% or more below |
+|---|---|---|---|---|
+| `quiet` | 47% | 71% | 10% | 2% |
+| `early_warning` | 40% | 17% | 17% | 6% |
+| `confirmed_stress` | 6% | 5% | 17% | 2% |
+| `panic` | 3% | 0.4% | three sessions | |
+| `stabilization` | 4% | 7% | 14% | 3% |
+
+Before the change `early_warning` was followed by a 5% low after 12% of
+sessions, the base rate. Of the four falls of 8% or more that the replay
+covers (highs of 2023-07-31, 2024-07-16, 2025-02-19 and 2026-01-27),
+`early_warning` came 16 sessions before the high, 2 after, 16 before and 6
+before; `confirmed_stress` came before the low in three of the four.
+
+### What this rests on, and what still bounds risk
+
+Band boundaries, depth and streak gates and hysteresis are unchanged and stay
+`pending_backtest`. This change is to the vote, and it rests on a history
+replay with the limits above, not on the six months of forward decisions the
+promotion criteria in Part 4 require; those criteria still bind every
+threshold set.
+
+A session that now reads `quiet` moves the trading rulebook's regime-stage
+latch from its early-warning bucket to calm on the days only a co-sign is red.
+A co-sign-only day with SPY up 1% or VIX down 10% reads `stabilization`, which
+the rulebook keeps in its early-warning bucket: 66 sessions in the replay, 42
+of them with no witness row at yellow. Over the replay the share of sessions
+in the early-warning bucket or worse falls from 53% to 29%.
+
+272 sessions that warned before the change no longer do (241 `quiet`, 30
+`stabilization`, one `opportunity`). None was followed by a low 8% or more
+below and 9% by a low 5% or more below, under the base rate; no session warns
+now that did not before.
+
+What still bounds risk on such a day: the rulebook's calm thresholds still
+apply; every witness still warns from its first red session; the SPY and VIX
+tape arms open `early_warning` on a 1.5% fall or a 10% VIX rise the same day;
+and the stress read keeps its own rows. The worst case is a fall that only
+co-signs foresaw. Among the sessions with 20 more after them, none of the 278
+with the proxy red and none of the 46 with breadth red was followed by a low
+8% or more below; one of the 126 with the yen red was.
+
+### Not changed
+
+The headline table (`rpc.RegimeHeadline`) still reads "Watch: one unconfirmed
+stress signal" for any provisional red, a co-sign's included, and the display
+tone is watch on any yellow cluster: in the replay 24% of all sessions read
+`quiet` under a Watch headline. The stress read (`internal/stress`) keeps its
+own rules on the same cluster bands. What those labels and rows should say is
+a separate decision.
 
 ## Review log
 

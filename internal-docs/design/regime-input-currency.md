@@ -134,7 +134,7 @@ confirmed_stress/panic to every stage:
 | Stage | Its own evidence |
 |---|---|
 | `panic` / `confirmed_stress` | the confirming clusters, plus the tape arm that fired — today's function, unchanged in substance |
-| `early_warning` | the cluster carrying the visible red. A provisional red is by definition non-confirming, but an **overdue** red is not a market warning at all: it stays `data_quality`, as `lifecycle.go:1066-1070` already states |
+| `early_warning` | a cluster whose evidence opens the warning (`regimeWarningArm`: a stress witness, or a red that confirms), or a current tape arm. A provisional red is by definition non-confirming, but an **overdue** red is not a market warning at all: it stays `data_quality`. A co-sign's red or yellow carries no warning |
 | `quiet` / `opportunity` / `stabilization` | the absence claim over the current clusters — this is what CURRENCY_FLOOR sizes |
 
 ## What each symptom becomes

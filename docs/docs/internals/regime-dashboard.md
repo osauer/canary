@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-11-07 07:52 CET
+Updated: 2026-11-18 10:19 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -74,6 +74,25 @@ clusters, not raw rows, so one market theme cannot vote twice.
 Within each cluster, the worst ranked row wins: red beats yellow, yellow beats
 green. Unavailable, computing, and error rows are unranked.
 
+### Stress witnesses and co-signs
+
+Rows play one of two roles in the count.
+
+A **stress witness** measures stress directly: the equity-volatility cluster,
+funding, and the cash credit row (HY OAS). Only a witness starts a warning. A
+witness stands when its red is eligible to confirm (see
+[Eligibility gates](#eligibility-gates)); an equity-volatility red must also
+pass the corroboration described under that cluster.
+
+A **co-sign** strengthens a warning a witness has started: the HYG/SPY proxy,
+USD/JPY, dealer gamma and breadth. A co-sign row still turns red by itself and
+stays visible, but its cluster counts as yellow until a witness stands, and
+co-signs never confirm each other. In a replay of 1,003 sessions to
+2026-11-17 the HYG/SPY row was red on 30% of them and SPY's next 20 sessions
+were no worse after it than after any other session; a term-structure
+inversion was followed by a 5% fall almost three times as often as an average
+session.
+
 ### Equity volatility
 
 This cluster watches option-market fear. VIX is Cboe's 30-day
@@ -87,7 +106,8 @@ VIX/VIX3M backwardation is stress-level evidence by itself. An isolated VVIX
 red between 110 and 120 is noisier: the VVIX row remains red and visible, but
 the equity-volatility cluster counts as yellow unless VVIX is at least 120, VIX
 is up at least 20% on the day, SPY is down at least 1% on the day, or another
-independent cluster is red.
+stress witness (funding or cash credit) is an eligible red. A co-sign cannot
+supply that corroboration.
 
 Isolated red equity-volatility clusters are the main source of repeated false
 alarms in the expanded Tier 1 backtest. They are not dropped, because major
@@ -120,18 +140,14 @@ official cash-credit read. Its band reads the high-yield option-adjusted spread
 for bond options. Credit stress matters because equity rallies are
 less sturdy when lenders are already demanding more compensation for risk.
 
-HYG/SPY can still show a red row by itself. For the cluster count, that
-single proxy red is treated as a yellow watch only when the official cash
-gauge affirmatively disagrees: a recent OAS read (within 5 calendar days)
-that is neither red nor widening 0.50 pp or more over 20 observations. Cash
-that is red, cash that is widening at that pace, an absent or stale official
-read, or an independent red in a cluster that measures stress directly
-(volatility, funding, FX, or gamma) all leave the proxy red standing —
-unknown cash evidence never softens a live warning. A red breadth cluster
-does not count as that corroboration: breadth is the other
-internals-versus-index read and turns red on the same "SPY near highs"
-anchor, so the two would only be confirming each other. The row stays
-visible either way; it just does not get to call broad stress alone.
+The two rows play different roles. The cash row is a stress witness: a red
+HY OAS keeps the cluster red and can start a warning. HYG/SPY is a co-sign: it
+can still show a red row by itself, but for the cluster count a red from the
+proxy alone is a yellow watch until a stress witness stands, whatever the cash
+row beside it reads short of red. HYG's price falls with rates as well as with
+credit, so the proxy can sit below its average for months while cash spreads
+stay calm. The row stays visible either way; it does not get to call stress
+alone.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
@@ -187,9 +203,9 @@ strengthens quickly, yen-funded carry trades and other leveraged risk positions
 can unwind at the same time. That does not predict every selloff, but it is
 useful confirmation when other clusters are also deteriorating.
 
-USD/JPY can still show a red row by itself. For the cluster count, an isolated
-FX red is treated as a yellow watch until another independent cluster confirms
-stress. The stress read may still act on a fast carry unwind when direct SPY/VIX
+USD/JPY is a co-sign. It can still show a red row by itself, but for the
+cluster count an FX red is a yellow watch until a stress witness stands.
+The stress read may still act on a fast carry unwind when direct SPY/VIX
 tape or breadth confirms the move. On official non-trading dates (weekend or
 holiday) frozen last-session SPY/VIX prints cannot supply that tape
 confirmation. Inside the stress read only the breadth arm can, until live prints
@@ -206,7 +222,8 @@ This row models whether hedging would dampen or amplify index moves under the
 calls-positive/puts-negative OI assumption. The sign is measured at actual spot;
 above/below a crossing is only a geometric distance and can imply the wrong
 sign on a non-monotone profile. Treat this as conditional market structure,
-not a directional forecast or observed dealer inventory.
+not a directional forecast or observed dealer inventory. The row is a co-sign:
+a red counts in the cluster tally only while a stress witness stands.
 
 SPX/SPXW index options are the canonical production signal for S&P 500 dealer
 gamma. SPY's option book trades separately and is used as corroborating context
@@ -269,7 +286,10 @@ calibration corpus is not established. Existing quality bars remain heuristic.
 
 Breadth counts how many S&P 500 stocks are participating. A rally led by many
 stocks is healthier than a rally carried by a few mega-caps. Weak breadth near
-index highs warns that the headline index may be hiding fragility.
+index highs warns that the headline index may be hiding fragility. The band
+reads the breadth value alone, so the row is also red in a broad sell-off. It
+is a co-sign: a red counts in the cluster tally only while a stress witness
+stands.
 
 No live IBKR symbol carries this row: the retail feed does not provide the
 official S&P breadth series directly. The daemon computes it from S&P 500
@@ -278,7 +298,7 @@ trigger a 500-name fanout.
 
 | Row | Green | Yellow | Red |
 | --- | --- | --- | --- |
-| S&P 500 breadth | > 55% above 50-DMA | 40-55%, or weakening near highs | < 40%, especially while SPX is near highs |
+| S&P 500 breadth | > 55% above 50-DMA | 40-55% | < 40% |
 
 Breadth v3 retains the latest plus 252 preceding closes and fetches enough
 calendar history to populate them. `coverage_50`, `coverage_200` and
@@ -325,17 +345,19 @@ impaired degrades readiness, caps confidence, and is named in
 to `data_quality` when two clusters are affected, when a defect cannot be
 attributed to one cluster (authority health, a surface-wide degradation), or
 when the defect is in the evidence the current stage itself rests on — a
-confirming cluster, or the only red carrying an `early_warning`.
+confirming cluster, or the only stress witness carrying an `early_warning`.
 
 ## Confirmation eligibility and severity governance
 
 ### Eligibility gates
 
 A red row may CONFIRM stress only when its evidence is deep, persistent, and
-cadence-fresh. Otherwise it is PROVISIONAL: visible on the row, listed in
-`lifecycle.unconfirmed`, able to drive `early_warning`, but it never counts
-toward `confirmed_stress`/`panic`, never rescues another cluster from its
-isolated-red downgrade, and never reaches `confirmed_by`. This policy exists
+cadence-fresh, and a co-sign's red only while a stress witness stands.
+Otherwise it is PROVISIONAL: visible on the row and listed in
+`lifecycle.unconfirmed`. A witness's provisional red drives `early_warning`; a
+co-sign's opens nothing and is repeated in `lifecycle.suppressed` on a quiet
+read. A provisional red never counts toward `confirmed_stress`, never
+corroborates another cluster, and never reaches `confirmed_by`. This policy exists
 because of the 2026-06-12 false positive, where a 7 bps HYG break (one session
 old, thin pre-open tick) and a prior-evening gamma cache mutually confirmed
 "Broad stress regime / act" against a green tape
@@ -421,8 +443,9 @@ Applied after stage selection and disclosed in `lifecycle.governors[]`:
 1. While a confirming cluster's threshold set carries `pending_backtest`,
    heuristic evidence without a fresh tape co-sign (SPY <= -1.5%, VIX +10%, or
    a same-session term inversion) reads one severity rung down:
-   `confirmed_stress` -> watch, 3-red `panic` -> act. Pure-tape panic
-   (SPY <= -4%/-7%) always reaches urgent.
+   `confirmed_stress` -> watch, however many eligible reds it has. Panic is
+   entered only on the tape (SPY <= -4%/-7%); while that SPY print is current
+   it is exempt from both caps and reads urgent.
 2. If a confirming cluster's source health is stale/partial/degraded, severity
    caps at watch (evidence-keyed: an unrelated dead feed does not mute a fresh
    confirmation).
@@ -505,9 +528,9 @@ and VIX moves, read only on a session that is not a closed date.
 | Lifecycle stage | Trigger |
 | --- | --- |
 | `data_quality` | Fewer than three clusters are ranked, or the input-currency rules in [How inputs report currency](#how-inputs-report-currency) send the read here. |
-| `panic` | Three or more eligible red clusters; or SPY down 4% or more with at least one eligible red; or SPY down 7% or more. |
-| `confirmed_stress` | Two or more eligible red clusters; or one eligible red with SPY down 2.5% or more, or with VIX up 20% or more; or SPY down 4% or more with at least two clusters yellow or worse. |
-| `early_warning` | Any red cluster, eligible or provisional; three or more clusters yellow or worse; an unconfirmed signal; or SPY down 1.5% or more, or VIX up 10% or more. |
+| `panic` | SPY down 4% or more with at least one eligible red; or SPY down 7% or more. Red clusters without a fall, however many, are `confirmed_stress`. |
+| `confirmed_stress` | Two or more eligible red clusters, which takes a standing stress witness plus a co-sign or a second witness; or one eligible red with SPY down 2.5% or more, or with VIX up 20% or more; or SPY down 4% or more with at least two clusters yellow or worse. |
+| `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, an isolated VVIX red); three or more clusters yellow or worse of which at least one is a stress witness at yellow; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing. |
 | `opportunity` | No red, at most one yellow, at least three ranked clusters, SPY up 1.5% or more and VIX down 10% or more. This is broad-market context only, not a trade instruction. |
 | `stabilization` | No red, one or two yellow, and SPY up 1% or more or VIX down 10% or more. Stress is easing, but this is not yet an opportunity. |
 | `quiet` | None of the above. |
@@ -516,8 +539,9 @@ and VIX moves, read only on a session that is not a closed date.
 stale, partial, computing, or degraded; the severity governor additionally caps
 the demanded response when the CONFIRMING clusters themselves are impaired.
 
-The independence rescue that waives an isolated-red downgrade counts ELIGIBLE
-reds only, so two marginal reds can no longer confirm each other.
+An eligible red cluster always includes a standing stress witness, because a
+co-sign red counts only beside one. Two co-signs cannot confirm each other,
+and a co-sign cannot corroborate an isolated equity-volatility red.
 
 ## Method notes
 
