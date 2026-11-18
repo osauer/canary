@@ -115,9 +115,15 @@ does not answer. An earlier estimate of about 20% of the time applied to the
 cadence rules before these fixes and has not been re-measured.
 
 What still bounds risk: a calm read only rises, and the early-warning
-thresholds are stricter than calm. A panic or confirmed stress that cannot
-stand on current evidence falls to the highest stage that can (confirmed
-stress, then early warning), disclosed as a governor record. The one
+thresholds are stricter than calm. Evidence on its valid schedule counts as
+current: a latched term inversion after the close still stands, and a SPY
+print dated today is today's tape, live or frozen after the close. A panic
+that cannot stand falls to confirmed stress when that stands; no impaired
+input moves a stress stage below the confirmed bucket, and a stress stage
+that proves nothing reads `data_quality` with the rulebook's last bucket
+held. A panic on a current SPY fall of 7% or more is never blanked. The VVIX
+publication time is an unverified assumption; if Cboe publishes later, the
+warning shows each morning from 09:30 until the file is read. The one
 loosening: when a confirmed stress rests on the VIX/VIX3M row and that row
 goes dark beside red co-signs (off the window without Cboe's vouching, or
 from 09:36 without a VIX3M tick), the read is `early_warning` and the
@@ -598,7 +604,7 @@ and VIX moves, read only on a session that is not a closed date.
 | Lifecycle stage | Trigger |
 | --- | --- |
 | `data_quality` | Fewer than three clusters are ranked, or the input-currency rules in [How inputs report currency](#how-inputs-report-currency) send the read here. |
-| `panic` | SPY down 4% or more with at least one eligible red; or SPY down 7% or more. Red clusters without a fall, however many, are `confirmed_stress`. The SPY print is judged by its own currency; while an input is impaired a panic whose print is not current falls to `confirmed_stress`, or to `early_warning`, whichever its current evidence proves. |
+| `panic` | SPY down 4% or more with at least one eligible red; or SPY down 7% or more. Red clusters without a fall, however many, are `confirmed_stress`. The SPY print is judged by its own date: a print dated today is current, live or frozen after the close; a prior session's print is not. While an input is impaired a panic that cannot stand falls to `confirmed_stress` when that stands. |
 | `confirmed_stress` | Two or more eligible red clusters, which takes a standing stress witness plus a co-sign or a second witness; or one eligible red with SPY down 2.5% or more, or with VIX up 20% or more; or SPY down 4% or more with at least two clusters yellow or worse. |
 | `early_warning` | An eligible red cluster; a stress witness that is red but provisional or not standing (a first-day term inversion, a witness red on a row that is not current); a current cash credit row with HY OAS 0.50 pp or more wider over 20 observations; three or more clusters yellow or worse of which at least one is a stress witness at yellow; a stress witness nobody can read beside a co-sign at yellow or red; or SPY down 1.5% or more, or VIX up 10% or more. A red or yellow in co-sign clusters alone opens nothing while every witness can be read. |
 | `opportunity` | No red, at most one cluster at yellow, at least three ranked clusters, SPY up 1.5% or more and VIX down 10% or more. Every cluster counts, co-signs included, and a co-sign red with no stress witness standing is one yellow. This is broad-market context only, not a trade instruction. |

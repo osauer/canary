@@ -307,8 +307,10 @@ only when a witness stands.
 - `panic` — a fall on the tape: `(SPY ≤ −4% && eligibleRed ≥ 1) || SPY ≤ −7%`.
   Reds alone, however many, are `confirmed_stress`. With an input impaired,
   panic stands only on a current SPY print, judged by the print's own
-  currency; without one it falls to `confirmed_stress`, or to
-  `early_warning`, whichever its current evidence proves (Part 8).
+  currency (a print dated within the current trading date, live or frozen
+  after the close); without one it falls to `confirmed_stress` when its
+  current or scheduled evidence proves that, and otherwise the gate blanks it
+  (Part 8).
 - `confirmed_stress` — `eligibleRed ≥ 2 || (eligibleRed ≥ 1 && SPY ≤ −2.5%)
   || (SPY ≤ −4% && yellow-or-worse ≥ 2) || (eligibleRed ≥ 1 && VIX +20%)`. A
   standing witness plus one co-sign red confirms; two co-signs never do.
@@ -356,9 +358,13 @@ witness row is dark beside a co-sign at yellow or red, the gate does not
 blank the stage: it is `early_warning` (Part 8, owner ruling 2026-11-18 14:47
 CET). Two or more defective clusters, or an unattributable defect, still
 produce `data_quality`; while that warning is open only witness clusters
-count toward the two. A stress stage that fails its survival test falls to
-the highest stage its current evidence proves before the gate blanks
-anything (Part 8, pass 7).
+count toward the two. A panic on a current SPY print at or below −7% is
+exempt from the floor, as the severity governor exempts it. Survival counts
+scheduled evidence as current: an eligible witness red on its valid typed
+`not_due` schedule stands. A panic that cannot survive falls to
+`confirmed_stress` when that survives; no stress stage is moved below the
+confirmed bucket, so a stress stage that proves nothing is blanked and the
+rulebook latch holds (Part 8, pass 8).
 
 **Closed-date tape gating (added 2026-07-19).** Every tape term above reads
 the direct SPY/VIX day-change prints, which freeze at last-session values on
@@ -1221,7 +1227,7 @@ before it.
   defective cluster: that witness is the reason for the warning. Stages that
   a readable witness or a current tape arm establish (`early_warning`,
   `confirmed_stress`, `panic`) keep their rules; a stress stage that fails
-  its survival test falls to what its current evidence proves (below). The
+  its survival test keeps the confirmed bucket or is blanked (below). The
   headline is "Watch: one unconfirmed
   stress signal" (`composite.cluster_provisional_red_count` counts each
   cluster with a dark witness while the condition holds), the tone is watch
@@ -1251,15 +1257,23 @@ before it.
   `TestStressAgreesWithTheVoteOnTheBlankFloor`.
 
   What still bounds risk: a calm stage only rises; the early-warning bucket
-  is stricter than calm. The worst case is a loosening: when a confirmed
-  stress rests on a term inversion and the term row goes overdue (off the
-  window when Cboe's close does not vouch for the leg, or from 09:36 when
-  VIX3M has not ticked), the latched red drops, and beside red co-signs the
-  read is `early_warning`: the rulebook moves from its confirmed thresholds
-  to its early-warning ones until the row returns. At 994c9be6 the read was
-  `data_quality` and the latch held confirmed. Since pass 7 the 09:31 to
-  09:36 minutes no longer do this (the open grace below).
-  `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow` pins both.
+  is stricter than calm; a stress stage is never moved below the confirmed
+  bucket by an impaired input (pass 8). Fixed in pass 8 (fourth review): a
+  confirmed stress on a latched term inversion beside any unrelated error on
+  an evening or weekend holds as `confirmed_stress` (the latched witness is
+  scheduled evidence), where d5ec61b2 read `early_warning`; and a crash-day
+  evening (SPY frozen after the close, dated today) reads panic at urgent.
+  What remains is one loosening: when a confirmed stress rests on a term
+  inversion and the term row itself goes overdue (off the window when Cboe's
+  close does not vouch for the leg, or from 09:36 when VIX3M has not ticked),
+  the latched red drops and is no longer a standing witness, so the stage
+  picked is `early_warning` from the start (a provisional witness red, and
+  the dark term row beside red co-signs): the rulebook moves from its
+  confirmed thresholds to its early-warning ones until the row returns. At
+  994c9be6 the read was `data_quality` and the latch held confirmed.
+  `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow` pins it,
+  `TestRegimeLatchedTermInversionHoldsBesideAnUnrelatedError` and
+  `TestOvernightStressKeepsItsBucket` the fixes.
   `TestRegimeDarkWitnessBesideAWeakCoSignIsAnEarlyWarning`,
   `TestRegimeTwoDarkClustersStillBlankTheRead`,
   `TestDarkWitnessWarningMovesTheRulebookBucket`,
@@ -1281,26 +1295,40 @@ before it.
   record (`stage_downgraded`, panic to confirmed_stress, `tape_not_current`).
   `TestRegimePanicNeedsACurrentTape`.
 - **A crash day is not data incomplete because a neighbouring row is down**
-  (pass 7). The SPY print is judged by its own currency
-  (`rpc.RegimeSPYTapeCurrency`: a live typed SPY tick carrying a day change),
-  as the VIX tape is by the VIX leg's, not by the credit cluster or the HYG
-  row it rides on. A panic or confirmed stress that fails its survival test
-  falls to the highest stage its current evidence proves, confirmed stress
-  and then early warning, each disclosed (`stage_downgraded`, reasons
-  `tape_not_current` and `stress_not_current`); only a stage that proves
-  nothing is blanked. SPY down 7.5% on a current print reads panic with the
-  HYG row stale or the cash row unavailable; with the print itself not
-  current and VVIX at 140 it reads early warning or better. The stress read
-  applies the same test: a SPY move whose print is not current is shown
-  ("print not current") but no tape row, signal or confirmation reads it
-  (`market.spy_change_not_current`). The print's currency gates what the
-  required-input gate and the governor read (survival, the tape co-sign, the
-  tape arm of an early warning); the stage pickers still read the SPY move
-  on the session test alone, as before, so with every input clean a SPY fall
-  on a print that is not current can still pick panic while the stress read
-  does not act on it. That disagreement is open.
+  (pass 7, corrected in pass 8). One function, `rpc.RegimeSPYTapeCurrency`,
+  decides whether the SPY print is current, for the stage pickers, survival,
+  the fallback, the governor and the stress read alike: a trading-date print
+  dated within the current New York trading date is current, live or frozen
+  after the close, until the date rolls over; a prior session's print, or no
+  print, is not. The credit cluster and the HYG row the print rides on do not
+  decide it. The frozen-print disagreement of pass 7 is closed: stage and
+  stress read one tape. Pass 7 had accepted only a live tick, which read a
+  crash-day evening as an early warning (L1, fourth review).
+  Survival counts scheduled evidence as current: a witness row that is an
+  eligible red on its valid typed `not_due` schedule stands
+  (`witnessStandsFresh`). The fallback (`regimeLifecycleFallBack`) does one
+  thing: a panic that cannot survive while a confirmed stress can is
+  `confirmed_stress`, disclosed (`stage_downgraded`, `tape_not_current`).
+  It never moves a stress stage below the confirmed bucket: pass 7's fall to
+  `early_warning` is removed, because with an impaired input it replaced the
+  blank that held the confirmed latch (L2). A stress stage that proves
+  nothing is blanked to `data_quality` and the latch holds. A panic on a
+  current SPY print at or below −7% is exempt from the two-cluster floor
+  (F7). SPY down 7.5% on a current print reads panic with the HYG row stale,
+  the cash row unavailable, or the cash row unavailable and breadth overdue;
+  on a prior session's print it picks no stress from the tape. The stress
+  read shows a SPY move whose print is not current ("print not current") but
+  no tape row, signal or confirmation reads it (`market.spy_change_not_current`).
+  Unverified: whether the gateway stamps a pre-market frozen SPY print with
+  the prior session's time or the request time; with the request time a
+  prior session's move would read as today's until the open, as every SPY
+  read did before pass 7.
   `TestRegimeCrashDayIsNotDataIncompleteBecauseANeighbourIsDown`,
-  `TestStressTapeRowNeedsACurrentSPYPrint`.
+  `TestRegimeCrashDayEveningReadsItsOwnTape`,
+  `TestRegimePriorSessionSPYPrintIsNotTheTape`,
+  `TestRegimeCrashPanicIsExemptFromTheBlankFloor`,
+  `TestStressTapeRowNeedsACurrentSPYPrint`, `TestStressAndVoteReadOneTape`,
+  `TestStressAgreesWithTheVoteOvernight`.
 - **A witness keeps standing through its own not-due window.** A witness red
   that was eligible in its window stays eligible while its own row is typed
   `not_due` and still red (exit hysteresis included); the eligibility latch
@@ -1325,10 +1353,11 @@ before it.
   current, whatever the proxy row beside it can serve.
   `TestRegimeCashWideningIsJudgedByTheCashRow`.
 - **A confirmed stress does not rest on co-signs beside a broken witness.**
-  A co-sign's red survives a broken input only beside a clean standing
-  witness. A confirmed stress on a latched term inversion with VVIX
-  unavailable at the same time falls to `early_warning` (the dark VVIX
-  beside the red co-signs), disclosed as a downgrade.
+  A co-sign's red survives a broken input only beside a standing witness on
+  current or scheduled evidence. A confirmed stress on a latched term
+  inversion with VVIX unavailable holds, at watch while the vol cluster is
+  impaired; with the term row overdue instead it is blanked to
+  `data_quality` and the latch holds.
   `TestRegimeConfirmedStressDoesNotRestOnCoSignsWhenItsWitnessIsBroken`.
 
 Each row's standing is decided once, in `rpc.BuildRegimeClusterBands`, row by
@@ -1363,6 +1392,9 @@ sessions (13.0% before), 19.0% in 2026 (18.6%); after it a low 5% or more
 below follows on 18.9% and 8% or more on 11.0% (19.0% and 11.1%). The first
 warnings and confirmations before the four falls are unchanged.
 
+Pass 8 (2026-11-18) moves no session in either series: the replay equals
+pass 7's.
+
 Pass 7 (2026-11-18) moves no session of the vote-only replay: stage shares,
 outcomes and the recall list are identical. The "as served" series, which
 keeps the replay's permanently unavailable rows (dealer gamma, and breadth
@@ -1384,7 +1416,10 @@ instants by `TestWitnessDarkHoursOnANormalWeek`:
 - **VVIX** (`volOfVolCadenceClass`, `volOfVolDue`). A Cboe close is due at
   09:30 New York on the morning after the next options session's close: the
   allowance assumes Cboe's daily file carries a close by the next morning's
-  open. It is an assumption of this rule, not a measurement; the existing
+  open. It is an assumption of this rule, not a measurement, and it is
+  unverified: if Cboe publishes later, the row reads overdue each morning
+  from 09:30 until the file is read, and the dark-witness warning shows then
+  beside a weak co-sign; the existing
   code granted Cboe's VIX3M file one whole session
   (`vix3mUnverifiedSince`). Until a newer close is due the row holds its
   close: fresh within the 4-day budget, `not_due` past it (Monday evening

@@ -305,9 +305,13 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 	}
 	inputs := regimeLifecycleInputVerdict(*r)
 	if inputs.any() {
-		floor := inputs.global || regimeLifecycleFloorCount(cb, inputs) >= RegimeCurrencyBlankFloor
+		// A panic on a current SPY print at or below -7% is exempt from the
+		// floor, as the severity governor already exempts it: the tape is
+		// its own evidence.
+		crash := state.Stage == LifecyclePanic && regimeLifecycleSPYTapeCurrent(*r) && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -7.0)
+		floor := !crash && (inputs.global || regimeLifecycleFloorCount(cb, inputs) >= RegimeCurrencyBlankFloor)
 		if !floor {
-			regimeLifecycleFallBack(&state, *r, cb, inputs)
+			regimeLifecycleFallBack(&state, *r, cb)
 		}
 		if floor || !regimeLifecycleStageEvidenceCurrent(state, *r, cb, inputs) {
 			state.Stage = LifecycleDataQuality
@@ -363,36 +367,25 @@ func regimeLifecycleFloorCount(cb RegimeClusterBands, inputs regimeLifecycleInpu
 	return n
 }
 
-// regimeLifecycleFallBack moves a stress stage that cannot survive an input
-// defect to the highest stage its current evidence proves: a panic without a
-// current tape to confirmed stress, and a stress stage that cannot stand to
-// early warning, each disclosed as a governor record. A stage that proves
-// nothing is left for the required-input gate to blank.
-func regimeLifecycleFallBack(state *LifecycleState, r RegimeSnapshotResult, cb RegimeClusterBands, inputs regimeLifecycleInputs) {
-	if state.Stage != LifecyclePanic && state.Stage != LifecycleConfirmedStress {
+// regimeLifecycleFallBack moves a panic that cannot survive an input defect
+// to confirmed stress when its current evidence proves that, disclosed as a
+// governor record. It never moves a stress stage below the confirmed bucket:
+// a panic or confirmed stress that cannot prove itself is left to the
+// required-input gate, which blanks it to data_quality, and the rulebook's
+// latch holds what it held. Scheduled evidence counts as current here
+// (regimeLifecycleIndependentCurrentStress), so the latched term inversion
+// after the close and a SPY print dated today prove what they prove.
+func regimeLifecycleFallBack(state *LifecycleState, r RegimeSnapshotResult, cb RegimeClusterBands) {
+	if state.Stage != LifecyclePanic {
 		return
 	}
 	panicCurrent, confirmedCurrent := regimeLifecycleIndependentCurrentStress(r, cb)
-	if state.Stage == LifecyclePanic && !panicCurrent && confirmedCurrent {
+	if !panicCurrent && confirmedCurrent {
 		state.Stage, state.Severity = LifecycleConfirmedStress, "act"
 		state.Governors = append(state.Governors, GovernorAction{
 			Action: "stage_downgraded", From: LifecyclePanic, To: LifecycleConfirmedStress, Reason: "tape_not_current",
 		})
-		return
 	}
-	if (state.Stage == LifecyclePanic && panicCurrent) || (state.Stage == LifecycleConfirmedStress && confirmedCurrent) {
-		return
-	}
-	warning := *state
-	warning.Stage = LifecycleEarlyWarning
-	if !regimeLifecycleStageEvidenceCurrent(warning, r, cb, inputs) {
-		return
-	}
-	from := state.Stage
-	state.Stage, state.Severity, state.Timing, state.ConfirmedBy = LifecycleEarlyWarning, "watch", LifecycleTimingForwardWarning, nil
-	state.Governors = append(state.Governors, GovernorAction{
-		Action: "stage_downgraded", From: from, To: LifecycleEarlyWarning, Reason: "stress_not_current",
-	})
 }
 
 // RegimeConfirmedByTape is the confirmed_by entry of a stress stage that the
@@ -914,8 +907,8 @@ func lifecycleFingerprint(state LifecycleState) Fingerprint {
 // 2026-09-10 three eligible reds read panic with SPY flat.
 func regimeLifecyclePanic(r RegimeSnapshotResult, t regimeClusterTally) bool {
 	return regimeTapeConfirmable(r) &&
-		((pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && t.eligibleRed >= 1) ||
-			pctAtMost(r.HYGSPYDivergence.SPYChangePct, -7.0))
+		((pctAtMost(regimeSPYMove(r), -4.0) && t.eligibleRed >= 1) ||
+			pctAtMost(regimeSPYMove(r), -7.0))
 }
 
 func regimeLifecycleConfirmedStress(r RegimeSnapshotResult, t regimeClusterTally) bool {
@@ -923,8 +916,8 @@ func regimeLifecycleConfirmedStress(r RegimeSnapshotResult, t regimeClusterTally
 		return true
 	}
 	return regimeTapeConfirmable(r) &&
-		((t.eligibleRed >= 1 && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -2.5)) ||
-			(pctAtMost(r.HYGSPYDivergence.SPYChangePct, -4.0) && t.atLeastYellow() >= 2) ||
+		((t.eligibleRed >= 1 && pctAtMost(regimeSPYMove(r), -2.5)) ||
+			(pctAtMost(regimeSPYMove(r), -4.0) && t.atLeastYellow() >= 2) ||
 			(t.eligibleRed >= 1 && pctAtLeast(r.VIXTermStructure.VIXChangePct, 20.0)))
 }
 
@@ -988,7 +981,7 @@ func regimeWarningOpeners(r RegimeSnapshotResult, cb RegimeClusterBands, t regim
 		out = append(out, RegimeWarningWitnessUnavailable)
 	}
 	if regimeTapeConfirmable(r) {
-		if pctAtMost(r.HYGSPYDivergence.SPYChangePct, -1.5) {
+		if pctAtMost(regimeSPYMove(r), -1.5) {
 			out = append(out, RegimeWarningSPYTape)
 		}
 		if pctAtLeast(r.VIXTermStructure.VIXChangePct, 10.0) {
@@ -1024,7 +1017,7 @@ func regimeLifecycleOpportunity(r RegimeSnapshotResult, t regimeClusterTally) bo
 		t.yellow <= 1 &&
 		t.ranked >= 3 &&
 		regimeTapeConfirmable(r) &&
-		pctAtLeast(r.HYGSPYDivergence.SPYChangePct, 1.5) &&
+		pctAtLeast(regimeSPYMove(r), 1.5) &&
 		pctAtMost(r.VIXTermStructure.VIXChangePct, -10.0)
 }
 
@@ -1034,7 +1027,7 @@ func regimeLifecycleStabilization(r RegimeSnapshotResult, cb RegimeClusterBands,
 		yellow > 0 &&
 		yellow <= 2 &&
 		regimeTapeConfirmable(r) &&
-		(pctAtLeast(r.HYGSPYDivergence.SPYChangePct, 1.0) || pctAtMost(r.VIXTermStructure.VIXChangePct, -10.0))
+		(pctAtLeast(regimeSPYMove(r), 1.0) || pctAtMost(r.VIXTermStructure.VIXChangePct, -10.0))
 }
 
 func regimeLifecycleConfidence(t regimeClusterTally) string {
@@ -1361,6 +1354,16 @@ func regimeLifecycleClusterCurrent(r RegimeSnapshotResult, name string) bool {
 	default:
 		return false
 	}
+}
+
+// regimeSPYMove is the SPY day change the stage vote reads: none while the
+// SPY print is not current (RegimeSPYTapeCurrency), the test the survival
+// gate and the stress read apply too. The session test stays the callers'.
+func regimeSPYMove(r RegimeSnapshotResult) *float64 {
+	if !RegimeCurrencyMayConfirm(RegimeSPYTapeCurrency(r)) {
+		return nil
+	}
+	return r.HYGSPYDivergence.SPYChangePct
 }
 
 // regimeLifecycleSPYTapeCurrent gates the arms that read the SPY print, on

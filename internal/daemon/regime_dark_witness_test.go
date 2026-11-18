@@ -125,7 +125,7 @@ func TestDarkWitnessWarningMovesTheRulebookBucket(t *testing.T) {
 			r.HYGSPYDivergence.SPYChangePct = new(-4.5)
 			r.HYGSPYDivergence.Status = rpc.RegimeStatusStale
 			r.HYGSPYDivergence.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessStale}
-			r.HYGSPYDivergence.SPYQuality.FreshnessClass = rpc.FreshnessFrozen
+			r.HYGSPYDivergence.SPYQuality.AsOf = r.AsOf.AddDate(0, 0, -1) // a prior session's print
 		}, rpc.LifecycleConfirmedStress, risk.RegimeBucketConfirmed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -258,5 +258,62 @@ func TestWitnessDarkHoursOnANormalWeek(t *testing.T) {
 	assembleRegimeRead(r)
 	if r.Lifecycle.Stage != rpc.LifecycleQuiet || slices.Contains(rpc.RegimeWarningOpeners(r), rpc.RegimeWarningWitnessUnavailable) {
 		t.Fatalf("Monday 19:30 with Friday's VVIX close (%s): stage %s, openers %v; want quiet", r.VolOfVol.Freshness.Class, r.Lifecycle.Stage, rpc.RegimeWarningOpeners(r))
+	}
+}
+
+// The overnight cases of the fourth review, through the real stage-to-bucket
+// map: a crash-day evening is panic, a latched term inversion beside an
+// unrelated error keeps the confirmed bucket, a prior session's SPY print
+// picks no stress, and a live crash is panic beside two outages.
+func TestOvernightStressKeepsItsBucket(t *testing.T) {
+	latched := func(r *rpc.RegimeSnapshotResult) {
+		redRow(&r.VIXTermStructure.RegimeIndicatorMeta)
+		r.VIXTermStructure.Eligibility.Latched = true
+		r.VIXTermStructure.Status = rpc.RegimeStatusStale
+		r.VIXTermStructure.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
+		r.VIXTermStructure.VIX3MCrossCheck = rpc.VIX3MCrossCheckAgree
+	}
+	spy := func(r *rpc.RegimeSnapshotResult, pct float64, class string, at time.Time) {
+		r.HYGSPYDivergence.SPYChangePct = new(pct)
+		r.HYGSPYDivergence.SPYQuality = &rpc.Quality{AsOf: at, FreshnessClass: class}
+	}
+	for _, tc := range []struct {
+		name   string
+		shape  func(r *rpc.RegimeSnapshotResult)
+		stage  string
+		bucket string
+	}{
+		{"crash-day evening, breadth overdue", func(r *rpc.RegimeSnapshotResult) {
+			spy(r, -7.5, rpc.FreshnessFrozen, r.AsOf)
+			latched(r)
+			redRow(&r.VolOfVol.RegimeIndicatorMeta)
+			r.VolOfVol.Last = new(150.0)
+			r.Breadth.Status = rpc.RegimeStatusStale
+			r.Breadth.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue}
+		}, rpc.LifecyclePanic, risk.RegimeBucketConfirmed},
+		{"latched term inversion, proxy and breadth red, yen in error", func(r *rpc.RegimeSnapshotResult) {
+			latched(r)
+			redRow(&r.HYGSPYDivergence.RegimeIndicatorMeta)
+			redRow(&r.Breadth.RegimeIndicatorMeta)
+			r.USDJPY = rpc.RegimeUSDJPY{Status: rpc.RegimeStatusError}
+		}, rpc.LifecycleConfirmedStress, risk.RegimeBucketConfirmed},
+		{"yesterday's SPY print at -7.5%", func(r *rpc.RegimeSnapshotResult) {
+			spy(r, -7.5, rpc.FreshnessFrozen, r.AsOf.AddDate(0, 0, -1))
+		}, rpc.LifecycleQuiet, risk.RegimeBucketCalm},
+		{"live -7.5%, cash unavailable, breadth overdue", func(r *rpc.RegimeSnapshotResult) {
+			spy(r, -7.5, rpc.FreshnessLive, r.AsOf)
+			r.CreditSpreads = rpc.RegimeCreditSpreads{Status: rpc.RegimeStatusUnavailable}
+			r.Breadth.Status = rpc.RegimeStatusStale
+			r.Breadth.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue}
+		}, rpc.LifecyclePanic, risk.RegimeBucketConfirmed},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := currentRegimeRows()
+			tc.shape(r)
+			assembleRegimeRead(r)
+			if r.Lifecycle.Stage != tc.stage || bucketRegimeStage(r.Lifecycle.Stage) != tc.bucket {
+				t.Fatalf("stage %s (readiness %s), bucket %q; want %s, bucket %q", r.Lifecycle.Stage, r.Lifecycle.Readiness, bucketRegimeStage(r.Lifecycle.Stage), tc.stage, tc.bucket)
+			}
+		})
 	}
 }

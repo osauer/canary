@@ -191,13 +191,13 @@ func TestRegimeTapeConfirmationNamesTheTape(t *testing.T) {
 	}
 }
 
-// A confirmed stress cannot rest on co-signs when the witness they lean on
-// has no current reading. After the close the term inversion stands on its
-// not-due schedule, latched; with VVIX unavailable at the same time the vol
-// cluster is defective and the latched red is not a current reading, so the
-// proxy and breadth red cannot hold the stress. The stage falls to what its
-// current evidence proves: the dark VVIX beside the red co-signs is the early
-// warning, disclosed as a downgrade. With a second, clean witness it stands.
+// A confirmed stress rests on co-signs only beside a witness that stands on
+// evidence that is current or on its valid schedule. After the close the
+// term inversion stands latched on its not-due schedule, which is scheduled
+// evidence: with VVIX unavailable beside it the stress holds, at watch while
+// the vol cluster is impaired. With the term row overdue instead it does not
+// hold, and a stress stage is never moved below the confirmed bucket: the
+// read is data incomplete and the rulebook's latch holds.
 func TestRegimeConfirmedStressDoesNotRestOnCoSignsWhenItsWitnessIsBroken(t *testing.T) {
 	r := calmRegime()
 	red(&r.VIXTermStructure.RegimeIndicatorMeta, true)
@@ -207,14 +207,13 @@ func TestRegimeConfirmedStressDoesNotRestOnCoSignsWhenItsWitnessIsBroken(t *test
 	r.VolOfVol = RegimeVolOfVol{Status: RegimeStatusUnavailable}
 	red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 	red(&r.Breadth.RegimeIndicatorMeta, true)
-	if got := regimeVote(r); got.Stage != LifecycleEarlyWarning || len(got.ConfirmedBy) != 0 ||
-		!slices.ContainsFunc(got.Governors, func(g GovernorAction) bool { return g.Action == "stage_downgraded" && g.To == LifecycleEarlyWarning }) {
-		t.Fatalf("stage %s (readiness %s, confirmed_by %v, governors %+v), want early_warning by a disclosed downgrade", got.Stage, got.Readiness, got.ConfirmedBy, got.Governors)
+	if got := regimeVote(r); got.Stage != LifecycleConfirmedStress || got.Severity != "watch" {
+		t.Fatalf("stage %s at %s (readiness %s, governors %+v), want confirmed_stress at watch", got.Stage, got.Severity, got.Readiness, got.Governors)
 	}
 
-	red(&r.FundingStress.RegimeIndicatorMeta, true)
-	if got := regimeVote(r); got.Stage != LifecycleConfirmedStress {
-		t.Fatalf("with funding an eligible red: stage %s, want confirmed_stress", got.Stage)
+	r.VIXTermStructure.Freshness = &RegimeFreshness{Class: RegimeFreshnessOverdue}
+	if got := regimeVote(r); got.Stage != LifecycleDataQuality {
+		t.Fatalf("with the term row overdue: stage %s, want data_quality", got.Stage)
 	}
 }
 
@@ -297,10 +296,9 @@ func TestRegimeWitnessIsJudgedByItsOwnRow(t *testing.T) {
 	}
 }
 
-// Panic is a fall on a current tape. With an input impaired and the SPY print
-// not current, three eligible reds and SPY down 4.5% are confirmed stress,
-// confirmed by those clusters at the act grade, and the downgrade is
-// disclosed; with the print current they are panic.
+// Panic is a fall on a current tape. With SPY down 4.5% on a prior session's
+// print, three eligible reds are confirmed stress, confirmed by those
+// clusters at the act grade; on a print dated today they are panic.
 func TestRegimePanicNeedsACurrentTape(t *testing.T) {
 	shape := func(current bool) *RegimeSnapshotResult {
 		r := calmRegime()
@@ -314,7 +312,7 @@ func TestRegimePanicNeedsACurrentTape(t *testing.T) {
 		r.HYGSPYDivergence.Status = RegimeStatusStale
 		r.HYGSPYDivergence.Freshness = &RegimeFreshness{Class: RegimeFreshnessStale}
 		if !current {
-			r.HYGSPYDivergence.SPYQuality.FreshnessClass = FreshnessFrozen
+			r.HYGSPYDivergence.SPYQuality.AsOf = r.AsOf.AddDate(0, 0, -1) // a prior session's print
 		}
 		return r
 	}
@@ -324,11 +322,6 @@ func TestRegimePanicNeedsACurrentTape(t *testing.T) {
 			got.Stage, got.Severity, got.ConfirmedBy)
 	}
 
-	if !slices.ContainsFunc(got.Governors, func(g GovernorAction) bool {
-		return g.Action == "stage_downgraded" && g.From == LifecyclePanic && g.To == LifecycleConfirmedStress && g.Reason == "tape_not_current"
-	}) {
-		t.Fatalf("governors %+v; want the downgrade from panic disclosed", got.Governors)
-	}
 	if got := regimeVote(shape(true)); got.Stage != LifecyclePanic {
 		t.Fatalf("tape current: stage %s, want panic", got.Stage)
 	}

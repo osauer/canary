@@ -235,10 +235,11 @@ a newer one is due (09:30 New York the morning after the next session), and
 the VIX/VIX3M row holds the prior VIX3M close for five minutes from 09:31.
 The warning shows on real gaps, such as a due VVIX close that was not read or
 no VIX3M tick by 09:36. An earlier estimate of about 20% of the time applied
-before these cadence rules and has not been re-measured. A crash day is
-judged by the SPY print's own currency, and a stress stage that cannot stand
-on current evidence falls to the highest stage that can, never straight to
-`data_quality` because a neighbouring row is down. What still bounds risk: a
+before these cadence rules and has not been re-measured; the 09:30 VVIX
+publication time is an unverified assumption. A crash day is judged by the
+SPY print's own date (a print dated today is today's tape, live or frozen
+after the close), evidence on its valid schedule counts as current, and no
+impaired input moves a stress stage below its confirmed bucket. What still bounds risk: a
 calm read only rises and the early-warning thresholds are stricter than calm;
 the one loosening is a confirmed stress resting on the VIX/VIX3M row while
 that row is dark, which reads `early_warning` until the row returns.

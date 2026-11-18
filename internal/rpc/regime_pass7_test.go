@@ -83,7 +83,7 @@ func TestRegimeCrashDayIsNotDataIncompleteBecauseANeighbourIsDown(t *testing.T) 
 		{"SPY print not current, HYG row stale, VVIX 140", func(r *RegimeSnapshotResult) {
 			proxyStale(r)
 			vvix140(r)
-			r.HYGSPYDivergence.SPYQuality.FreshnessClass = FreshnessFrozen
+			r.HYGSPYDivergence.SPYQuality.AsOf = r.AsOf.AddDate(0, 0, -1) // yesterday's print
 		}, []string{LifecycleEarlyWarning, LifecycleConfirmedStress}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

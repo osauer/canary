@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v3/internal/risk"
 	"github.com/osauer/canary/v3/internal/rpc"
@@ -140,7 +141,7 @@ func TestStressTapeRowNeedsACurrentSPYPrint(t *testing.T) {
 	t.Parallel()
 	_, res := stressAfterVote(func(r *rpc.RegimeSnapshotResult) {
 		r.HYGSPYDivergence.SPYChangePct = new(-7.5)
-		r.HYGSPYDivergence.SPYQuality.FreshnessClass = rpc.FreshnessFrozen
+		r.HYGSPYDivergence.SPYQuality.AsOf = stressTestNow.AddDate(0, 0, -1) // a prior session's print
 	})
 	row := stressRowByTitle(res.Rows, "Index tape shock")
 	if row == nil || row.Severity != risk.SeverityObserve || strings.Contains(row.Guidance, "Cut broad equity beta") {
@@ -172,5 +173,63 @@ func TestStressNamesACoSignOnceBesideADarkWitness(t *testing.T) {
 	}
 	if n != 1 || res.Market.ContextNote != "" || strings.Contains(stressText(res), "context, not a stress reading") {
 		t.Fatalf("proxy listed %d times, context note %q; want once, as weak, with no context sentence\n%s", n, res.Market.ContextNote, stressText(res))
+	}
+}
+
+// The stage and the stress read read one tape: a SPY print dated within the
+// current session, frozen after the close, is current for both; a prior
+// session's print is current for neither.
+func TestStressAndVoteReadOneTape(t *testing.T) {
+	t.Parallel()
+	evening := func(at time.Time) func(r *rpc.RegimeSnapshotResult) {
+		return func(r *rpc.RegimeSnapshotResult) {
+			r.HYGSPYDivergence.SPYChangePct = new(-7.5)
+			r.HYGSPYDivergence.SPYQuality = &rpc.Quality{AsOf: at, FreshnessClass: rpc.FreshnessFrozen}
+			stressRed(&r.VolOfVol.RegimeIndicatorMeta, true)
+			r.VolOfVol.Last = new(150.0)
+			r.Breadth.Status = rpc.RegimeStatusStale
+			r.Breadth.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue}
+		}
+	}
+	r, res := stressAfterVote(evening(stressTestNow))
+	row := stressRowByTitle(res.Rows, "Index tape shock")
+	if r.Lifecycle.Stage != rpc.LifecyclePanic || row == nil || row.Severity != risk.SeverityAct || res.Market.SPYChangeNotCurrent {
+		t.Fatalf("today's frozen print: regime %s, tape row %+v; want panic and an acting tape row", r.Lifecycle.Stage, row)
+	}
+	r, res = stressAfterVote(evening(stressTestNow.AddDate(0, 0, -1)))
+	row = stressRowByTitle(res.Rows, "Index tape shock")
+	if r.Lifecycle.Stage == rpc.LifecyclePanic || row == nil || row.Severity != risk.SeverityObserve || !res.Market.SPYChangeNotCurrent {
+		t.Fatalf("yesterday's print: regime %s, tape row %+v; want no panic and an observe tape row", r.Lifecycle.Stage, row)
+	}
+}
+
+// The stress read agrees with the vote on the overnight confirmed stress
+// (a latched term inversion beside an unrelated error) and on a live crash
+// beside two outages.
+func TestStressAgreesWithTheVoteOvernight(t *testing.T) {
+	t.Parallel()
+	r, res := stressAfterVote(func(r *rpc.RegimeSnapshotResult) {
+		stressRed(&r.VIXTermStructure.RegimeIndicatorMeta, true)
+		r.VIXTermStructure.Eligibility.Latched = true
+		r.VIXTermStructure.Status = rpc.RegimeStatusStale
+		r.VIXTermStructure.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessNotDue}
+		r.VIXTermStructure.VIX3MCrossCheck = rpc.VIX3MCrossCheckAgree
+		stressRed(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+		stressRed(&r.Breadth.RegimeIndicatorMeta, true)
+		r.USDJPY = rpc.RegimeUSDJPY{Status: rpc.RegimeStatusError}
+	})
+	if r.Lifecycle.Stage != rpc.LifecycleConfirmedStress ||
+		(stressRowByTitle(res.Rows, "Confirmed market stress") == nil && stressRowByTitle(res.Rows, "Confirmed stress held at watch") == nil) {
+		t.Fatalf("latched term inversion beside a yen error: regime %s, stress summary %q; want confirmed stress in both", r.Lifecycle.Stage, res.Summary)
+	}
+	r, res = stressAfterVote(func(r *rpc.RegimeSnapshotResult) {
+		r.HYGSPYDivergence.SPYChangePct = new(-7.5)
+		r.CreditSpreads = rpc.RegimeCreditSpreads{Status: rpc.RegimeStatusUnavailable}
+		r.Breadth.Status = rpc.RegimeStatusStale
+		r.Breadth.Freshness = &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessOverdue}
+	})
+	row := stressRowByTitle(res.Rows, "Index tape shock")
+	if r.Lifecycle.Stage != rpc.LifecyclePanic || row == nil || row.Severity == risk.SeverityObserve || res.Market.SPYChangeNotCurrent {
+		t.Fatalf("live -7.5%% beside two outages: regime %s, tape row %+v; want panic and a tape row that reads the crash", r.Lifecycle.Stage, row)
 	}
 }

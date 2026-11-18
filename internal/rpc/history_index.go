@@ -700,18 +700,36 @@ func RegimeVIXTapeCurrency(r RegimeSnapshotResult) string {
 	return RegimeFreshnessFresh
 }
 
-// RegimeSPYTapeCurrency is the SPY print's own currency, as the VIX tape's
-// is the VIX leg's: a live typed tick that carries a day change is current.
-// The row it rides on (HYG/SPY) and that row's cluster-mate do not decide it.
+// RegimeSPYTapeCurrency is the SPY print's own currency, the one test the
+// stage vote, the required-input gate and the stress read apply to the SPY
+// move. A print dated within the current New York trading date is current,
+// live or frozen after the close, until the date rolls over; a prior
+// session's print, or no print, is not. The row it rides on (HYG/SPY) and
+// that row's cluster-mate do not decide it. A snapshot with no clock of its
+// own has no date to compare and keeps the print. Closed dates are the
+// session test's (regimeTapeConfirmable), not this one's.
 func RegimeSPYTapeCurrency(r RegimeSnapshotResult) string {
 	q := r.HYGSPYDivergence.SPYQuality
 	if q == nil || q.AsOf.IsZero() || r.HYGSPYDivergence.SPYChangePct == nil {
 		return RegimeFreshnessOverdue
 	}
-	if !strings.EqualFold(strings.TrimSpace(q.FreshnessClass), FreshnessLive) {
+	switch strings.ToLower(strings.TrimSpace(q.FreshnessClass)) {
+	case FreshnessLive, FreshnessFrozen:
+	default:
+		return RegimeFreshnessOverdue
+	}
+	if !r.AsOf.IsZero() && regimeNewYorkDate(q.AsOf) != regimeNewYorkDate(r.AsOf) {
 		return RegimeFreshnessOverdue
 	}
 	return RegimeFreshnessFresh
+}
+
+// regimeNewYorkDate is the New York calendar date of t.
+func regimeNewYorkDate(t time.Time) string {
+	if ny, err := time.LoadLocation("America/New_York"); err == nil {
+		t = t.In(ny)
+	}
+	return t.Format("2006-01-02")
 }
 
 // This file is the single copy of regime confirmation policy: eligibility
@@ -1329,8 +1347,10 @@ func BuildRegimeClusterBands(r *RegimeSnapshotResult) RegimeClusterBands {
 				darkWitnesses = append(darkWitnesses, row.indicator)
 			}
 			witnessRedLit[row.cluster] = witnessRedLit[row.cluster] || (row.band == "red" && !dark)
-			witnessStandsFresh[row.cluster] = witnessStandsFresh[row.cluster] ||
-				(row.eligible && RegimeCurrencyMayConfirm(RegimeRowCurrency(row.status, row.freshness)))
+			// Scheduled evidence is current evidence: an eligible red on a
+			// valid typed not-due schedule (the latched term inversion after
+			// the close) stands as a fresh one does.
+			witnessStandsFresh[row.cluster] = witnessStandsFresh[row.cluster] || (row.eligible && !dark)
 		} else if (row.band == "yellow" || row.band == "red") && !regimeRowDark(*r, row) {
 			// A weak co-sign is a current reading at yellow or red; a band
 			// held on an overdue row is not a reading.
