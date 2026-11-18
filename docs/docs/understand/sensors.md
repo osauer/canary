@@ -1,6 +1,6 @@
 # Sensors
 
-Updated: 2026-11-18 12:21 CET
+Updated: 2026-11-18 21:35 CET
 
 A sensor is one measurement the daemon keeps current from broker and public
 sources, such as the market regime or the stress on the book you hold. Each
@@ -218,8 +218,8 @@ whether a red row may confirm stress, and its role decides what that is worth:
 volatility, funding and cash credit spreads are stress witnesses and can start
 a warning; the HYG/SPY proxy, USD/JPY, gamma and breadth are co-signs that
 count only beside a standing witness. A provisional red stays visible. A
-witness's may support `early_warning` when the required evidence set is
-otherwise usable; a co-sign's opens nothing. A witness is judged by its own
+witness's provisional red may support `early_warning` when the required
+evidence set is otherwise usable; a co-sign's opens nothing. A witness is judged by its own
 row, whatever the row beside it in its cluster serves. One cluster whose evidence has gone defective or stale
 degrades readiness and is named rather than discarding the other five; two of
 them, an unattributable defect, or a defect in the very evidence the current
@@ -227,27 +227,25 @@ stage rests on produce `data_quality`, blocked readiness, and the label
 `Market state undefined — data incomplete`.
 
 A stress witness that cannot be read beside a co-sign at yellow or red reads
-`early_warning`, not `data_quality` and never a calm stage (owner ruling
-2026-11-18 14:47 CET: "Early warning"; what cannot be read is assumed to be
-the worst). The trading rulebook then uses its early-warning thresholds. A
-reading that is not published yet is not dark: VVIX holds its last close until
-a newer one is due (09:30 New York the morning after the next session), and
-the VIX/VIX3M row holds the prior VIX3M close for five minutes from 09:31.
-The warning shows on real gaps, such as a due VVIX close that was not read or
-no VIX3M tick by 09:36. An earlier estimate of about 20% of the time applied
-before these cadence rules and has not been re-measured; the 09:30 VVIX
-publication time is an unverified assumption. A crash day is judged by the
+`early_warning`, not `data_quality` and never a calm stage: what cannot be
+read is assumed to be the worst. The trading rulebook then uses its
+early-warning thresholds. A reading that is not published yet does not count
+as unreadable: VVIX holds its last close until a newer one is due, taken as
+09:30 New York the morning after the next session, and the VIX/VIX3M row
+holds the prior VIX3M close for five minutes from 09:31. The warning shows on
+real gaps, such as a due VVIX close that was not read or no VIX3M tick by
+09:36. If Cboe publishes the VVIX close later than 09:30, the warning shows
+each morning from 09:30 until the file is read. A crash day is judged by the
 SPY print's own date (a print dated today is today's tape, live or frozen
 after the close), evidence on its valid schedule counts as current, and no
-impaired input moves a stress stage below its confirmed bucket. What still bounds risk: a
-calm read only rises and the early-warning thresholds are stricter than calm;
-the one loosening is a confirmed stress resting on the VIX/VIX3M row while
-that row is dark, which reads `early_warning` until the row returns.
+impaired input moves a stress stage below its confirmed bucket. A calm read
+can only rise this way, and the early-warning thresholds are stricter than
+calm. One read gets calmer: a confirmed stress resting on the VIX/VIX3M row
+reads `early_warning` while that row cannot be read, until it returns.
 
 When all three stress witnesses (volatility, funding, cash credit spreads)
 are eligible red and standing, a confirmed stress reads act and pages, also
-on a flat market (owner ruling 2026-11-18 16:56 CET: "Yes, keep the page");
-co-signs do not count toward the three.
+on a flat market; co-signs do not count toward the three.
 
 Thresholds and severity governors labeled `heuristic` and `pending_backtest` are
 reviewed starting assumptions awaiting point-in-time calibration, not proven
