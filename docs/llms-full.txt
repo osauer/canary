@@ -342,7 +342,7 @@ Run the server with `canary mcp`. It exposes these read-only tools:
 - `canary_lending_screen`: broader borrowing-fee discovery with filters before the result limit, source dates and coverage.
 - `canary_lending_market`: bounded cached price and liquidity context; partial or unavailable fields retain their source clocks.
 - `canary_short_interest_screen`: FINRA reported short shares and days to cover, with twice-monthly settlement dates; no percentage of free float.
-- `canary_edge`: retrospective stock/ETF decision impact and separate option actuals.
+- `canary_edge`: retrospective decision impact for stocks, ETFs and options, a verdict per decision, and separate option actuals.
 - `canary_rules`: ranked rulebook findings, explicit unknown inputs, and the limits in force with their source.
 - `canary_policy_check` (since v3.18.0): plausibility check of config.toml and the policy files against each other and the live book; each finding has a severity, the keys involved, a reason and, where one applies, a suggested fix. Read-only; it never changes a limit.
 - `canary_proposals`: read-only close/reduce protection candidates.

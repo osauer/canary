@@ -4,6 +4,7 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strings"
 )
 
 // Verdict labels, the evidence a verdict rests on, and the horizon it prefers.
@@ -66,6 +67,12 @@ func changeVerdict(change Change) Verdict {
 		impact := *change.Position.ResultBase - costs
 		return Verdict{Label: label(impact), Basis: VerdictBasisPosition, ImpactBase: &impact}
 	}
+	if change.Position != nil && change.Position.Reason != "" {
+		// The position reading was the last one tried; why it has no
+		// figure (closed by delivery, no proven opening) is the nearest
+		// cause.
+		reason = change.Position.Reason
+	}
 	return Verdict{Label: VerdictNone, Reason: reason}
 }
 
@@ -82,10 +89,16 @@ type VerdictCount struct {
 func buildVerdictCounts(changes []Change) []VerdictCount {
 	byClass := map[string]*VerdictCount{}
 	for _, change := range changes {
-		row := byClass[change.AssetClass]
+		// A blank class fails the served result's validation, and one such
+		// row would take the whole read down.
+		class := strings.TrimSpace(change.AssetClass)
+		if class == "" {
+			class = "unknown"
+		}
+		row := byClass[class]
 		if row == nil {
-			row = &VerdictCount{AssetClass: change.AssetClass}
-			byClass[change.AssetClass] = row
+			row = &VerdictCount{AssetClass: class}
+			byClass[class] = row
 		}
 		switch change.Verdict.Label {
 		case VerdictHelped:

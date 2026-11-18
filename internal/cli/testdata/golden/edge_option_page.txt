@@ -27,12 +27,34 @@ Findings  by absolute impact at 20 sessions; not the headline group
         $ 99.00    +9.00%  DEF add  change_def
         $ 98.00    +8.00%  GHI add  change_ghi
 
+Verdicts  per decision, after costs; a result within the decision's own costs is no difference
+  Options · 4 helped · 5 hurt · 1 no difference · 1 without a verdict
+  Stocks · 3 helped · 2 hurt · 1 no difference · 2 without a verdict
+  2026-08-21 · add long SYNA 260821C00115000 · helped $ 1,240.00 after 5
+    sessions
+  2026-08-19 · exit long SYNB 260918P00090000 · hurt -$ 860.00 by its
+    position's outcome
+  2026-08-18 · trim long SYNC · no difference -$ 1.20 after 1 session
+  2026-08-14 · exit long SYNA 260821P00100000 · no verdict: closed by delivery
+  2026-08-23 · open long SYND · no verdict: missing horizon
+
 Options  broker actuals in separate scopes; they do not add together
   Completed positions · 5 proven flat-to-flat contract cycles · 5 complete
     P/L · 4 contracts still open · 1 contract excluded · a subset of realized
     activity, not an additional total or a multi-leg strategy
   Reconstruction gaps · 1 lifecycle or transfer; 2 opened before window ·
     opening/window exclusions count positions; other exclusions count contracts
+  Decisions · 11 option decisions read against their own position · 9 with a
+    price reading · buys and sales are two readings of the same money, not a sum
+  Opens · 1 of 3 ended below the price paid · median +8.40% · $ 610.00 before
+    costs
+  Adds · 2 of 2 ended below the price paid · median -12.50% · -$ 1,500.00
+    before costs
+  Partial sales · 1 of 2 closed below the entry price · median +3.00% ·
+    $ 140.00 before costs · the contracts kept went on to fetch more after 1 of
+    2, -$ 220.00 had these been held to the later sales
+  Final sales · 1 of 2 closed below the entry price · -$ 750.00 before costs
+  No reading · 2 closed by delivery
   Realized episodes · $ 4,590.00 known · 5 episodes: 3 positive, 1 negative, 0
     flat · 1 incomplete · showing 2
   Open snapshot 2026-08-24 · -$ 285.00 known · 4 positions: 2 positive, 2
@@ -78,12 +100,34 @@ Findings  \x1b[2mby absolute impact at 20 sessions; not the headline group\x1b[0
         \x1b[32m$ 99.00\x1b[0m    +9.00%  DEF add  \x1b[2mchange_def\x1b[0m
         \x1b[32m$ 98.00\x1b[0m    +8.00%  GHI add  \x1b[2mchange_ghi\x1b[0m
 
+Verdicts  \x1b[2mper decision, after costs; a result within the decision's own costs is no difference\x1b[0m
+  Options · 4 helped · 5 hurt · 1 no difference · 1 without a verdict
+  Stocks · 3 helped · 2 hurt · 1 no difference · 2 without a verdict
+  2026-08-21 · add long SYNA 260821C00115000 · helped \x1b[32m$ 1,240.00\x1b[0m after 5
+    sessions
+  2026-08-19 · exit long SYNB 260918P00090000 · hurt \x1b[31m-$ 860.00\x1b[0m by its
+    position's outcome
+  2026-08-18 · trim long SYNC · no difference \x1b[31m-$ 1.20\x1b[0m after 1 session
+  2026-08-14 · exit long SYNA 260821P00100000 · no verdict: closed by delivery
+  2026-08-23 · open long SYND · no verdict: missing horizon
+
 Options  \x1b[2mbroker actuals in separate scopes; they do not add together\x1b[0m
   Completed positions · 5 proven flat-to-flat contract cycles · 5 complete
     P/L · 4 contracts still open · 1 contract excluded · a subset of realized
     activity, not an additional total or a multi-leg strategy
   Reconstruction gaps · 1 lifecycle or transfer; 2 opened before window ·
     opening/window exclusions count positions; other exclusions count contracts
+  Decisions · 11 option decisions read against their own position · 9 with a
+    price reading · buys and sales are two readings of the same money, not a sum
+  Opens · 1 of 3 ended below the price paid · median +8.40% · \x1b[32m$ 610.00\x1b[0m before
+    costs
+  Adds · 2 of 2 ended below the price paid · median -12.50% · \x1b[31m-$ 1,500.00\x1b[0m
+    before costs
+  Partial sales · 1 of 2 closed below the entry price · median +3.00% ·
+    \x1b[32m$ 140.00\x1b[0m before costs · the contracts kept went on to fetch more after 1 of
+    2, \x1b[31m-$ 220.00\x1b[0m had these been held to the later sales
+  Final sales · 1 of 2 closed below the entry price · \x1b[31m-$ 750.00\x1b[0m before costs
+  No reading · 2 closed by delivery
   Realized episodes · \x1b[32m$ 4,590.00\x1b[0m known · 5 episodes: 3 positive, 1 negative, 0
     flat · 1 incomplete · showing 2
   Open snapshot 2026-08-24 · \x1b[31m-$ 285.00\x1b[0m known · 4 positions: 2 positive, 2

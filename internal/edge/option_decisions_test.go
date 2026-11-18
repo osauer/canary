@@ -170,3 +170,28 @@ func TestVerdictLabels(t *testing.T) {
 		}
 	}
 }
+
+// A decision with no figure names the nearest cause: where an option's own
+// position cannot be read either, its reason is the one served, not the
+// horizon's. An exercised option used to read "query field missing".
+func TestVerdictWithoutAFigureNamesThePositionReason(t *testing.T) {
+	change := Change{AssetClass: "OPT", Scores: []HorizonScore{{Sessions: 1, Reason: ReasonQueryFieldMissing}, {Sessions: 5, Reason: ReasonQueryFieldMissing}},
+		Position: &PositionOutcome{Reason: "closed_by_delivery"}}
+	if got := changeVerdict(change); got.Label != VerdictNone || got.Reason != "closed_by_delivery" {
+		t.Fatalf("verdict=%+v, want none with the position's reason", got)
+	}
+	change.Position = nil
+	if got := changeVerdict(change); got.Label != VerdictNone || got.Reason != ReasonQueryFieldMissing {
+		t.Fatalf("verdict=%+v, want the horizon's reason without a position", got)
+	}
+}
+
+// A change whose statement row carried no asset class is counted under a
+// name: a blank class fails the served result's validation and took the
+// whole Edge read down with it.
+func TestVerdictCountsNameABlankAssetClass(t *testing.T) {
+	counts := buildVerdictCounts([]Change{{AssetClass: " ", Verdict: Verdict{Label: VerdictNone}}, {AssetClass: "STK", Verdict: Verdict{Label: VerdictHelped}}})
+	if len(counts) != 2 || counts[0].AssetClass != "STK" || counts[1].AssetClass != "unknown" || counts[1].None != 1 {
+		t.Fatalf("counts=%+v", counts)
+	}
+}

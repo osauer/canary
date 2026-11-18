@@ -144,7 +144,7 @@ func TestEdgeAcceptanceZeroTradeFixtureIsHonestAndUseful(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.State != rpc.EdgeStateCurrent || result.Reason != "no_trade_changes" || result.Account == nil || result.Account.ProfitLossBase != 500 || len(result.Findings) != 0 || !strings.Contains(result.Headline, "No stock or ETF position changes") || !strings.Contains(result.Headline, "account P/L remains separate") {
+	if result.State != rpc.EdgeStateCurrent || result.Reason != "no_trade_changes" || result.Account == nil || result.Account.ProfitLossBase != 500 || len(result.Findings) != 0 || !strings.Contains(result.Headline, "No position changes") || !strings.Contains(result.Headline, "account P/L remains separate") {
 		t.Fatalf("zero-trade public explanation is hollow: %+v", result)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -27,7 +28,7 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 6
+	edgePublicationVersion   = 7
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
@@ -82,8 +83,9 @@ type edgeContractSpec struct {
 	Symbol   string
 	Currency string
 	// Option marks a live option contract. Its closes are worth keeping
-	// because the broker drops them at expiry, but a failed fetch never
-	// degrades the publication: the statement marks still score it.
+	// because the broker drops them at expiry, but none is requested yet
+	// (fetchEdgeBars says why), and an option never degrades the
+	// publication: the statement marks still score it.
 	Option bool
 }
 
@@ -312,13 +314,20 @@ func edgeBarRefreshPlan(now time.Time, globalFullDue bool, series edgeBarSeries)
 	return edgeDailyLookbackDays, true
 }
 
+var errEdgeOptionCloseNotFetched = errors.New("option closes are read from statement marks; no broker request is made")
+
 func (s *Server) fetchEdgeBars(ctx context.Context, spec edgeContractSpec, lookback int) ([]edgecore.DailyBar, error) {
-	contract := ibkrlib.Contract{ConID: int(spec.ConID), Symbol: spec.Symbol, SecType: "STK", Exchange: "SMART", Currency: spec.Currency}
 	if spec.Option {
-		// The contract id names the option; the symbol field is the
-		// statement's display name, not an underlying.
-		contract.SecType, contract.Symbol = "OPT", ""
+		// Not requested yet. The connector's daily-bar read is keyed by
+		// symbol: with none it refuses before sending (what this did on
+		// every rebuild until 2026-11-18, unseen, because the caller drops
+		// an option's error), and with the underlying's it settles on the
+		// stock's cached contract and would return the stock's closes as
+		// the option's. An exact-contract read is the missing piece; until
+		// it exists the statement marks are the only option closes.
+		return nil, errEdgeOptionCloseNotFetched
 	}
+	contract := ibkrlib.Contract{ConID: int(spec.ConID), Symbol: spec.Symbol, SecType: "STK", Exchange: "SMART", Currency: spec.Currency}
 	var (
 		raw []ibkrlib.HistoricalBar
 		err error
@@ -1039,7 +1048,9 @@ func edgeStateOnlyResult(state, reason, window string, horizon int, automatic bo
 		HorizonSelection: rpc.EdgeHorizonSelection{Mode: mode, Reason: "snapshot_unavailable", MinimumSample: edgecore.MinimumPatternSample, MinimumCoveragePct: edgecore.MinimumAutomaticCoveragePct},
 		MarketContext:    []rpc.EdgeMarketContextRollup{}, MarketContextMissing: []string{},
 		ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{},
-		Options:  rpc.EdgeOptionReview{Realized: rpc.EdgeOptionRealizedReview{Episodes: []rpc.EdgeOptionEpisodeSummary{}}, Open: rpc.EdgeOptionOpenReview{Positions: []rpc.EdgeOptionOpenPositionSummary{}}},
+		Verdicts: rpc.EdgeVerdicts{Counts: []rpc.EdgeVerdictCount{}, Recent: []rpc.EdgeTradeVerdict{}},
+		Options: rpc.EdgeOptionReview{Realized: rpc.EdgeOptionRealizedReview{Episodes: []rpc.EdgeOptionEpisodeSummary{}}, Open: rpc.EdgeOptionOpenReview{Positions: []rpc.EdgeOptionOpenPositionSummary{}},
+			Decisions: rpc.EdgeOptionDecisions{Reasons: map[string]int{}, Actions: []rpc.EdgeOptionDecisionRoll{}}},
 		Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,
 	}
 	if state == rpc.EdgeStateActionRequired || state == rpc.EdgeStateInsufficient && reason == "trade_history_unproved" {
@@ -1145,7 +1156,7 @@ func edgeUnselectedHeadline(result *rpc.EdgeResult) string {
 		return "The completed one-year broker report returned no Trades section, so Canary cannot reconstruct past decisions. If this account traded during the period, verify Trades at execution detail in the saved Activity Flex Query; otherwise there is no trade history to score."
 	}
 	if result.Coverage.TradeChanges == 0 {
-		return fmt.Sprintf("No stock or ETF position changes were observed in returned IBKR evidence for this %s window; account P/L remains separate when proven.", result.Window)
+		return fmt.Sprintf("No position changes were observed in returned IBKR evidence for this %s window; account P/L remains separate when proven.", result.Window)
 	}
 	selection := result.HorizonSelection
 	if result.Account == nil || result.Account.StartingEquityBase <= 0 {

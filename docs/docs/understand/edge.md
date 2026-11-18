@@ -1,11 +1,11 @@
 # Canary Edge
 
-Updated: 2026-11-07 07:52 CET
+Updated: 2026-11-18 21:34 CET
 
 Canary Edge is a retrospective broker-truth review. It answers three different questions without blending them:
 
 - What happened to the account after confirmed external cash and position flows?
-- How did each stock or ETF position change compare with leaving the pre-trade position unchanged?
+- How did each stock, ETF or option position change compare with leaving the pre-trade position unchanged?
 - What realized option episodes, lifecycle activity, and dated open option P/L did the broker actually report?
 
 It describes the price consequences of covered decisions. It does not grade the trader, recommend a trade, or claim that an outcome was caused by a decision. The result is deterministic: the daemon calculates and ranks it; an AI client may explain the typed result but cannot replace its arithmetic.
@@ -34,7 +34,7 @@ This is the account result. It includes everything reflected in equity after ext
 
 ## Decision price impact
 
-For a stock or ETF entry, add, trim, or exit, Edge compares the execution with one fixed counterfactual: leave the exact-contract pre-trade position unchanged.
+For an entry, add, trim, or exit, Edge compares the execution with one fixed counterfactual: leave the exact-contract pre-trade position unchanged.
 
 ```text
 signed quantity change x multiplier x
@@ -44,7 +44,7 @@ signed quantity change x multiplier x
 
 The quantity change is signed. The same formula therefore works for long and short decisions and for buys and sells. A flip is split deterministically into an exit and a new entry; the allocated pieces add back to the original decision.
 
-The horizons are the first, fifth, and twentieth available IBKR daily closing bars after the execution session. Horizon FX is the latest broker conversion at or before that close and must be no more than seven calendar days old. Edge suppresses a horizon if another trade, transfer, exercise, assignment, expiration, or quantity-changing corporate action touches that contract before the horizon. This avoids adding overlapping counterfactuals as if they were independent decisions.
+The horizons are the first, fifth, and twentieth available IBKR daily closing bars after the execution session. Horizon FX is the latest broker conversion at or before that close and must be no more than seven calendar days old. Edge suppresses a horizon if a transfer, an option lifecycle event without a trade row, or a quantity-changing corporate action touches that contract before the horizon. A later trade in the same contract does not suppress it (see [Coverage is part of the result](#coverage-is-part-of-the-result)).
 
 Decision price impact is not generic P/L. It excludes distributions, financing and borrow, market impact, and anything else outside that fixed price path. Rollups report only observed totals, medians, counts, and coverage. They are not a claim of causality, predictive edge, or statistical skill.
 
@@ -163,13 +163,13 @@ Exact shared-order grouping does not assert a strategy name. A mixed opening-and
 
 ## Option decisions and verdicts
 
-An option's close comes from the broker, never from a model. Two sources are
-used: the mark in each daily statement for a contract held that day, and the
-daily closes Canary fetches for every traded option contract while it is still
-alive (the broker drops them at expiry). The 1st, 5th and 20th sessions are
-counted on the market calendar, and only a close on that exact session counts.
-With one, the option decision gets the same Decision price impact as a stock
-decision.
+An option's close comes from the broker, never from a model. It is the mark
+in the daily statement for a contract held that day. A contract you no longer
+hold has no mark, so a horizon that falls after its last held day has no
+figure: Canary reads no close for a contract after it was sold in full. The 1st, 5th and 20th sessions are counted on the days the benchmarks
+and the account's other instruments have a close, and only a mark on that
+exact session counts. With one, the option decision gets the same Decision
+price impact as a stock decision.
 
 `options.decisions` also reads every option decision against its own
 flat-to-flat position, from executions alone:
@@ -320,7 +320,7 @@ negative price impact while still having been sensible risk management.
 
 ## Coverage is part of the result
 
-Every snapshot says how many changes were found, how many stock, ETF and option changes were eligible by asset class, how many were scored at each horizon, which query sections were present, and why other values were unavailable. A later trade in the same contract does not remove a decision from scoring: where the price stood N sessions after a decision does not depend on what was traded in between, and scoring only the decisions left alone afterwards would choose the sample by what happened next. `intervening_change` now means a transfer or option lifecycle event before the horizon. Reporting labels a Trades container that was not returned as `absent`; it is not evidence that the account had no trades. A present but empty Trades section is broker evidence of zero reported executions for that report. Edge preserves that distinction and keeps a valid account-P/L result visible even when no decision review can be proved. Common exclusion reasons include:
+Every snapshot says how many changes were found, how many stock, ETF and option changes were eligible by asset class, how many were scored at each horizon, which query sections were present, and why other values were unavailable. A later trade in the same contract does not remove a decision from scoring: where the price stood N sessions after a decision does not depend on what was traded in between, and scoring only the decisions left alone afterwards would choose the sample by what happened next. `intervening_change` now means a transfer, or an option lifecycle event that arrived without a trade row, before the horizon. Reporting labels a Trades container that was not returned as `absent`; it is not evidence that the account had no trades. A present but empty Trades section is broker evidence of zero reported executions for that report. Edge preserves that distinction and keeps a valid account-P/L result visible even when no decision review can be proved. Common exclusion reasons include:
 
 - `missing_horizon`
 - `intervening_change`
@@ -344,7 +344,7 @@ An Edge snapshot is in one of six states:
 - `insufficient_evidence`: account evidence may be usable, but a completed one-year report did not return a Trades section, so Edge does not imply that a decision review exists. This is a terminal evidence diagnosis, not a backfill promise. If the account traded during the period, verify that Trades is selected at execution detail in the saved Activity Flex Query; if it did not, there are no decisions to score.
 - `unavailable`: no safely scoped result can be served.
 
-Use `canary edge` for the automatic concise review, `canary edge --json` for its complete typed contract, the Edge tab in the paired app, or `canary_edge` with no arguments after `canary_brief` in a full MCP profile. In the app, tap a stock/ETF finding to expand its position before/after, execution VWAP, costs, horizon bars, FX, market context, and typed results or exclusion reasons. Tap an option row to expand its exact broker facts and missing-evidence state. Both interactions are explanatory and read-only; neither can preview or submit a trade.
+Use `canary edge` for the automatic concise review, `canary edge --json` for its complete typed contract, the Edge tab in the paired app, or `canary_edge` with no arguments after `canary_brief` in a full MCP profile. In the app, tap a finding to expand its position before/after, execution VWAP, costs, horizon bars, FX, market context, and typed results or exclusion reasons. Tap an option row to expand its exact broker facts and missing-evidence state. Both interactions are explanatory and read-only; neither can preview or submit a trade.
 
 For a narrower investigation, the terminal and MCP surfaces accept optional 90-day, 1-session, or 5-session overrides. They select another view of the same daemon-published evidence and do not start a refresh. `canary_reporting` gives an AI the same redacted setup and evidence blockers as `canary reporting status`; it cannot receive credentials, validate a candidate, refresh evidence, or change setup. The app loads Edge only when its tab opens. All of these reads expose no trading control.
 

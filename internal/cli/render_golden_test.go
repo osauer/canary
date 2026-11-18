@@ -534,6 +534,12 @@ func goldenEdge(offset, limit int) rpc.EdgeResult {
 	}
 	options := rpc.EdgeOptionReview{
 		Coverage: rpc.EdgeOptionCoverage{ExecutionEpisodes: 5, ClosingEpisodes: 5},
+		Decisions: rpc.EdgeOptionDecisions{Changes: 11, WithOutcome: 9, Reasons: map[string]int{"closed_by_delivery": 2}, Actions: []rpc.EdgeOptionDecisionRoll{
+			{Action: "open", Changes: 4, WithResult: 3, Losses: 1, MedianResultPct: money(8.4), TotalResultBase: money(610)},
+			{Action: "add", Changes: 2, WithResult: 2, Losses: 2, MedianResultPct: money(-12.5), TotalResultBase: money(-1500)},
+			{Action: "trim", Changes: 2, WithResult: 2, Losses: 1, MedianResultPct: money(3), TotalResultBase: money(140), WithLaterExit: 2, LaterExitBetter: 1, TotalLaterExitBase: money(-220)},
+			{Action: "exit", Changes: 3, WithResult: 2, Losses: 1, TotalResultBase: money(-750)},
+		}},
 		Cycles:   rpc.EdgeOptionCycles{CompletedCount: 5, CompletePNLCount: 5, OpenContractCount: 4, ExcludedContracts: 1, Reasons: map[string]int{"opened_before_window": 2, "lifecycle_or_transfer": 1}, KnownPNLBase: money(4280), Offset: offset},
 		Realized: rpc.EdgeOptionRealizedReview{KnownPNLBase: money(4590), PositiveCount: 3, NegativeCount: 1, CompleteCount: 4, UnavailableCount: 1, TotalCount: 5, Offset: offset},
 		Open:     rpc.EdgeOptionOpenReview{SnapshotDate: at, KnownPNLBase: money(-285), PositiveCount: 2, NegativeCount: 2, CompleteCount: 4, TotalCount: 4, Offset: offset},
@@ -545,6 +551,18 @@ func goldenEdge(offset, limit int) rpc.EdgeResult {
 	start, end, next = page(len(positions))
 	options.Open.Positions, options.Open.NextOffset, options.Open.Truncated = positions[start:end], next, end-start < len(positions)
 	result.Options = options
+	// One row of each kind the verdict list can print: a horizon verdict,
+	// a position verdict, a result within costs, and a decision with none.
+	result.Verdicts = rpc.EdgeVerdicts{
+		Counts: []rpc.EdgeVerdictCount{{AssetClass: "OPT", Helped: 4, Hurt: 5, NoDifference: 1, None: 1}, {AssetClass: "STK", Helped: 3, Hurt: 2, NoDifference: 1, None: 2}},
+		Recent: []rpc.EdgeTradeVerdict{
+			{ChangeID: "change_v1", Symbol: "SYNA  260821C00115000", AssetClass: "OPT", Action: "add", Direction: "long", ExecutedAt: at.AddDate(0, 0, -3), Verdict: rpc.EdgeVerdict{Label: "helped", Basis: "horizon", Sessions: 5, ImpactBase: money(1240)}},
+			{ChangeID: "change_v2", Symbol: "SYNB  260918P00090000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: at.AddDate(0, 0, -5), Verdict: rpc.EdgeVerdict{Label: "hurt", Basis: "position", ImpactBase: money(-860)}},
+			{ChangeID: "change_v3", Symbol: "SYNC", AssetClass: "STK", Action: "trim", Direction: "long", ExecutedAt: at.AddDate(0, 0, -6), Verdict: rpc.EdgeVerdict{Label: "no_difference", Basis: "horizon", Sessions: 1, ImpactBase: money(-1.2)}},
+			{ChangeID: "change_v4", Symbol: "SYNA  260821P00100000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: at.AddDate(0, 0, -10), Verdict: rpc.EdgeVerdict{Label: "none", Reason: "closed_by_delivery"}},
+			{ChangeID: "change_v5", Symbol: "SYND", AssetClass: "STK", Action: "open", Direction: "long", ExecutedAt: at.AddDate(0, 0, -1), Verdict: rpc.EdgeVerdict{Label: "none", Reason: "missing_horizon"}},
+		},
+	}
 	return result
 }
 

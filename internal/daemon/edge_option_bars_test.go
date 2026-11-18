@@ -1,12 +1,16 @@
 package daemon
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	edgecore "github.com/osauer/canary/v3/internal/edge"
 	"github.com/osauer/canary/v3/internal/flexstmt"
 	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // The broker keeps an option's daily closes only while the contract is
@@ -84,5 +88,44 @@ func TestOptionWithoutACloseDoesNotKeepEdgeBackfilling(t *testing.T) {
 	}
 	if state, reason := edgePublicationStatus(map[string]edgecore.Result{"365d": result}, 0); state != rpc.EdgeStateCurrent {
 		t.Fatalf("an option without a close kept Edge %s (%s)", state, reason)
+	}
+}
+
+// No option close is requested from the broker. The connector's daily-bar
+// read is keyed by symbol: without one it refuses before sending, which is
+// what the first version did on every rebuild without anyone seeing it, and
+// with the underlying's it would settle on the stock's cached contract and
+// return the stock's closes as the option's. Until an exact-contract read
+// exists, the statement marks are the only option closes.
+func TestEdgeOptionCloseIsNotRequestedFromTheBroker(t *testing.T) {
+	asked := 0
+	srv := &Server{edgeFetchBarsFn: func(context.Context, ibkrlib.Contract, int) ([]ibkrlib.HistoricalBar, error) {
+		asked++
+		return nil, nil
+	}}
+	if _, err := srv.fetchEdgeBars(context.Background(), edgeContractSpec{ConID: 2, Symbol: "SYNX 260320C00100000", Currency: "USD", Option: true}, edgeFullLookbackDays); err == nil {
+		t.Fatal("an option close fetch reported success")
+	}
+	if asked != 0 {
+		t.Fatalf("the broker was asked %d times for an option's closes", asked)
+	}
+	// A stock still goes to the broker (the stub's empty answer is refused
+	// afterwards, which is not what this test is about).
+	if _, _ = srv.fetchEdgeBars(context.Background(), edgeContractSpec{ConID: 1, Symbol: "SYNX", Currency: "USD"}, edgeFullLookbackDays); asked != 1 {
+		t.Fatalf("the broker was asked %d times for a stock's closes, want once", asked)
+	}
+}
+
+// A result that carries only a state serves empty lists, never null, for the
+// verdicts and the option decisions, as it does for every other list.
+func TestEdgeStateOnlyResultServesEmptyVerdictLists(t *testing.T) {
+	raw, err := json.Marshal(edgeStateOnlyResult(rpc.EdgeStateBackfilling, "", "365d", 20, true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"verdicts":{"counts":[],"recent":[]}`, `"decisions":{"changes":0,"with_outcome":0,"reasons":{},"actions":[]}`} {
+		if !strings.Contains(string(raw), want) {
+			t.Fatalf("missing %s in %s", want, raw)
+		}
 	}
 }

@@ -916,7 +916,7 @@ func TestEdgeHeadlineUsesMostObservedActionAndExplainsEmptyEvidence(t *testing.T
 		t.Fatalf("unproved headline=%q", got)
 	}
 	result.Coverage.MissingSections = nil
-	if got := edgeHeadline(result); !strings.Contains(got, "No stock or ETF position changes") || !strings.Contains(got, "account P/L remains separate") {
+	if got := edgeHeadline(result); !strings.Contains(got, "No position changes") || !strings.Contains(got, "account P/L remains separate") {
 		t.Fatalf("zero-trade headline=%q", got)
 	}
 }
