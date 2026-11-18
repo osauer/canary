@@ -255,6 +255,9 @@ func TestOptionReadWaitingForALineEndsWithItsSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	conn.reqIDMu.Lock()
+	before := conn.reqIDSeq
+	conn.reqIDMu.Unlock()
 	// The reader's context lives as long as the process, as the refresh's does.
 	done := make(chan error, 1)
 	go func() {
@@ -274,7 +277,20 @@ func TestOptionReadWaitingForALineEndsWithItsSession(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	time.Sleep(20 * time.Millisecond) // let the reader reach the full pool
+	// The reader has reached the pool once its request id is allocated.
+	for {
+		conn.reqIDMu.Lock()
+		allocated := conn.reqIDSeq > before
+		conn.reqIDMu.Unlock()
+		if allocated {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("reader never reached line admission")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(5 * time.Millisecond)
 
 	if !c.DropSession(context.Canceled) {
 		t.Fatal("session was not dropped")

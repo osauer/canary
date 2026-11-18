@@ -2781,11 +2781,16 @@ func (c *Connection) logMarketDataSlotCensus() {
 	c.marketDataCensusAt = now
 	owners := map[string]int{}
 	var oldest time.Duration
+	// owed counts lines whose cancel has not reached the Gateway yet.
+	owed := 0
 	for _, slot := range c.marketDataSlots {
 		owners[slot.owner]++
 		oldest = max(oldest, now.Sub(slot.acquired))
+		if slot.cancelOwed {
+			owed++
+		}
 	}
-	marketLogger.Warnf("market data pool saturated: holders=%d owners=%v oldest=%s", len(c.marketDataSlots), owners, oldest.Round(time.Second))
+	marketLogger.Warnf("market data pool saturated: holders=%d owners=%v oldest=%s cancel_owed=%d", len(c.marketDataSlots), owners, oldest.Round(time.Second), owed)
 }
 
 // acquireMarketDataSlot acquires a market data slot and records the holding
@@ -7136,9 +7141,20 @@ func (c *Connection) cancelMarketDataForEpoch(ctx context.Context, reqID int, ep
 	err := c.sendMessageWithTypeContextForEpoch(ctx, msg, RequestTypeMarketDataCancel, epoch, true)
 	if err == nil {
 		c.releaseMarketDataSlotAtEpoch(reqID, epoch)
-		return nil
 	}
-	c.settleMarketDataCancel(msg, reqID, epoch)
+	return err
+}
+
+// releaseMarketDataLineForEpoch is cancelMarketDataForEpoch for a caller that
+// has already dropped its record of the line: nobody else can cancel it, so a
+// cancel that fails stays owed (settleMarketDataCancel). A caller that keeps
+// its record on failure must not use it, or the late cancel would silence a
+// line that caller still serves.
+func (c *Connection) releaseMarketDataLineForEpoch(ctx context.Context, reqID int, epoch uint64) error {
+	err := c.cancelMarketDataForEpoch(ctx, reqID, epoch)
+	if err != nil && reqID > 0 && reqID <= maxProtoInt32 {
+		c.settleMarketDataCancel(c.encodeMsg(cancelMktData, 1, reqID), reqID, epoch)
+	}
 	return err
 }
 
@@ -7157,8 +7173,8 @@ const (
 // streaming the line, its pool slot stayed held, and each such line was gone
 // until the next redial. Lines nobody reads then fill the pool and their ticks
 // keep the reader busy. On 2026-11-12, 17 and 18 the full pool held 45 to 71
-// option lines, more than the option readers of those days account for; the
-// log could not say which were orphans. The slot stays held while the cancel
+// option lines; the log could not say how many were orphans. The slot stays
+// held while the cancel
 // is owed, because the Gateway still counts the line. A reconnect on this
 // Connection releases every slot itself, and the Gateway drops every line of
 // a closed socket.

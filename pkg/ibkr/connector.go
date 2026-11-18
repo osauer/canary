@@ -4885,7 +4885,7 @@ func (c *Connector) UnsubscribeMarketDataForSession(ctx context.Context, binding
 		binding.connection.releaseMarketDataSlotAtEpoch(sub.ReqID, binding.epoch)
 		return nil
 	}
-	return binding.connection.cancelMarketDataForEpoch(ctx, sub.ReqID, binding.epoch)
+	return binding.connection.releaseMarketDataLineForEpoch(ctx, sub.ReqID, binding.epoch)
 }
 
 // routedSubscribeGate refuses a routed subscribe the broker has already answered.
@@ -5206,7 +5206,7 @@ func (c *Connector) unsubscribeMarketData(ctx context.Context, symbol string, bi
 	}
 	if conn != nil && conn.IsConnected() && reqID != 0 {
 		if wire {
-			return conn.cancelMarketDataForEpoch(ctx, reqID, epoch)
+			return conn.releaseMarketDataLineForEpoch(ctx, reqID, epoch)
 		}
 		conn.releaseMarketDataSlotAtEpoch(reqID, epoch)
 	}
