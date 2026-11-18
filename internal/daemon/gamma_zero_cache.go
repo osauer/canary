@@ -505,8 +505,8 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 		slot.refresh = nil
 		slot.errStreak++
 		slot.lastFailAt = now
-		gammaLogf{inner: c.log}.Warnf("gamma compute: scope=%s refresh abandoned after %s without finishing; retrying behind the backoff",
-			scope, now.Sub(stuck.startedAt).Round(time.Second))
+		gammaLogf{inner: c.log}.Warnf("gamma compute: scope=%s refresh abandoned after %s without finishing, last progress %d%% (%s); retrying behind the backoff",
+			scope, now.Sub(stuck.startedAt).Round(time.Second), stuck.progress.Load(), gammaProgressStage(scope, stuck.progress.Load()))
 	}
 
 	// SessionClosed gate: outside the regular U.S. listed-options
@@ -1442,4 +1442,28 @@ func findZeroCrossing(profile []rpc.GammaProfilePoint, reference ...float64) (ze
 		}
 	}
 	return nil, "no_data"
+}
+
+// gammaProgressStage names where a job's progress counter stands, so an
+// abandoned job's log line locates the blocking call. Each underlying phase
+// reports 2 (spot), 5 and 10 (option chain and expiries), 10-85 (leg fan-out),
+// 85-100 (fit); the combined scope maps SPY to 0-50 and SPX to 50-100.
+func gammaProgressStage(scope string, progress int32) string {
+	phase := ""
+	if scope == rpc.GammaZeroScopeCombined {
+		phase = "SPY phase, "
+		if progress >= 50 {
+			phase, progress = "SPX phase, ", (progress-50)*2
+		} else {
+			progress *= 2
+		}
+	}
+	switch {
+	case progress < 10:
+		return phase + "spot and option chain lookup"
+	case progress < 85:
+		return phase + "leg fan-out"
+	default:
+		return phase + "fit and publication"
+	}
 }
