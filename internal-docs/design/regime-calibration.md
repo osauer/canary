@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-11-18 13:53 CET
+**Last update:** 2026-11-18 14:08 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -1090,7 +1090,7 @@ before this opener existed, three weeks before the April 2025 low.
   (Part 2).
 
 Over the replay every session that reads `quiet` reads "Normal regime". 223
-of the 782 quiet sessions keep the watch tone because a stress witness is
+of the 781 quiet sessions keep the watch tone because a stress witness is
 yellow; 191 did before any of this. 63 `early_warning` sessions read "Normal
 regime" on a watch tone: the tape alone opened them.
 
@@ -1100,13 +1100,13 @@ regime" on a watch tone: the tape alone opened them.
 |---|---|---|---|---|
 | `quiet` | 47% | 78% | 10% | 2% |
 | `early_warning` | 40% | 13% | 19% | 11% |
-| `confirmed_stress` | 6% | 5% | 16% | 2% |
+| `confirmed_stress` | 6% | 5% | 17% | 2% |
 | `panic` | 3% | 0.4% | three sessions | |
 | `stabilization` | 4% | 3% | 25% of 28 | 0% |
 | `opportunity` | 1% | 1% | 0% of 8 | 0% |
 
-"After" includes the VVIX red line at 120 (next section); with the line at
-110 `quiet` was 74% and `early_warning` 17%.
+"After" includes the VVIX red line at 120 and the witness rules (next two
+sections); with the line at 110 `quiet` was 74% and `early_warning` 17%.
 
 314 sessions that warned before no longer do; none was followed by a low 8%
 or more below and 10% by a low 5% or more below, under the base rate. Four
@@ -1175,10 +1175,10 @@ Review of 2026-11-18 (coordinator's instruction of that day, after an
 independent review of this change). Five rules, each with a test that failed
 before it.
 
-- **A dark stress witness never reads as a calm one.** When a witness row
-  (VIX term, VVIX, cash credit, funding) is off its currency (stale, overdue
-  or failed; a typed `not_due` or `pending` schedule is not), and a co-sign
-  row is red, the stage cannot be `quiet`, `opportunity` or `stabilization`:
+- **A dark stress witness never reads as a calm one.** When a witness (VIX
+  term, VVIX, cash credit, funding) is off its currency by the existing input
+  verdict (stale, overdue, failed, or a schedule past its age bound; a valid
+  typed `not_due` or `pending` schedule is not), and a co-sign row is red, the stage cannot be `quiet`, `opportunity` or `stabilization`:
   it is `data_quality` with the "data incomplete" headline, and the rulebook's
   stage latch holds its last bucket. The operator decision of 2026-08-11
   stands: unknown cash evidence never softens a live warning. The roles
@@ -1193,8 +1193,8 @@ before it.
   Overdue, stale or failed evidence still drops it, and a co-sign's
   prior-date reading stays context. A confirmed stress resting on a term
   inversion therefore no longer drops to `early_warning` at the close and
-  returns at 09:31. The quality governor still holds such a stage at watch
-  while its confirming witness is not current.
+  returns at 09:31. Its severity still falls from act to watch at the close:
+  the provenance gate's term-inversion co-sign needs a same-session row.
   `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow`.
 - **An eligible witness red stands.** The isolated equity-vol corroboration
   is removed. With the VVIX line at 120 it decided only a red held between

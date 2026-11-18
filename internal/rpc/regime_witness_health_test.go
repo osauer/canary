@@ -50,6 +50,12 @@ func TestRegimeDarkWitnessIsNeverCalm(t *testing.T) {
 			r.VolOfVol = RegimeVolOfVol{Status: RegimeStatusUnavailable}
 			r.HYGSPYDivergence.SPYChangePct, r.VIXTermStructure.VIXChangePct = new(1.6), new(-11.0)
 		}, LifecycleDataQuality},
+		{"funding typed not-due but a month old; proxy red", func(r *RegimeSnapshotResult) {
+			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
+			r.FundingStress.Status = RegimeStatusStale
+			r.FundingStress.Freshness = &RegimeFreshness{Class: RegimeFreshnessNotDue}
+			r.FundingStress.AsOf = &RegimeAsOfSummary{Time: r.AsOf.AddDate(0, 0, -30)}
+		}, LifecycleDataQuality},
 		{"cash credit on its typed not-due schedule; proxy red", func(r *RegimeSnapshotResult) {
 			red(&r.HYGSPYDivergence.RegimeIndicatorMeta, true)
 			r.CreditSpreads.Status = RegimeStatusStale

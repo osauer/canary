@@ -304,7 +304,7 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		}
 	}
 	inputs := regimeLifecycleInputVerdict(*r)
-	darkWitness := regimeLifecycleDarkWitness(state.Stage, *r)
+	darkWitness := regimeLifecycleDarkWitness(state.Stage, *r, inputs)
 	if inputs.any() || darkWitness {
 		blanks := darkWitness || inputs.global ||
 			len(inputs.defects)+len(inputs.impaired) >= RegimeCurrencyBlankFloor ||
@@ -340,16 +340,25 @@ const RegimeConfirmedByTape = "tape"
 
 // regimeLifecycleDarkWitness reports a calm stage that would rest on a stress
 // witness nobody can read. Quiet, opportunity and stabilization claim an
-// absence of stress. With a co-sign red on the panel and a witness row whose
-// currency costs the read anything (stale, overdue, failed; not a typed
-// not-due or pending schedule), that absence is unknown: the read is
-// undefined, and the rulebook's stage latch holds. Operator decision
-// 2026-08-11: unknown cash evidence never softens a live warning.
-func regimeLifecycleDarkWitness(stage string, r RegimeSnapshotResult) bool {
+// absence of stress. With a co-sign red on the panel and a witness whose
+// currency costs the read anything (stale, overdue, failed, or a schedule
+// past its age bound; not a valid typed not-due or pending one), that
+// absence is unknown: the read is undefined, and the rulebook's stage latch
+// holds. Operator decision 2026-08-11: unknown cash evidence never softens a
+// live warning.
+//
+// The equity-vol and funding clusters hold witness rows only, so the input
+// verdict's word on those clusters is the word on their witnesses. The
+// credit cluster also holds the proxy, a co-sign, so there the cash row is
+// read by itself.
+func regimeLifecycleDarkWitness(stage string, r RegimeSnapshotResult, inputs regimeLifecycleInputs) bool {
 	if !stageCalm(stage) {
 		return false
 	}
-	coSignRed, dark := false, false
+	coSignRed := false
+	dark := slices.ContainsFunc([]string{"vol", "funding"}, func(name string) bool {
+		return slices.Contains(inputs.defects, name) || slices.Contains(inputs.impaired, name)
+	})
 	for _, row := range regimeRows(&r) {
 		switch RegimeIndicatorRole(row.indicator) {
 		case RegimeRoleCoSign:
