@@ -108,7 +108,14 @@ func TestSettlementProbeIncompleteAndCrossScope(t *testing.T) {
 			c, conn, wire := settlementConnectorFixture(t)
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
-			done := startSettlementProbe(c, ctx, 40*time.Millisecond)
+			// The cancel case must end by the cancel, not by its budget:
+			// under load a 40 ms budget ran out first and the probe read
+			// "timeout".
+			budget := 40 * time.Millisecond
+			if mode == "cancel" {
+				budget = 2 * time.Second
+			}
+			done := startSettlementProbe(c, ctx, budget)
 			frames := probeFrames(t, wire, conn, 1)
 			id, _ := strconv.Atoi(frames[0][2])
 			probeCallback(conn, id, "DU1234567", "SettledCash", "12345678", "EUR")
