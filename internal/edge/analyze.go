@@ -623,13 +623,18 @@ func buildScoringIndex(input Input, mutations []mutation, ev evidence) scoringIn
 		index.contextBars[strings.ToUpper(strings.TrimSpace(symbol))] = normalizedBars(bars, input.AsOf)
 	}
 	// The broker's statement mark is the close of every option held that
-	// day. A fetched close for the same day wins; a mark fills the rest.
+	// day, and it outranks a fetched last trade for the same day: it is the
+	// broker's own valuation and what every option score rested on before
+	// closes were fetched, so none of those moves. A fetched close fills the
+	// days with no mark, which is every day after the contract left the
+	// account. (normalizedBars keeps the first bar of a day among bars that
+	// name their contract, so the marks go first and carry the id.)
 	marks := map[int64][]DailyBar{}
 	for _, position := range ev.positions {
 		if !strings.EqualFold(position.AssetClass, "OPT") || position.ConID == 0 || position.MarkPrice == nil || *position.MarkPrice <= 0 || position.ReportDate.IsZero() {
 			continue
 		}
-		marks[position.ConID] = append(marks[position.ConID], DailyBar{Day: position.ReportDate, Close: *position.MarkPrice})
+		marks[position.ConID] = append(marks[position.ConID], DailyBar{ConID: position.ConID, Day: position.ReportDate, Close: *position.MarkPrice})
 	}
 	for conid, bars := range marks {
 		index.rawBarsByConID[conid] = true

@@ -1,6 +1,6 @@
 # Canary Edge
 
-Updated: 2026-11-18 21:34 CET
+Updated: 2026-11-19 06:27 CET
 
 Canary Edge is a retrospective broker-truth review. It answers three different questions without blending them:
 
@@ -163,13 +163,18 @@ Exact shared-order grouping does not assert a strategy name. A mixed opening-and
 
 ## Option decisions and verdicts
 
-An option's close comes from the broker, never from a model. It is the mark
-in the daily statement for a contract held that day. A contract you no longer
-hold has no mark, so a horizon that falls after its last held day has no
-figure: Canary reads no close for a contract after it was sold in full. The 1st, 5th and 20th sessions are counted on the days the benchmarks
-and the account's other instruments have a close, and only a mark on that
-exact session counts. With one, the option decision gets the same Decision
-price impact as a stock decision.
+An option's close comes from the broker, never from a model. Two sources are
+used. The mark in the daily statement is the close of a contract held that
+day. For the days after a contract left the account, Canary reads the
+contract's daily closing trade from IBKR while the contract is still alive;
+the broker deletes that history at expiry. The read names the exact contract
+and never the underlying's symbol. On a day that has both, the statement mark
+counts. A session without a trade has no fetched close, and a contract that
+had expired before Canary first read it has none at all, so such a horizon
+has no figure. The 1st, 5th and 20th sessions are counted on the days the
+benchmarks and the account's other instruments have a close, and only a close
+on that exact session counts. With one, the option decision gets the same
+Decision price impact as a stock decision.
 
 `options.decisions` also reads every option decision against its own
 flat-to-flat position, from executions alone:

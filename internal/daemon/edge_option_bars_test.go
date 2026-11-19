@@ -91,28 +91,107 @@ func TestOptionWithoutACloseDoesNotKeepEdgeBackfilling(t *testing.T) {
 	}
 }
 
-// No option close is requested from the broker. The connector's daily-bar
-// read is keyed by symbol: without one it refuses before sending, which is
-// what the first version did on every rebuild without anyone seeing it, and
-// with the underlying's it would settle on the stock's cached contract and
-// return the stock's closes as the option's. Until an exact-contract read
-// exists, the statement marks are the only option closes.
-func TestEdgeOptionCloseIsNotRequestedFromTheBroker(t *testing.T) {
-	asked := 0
-	srv := &Server{edgeFetchBarsFn: func(context.Context, ibkrlib.Contract, int) ([]ibkrlib.HistoricalBar, error) {
-		asked++
-		return nil, nil
+// A live option's closes are asked for by its contract id alone: no symbol,
+// so the read cannot settle on the underlying stock's contract, and at most a
+// year. A stock keeps its symbol-keyed read. (The first version blanked the
+// symbol on the stock read, which refuses before sending; nothing was ever
+// requested, and nobody saw it because an option's error is dropped.)
+func TestEdgeOptionClosesAreRequestedByExactContract(t *testing.T) {
+	var asked []ibkrlib.Contract
+	var lookbacks []int
+	srv := &Server{edgeFetchBarsFn: func(_ context.Context, contract ibkrlib.Contract, lookback int) ([]ibkrlib.HistoricalBar, error) {
+		asked = append(asked, contract)
+		lookbacks = append(lookbacks, lookback)
+		return []ibkrlib.HistoricalBar{{Date: "20260302", Time: time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC), Close: 2.4}}, nil
 	}}
-	if _, err := srv.fetchEdgeBars(context.Background(), edgeContractSpec{ConID: 2, Symbol: "SYNX 260320C00100000", Currency: "USD", Option: true}, edgeFullLookbackDays); err == nil {
-		t.Fatal("an option close fetch reported success")
+	bars, err := srv.fetchEdgeBars(context.Background(), edgeContractSpec{ConID: 2, Symbol: "SYNX 260320C00100000", Currency: "USD", Option: true}, edgeFullLookbackDays)
+	if err != nil || len(bars) != 1 || bars[0].ConID != 2 || bars[0].Close != 2.4 {
+		t.Fatalf("option closes: bars %+v, err %v", bars, err)
 	}
-	if asked != 0 {
-		t.Fatalf("the broker was asked %d times for an option's closes", asked)
+	if len(asked) != 1 || asked[0].ConID != 2 || asked[0].SecType != "OPT" || asked[0].Symbol != "" || asked[0].Currency != "USD" {
+		t.Fatalf("the option was asked for as %+v, want its contract id, OPT and no symbol", asked)
 	}
-	// A stock still goes to the broker (the stub's empty answer is refused
-	// afterwards, which is not what this test is about).
-	if _, _ = srv.fetchEdgeBars(context.Background(), edgeContractSpec{ConID: 1, Symbol: "SYNX", Currency: "USD"}, edgeFullLookbackDays); asked != 1 {
-		t.Fatalf("the broker was asked %d times for a stock's closes, want once", asked)
+	if _, err := srv.fetchEdgeBars(context.Background(), edgeContractSpec{ConID: 1, Symbol: "SYNX", Currency: "USD"}, edgeFullLookbackDays); err != nil {
+		t.Fatalf("stock closes: %v", err)
+	}
+	if len(asked) != 2 || asked[1].SecType != "STK" || asked[1].Symbol != "SYNX" || lookbacks[1] != edgeFullLookbackDays {
+		t.Fatalf("the stock was asked for as %+v with lookback %v", asked[1], lookbacks)
+	}
+}
+
+// An option whose closes could not be read is asked again after an hour, not
+// on every rebuild: a rebuild runs on each statement fetch and each broker
+// reconnect, and a failing contract would otherwise be asked for a year of
+// bars each time. A stock is never held back this way.
+func TestEdgeOptionFetchWaitsAfterAFailure(t *testing.T) {
+	now := time.Date(2026, 3, 2, 15, 0, 0, 0, time.UTC)
+	option := edgeContractSpec{ConID: 2, Option: true}
+	for name, tc := range map[string]struct {
+		spec   edgeContractSpec
+		series edgeBarSeries
+		want   bool
+	}{
+		"never asked":              {option, edgeBarSeries{}, true},
+		"failed ten minutes ago":   {option, edgeBarSeries{FailedAt: now.Add(-10 * time.Minute)}, false},
+		"failed two hours ago":     {option, edgeBarSeries{FailedAt: now.Add(-2 * time.Hour)}, true},
+		"a stock that just failed": {edgeContractSpec{ConID: 1}, edgeBarSeries{FailedAt: now.Add(-time.Minute)}, true},
+	} {
+		if got := edgeFetchDueAfterFailure(now, tc.spec, tc.series); got != tc.want {
+			t.Fatalf("%s: due=%v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+// A switch to another account or mode starts the bar cache afresh, as it
+// always did, but an option's closes are set aside, not dropped: the broker
+// deletes them at expiry and they can never be fetched again. They come back
+// when the first account does, and are never handed to another account's
+// analysis.
+func TestEdgeBarCacheKeepsOptionClosesAcrossAScopeSwitch(t *testing.T) {
+	day := time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	live := edgeBarCache{Version: edgeBarCacheVersion, ScopeFingerprint: "live", LastFullRevalidation: day,
+		Contracts: map[string]edgeBarSeries{
+			"1": {ConID: 1, Symbol: "SYNX", Bars: []edgecore.DailyBar{{ConID: 1, Day: day, Close: 100}}},
+			"2": {ConID: 2, Option: true, Bars: []edgecore.DailyBar{{ConID: 2, Day: day, Close: 2.4}}},
+		},
+		MarketContext: map[string]edgeBarSeries{"SPY": {Symbol: "SPY"}}}
+
+	paper := edgeBarCacheForScope(live, "paper")
+	if paper.ScopeFingerprint != "paper" || len(paper.Contracts) != 0 || len(paper.MarketContext) != 0 || !paper.LastFullRevalidation.IsZero() {
+		t.Fatalf("the other scope did not start afresh: %+v", paper)
+	}
+	if kept := paper.Parked["live"]; len(kept) != 1 || kept["2"].Bars[0].Close != 2.4 {
+		t.Fatalf("the option's closes were not set aside: %+v", paper.Parked)
+	}
+
+	back := edgeBarCacheForScope(paper, "live")
+	if got := back.Contracts["2"]; len(back.Contracts) != 1 || !got.Option || got.Bars[0].Close != 2.4 {
+		t.Fatalf("the option's closes did not come back: %+v", back.Contracts)
+	}
+	if len(back.Parked["live"]) != 0 {
+		t.Fatalf("restored closes are still set aside: %+v", back.Parked)
+	}
+	if same := edgeBarCacheForScope(live, "live"); len(same.Contracts) != 2 || len(same.Parked) != 0 {
+		t.Fatalf("an unchanged scope lost or parked series: %+v", same)
+	}
+}
+
+// An option stays on the list through its expiry day in New York. Counted in
+// UTC it left at 19:00 New York, three hours after the close its last bar
+// forms at.
+func TestEdgeContractsKeepAnOptionThroughItsExpiryDayInNewYork(t *testing.T) {
+	traded := time.Date(2026, 2, 25, 15, 0, 0, 0, time.UTC)
+	statement := flexstmt.Statement{
+		Instruments: []flexstmt.Instrument{{ConID: 4, Expiry: "2026-03-02"}},
+		Trades:      []flexstmt.Trade{{ConID: 4, Symbol: "SYNX 260302C00100000", AssetClass: "OPT", Currency: "USD", ExecutedAt: traded}},
+	}
+	evening := time.Date(2026, 3, 3, 2, 0, 0, 0, time.UTC) // 21:00 on 2 March in New York
+	if got := edgeContracts([]flexstmt.Statement{statement}, traded.AddDate(0, 0, -30), evening); len(got) != 1 || !got[0].Option {
+		t.Fatalf("the option left the list on its expiry evening: %+v", got)
+	}
+	nextDay := time.Date(2026, 3, 3, 6, 0, 0, 0, time.UTC) // 01:00 on 3 March in New York
+	if got := edgeContracts([]flexstmt.Statement{statement}, traded.AddDate(0, 0, -30), nextDay); len(got) != 0 {
+		t.Fatalf("an expired option is still listed: %+v", got)
 	}
 }
 

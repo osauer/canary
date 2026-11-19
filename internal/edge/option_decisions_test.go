@@ -195,3 +195,18 @@ func TestVerdictCountsNameABlankAssetClass(t *testing.T) {
 		t.Fatalf("counts=%+v", counts)
 	}
 }
+
+// On a day that has both, the statement mark is the option's close and the
+// fetched last trade is not: the mark is the broker's own valuation and what
+// every option score so far rests on, and a last trade can be hours older.
+// A fetched close counts on the days the statement has no mark, which is
+// every day after the contract left the account.
+func TestStatementMarkOutranksAFetchedCloseOnTheSameDay(t *testing.T) {
+	held, sold := day("2026-01-06"), day("2026-01-07")
+	input := Input{AsOf: day("2026-01-20"), Bars: map[int64][]DailyBar{456: {{ConID: 456, Day: held, Close: 5}, {ConID: 456, Day: sold, Close: 6}}}}
+	ev := evidence{positions: []flexstmt.OpenPosition{{ConID: 456, AssetClass: "OPT", ReportDate: held, MarkPrice: new(float64(4))}}}
+	bars := buildScoringIndex(input, nil, ev).barsByConID[456]
+	if len(bars) != 2 || bars[0].Close != 4 || bars[1].Close != 6 {
+		t.Fatalf("bars=%+v, want the mark 4 on the held day and the fetched 6 after it", bars)
+	}
+}

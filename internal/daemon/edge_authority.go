@@ -28,12 +28,16 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 7
+	edgePublicationVersion   = 8
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
 	edgeFullRevalidateAfter  = 30 * 24 * time.Hour
 	edgeDailyRefreshAfter    = 18 * time.Hour
+	// edgeOptionRetryAfter paces a second ask for an option's closes after a
+	// failed one. Engineering pacing, not policy: a rebuild runs on every
+	// statement fetch and broker reconnect.
+	edgeOptionRetryAfter     = time.Hour
 	edgeStatementLoadTimeout = 30 * time.Second
 )
 
@@ -67,6 +71,11 @@ type edgeBarCache struct {
 	LastFullRevalidation time.Time                `json:"last_full_revalidation,omitzero"`
 	Contracts            map[string]edgeBarSeries `json:"contracts"`
 	MarketContext        map[string]edgeBarSeries `json:"market_context"`
+	// Parked holds, by scope fingerprint, the option series of scopes other
+	// than the current one. The broker deletes an option's closes at
+	// expiry, so a switch of account or mode sets them aside where it
+	// drops everything else (edgeBarCacheForScope).
+	Parked map[string]map[string]edgeBarSeries `json:"parked,omitempty"`
 }
 
 type edgeBarSeries struct {
@@ -76,6 +85,12 @@ type edgeBarSeries struct {
 	FetchedAt         time.Time           `json:"fetched_at"`
 	FullRevalidatedAt time.Time           `json:"full_revalidated_at,omitzero"`
 	Bars              []edgecore.DailyBar `json:"bars"`
+	// Option marks an option contract's series: closes that cannot be
+	// fetched again once the contract has expired.
+	Option bool `json:"option,omitempty"`
+	// FailedAt is the last failed ask for an option's closes; the next one
+	// waits edgeOptionRetryAfter.
+	FailedAt time.Time `json:"failed_at,omitzero"`
 }
 
 type edgeContractSpec struct {
@@ -83,9 +98,9 @@ type edgeContractSpec struct {
 	Symbol   string
 	Currency string
 	// Option marks a live option contract. Its closes are worth keeping
-	// because the broker drops them at expiry, but none is requested yet
-	// (fetchEdgeBars says why), and an option never degrades the
-	// publication: the statement marks still score it.
+	// because the broker drops them at expiry. They are read by contract
+	// id alone, and a failed read never degrades the publication: the
+	// statement marks still score the contract.
 	Option bool
 }
 
@@ -200,31 +215,51 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if cache.ScopeFingerprint != scopeFingerprint {
-		cache = edgeBarCache{Version: edgeBarCacheVersion, ScopeFingerprint: scopeFingerprint, Contracts: map[string]edgeBarSeries{}, MarketContext: map[string]edgeBarSeries{}}
-	}
+	cache = edgeBarCacheForScope(cache, scopeFingerprint)
 	contracts := edgeContracts(statements, s.edgeNow().AddDate(0, 0, -edgeFullLookbackDays), s.edgeNow())
 	now := s.edgeNow()
 	full := cache.LastFullRevalidation.IsZero() || now.Sub(cache.LastFullRevalidation) >= edgeFullRevalidateAfter
 	fetchFailures := 0
 	fetchedAll := true
+	optionsAsked, optionsFailed := 0, 0
+	var optionErr error
 	for _, spec := range contracts {
 		key := strconv.FormatInt(spec.ConID, 10)
 		series := cache.Contracts[key]
 		lookback, fetch := edgeBarRefreshPlan(now, full, series)
-		if !fetch {
+		if !fetch || !edgeFetchDueAfterFailure(now, spec, series) {
 			continue
+		}
+		if spec.Option {
+			optionsAsked++
 		}
 		bars, fetchErr := s.fetchEdgeBars(ctx, spec, lookback)
 		if fetchErr != nil {
 			if !spec.Option {
 				fetchFailures++
 				fetchedAll = false
+				continue
+			}
+			// An option that cannot be read keeps what it has and is
+			// asked again after edgeOptionRetryAfter. A contract with no
+			// trade in the window is such a failure too.
+			optionsFailed++
+			if optionErr == nil {
+				optionErr = fetchErr
+			}
+			if errors.Is(fetchErr, ibkrlib.ErrIBKRUnavailable) {
+				// Nothing was asked: the reconnect's rebuild asks at once.
+				continue
+			}
+			series.ConID, series.Symbol, series.Currency, series.Option, series.FailedAt = spec.ConID, spec.Symbol, spec.Currency, true, now
+			cache.Contracts[key] = series
+			if err := s.saveEdgeBarCache(ctx, cache); err != nil {
+				return err
 			}
 			continue
 		}
 		series = edgeBarSeries{
-			ConID: spec.ConID, Symbol: spec.Symbol, Currency: spec.Currency,
+			ConID: spec.ConID, Symbol: spec.Symbol, Currency: spec.Currency, Option: spec.Option,
 			FetchedAt: now, FullRevalidatedAt: series.FullRevalidatedAt,
 			Bars: mergeEdgeBars(series.Bars, bars),
 		}
@@ -235,6 +270,11 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 		if err := s.saveEdgeBarCache(ctx, cache); err != nil {
 			return err
 		}
+	}
+	if optionsFailed > 0 {
+		// One line per rebuild that asked, so a read that never works is
+		// seen: the first version failed on every rebuild in silence.
+		s.infof("Canary Edge: %d of %d live option contracts asked gave no daily closes and are asked again in %s (first: %v)", optionsFailed, optionsAsked, edgeOptionRetryAfter, optionErr)
 	}
 	// Benchmarks are optional explanatory context. A failed context refresh
 	// never degrades or suppresses the broker-truth decision calculation; the
@@ -314,20 +354,57 @@ func edgeBarRefreshPlan(now time.Time, globalFullDue bool, series edgeBarSeries)
 	return edgeDailyLookbackDays, true
 }
 
-var errEdgeOptionCloseNotFetched = errors.New("option closes are read from statement marks; no broker request is made")
+// edgeFetchDueAfterFailure holds back an option whose last ask failed less
+// than edgeOptionRetryAfter ago. A stock is never held back: its failure
+// reads as backfilling and is retried by the rebuild that follows.
+func edgeFetchDueAfterFailure(now time.Time, spec edgeContractSpec, series edgeBarSeries) bool {
+	return !spec.Option || series.FailedAt.IsZero() || now.Sub(series.FailedAt) >= edgeOptionRetryAfter
+}
+
+// edgeBarCacheForScope returns the bar cache for scope. A cache of another
+// scope starts afresh, as it always did, with one exception: option series
+// are set aside under their own scope and brought back when that scope
+// returns. Stock and benchmark bars can be fetched again; an expired
+// option's cannot. A parked series is never handed to another scope's
+// analysis.
+func edgeBarCacheForScope(cache edgeBarCache, scope string) edgeBarCache {
+	if cache.ScopeFingerprint == scope {
+		return cache
+	}
+	out := edgeBarCache{Version: edgeBarCacheVersion, ScopeFingerprint: scope, Contracts: map[string]edgeBarSeries{}, MarketContext: map[string]edgeBarSeries{}, Parked: map[string]map[string]edgeBarSeries{}}
+	for parkedScope, series := range cache.Parked {
+		if parkedScope == scope {
+			maps.Copy(out.Contracts, series)
+			continue
+		}
+		out.Parked[parkedScope] = series
+	}
+	if cache.ScopeFingerprint != "" {
+		leaving := map[string]edgeBarSeries{}
+		for key, series := range cache.Contracts {
+			if series.Option {
+				leaving[key] = series
+			}
+		}
+		if len(leaving) > 0 {
+			out.Parked[cache.ScopeFingerprint] = leaving
+		}
+	}
+	if len(out.Parked) == 0 {
+		out.Parked = nil
+	}
+	return out
+}
 
 func (s *Server) fetchEdgeBars(ctx context.Context, spec edgeContractSpec, lookback int) ([]edgecore.DailyBar, error) {
-	if spec.Option {
-		// Not requested yet. The connector's daily-bar read is keyed by
-		// symbol: with none it refuses before sending (what this did on
-		// every rebuild until 2026-11-18, unseen, because the caller drops
-		// an option's error), and with the underlying's it settles on the
-		// stock's cached contract and would return the stock's closes as
-		// the option's. An exact-contract read is the missing piece; until
-		// it exists the statement marks are the only option closes.
-		return nil, errEdgeOptionCloseNotFetched
-	}
 	contract := ibkrlib.Contract{ConID: int(spec.ConID), Symbol: spec.Symbol, SecType: "STK", Exchange: "SMART", Currency: spec.Currency}
+	if spec.Option {
+		// The contract id is the option's whole identity. The symbol stays
+		// empty: the statement's is a display name, and the stock read is
+		// keyed by symbol, so with the underlying's it would settle on the
+		// stock's cached contract and return the stock's closes.
+		contract = ibkrlib.Contract{ConID: int(spec.ConID), SecType: "OPT", Exchange: "SMART", Currency: spec.Currency}
+	}
 	var (
 		raw []ibkrlib.HistoricalBar
 		err error
@@ -339,7 +416,11 @@ func (s *Server) fetchEdgeBars(ctx context.Context, spec edgeContractSpec, lookb
 		if connector == nil {
 			return nil, fmt.Errorf("gateway unavailable: %w", ibkrlib.ErrIBKRUnavailable)
 		}
-		raw, err = connector.FetchHistoricalDailyTradeBarsWithContract(ctx, contract, lookback, 0)
+		if spec.Option {
+			raw, err = connector.FetchOptionDailyTradeBars(ctx, contract, lookback, 0)
+		} else {
+			raw, err = connector.FetchHistoricalDailyTradeBarsWithContract(ctx, contract, lookback, 0)
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -393,7 +474,10 @@ func edgeContracts(statements []flexstmt.Statement, from, now time.Time) []edgeC
 			}
 		}
 	}
-	today := now.UTC().Format("2006-01-02")
+	// An option is listed through its expiry day in New York: its last
+	// bar forms at that day's close, which UTC's date leaves three hours
+	// later.
+	today := now.In(newYorkLocation()).Format("2006-01-02")
 	for _, statement := range statements {
 		for _, trade := range statement.Trades {
 			if trade.ConID == 0 || trade.ExecutedAt.Before(from) {
