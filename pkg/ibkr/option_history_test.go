@@ -7,8 +7,10 @@ import (
 	"time"
 )
 
-// An option's closes are read by its contract id alone, as hourly bars folded
-// to each New York day's last one. IBKR has no end-of-day bars for an option
+// An option's closes are read by its contract id alone, as hourly midpoint
+// bars folded to each New York day's last one. Hourly TRADES bars went
+// unanswered on thin contracts (live, 2026-11-19), so the request must ask
+// for MIDPOINT. IBKR has no end-of-day bars for an option
 // on its smart route (live, 2026-11-19: "No data of type EODChart is
 // available for the exchange 'BEST' and the security type 'Option'"), so the
 // request must not ask for "1 day". It carries the option's own id and
@@ -16,7 +18,7 @@ import (
 // and whatever the contract cache holds for the underlying: the symbol-keyed
 // daily read would settle on the stock's cached contract and return the
 // stock's closes as the option's.
-func TestOptionDailyTradeBarsAreRequestedByContractIDAlone(t *testing.T) {
+func TestOptionSessionClosesAreRequestedByContractIDAlone(t *testing.T) {
 	c, _, g := histTFixture(t)
 	c.contractMu.Lock()
 	c.contractCache["SYNX"] = ContractDetailsLite{Symbol: "SYNX", ConID: 4242, SecType: "STK", Exchange: "SMART", PrimaryExch: "NASDAQ", ValidExchanges: "SMART,NASDAQ"}
@@ -41,7 +43,7 @@ func TestOptionDailyTradeBarsAreRequestedByContractIDAlone(t *testing.T) {
 		c.handleHistoricalDataEnd([]string{strconv.Itoa(msgHistoricalDataEnd), fields[1], strconv.FormatInt(hours[0].at.Unix(), 10), strconv.FormatInt(hours[2].at.Unix(), 10), ""})
 	})
 
-	bars, err := c.FetchOptionDailyTradeBars(t.Context(), Contract{ConID: 700123, Symbol: "SYNX", SecType: "opt", Currency: "usd"}, 400, 2*time.Second)
+	bars, err := c.FetchOptionSessionCloses(t.Context(), Contract{ConID: 700123, Symbol: "SYNX", SecType: "opt", Currency: "usd"}, 400, 2*time.Second)
 	if err != nil {
 		t.Fatalf("option closes: %v", err)
 	}
@@ -53,7 +55,7 @@ func TestOptionDailyTradeBarsAreRequestedByContractIDAlone(t *testing.T) {
 		t.Fatalf("%d historical requests sent, want one", len(frames))
 	}
 	frame := frames[0]
-	for index, want := range map[int]string{2: "700123", 3: "", 4: "OPT", 9: "SMART", 10: "", 11: "USD", 16: "1 hour", 17: "30 D", 18: "1", 19: "TRADES", 20: "2"} {
+	for index, want := range map[int]string{2: "700123", 3: "", 4: "OPT", 9: "SMART", 10: "", 11: "USD", 16: "1 hour", 17: "30 D", 18: "1", 19: "MIDPOINT", 20: "2"} {
 		if len(frame) <= index || frame[index] != want {
 			t.Fatalf("request field %d = %q, want %q in %s", index, frame[index], want, strings.Join(frame, "|"))
 		}
@@ -67,14 +69,14 @@ func TestOptionDailyTradeBarsAreRequestedByContractIDAlone(t *testing.T) {
 }
 
 // Anything but an exact option contract is refused before a request is sent.
-func TestOptionDailyTradeBarsRefuseAnInexactContract(t *testing.T) {
+func TestOptionSessionClosesRefuseAnInexactContract(t *testing.T) {
 	c, _, g := histTFixture(t)
 	for name, contract := range map[string]Contract{
 		"no contract id": {Symbol: "SYNX", SecType: "OPT", Currency: "USD"},
 		"a stock":        {ConID: 4242, Symbol: "SYNX", SecType: "STK", Currency: "USD"},
 		"no type":        {ConID: 700123, Currency: "USD"},
 	} {
-		if _, err := c.FetchOptionDailyTradeBars(t.Context(), contract, 35, time.Second); err == nil {
+		if _, err := c.FetchOptionSessionCloses(t.Context(), contract, 35, time.Second); err == nil {
 			t.Fatalf("%s: accepted", name)
 		}
 	}

@@ -12,14 +12,21 @@ import (
 // sessions) for a contract read at least once in that month.
 const optionHistoryMaxDays = 30
 
-// FetchOptionDailyTradeBars reads one exact option contract's last regular-
-// session trade of each day. IBKR has no end-of-day bars for an option on
-// its smart route: a "1 day" request is answered "No data of type EODChart
-// is available for the exchange 'BEST' and the security type 'Option'"
-// (live, 2026-11-19, every contract asked). So the read asks for hourly
-// TRADES bars of regular hours and keeps each New York day's last one as
-// that day's bar. A session with no trade has no bar; nothing falls back to
-// midpoint data. IBKR serves these bars only while the contract is alive.
+// FetchOptionSessionCloses reads, for one exact option contract, the bid/ask
+// midpoint at the end of each regular session: hourly MIDPOINT bars of
+// regular hours, each New York day's last one kept as that day's bar.
+//
+// Why this shape (IBKR's historical-data limitations, and live answers on
+// 2026-11-19): end-of-day data is not offered for options, so a "1 day"
+// request is refused ("No data of type EODChart is available for the
+// exchange 'BEST' and the security type 'Option'"); intraday bars are, as
+// TRADES, MIDPOINT, BID, ASK or BID_ASK. Hourly TRADES bars went unanswered
+// for 45 seconds on each of three contracts: a thin contract has few prints
+// for the history service to find. A quote exists in every session of a live
+// contract, and a closing midpoint is the same kind of price as the
+// statement mark it stands beside. It is not a traded price, and callers
+// must not present it as one. IBKR serves these bars only while the contract
+// is alive.
 //
 // The contract id is the whole identity: the request carries no symbol, and
 // nothing on this path consults the symbol-keyed contract cache or resolves
@@ -28,7 +35,7 @@ const optionHistoryMaxDays = 30
 // registration and cancellation, and the request is registered under the
 // contract id, so a pacing backoff is kept per option and never against a
 // stock.
-func (c *Connector) FetchOptionDailyTradeBars(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
+func (c *Connector) FetchOptionSessionCloses(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -46,7 +53,7 @@ func (c *Connector) FetchOptionDailyTradeBars(ctx context.Context, contract Cont
 		timeout = 45 * time.Second
 	}
 	exact := Contract{ConID: contract.ConID, SecType: "OPT", Exchange: "SMART", Currency: contract.Currency}
-	hourly, err := c.fetchHistoricalWithContractOptions(ctx, fmt.Sprintf("OPT %d", contract.ConID), exact, lookbackDays, timeout, "TRADES",
+	hourly, err := c.fetchHistoricalWithContractOptions(ctx, fmt.Sprintf("OPT %d", contract.ConID), exact, lookbackDays, timeout, "MIDPOINT",
 		historicalRequestOptions{formatDate: 2, chartBarSize: "1 hour", strictDaily: true, waitForEnd: true, maxBars: ChartMaxBars})
 	if err != nil {
 		return nil, err

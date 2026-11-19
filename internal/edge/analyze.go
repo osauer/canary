@@ -623,7 +623,7 @@ func buildScoringIndex(input Input, mutations []mutation, ev evidence) scoringIn
 		index.contextBars[strings.ToUpper(strings.TrimSpace(symbol))] = normalizedBars(bars, input.AsOf)
 	}
 	// The broker's statement mark is the close of every option held that
-	// day, and it outranks a fetched last trade for the same day: it is the
+	// day, and it outranks a fetched closing midpoint for the same day: it is the
 	// broker's own valuation and what every option score rested on before
 	// closes were fetched, so none of those moves. A fetched close fills the
 	// days with no mark, which is every day after the contract left the

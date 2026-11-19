@@ -165,14 +165,15 @@ Exact shared-order grouping does not assert a strategy name. A mixed opening-and
 
 An option's close comes from the broker, never from a model. Two sources are
 used. The mark in the daily statement is the close of a contract held that
-day. For the days after a contract left the account, Canary reads the
-contract's last regular-session trade of each day from IBKR, for the last 30
-days, while the contract is still alive; the broker deletes that history at
-expiry. The read names the exact contract
+day. For the days after a contract left the account, Canary reads from IBKR
+the contract's bid/ask midpoint at the end of each regular session, for the
+last 30 days, while the contract is still alive; the broker deletes that
+history at expiry. A midpoint is a quote, not a traded price: IBKR offers no
+end-of-day prices for options, and a thinly traded contract has no trade on
+most days. The read names the exact contract
 and never the underlying's symbol. On a day that has both, the statement mark
-counts. A session without a trade has no fetched close, and a contract that
-had expired before Canary first read it has none at all, so such a horizon
-has no figure. The 1st, 5th and 20th sessions are counted on the days the
+counts. A contract that had expired before Canary first read it has no
+fetched close at all, so such a horizon has no figure. The 1st, 5th and 20th sessions are counted on the days the
 benchmarks and the account's other instruments have a close, and only a close
 on that exact session counts. With one, the option decision gets the same
 Decision price impact as a stock decision.

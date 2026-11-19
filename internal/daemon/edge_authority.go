@@ -384,9 +384,10 @@ func edgeFetchDueAfterFailure(now time.Time, spec edgeContractSpec, series edgeB
 }
 
 // edgeOptionReadVersion names the shape of the option read. 1 asked for
-// daily bars, which IBKR does not serve for an option; 2 asks for hourly
-// bars and keeps each day's last.
-const edgeOptionReadVersion = 2
+// daily bars, which IBKR does not serve for an option; 2 asked for hourly
+// TRADES bars, which went unanswered on thin contracts; 3 asks for hourly
+// MIDPOINT bars and keeps each day's last.
+const edgeOptionReadVersion = 3
 
 // edgeOptionBrokenAfter is how many option reads may fail in one rebuild,
 // with none answered, before the rest of the list is left unasked. On its
@@ -464,7 +465,7 @@ func (s *Server) fetchEdgeBars(ctx context.Context, spec edgeContractSpec, lookb
 			return nil, fmt.Errorf("gateway unavailable: %w", ibkrlib.ErrIBKRUnavailable)
 		}
 		if spec.Option {
-			raw, err = connector.FetchOptionDailyTradeBars(ctx, contract, lookback, 0)
+			raw, err = connector.FetchOptionSessionCloses(ctx, contract, lookback, 0)
 		} else {
 			raw, err = connector.FetchHistoricalDailyTradeBarsWithContract(ctx, contract, lookback, 0)
 		}
