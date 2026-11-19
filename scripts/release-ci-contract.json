@@ -27,6 +27,7 @@
       "file": "pages-deploy.yml",
       "name": "pages deploy",
       "jobs": [
+        "build main Pages artifact",
         "deploy main Pages artifact"
       ]
     }

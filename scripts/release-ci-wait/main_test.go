@@ -108,6 +108,66 @@ func TestWaitForSuccess(t *testing.T) {
 	assertEndpointCalls(t, api.callsSnapshot(), jobEndpoint(cfg, testRunID), 1)
 }
 
+// A re-run of the failed jobs repeats only those: on 2026-11-19 the Pages
+// deployment failed on GitHub's side and had to be run again before the
+// release could tag. Each job is judged by its latest attempt, so the build
+// job's first attempt and the deploy job's second are a complete job set.
+// A past re-run of the ci workflow listed every job again at the new
+// attempt; the other possible listing keeps the carried-over job at its
+// first attempt only. Both pass, and the failed first deploy attempt does
+// not count.
+func TestRerunOfOneJobCompletesTheJobSet(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig("build", "deploy")
+	run := validRun(cfg, 2, "completed", new("success"))
+	cases := map[string]struct {
+		jobs []workflowJob
+		want map[string]int
+	}{
+		"carried-over job listed at its first attempt": {
+			jobs: []workflowJob{
+				validJob(cfg, run, 1, 501, "build", "completed", new("success")),
+				validJob(cfg, run, 1, 502, "deploy", "completed", new("failure")),
+				validJob(cfg, run, 2, 503, "deploy", "completed", new("success")),
+			},
+			want: map[string]int{"build": 1, "deploy": 2},
+		},
+		"carried-over job copied to the new attempt": {
+			jobs: []workflowJob{
+				validJob(cfg, run, 1, 501, "build", "completed", new("success")),
+				validJob(cfg, run, 1, 502, "deploy", "completed", new("failure")),
+				validJob(cfg, run, 2, 503, "build", "completed", new("success")),
+				validJob(cfg, run, 2, 504, "deploy", "completed", new("success")),
+			},
+			want: map[string]int{"build": 2, "deploy": 2},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			api := newStaticAPI(cfg, []workflowRecord{validWorkflow(cfg)}, []workflowRun{run}, tc.jobs)
+			result, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard)
+			if err != nil {
+				t.Fatalf("waitForSuccess: %v", err)
+			}
+			if result.RunAttempt != 2 || !reflect.DeepEqual(result.JobAttempt, tc.want) {
+				t.Fatalf("attempt = %d, job attempts = %v, want 2 and %v", result.RunAttempt, result.JobAttempt, tc.want)
+			}
+		})
+	}
+	// A deploy whose latest attempt failed still blocks, whatever the
+	// build job did.
+	failed := []workflowJob{
+		validJob(cfg, run, 1, 501, "build", "completed", new("success")),
+		validJob(cfg, run, 1, 502, "deploy", "completed", new("success")),
+		validJob(cfg, run, 2, 503, "deploy", "completed", new("failure")),
+	}
+	api := newStaticAPI(cfg, []workflowRecord{validWorkflow(cfg)}, []workflowRun{run}, failed)
+	if _, err := waitForSuccess(context.Background(), cfg, api, newFakeClock(), io.Discard); err == nil {
+		t.Fatal("a failed latest deploy attempt passed the wait")
+	}
+}
+
 func TestExactJobSetRejectsMissingAndExtraNames(t *testing.T) {
 	t.Parallel()
 	cfg := testConfig("linux", "macOS")

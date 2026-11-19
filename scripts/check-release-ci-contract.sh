@@ -141,7 +141,7 @@ EXPECTED_WORKFLOWS = {
     },
     "pages-deploy.yml": {
         "name": "pages deploy",
-        "jobs": ("deploy main Pages artifact",),
+        "jobs": ("build main Pages artifact", "deploy main Pages artifact"),
     },
 }
 EXPECTED_V254_LEGACY_CONTRACT = {

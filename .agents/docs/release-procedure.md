@@ -1,4 +1,4 @@
-Updated: 2026-10-06
+Updated: 2026-11-19 21:16 CET
 
 # /release [vX.Y.Z] — supervised autonomous release
 
@@ -257,6 +257,12 @@ questions go to the user. Never weaken a gate to reach GO.
   workflows are rejected because their applicability depends on the candidate
   diff. The current GitHub ruleset has no required-status contexts, so this
   checked-in allowlist is the binding release authority.
+- If the hosted Pages deployment fails for a reason outside the tree (the
+  2026-11-19 fire stopped on GitHub not yet listing the uploaded artifact),
+  re-run its failed job: `gh run rerun <run-id> --failed`. `pages-deploy.yml`
+  builds and uploads in one job and deploys in a second, so the re-run
+  repeats only the deploy and reuses the uploaded artifact. Then remove the
+  kept release worktree and fire again from the top.
 - `release-main-candidate-check` then requires origin/main to equal the
   candidate. Publication pushes the annotated tag atomically with the same
   non-force `HEAD:main` ref, so another lane advancing main before the tag push
