@@ -100,7 +100,8 @@ func (c *Connector) subscribeSharedQuote(ctx context.Context, key string, fields
 		return err
 	}
 	if !adopted {
-		_ = conn.cancelMarketDataForEpoch(ctx, id, origin.epoch)
+		// No record names the new line: a cancel that fails stays owed.
+		_ = conn.releaseMarketDataLineForEpoch(ctx, id, origin.epoch)
 		return fmt.Errorf("quote subscription removed during request")
 	}
 	if mode == 4 {
@@ -237,7 +238,8 @@ func (c *Connector) replaceSharedQuote(ctx context.Context, origin ConnectorSess
 		return err
 	}
 	if !adopted {
-		_ = origin.connection.cancelMarketDataForEpoch(ctx, id, origin.epoch)
+		// No record names the new line: a cancel that fails stays owed.
+		_ = origin.connection.releaseMarketDataLineForEpoch(ctx, id, origin.epoch)
 		return fmt.Errorf("quote recovery owner retired")
 	}
 	c.display.notify()

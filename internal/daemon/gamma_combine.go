@@ -453,6 +453,11 @@ func gammaDigitsWithSuffix(value string, suffix byte, minDigits, maxDigits int) 
 	return gammaDigits(value[:len(value)-1], len(value)-1)
 }
 
+// gammaDelayedFallbackSubscribeBudget bounds the one subscribe that switches
+// an underlying to delayed data after IBKR 354. Engineering bound: the rate
+// limiter itself gives a send up after 30 seconds.
+const gammaDelayedFallbackSubscribeBudget = 30 * time.Second
+
 // runUnderlyingPhase wraps a (Hold underlying → computeGammaZeroFor →
 func runUnderlyingPhase(
 	bgCtx context.Context,
@@ -484,7 +489,17 @@ func runUnderlyingPhase(
 	// IBKR 354 kills the original reqID and the connector remembers that
 	// production fetcher accepts only delayed model tick 83 beside a delayed
 	// spot. No other cause and no off-hours failure takes this path.
-	releaseMode, fallbackErr := c.BeginDelayedMarketDataFallback(bgCtx, underlying)
+	// Mitigation, not the cause fix: the subscribe behind this call holds the
+	// connector's subscription lock while it waits for a market-data line
+	// and for its send, and the compute's own context has no deadline. With
+	// the pool full that wait kept the reader from every tick, order status
+	// included, until the heartbeat dropped the session. A bound here ends
+	// the wait; the returned mode lease does not keep the context. The
+	// cause, a lock held across a blocking request
+	// (ensureMarketDataSubscription), is still open.
+	fallbackCtx, cancelFallback := context.WithTimeout(bgCtx, gammaDelayedFallbackSubscribeBudget)
+	releaseMode, fallbackErr := c.BeginDelayedMarketDataFallback(fallbackCtx, underlying)
+	cancelFallback()
 	if fallbackErr != nil {
 		return nil, fmt.Errorf("zero-gamma: %s delayed fallback after IBKR 354 unavailable: %w", underlying, fallbackErr)
 	}

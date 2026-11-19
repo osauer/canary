@@ -7217,12 +7217,23 @@ func (c *Connection) settleMarketDataCancel(msg []byte, reqID int, epoch uint64)
 			if c.BrokerSessionEpoch() != epoch {
 				return
 			}
-			if err := c.sendMessageWithTypeContextForEpoch(ctx, msg, RequestTypeMarketDataCancel, epoch, true); err == nil {
+			// A 200 or 354 for the line may have released the slot
+			// meanwhile; then nothing is owed any more.
+			c.marketDataSlotsMu.Lock()
+			slot, held := c.marketDataSlots[reqID]
+			c.marketDataSlotsMu.Unlock()
+			if !held || slot.epoch != epoch || !slot.cancelOwed {
+				return
+			}
+			// Background lane: cancels that failed together must not queue
+			// ahead of an order when they are tried again.
+			if err := c.sendMessageWithTypeContextForEpoch(WithRequestPriority(ctx, PriorityBackground), msg, RequestTypeMarketDataCancel, epoch, true); err == nil {
 				c.releaseMarketDataSlotAtEpoch(reqID, epoch)
 				return
 			}
 			wait = min(2*wait, marketDataCancelRetryMax)
-			timer.Reset(wait)
+			// Up to a quarter more, so they do not all come due at once.
+			timer.Reset(wait + time.Duration(rand.Int63n(int64(wait/4)+1)))
 		}
 	}()
 }

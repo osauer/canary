@@ -2495,7 +2495,9 @@ func (c *Connector) recoverSharedMarketDataAfter10197(origin ConnectorSessionBin
 		return true
 	}
 	if requestErr == nil && newReqID != 0 {
-		_ = origin.connection.cancelMarketDataForEpoch(context.Background(), newReqID, origin.epoch)
+		// The replacement was not adopted, so no record names it: a cancel
+		// that fails here stays owed.
+		_ = origin.connection.releaseMarketDataLineForEpoch(context.Background(), newReqID, origin.epoch)
 	}
 	c.pushSubscriptionRejection(entry.oldReqID, 10197, message)
 	c.logWarn("Failed to replay market data for %s after IBKR 10197; leaving it unavailable", entry.key)
@@ -2567,8 +2569,9 @@ func (retired retiredMarketDataSubscription) run() {
 	if retired.cancel {
 		// Epoch-bound cancellation either writes on the originating socket or
 		// returns a definite stale refusal. It always releases only that epoch's
-		// slot, never a successor's reused reqID.
-		_ = retired.connection.cancelMarketDataForEpoch(context.Background(), retired.reqID, retired.epoch)
+		// slot, never a successor's reused reqID. The record is already
+		// dropped, so a cancel that fails stays owed.
+		_ = retired.connection.releaseMarketDataLineForEpoch(context.Background(), retired.reqID, retired.epoch)
 		return
 	}
 	retired.connection.releaseMarketDataSlotAtEpoch(retired.reqID, retired.epoch)
@@ -5016,7 +5019,9 @@ func (c *Connector) ensureMarketDataSubscription(ctx context.Context, symbol str
 		if resetObservations || (staleAfter > 0 && time.Since(sub.LastTime) >= staleAfter) {
 			if sub.ReqID != 0 {
 				if conn := c.conn; conn != nil && conn.IsConnected() && wireCancelNeeded(sub) {
-					if err := conn.CancelMarketData(sub.ReqID); err != nil {
+					// The id is forgotten just below and a new line requested,
+					// so a cancel that fails here stays owed.
+					if err := conn.releaseMarketDataLineForEpoch(context.Background(), sub.ReqID, conn.BrokerSessionEpoch()); err != nil {
 						marketDataLogger.Warnf("%s: Failed to cancel stale market data for %s (ReqID: %d): %v", c.name, symbol, sub.ReqID, err)
 					}
 				} else if conn != nil {

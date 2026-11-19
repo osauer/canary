@@ -505,6 +505,7 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 		slot.refresh = nil
 		slot.errStreak++
 		slot.lastFailAt = now
+		slot.noteAbandoned(now)
 		gammaLogf{inner: c.log}.Warnf("gamma compute: scope=%s refresh abandoned after %s without finishing, last progress %d%% (%s); retrying behind the backoff",
 			scope, now.Sub(stuck.startedAt).Round(time.Second), stuck.progress.Load(), gammaProgressStage(scope, stuck.progress.Load()))
 	}
@@ -555,6 +556,7 @@ func (c *gammaZeroCache) kickOrJoin(parent context.Context, scope string, now ti
 			stuck.cancel()
 			slot.errStreak++
 			slot.lastFailAt = now
+			slot.noteAbandoned(now)
 			gammaLogf{inner: c.log}.Warnf("gamma compute: scope=%s first compute abandoned after %s without finishing, last progress %d%% (%s); starting again",
 				scope, now.Sub(stuck.startedAt).Round(time.Second), stuck.progress.Load(), gammaProgressStage(scope, stuck.progress.Load()))
 			job = c.startLocked(parent, scope, key, now, etaSeconds, compute)
@@ -792,10 +794,13 @@ func (c *gammaZeroCache) noteJobOutcome(job *gammaComputation, cancelled bool) {
 	if slot == nil {
 		return
 	}
+	if cancelled {
+		// A cancelled job is no verdict either way: an abandoned compute
+		// that returns late with a result must not clear the backoff its
+		// abandon earned.
+		return
+	}
 	if job.err != nil {
-		if cancelled {
-			return
-		}
 		slot.errStreak++
 		slot.lastFailAt = job.startedAt
 		return
@@ -1003,6 +1008,14 @@ func (c *gammaZeroCache) finalizeReadyGammaSnapshot(scope string, env rpc.GammaZ
 	refreshGammaSummaries(result)
 	env.Result = result
 	return env
+}
+
+var errGammaComputeAbandoned = fmt.Errorf("compute abandoned after its time budget without finishing")
+
+// noteAbandoned records an abandoned compute as the slot's last failure, so
+// the served value says its refresh failed (refreshFailureWarning).
+func (s *gammaSlot) noteAbandoned(now time.Time) {
+	s.lastErr, s.lastErrAt, s.lastErrSummary, s.lastErrResult = errGammaComputeAbandoned, now, summarizeGammaErr(errGammaComputeAbandoned), nil
 }
 
 func (s *gammaSlot) rememberError(job *gammaComputation) {

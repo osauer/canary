@@ -135,6 +135,53 @@ func TestGammaStuckFirstComputeIsAbandonedAndReplaced(t *testing.T) {
 	}
 }
 
+// After an abandon the reader is told the refresh failed, and the abandoned
+// job returning late with a result does not clear the retry backoff: it was
+// cancelled, and its result is not published.
+func TestGammaAbandonedRefreshIsReportedAndItsLateReturnKeepsTheBackoff(t *testing.T) {
+	r := newGammaRolloverRun(t, "2026-09-23 16:05", "2026-09-24 07:00")
+	hang := make(chan struct{})
+	var calls atomic.Int32
+	started := make(chan struct{}, 4)
+	late := gammaRolloverResult(gammaRolloverNY(t, "2026-09-24 09:40"))
+	compute := func(ctx context.Context, p *atomic.Int32) (*rpc.GammaZeroComputed, error) {
+		n := calls.Add(1)
+		started <- struct{}{}
+		if n == 1 {
+			<-hang // ignores ctx
+			return late, nil
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	kick := func(at time.Time) { r.cache.kickOrJoin(t.Context(), rpc.GammaZeroScopeCombined, at, 1, compute) }
+	open := gammaRolloverNY(t, "2026-09-24 09:31")
+	kick(open)
+	stuck := r.refreshJob()
+	<-started
+	over := open.Add(gammaComputeBudget + time.Minute)
+	kick(over)
+	if r.refreshJob() == stuck {
+		t.Fatal("the stuck refresh was not abandoned")
+	}
+	if warning := r.cache.refreshFailureWarning(rpc.GammaZeroScopeCombined, nil); !strings.HasPrefix(warning, "refresh_failed:") {
+		t.Fatalf("the reader is not told the refresh was abandoned: %q", warning)
+	}
+
+	close(hang)
+	awaitGammaJob(t, stuck)
+	r.cache.mu.Lock()
+	streak := r.cache.slots[rpc.GammaZeroScopeCombined].errStreak
+	r.cache.mu.Unlock()
+	if streak == 0 {
+		t.Fatal("the abandoned job's late return cleared the retry backoff")
+	}
+	kick(over.Add(10 * time.Second))
+	if calls.Load() != 1 {
+		t.Fatalf("a new refresh started inside the backoff after the late return (compute calls = %d)", calls.Load())
+	}
+}
+
 type gammaCaptureLog struct {
 	mu    sync.Mutex
 	lines []string
