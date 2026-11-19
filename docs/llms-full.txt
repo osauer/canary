@@ -1,6 +1,39 @@
 # Canary full context
 
-Updated: 2026-11-17 21:37 CET
+Updated: 2026-11-19 20:26 CET
+
+Version 3.40 extends Edge to options. An option decision gets the same 1, 5
+and 20-session score as a stock decision: from IBKR's daily statement value
+while the contract is held and, once it has left the account, from the
+contract's closing bid/ask midpoint, read from IBKR while the contract is
+alive. No price is estimated. Each option score's `close_source` says which:
+`statement_mark` or `closing_quote`. A stock or ETF decision carries a verdict
+(helped, hurt, no_difference, or none with a reason) from the 5-session score
+after costs and from nothing else; `verdicts.counts` counts them. An option
+decision carries no verdict: each completed option position in
+`options.cycles` has one `grade`, made_money, lost_money or flat, by the sign
+of the result IBKR booked for the whole position, and none after an exercise
+or assignment or when that result is incomplete. An expiry is how a position
+closed, not a decision. Each option decision instead carries `position`, a
+fact and not a grade: a trade that opened or added to the position is compared
+with the average price its contracts were closed at (contracts still held at
+the latest statement value), a trade that reduced or closed it with the
+average entry price. `verdicts.recent` lists the 20 newest decisions; `canary
+edge` prints the ten newest. A later trade in the same stock or ETF no longer
+removes a score, so Edge totals from earlier versions are not comparable. The
+Regime stage vote gives each of its eight rows a role: the VIX term structure,
+VVIX, the funding spread and cash credit spreads are stress witnesses and
+start a warning; the ETF credit proxy, USD/JPY, dealer gamma and breadth are
+co-signs and count only beside a confirmed red witness. Panic needs a fall in
+SPY, VVIX turns red at 120, an unreadable witness beside a yellow or red
+co-sign reads early warning, and a volatility row, funding and cash credit
+spreads all confirmed red send the stress alert on a flat market. The trading
+rulebook applies its calm limits on the days Regime now reads quiet. A market
+data line request ends with its broker session, a failed line cancel is sent
+again, and a gamma compute stuck past 30 minutes is abandoned, so one stuck
+recompute no longer blocks the next. An unfilled forced reduction keeps its
+limit while pre-authorised orders are paused, while the risk-budget overrun
+behind it cannot be confirmed, and after its limit was changed through Canary.
 
 Version 3.39 fixes a deadlock in the broker connection. After a burst of
 order messages the daemon could stop reading the broker and never reconnect;
@@ -342,7 +375,7 @@ Run the server with `canary mcp`. It exposes these read-only tools:
 - `canary_lending_screen`: broader borrowing-fee discovery with filters before the result limit, source dates and coverage.
 - `canary_lending_market`: bounded cached price and liquidity context; partial or unavailable fields retain their source clocks.
 - `canary_short_interest_screen`: FINRA reported short shares and days to cover, with twice-monthly settlement dates; no percentage of free float.
-- `canary_edge`: retrospective decision impact for stocks, ETFs and options, a verdict per decision, and separate option actuals.
+- `canary_edge`: retrospective decision impact for stocks, ETFs and options, a verdict on each stock and ETF decision, one grade per closed option position, and separate option actuals.
 - `canary_rules`: ranked rulebook findings, explicit unknown inputs, and the limits in force with their source.
 - `canary_policy_check` (since v3.18.0): plausibility check of config.toml and the policy files against each other and the live book; each finding has a severity, the keys involved, a reason and, where one applies, a suggested fix. Read-only; it never changes a limit.
 - `canary_proposals`: read-only close/reduce protection candidates.

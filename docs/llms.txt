@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-17 21:37 CET. Current release: v3.39.0.
+Updated: 2026-11-19 20:26 CET. Current release: v3.40.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -14,6 +14,20 @@ exist in Traditional Chinese (https://osauer.dev/canary/zh-hant/ and
 https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
 (https://osauer.dev/canary/zh-hans/ and https://osauer.dev/canary/docs/zh-hans/);
 English is the master.
+
+Version 3.40 extends Edge, the review of past trades, to options. An option
+decision is scored from the broker's daily statement value while the contract
+is held and from its closing bid/ask midpoint, read from the broker,
+afterwards. A stock or ETF decision carries a verdict from its 5-session score
+after costs: helped, hurt or no difference. An option decision carries none
+and is compared with its own position instead: each closed option position
+gets one grade, made money, lost money or flat, from the result the broker
+booked, and none after an exercise or assignment. Edge totals from earlier
+versions are not comparable, because a later trade no longer removes a
+decision's score. Regime warns on far fewer days: of its eight rows only the
+four stress witnesses (VIX term structure, VVIX, funding, cash credit spreads)
+start a warning, the other four count beside one of them, and VVIX turns red
+at 120. A stuck dealer-gamma recompute no longer blocks the next ones.
 
 Version 3.39 fixes a deadlock that left the daemon silent after a burst of
 order messages, and bounds its shutdown so a restart always takes over. A

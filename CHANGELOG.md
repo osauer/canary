@@ -2,6 +2,64 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.40.0 — 2026-11-19 20:26 CET
+
+### What's new
+
+**Edge now scores option decisions: a closed option position gets one grade, and a stock or ETF decision gets a verdict.** Edge is Canary's review of your past trades. For each buy or sale it asks what the changed quantity was worth 1, 5 and 20 trading sessions later, compared with having left the position alone. Each of the three numbers is a score for the decision. Until now only stock and ETF decisions had scores; for an option, Edge showed the profit or loss IBKR booked and nothing about the decision.
+
+An option decision is now scored the same way. While you hold a contract, the price at each of the three sessions is the closing value IBKR's daily statement gives it that day. Once a contract has left your account the statement no longer lists it, so Canary reads its closing bid/ask midpoint from IBKR: about six months back the first time, and after every US close from then on. A midpoint is a quote, not a traded price. IBKR's price history has no daily bars for options, and a thinly traded contract has no trade on most days. Where a day has both a statement value and a midpoint, the statement value counts. No option price is estimated, and each score says which of the two it rests on. IBKR deletes an option's price history when it expires, so a contract that had already expired when you first ran this version has no score after its last day in the account.
+
+A stock or ETF decision now carries a verdict: helped, hurt or no difference, with the money behind it. The verdict uses the 5-session score after costs and nothing else. A decision with no 5-session score, one less than five sessions old included, has no verdict and says why. A price move within the decision's own costs, in either direction, is no difference.
+
+An option decision gets no verdict of its own. For an option, what counts is whether the whole position made money, from the first contract bought or written until none is left. Once a position is closed it gets one grade, made money, lost money or flat, from the sign of the result IBKR booked for all of its trades, costs included. An expiry is how a position ended, not a decision: it has no line of its own, and the position's result includes it. A position that ended by exercise or assignment has no grade, because IBKR books only the option's side of it, and a position still open has none yet.
+
+Each option decision states a fact instead. A trade that opened or added to the position is compared with the average price its contracts were closed at; contracts still held count at the latest statement value. A trade that reduced or closed it is compared with the position's average entry price. `canary edge` prints this as a sentence, for example "sold 14.0% below the position's average cost". What a contract's price did after you sold it is a score and never a grade: judged by that price, selling a position at a profit would read as a mistake whenever the contract rose afterwards.
+
+`canary edge` prints the verdict counts for stocks and ETFs, how many closed option positions made money, and the ten newest decisions. The MCP tool `canary_edge` returns the counts and the 20 newest.
+
+**Edge totals from v3.39.0 and earlier cannot be compared with the new ones.** Edge used to drop a decision's score if you traded the same stock or ETF again before the session the score is taken on. Whether you trade again depends on how the decision is going, so the old totals left out a skewed set of decisions. A later trade no longer removes a score; a transfer, a corporate action, or an option exercise, assignment or expiry reported without a trade still does. Your stock totals moved for that reason alone. Option decisions now also count in the coverage percentage, the table of decisions by action, the findings and the headline. Nothing in your account changed.
+
+**What Edge still does not tell you.** A contract that left your account more than about six months before the first read has no score for its earliest sessions. A position whose booked result is incomplete has no grade. The trades of a position that ended by exercise or assignment, or whose opening is not in the statement history, have no price comparison. An exercise or assignment is still listed as a decision; an expiry is not. Verdict money is per decision and is never added up. The app's Edge tab shows the new totals but not the verdicts or grades, which are in `canary edge` and `canary_edge`. And Edge reviews price outcomes only: it does not measure skill, and it takes no part in any order.
+
+**Regime warns on far fewer days.** Regime reads eight market measures, one per row, and each row is green, yellow or red. From the rows it votes a stage; the ones this change touches are quiet, early warning, confirmed stress and panic. One row caused most warnings. The ETF credit proxy compares the high-yield bond fund HYG with SPY, and any red row opened an early warning. Replayed over 1,003 trading sessions to 2026-11-17, that row was red on 30% of them and the old vote read early warning on 40% and quiet on 47%.
+
+Rows now have one of two roles. Four are stress witnesses: the VIX term structure, VVIX, the funding spread and cash credit spreads. A red witness starts a warning. The other four are co-signs: the ETF credit proxy, USD/JPY, dealer gamma and breadth. A red co-sign counts only while a witness is red and confirmed at the same time; alone it is shown as context. A red row is confirmed when its reading is current and has been deep and lasting enough to count. Panic now needs SPY down 4% or more on the day beside a confirmed red, or 7% by itself. Three confirmed reds on a flat market read confirmed stress. Over the same 1,003 sessions the new vote reads early warning on 13% and quiet on 78%.
+
+Three rules keep the quieter vote from missing things. If a witness row cannot be read while a co-sign is yellow or red, the stage is early warning, never quiet. Cash credit spreads that widened by 0.50 percentage points or more over the last 20 readings open an early warning by themselves. And when one of the two volatility rows (VIX term structure or VVIX), funding and cash credit spreads are all confirmed red, Canary sends its stress alert to your paired phone even if SPY has not moved.
+
+**If you use the trading rulebook, its regime-dependent limits are looser on more days.** The rulebook holds three sets of limits for the option premium budget, the size of index protection and net market exposure: calm, early warning and confirmed. Regime picks the set, and it now picks calm more often: in the replay the early-warning set or a stricter one applied on 21% of sessions, down from 53%. The limits in each set are unchanged. To keep the tighter limits on quiet days, write the `regime_early_warning` values into `regime_calm` in your rulebook policy.
+
+**A stuck dealer-gamma recompute no longer blocks the next ones.** Dealer gamma is the Regime row that says whether option dealers' hedging steadies or amplifies market moves, and it is recomputed through the US session. After the daemon reconnected to the broker, that recompute could wait without end and block every later one, so the row stayed hours old until the daemon was restarted. A waiting request now ends with its broker session, and a compute that has not finished in 30 minutes is abandoned and started again. If the row still goes hours old after a reconnect, restart the daemon.
+
+### Added
+
+- `canary edge` and the MCP tool `canary_edge`: a `verdict` on each stock and ETF decision, `none` with a reason where it has no 5-session score. `verdicts.counts` counts them by asset class and `verdicts.recent` lists the 20 newest decisions of every kind.
+- `canary_edge`: `grade` on each completed option position in `options.cycles`, `none` with `grade_reason` where it has no grade, with counts in `made_money`, `lost_money`, `flat` and `ungraded`.
+- `canary_edge`: `position` on each option decision, the comparison with its own position, and `options.decisions`, the same comparisons counted by action.
+- `canary_edge`: `close_source` on each score says what its closing price is: `daily_bar`, `statement_mark` or `closing_quote`.
+- `canary regime`: `row_standings` says for each red row whether it counts, waits on its own confirmation, or is context. Each indicator carries `role`, `red` and `note`.
+- The stress read serves `market.warning_openers`, `market.unconfirmed_signals` and `market.context_note`: what opened a market warning and what is only context.
+
+### Changed
+
+- The VVIX row turns red at 120 and leaves red below 115. It was 110 and 105.
+- A red co-sign row with no red witness beside it no longer opens a warning. Before, any red row did.
+- For such a row `canary regime` prints AMBER with "Context, not a stress reading on its own" where it printed RED. The headline reads "Normal regime" where it read "Watch: one unconfirmed stress signal", and the stress read no longer reports an early warning for it.
+- Panic is entered only on a fall in SPY. Before, three confirmed reds on a flat market read panic; they now read confirmed stress.
+- The trading rulebook applies its calm limits on days Regime now reads quiet. Before, its early-warning limits applied on those days.
+- The Edge coverage line reads "eligible changes" where it read "eligible stock/ETF changes", and the no-trades headline no longer says "stock or ETF". Options are in the count.
+- In Edge, the reason `intervening_change` now means a transfer, or an option exercise, assignment or expiry reported without a trade, before the scored session. Before, it also meant a later trade.
+- For programs that read the JSON: `lifecycle.fingerprint` is `lifecycle-fp-v3`, `lifecycle.confirmed_by` can name `tape`, `lifecycle.suppressed` lists co-sign reds in every stage, and the VVIX threshold set is `vvix_daily_v3`. A co-sign row's `band` stays `red` when it is only context; read `red` or `row_standings` to tell the two apart.
+- Go module: `rpc.RegimeClusterBands.ProvisionalRedCount` is removed. `rpc.RegimeWarningOpeners` and `rpc.RegimeRowStandings` serve what it counted.
+
+### Fixed
+
+- Dealer gamma could stay hours old in the US session until the daemon was restarted.
+- A market data line whose cancel did not reach the broker stayed open, and counted against the account's lines, until the next reconnect.
+- A first gamma compute with no earlier value to show could read "computing" until a restart or the next session.
+- An unfilled forced reduction could have its limit moved toward the bid when it should have kept it. The defect arrived with v3.39.0 and applies only with `[mandate.reduction] unfilled_steps` written. A forced reduction is a sale Canary places itself, under your standing authorisation, when the book is over its risk budget. Three cases are closed: a part of `config.toml` that could not be read had paused such automatic orders; the daemon had restarted, or its refresh of proposals was failing, so the risk-budget overrun behind the order could no longer be confirmed; you had changed the order's limit yourself through Canary. In each case the move only lowered the limit of one sale already working, never below the worst price it was placed under, and at most `unfilled_steps` times; a trading freeze or a withdrawn authorisation still stopped it. No new order could be placed this way, and nothing else on the order path changed. Canary cannot see a limit you change in TWS itself and may still move it; change it through Canary to keep your price.
+
 ## v3.39.0 — 2026-11-17 21:38 CET
 
 ### What's new
