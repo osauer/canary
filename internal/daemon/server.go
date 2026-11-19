@@ -560,11 +560,14 @@ type Server struct {
 	// edgeWake drives the single-worker, read-only Edge rebuild queue. Reads
 	// never write this channel; only startup, new statement evidence, and a
 	// successful gateway connection may schedule background work.
-	edgeWake              chan struct{}
-	edgeWorkerWG          sync.WaitGroup
-	edgeBusy              atomic.Bool
-	edgeHealth            edgePublicationHealthCache
-	edgeFetchBarsFn       func(context.Context, ibkrlib.Contract, int) ([]ibkrlib.HistoricalBar, error)
+	edgeWake        chan struct{}
+	edgeWorkerWG    sync.WaitGroup
+	edgeBusy        atomic.Bool
+	edgeHealth      edgePublicationHealthCache
+	edgeFetchBarsFn func(context.Context, ibkrlib.Contract, int) ([]ibkrlib.HistoricalBar, error)
+	// edgeOptionReadWarned is the reason of the last warning that the
+	// option close read looks broken, so the same reason warns once.
+	edgeOptionReadWarned  atomic.Pointer[string]
 	edgeFetchMarketBarsFn func(context.Context, string, int) ([]ibkrlib.HistoricalBar, error)
 	edgeFlexFetchRangeFn  func(context.Context, time.Time, time.Time) (flexFetchOutcome, error)
 	edgeScheduleRebuildFn func(time.Duration)

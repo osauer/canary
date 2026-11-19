@@ -96,6 +96,9 @@ type edgeBarSeries struct {
 	FailedAt   time.Time `json:"failed_at,omitzero"`
 	FailReason string    `json:"fail_reason,omitempty"`
 	FailedRead int       `json:"failed_read,omitempty"`
+	// Read is the edgeOptionReadVersion an option's bars were last read
+	// with; a series read with an older one is read in full once more.
+	Read int `json:"read,omitempty"`
 }
 
 type edgeContractSpec struct {
@@ -136,12 +139,19 @@ func (s *Server) startEdgeWorker(ctx context.Context) {
 			// The scorecard reads the same statements; it scores after Edge
 			// has seen the new evidence.
 			s.kickScorecardRebuild()
+			// A live option's close is read after each US close: the
+			// broker deletes the series at expiry, so the expiry-day
+			// close has one evening to be read in.
+			afterClose := time.NewTimer(time.Until(edgeNextOptionCloseRead(s.edgeNow())))
 			select {
 			case <-ctx.Done():
+				afterClose.Stop()
 				return
 			case <-ticker.C:
 			case <-wake:
+			case <-afterClose.C:
 			}
+			afterClose.Stop()
 		}
 	}()
 }
@@ -232,6 +242,9 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 		key := strconv.FormatInt(spec.ConID, 10)
 		series := cache.Contracts[key]
 		lookback, fetch := edgeBarRefreshPlan(now, full, series)
+		if spec.Option {
+			lookback, fetch = edgeOptionRefreshPlan(now, lookback, fetch, series)
+		}
 		if !fetch || !edgeFetchDueAfterFailure(now, spec, series) {
 			continue
 		}
@@ -271,8 +284,12 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 			}
 			continue
 		}
+		read := 0
+		if spec.Option {
+			read = edgeOptionReadVersion
+		}
 		series = edgeBarSeries{
-			ConID: spec.ConID, Symbol: spec.Symbol, Currency: spec.Currency, Option: spec.Option,
+			ConID: spec.ConID, Symbol: spec.Symbol, Currency: spec.Currency, Option: spec.Option, Read: read,
 			FetchedAt: now, FullRevalidatedAt: series.FullRevalidatedAt,
 			Bars: mergeEdgeBars(series.Bars, bars),
 		}
@@ -285,18 +302,28 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 		}
 	}
 	if optionsAsked > 0 {
-		// One line per rebuild that asked, success included, so a read
-		// that never works, or one that never runs, is seen: the first
-		// version failed on every rebuild in silence, and a silent success
-		// could not be told from nothing having been asked.
-		line := fmt.Sprintf("Canary Edge: asked for the daily closes of %d live option contracts, %d answered", optionsAsked, optionsAsked-optionsFailed)
+		// The daemon logs at warn by default, so an INFO line is seen by
+		// nobody: the first two versions of this summary were INFO and never
+		// reached the log. A read that looks broken (the first asks all
+		// failed, none answered) warns, once per distinct reason; every
+		// failure's reason is also kept on its series. A rebuild in which
+		// contracts answered is routine and stays at info.
+		line := fmt.Sprintf("Canary Edge: asked IBKR for the closes of %d live option contracts, %d answered", optionsAsked, optionsAsked-optionsFailed)
 		if optionsFailed > 0 {
-			line += fmt.Sprintf("; the rest are asked again in %s (first: %v)", edgeOptionRetryAfter, optionErr)
+			line += fmt.Sprintf("; first failure: %s", edgeFailReason(optionErr))
 		}
 		if optionsSkipped > 0 {
 			line += fmt.Sprintf("; %d more were not asked because the first %d all failed", optionsSkipped, edgeOptionBrokenAfter)
 		}
-		s.infof("%s", line)
+		reason := ""
+		if edgeOptionReadLooksBroken(optionsFailed, optionsAsked-optionsFailed) {
+			reason = edgeFailReason(optionErr)
+		}
+		if previous := s.edgeOptionReadWarned.Swap(&reason); reason != "" && (previous == nil || *previous != reason) {
+			s.warnf("%s", line)
+		} else {
+			s.infof("%s", line)
+		}
 	}
 	// Benchmarks are optional explanatory context. A failed context refresh
 	// never degrades or suppresses the broker-truth decision calculation; the
@@ -376,6 +403,35 @@ func edgeBarRefreshPlan(now time.Time, globalFullDue bool, series edgeBarSeries)
 	return edgeDailyLookbackDays, true
 }
 
+// edgeOptionCloseReadAt is when a US session's last hourly bar is taken to be
+// readable, in New York time: twenty minutes after the 16:00 close.
+// Engineering allowance.
+const edgeOptionCloseReadHour, edgeOptionCloseReadMinute = 16, 20
+
+// edgeLastOptionCloseRead is the latest such instant at or before now, and
+// edgeNextOptionCloseRead the first after it. Weekends and holidays are not
+// skipped: a read on such an evening costs one request per live contract and
+// returns what is already stored.
+func edgeLastOptionCloseRead(now time.Time) time.Time {
+	local := now.In(newYorkLocation())
+	at := time.Date(local.Year(), local.Month(), local.Day(), edgeOptionCloseReadHour, edgeOptionCloseReadMinute, 0, 0, local.Location())
+	if at.After(local) {
+		at = at.AddDate(0, 0, -1)
+	}
+	return at
+}
+
+func edgeNextOptionCloseRead(now time.Time) time.Time {
+	return edgeLastOptionCloseRead(now).AddDate(0, 0, 1)
+}
+
+// edgeOptionCloseDue reports an option series last read before the latest US
+// close: that session's close is not in it yet. The 18-hour refresh alone
+// let a contract's last sessions pass unread before it expired.
+func edgeOptionCloseDue(now time.Time, series edgeBarSeries) bool {
+	return !series.FetchedAt.IsZero() && series.FetchedAt.Before(edgeLastOptionCloseRead(now))
+}
+
 // edgeFetchDueAfterFailure holds back an option whose last ask failed less
 // than edgeOptionRetryAfter ago. A stock is never held back: its failure
 // reads as backfilling and is retried by the rebuild that follows.
@@ -385,9 +441,31 @@ func edgeFetchDueAfterFailure(now time.Time, spec edgeContractSpec, series edgeB
 
 // edgeOptionReadVersion names the shape of the option read. 1 asked for
 // daily bars, which IBKR does not serve for an option; 2 asked for hourly
-// TRADES bars, which went unanswered on thin contracts; 3 asks for hourly
-// MIDPOINT bars and keeps each day's last.
-const edgeOptionReadVersion = 3
+// TRADES bars, which went unanswered on thin contracts; 3 asked for hourly
+// MIDPOINT bars and kept each day's last, 30 sessions back; 4 reads a full
+// look back in steps, about six months.
+const edgeOptionReadVersion = 4
+
+// edgeOptionRefreshSessions is a routine option refresh: one request.
+const edgeOptionRefreshSessions = 30
+
+// edgeOptionRefreshPlan adjusts the stock refresh plan for an option series.
+// One read with an older request shape is repeated in full, so a contract
+// still alive gets the sessions the older read could not reach. A series
+// last read before the latest US close is read again. A routine refresh
+// asks for one request's worth.
+func edgeOptionRefreshPlan(now time.Time, lookback int, fetch bool, series edgeBarSeries) (int, bool) {
+	if !series.FetchedAt.IsZero() && series.Read != edgeOptionReadVersion {
+		return edgeFullLookbackDays, true
+	}
+	if !fetch && edgeOptionCloseDue(now, series) {
+		fetch = true
+	}
+	if fetch && lookback != edgeFullLookbackDays {
+		lookback = edgeOptionRefreshSessions
+	}
+	return lookback, fetch
+}
 
 // edgeOptionBrokenAfter is how many option reads may fail in one rebuild,
 // with none answered, before the rest of the list is left unasked. On its

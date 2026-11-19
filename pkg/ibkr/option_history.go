@@ -7,10 +7,16 @@ import (
 	"time"
 )
 
-// optionHistoryMaxDays is the span of one option read. IBKR serves hourly
-// bars a month at a time, which covers every horizon Edge scores (20
-// sessions) for a contract read at least once in that month.
-const optionHistoryMaxDays = 30
+// IBKR serves hourly bars a month at a time: one request returns 30
+// sessions (live, 2026-11-19). A longer look back is read in steps of that
+// size, each ending where the one before began, four at most (about six
+// months), newest first. Six calendar weeks hold 30 sessions with room for
+// holidays, and the overlap is folded away by day.
+const (
+	optionHistoryStepSessions = 30
+	optionHistoryMaxSteps     = 4
+	optionHistoryStepBack     = 42 * 24 * time.Hour
+)
 
 // FetchOptionSessionCloses reads, for one exact option contract, the bid/ask
 // midpoint at the end of each regular session: hourly MIDPOINT bars of
@@ -46,17 +52,40 @@ func (c *Connector) FetchOptionSessionCloses(ctx context.Context, contract Contr
 	if !c.IsReady() {
 		return nil, fmt.Errorf("IBKR connection not ready: %w", ErrIBKRUnavailable)
 	}
-	if lookbackDays <= 0 || lookbackDays > optionHistoryMaxDays {
-		lookbackDays = optionHistoryMaxDays
+	if lookbackDays <= 0 {
+		lookbackDays = optionHistoryStepSessions
 	}
+	steps := min((lookbackDays+optionHistoryStepSessions-1)/optionHistoryStepSessions, optionHistoryMaxSteps)
 	if timeout <= 0 {
 		timeout = 45 * time.Second
 	}
 	exact := Contract{ConID: contract.ConID, SecType: "OPT", Exchange: "SMART", Currency: contract.Currency}
-	hourly, err := c.fetchHistoricalWithContractOptions(ctx, fmt.Sprintf("OPT %d", contract.ConID), exact, lookbackDays, timeout, "MIDPOINT",
-		historicalRequestOptions{formatDate: 2, chartBarSize: "1 hour", strictDaily: true, waitForEnd: true, maxBars: ChartMaxBars})
-	if err != nil {
-		return nil, err
+	label := fmt.Sprintf("OPT %d", contract.ConID)
+	var hourly []HistoricalBar
+	end := time.Time{}
+	for step := range steps {
+		options := historicalRequestOptions{formatDate: 2, chartBarSize: "1 hour", strictDaily: true, waitForEnd: true, maxBars: ChartMaxBars}
+		if step > 0 {
+			options.endDateTime = end.UTC().Format("20060102-15:04:05")
+		}
+		bars, err := c.fetchHistoricalWithContractOptions(ctx, label, exact, min(lookbackDays, optionHistoryStepSessions), timeout, "MIDPOINT", options)
+		if err != nil {
+			if step == 0 {
+				return nil, err
+			}
+			// An older step that fails ends the look back: the contract
+			// was not listed yet, or the broker has nothing that far
+			// back. What the newer steps returned stands.
+			break
+		}
+		if len(bars) == 0 {
+			break
+		}
+		hourly = append(hourly, bars...)
+		if step == 0 {
+			end = time.Now()
+		}
+		end = end.Add(-optionHistoryStepBack)
 	}
 	return lastBarOfEachNewYorkDay(hourly), nil
 }

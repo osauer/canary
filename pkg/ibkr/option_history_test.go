@@ -50,9 +50,19 @@ func TestOptionSessionClosesAreRequestedByContractIDAlone(t *testing.T) {
 	if len(bars) != 2 || bars[0].Date != "20260928" || bars[0].Close != 2.4 || bars[1].Date != "20260929" || bars[1].Close != 2.15 {
 		t.Fatalf("bars = %+v, want each day's last hourly close", bars)
 	}
+	// A look back of 400 sessions is read in four steps of 30, newest
+	// first; each older step ends where the newer one began.
 	frames := g.framesByID(reqHistoricalData)
-	if len(frames) != 1 {
-		t.Fatalf("%d historical requests sent, want one", len(frames))
+	if len(frames) != 4 {
+		t.Fatalf("%d historical requests sent, want four steps", len(frames))
+	}
+	if frames[0][15] != "" {
+		t.Fatalf("the newest step names an end %q, want now", frames[0][15])
+	}
+	for i := 1; i < len(frames); i++ {
+		if frames[i][15] == "" || frames[i][17] != "30 D" || (i > 1 && frames[i][15] >= frames[i-1][15]) {
+			t.Fatalf("step %d ends at %q after %q with duration %q", i, frames[i][15], frames[i-1][15], frames[i][17])
+		}
 	}
 	frame := frames[0]
 	for index, want := range map[int]string{2: "700123", 3: "", 4: "OPT", 9: "SMART", 10: "", 11: "USD", 16: "1 hour", 17: "30 D", 18: "1", 19: "MIDPOINT", 20: "2"} {
@@ -82,5 +92,40 @@ func TestOptionSessionClosesRefuseAnInexactContract(t *testing.T) {
 	}
 	if sent := len(g.framesByID(reqHistoricalData)); sent != 0 {
 		t.Fatalf("%d historical requests sent for refused contracts", sent)
+	}
+}
+
+// A routine refresh of 30 sessions is one request, and an older step with
+// nothing to return ends the look back without failing the read.
+func TestOptionSessionClosesStopWhereTheHistoryEnds(t *testing.T) {
+	c, _, g := histTFixture(t)
+	at := time.Date(2026, 9, 29, 19, 0, 0, 0, time.UTC)
+	answered := 0
+	g.script(func(fields []string) {
+		if fields[0] != strconv.Itoa(reqHistoricalData) {
+			return
+		}
+		answered++
+		frame := []string{strconv.Itoa(msgHistoricalData), fields[1], "0"}
+		if answered == 1 {
+			frame = []string{strconv.Itoa(msgHistoricalData), fields[1], "1", strconv.FormatInt(at.Unix(), 10), "2.1", "2.1", "2.1", "2.1", "100", "2.1", "4"}
+		}
+		c.handleHistoricalData(frame)
+		c.handleHistoricalDataEnd([]string{strconv.Itoa(msgHistoricalDataEnd), fields[1], strconv.FormatInt(at.Unix(), 10), strconv.FormatInt(at.Unix(), 10), ""})
+	})
+	contract := Contract{ConID: 700123, SecType: "OPT", Currency: "USD"}
+	if bars, err := c.FetchOptionSessionCloses(t.Context(), contract, 30, 2*time.Second); err != nil || len(bars) != 1 {
+		t.Fatalf("a 30-session refresh: %d bars, err %v", len(bars), err)
+	}
+	if sent := len(g.framesByID(reqHistoricalData)); sent != 1 {
+		t.Fatalf("a 30-session refresh sent %d requests, want one", sent)
+	}
+	answered = 0
+	bars, err := c.FetchOptionSessionCloses(t.Context(), contract, 400, 2*time.Second)
+	if err != nil || len(bars) != 1 || bars[0].Close != 2.1 {
+		t.Fatalf("a long look back over a short history: bars %+v, err %v", bars, err)
+	}
+	if sent := len(g.framesByID(reqHistoricalData)) - 1; sent != 2 {
+		t.Fatalf("the look back sent %d requests, want two: the newest step and the empty one that ends it", sent)
 	}
 }

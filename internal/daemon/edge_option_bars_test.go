@@ -224,3 +224,65 @@ func TestEdgeOptionReadsStopWhenTheFirstThreeAllFail(t *testing.T) {
 		}
 	}
 }
+
+// A live option's series is read again after every US close, not only once
+// it is 18 hours old: the broker deletes the series at expiry, so a session's
+// close has to be read the evening it forms. The worker wakes for it twenty
+// minutes after the New York close.
+func TestEdgeOptionSeriesIsDueAfterEachUSClose(t *testing.T) {
+	ny := newYorkLocation()
+	morning := time.Date(2026, 11, 19, 8, 27, 0, 0, time.UTC).Add(-time.Hour) // read at 02:27 New York
+	series := edgeBarSeries{Option: true, FetchedAt: morning}
+	for name, tc := range map[string]struct {
+		now  time.Time
+		want bool
+	}{
+		"the same afternoon, before the close": {time.Date(2026, 11, 19, 15, 0, 0, 0, ny), false},
+		"just after the close":                 {time.Date(2026, 11, 19, 16, 10, 0, 0, ny), false},
+		"twenty minutes after the close":       {time.Date(2026, 11, 19, 16, 20, 0, 0, ny), true},
+		"that night":                           {time.Date(2026, 11, 19, 23, 0, 0, 0, ny), true},
+	} {
+		if got := edgeOptionCloseDue(tc.now, series); got != tc.want {
+			t.Fatalf("%s: due=%v, want %v", name, got, tc.want)
+		}
+	}
+	if edgeOptionCloseDue(time.Date(2026, 11, 19, 23, 0, 0, 0, ny), edgeBarSeries{Option: true, FetchedAt: time.Date(2026, 11, 19, 16, 30, 0, 0, ny)}) {
+		t.Fatal("a series read after the close is due again the same night")
+	}
+	if edgeOptionCloseDue(time.Date(2026, 11, 19, 23, 0, 0, 0, ny), edgeBarSeries{Option: true}) {
+		t.Fatal("a series never read is the refresh plan's to ask for, not this rule's")
+	}
+	if next := edgeNextOptionCloseRead(time.Date(2026, 11, 19, 15, 0, 0, 0, ny)); !next.Equal(time.Date(2026, 11, 19, 16, 20, 0, 0, ny)) {
+		t.Fatalf("next read at %s, want 16:20 New York the same day", next.In(ny))
+	}
+	if next := edgeNextOptionCloseRead(time.Date(2026, 11, 19, 17, 0, 0, 0, ny)); !next.Equal(time.Date(2026, 11, 20, 16, 20, 0, 0, ny)) {
+		t.Fatalf("next read at %s, want 16:20 New York the next day", next.In(ny))
+	}
+}
+
+// An option series read with an older request shape is read in full once
+// more; after that a refresh is one request of 30 sessions, due after each
+// US close.
+func TestEdgeOptionRefreshPlan(t *testing.T) {
+	ny := newYorkLocation()
+	evening := time.Date(2026, 11, 19, 23, 0, 0, 0, ny)
+	morning := time.Date(2026, 11, 19, 3, 0, 0, 0, ny)
+	for name, tc := range map[string]struct {
+		lookback     int
+		fetch        bool
+		series       edgeBarSeries
+		wantLookback int
+		wantFetch    bool
+	}{
+		"read with an older shape":       {0, false, edgeBarSeries{FetchedAt: evening.Add(-time.Hour), Read: edgeOptionReadVersion - 1}, edgeFullLookbackDays, true},
+		"current, read after the close":  {0, false, edgeBarSeries{FetchedAt: evening.Add(-time.Hour), Read: edgeOptionReadVersion}, 0, false},
+		"current, read before the close": {0, false, edgeBarSeries{FetchedAt: morning, Read: edgeOptionReadVersion}, edgeOptionRefreshSessions, true},
+		"the stock plan's daily refresh": {edgeDailyLookbackDays, true, edgeBarSeries{FetchedAt: morning, Read: edgeOptionReadVersion}, edgeOptionRefreshSessions, true},
+		"the stock plan's full seed":     {edgeFullLookbackDays, true, edgeBarSeries{}, edgeFullLookbackDays, true},
+	} {
+		lookback, fetch := edgeOptionRefreshPlan(evening, tc.lookback, tc.fetch, tc.series)
+		if fetch != tc.wantFetch || (fetch && lookback != tc.wantLookback) {
+			t.Fatalf("%s: lookback %d fetch %v, want %d %v", name, lookback, fetch, tc.wantLookback, tc.wantFetch)
+		}
+	}
+}
