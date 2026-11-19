@@ -12,11 +12,16 @@ import (
 
 // OptionCycles describes proven exact-contract positions opened and fully
 // closed inside the review window. It does not infer multi-leg strategies.
+// MadeMoney, LostMoney, Flat and Ungraded count Cycles by Grade.
 type OptionCycles struct {
 	CompletedCount    int            `json:"completed_count"`
 	CompletePNLCount  int            `json:"complete_pnl_count"`
 	OpenContractCount int            `json:"open_contract_count"`
 	ExcludedContracts int            `json:"excluded_contracts"`
+	MadeMoney         int            `json:"made_money"`
+	LostMoney         int            `json:"lost_money"`
+	Flat              int            `json:"flat"`
+	Ungraded          int            `json:"ungraded"`
 	Reasons           map[string]int `json:"reasons"`
 	KnownPNLBase      *float64       `json:"known_pnl_base,omitempty"`
 	Cycles            []OptionCycle  `json:"cycles"`
@@ -40,6 +45,41 @@ type OptionCycle struct {
 	PNLStatus             string    `json:"pnl_status"`
 	MissingEvidence       []string  `json:"missing_evidence"`
 	LinkedProtectionCount int       `json:"linked_protection_count"`
+	// Grade is the position's one grade; GradeReason says why it is none.
+	Grade       string `json:"grade"`
+	GradeReason string `json:"grade_reason,omitempty"`
+}
+
+// Grades of a completed option position, and why one has none.
+const (
+	OptionGradeMadeMoney = "made_money"
+	OptionGradeLostMoney = "lost_money"
+	OptionGradeFlat      = "flat"
+	OptionGradeNone      = "none"
+
+	OptionGradeResultIncomplete = "result_incomplete"
+)
+
+// optionCycleGrade grades a completed position by the sign of the broker's
+// realized result for all of its executions, costs included, and by nothing
+// else. Profit grades the position (owner, 2026-11-19 06:45 CET): a price
+// read after a trade never enters, so a grade cannot change when a later
+// close is fetched. A position closed by exercise or assignment has no
+// grade, because the broker books the option leg alone and the value moved
+// into the stock delivered or taken.
+func optionCycleGrade(cycle OptionCycle) (grade, reason string) {
+	switch {
+	case cycle.ClosedBy == "exercise" || cycle.ClosedBy == "assignment":
+		return OptionGradeNone, OptionOutcomeDelivered
+	case cycle.RealizedPNLBase == nil || cycle.PNLStatus != OptionPNLComplete:
+		return OptionGradeNone, OptionGradeResultIncomplete
+	case almostEqual(*cycle.RealizedPNLBase, 0):
+		return OptionGradeFlat, ""
+	case *cycle.RealizedPNLBase > 0:
+		return OptionGradeMadeMoney, ""
+	default:
+		return OptionGradeLostMoney, ""
+	}
 }
 
 func buildOptionCycles(ev evidence, from, to time.Time, base string, protection map[string]ProtectionRecord, initial map[int64]float64, unbalanced map[int64]bool) OptionCycles {
@@ -157,6 +197,7 @@ func buildOptionPositions(ev evidence, from, to time.Time, base string, protecti
 			if last := active[len(active)-1]; last.TradeID != "" && closedBy[lifecycleTradeKey(last.ConID, last.TradeID)] != "" {
 				cycle.ClosedBy = closedBy[lifecycleTradeKey(last.ConID, last.TradeID)]
 			}
+			cycle.Grade, cycle.GradeReason = optionCycleGrade(cycle)
 			// A position opened before the window is not an in-window cycle,
 			// but the decisions made in it inside the window still have its
 			// outcome.
@@ -173,6 +214,16 @@ func buildOptionPositions(ev evidence, from, to time.Time, base string, protecti
 			if cycle.RealizedPNLBase != nil {
 				total += *cycle.RealizedPNLBase
 				known++
+			}
+			switch cycle.Grade {
+			case OptionGradeMadeMoney:
+				out.MadeMoney++
+			case OptionGradeLostMoney:
+				out.LostMoney++
+			case OptionGradeFlat:
+				out.Flat++
+			default:
+				out.Ungraded++
 			}
 			out.Cycles = append(out.Cycles, cycle)
 			active = nil

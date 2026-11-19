@@ -7,24 +7,34 @@ import (
 	"strings"
 )
 
-// Verdict labels, the evidence a verdict rests on, and the horizon it prefers.
+// Verdict labels, the evidence a verdict rests on, its one horizon, and the
+// reason an option decision has none.
 const (
 	VerdictHelped       = "helped"
 	VerdictHurt         = "hurt"
 	VerdictNoDifference = "no_difference"
 	VerdictNone         = "none"
 
-	VerdictBasisHorizon  = "horizon"
-	VerdictBasisPosition = "position"
+	VerdictBasisHorizon = "horizon"
 
 	VerdictSessions = 5
+
+	VerdictGradedByPosition = "graded_by_position"
 )
 
-// Verdict says in one word whether a decision helped. It rests on Decision
-// price impact after costs at five sessions, or at one session when five has
-// no figure. An option decision with neither falls back to the outcome of
-// its own position. A result no larger than the decision's own costs is no
-// difference. Label none carries the reason no figure exists.
+// Verdict says in one word whether a stock or ETF decision helped. It rests
+// on one measure only, Decision price impact at five sessions, so the word
+// cannot change its meaning when more data arrives: with no five-session
+// figure the label is none and carries the reason. A price move within the
+// decision's own costs, in either direction, is no difference.
+//
+// An option decision has no verdict. Profit grades the position (owner,
+// 2026-11-19 06:45 CET), and the price after an option trade is collected
+// only to build sell-or-hold rules; so the closed position carries the one
+// grade (OptionCycle.Grade) and each fill states its facts (PositionOutcome).
+// Until 2026-11-19 the verdict fell back from five sessions to one and then
+// to the position, so the first read of option closes after a sale changed
+// the word on decisions that had not changed.
 type Verdict struct {
 	Label      string   `json:"label"`
 	Basis      string   `json:"basis,omitempty"`
@@ -34,50 +44,39 @@ type Verdict struct {
 }
 
 func changeVerdict(change Change) Verdict {
+	if strings.EqualFold(change.AssetClass, "OPT") {
+		return Verdict{Label: VerdictNone, Reason: VerdictGradedByPosition}
+	}
 	costs := 0.0
 	if change.DirectCostsBase != nil {
-		costs = math.Abs(*change.DirectCostsBase)
+		costs = *change.DirectCostsBase
 	}
-	label := func(impact float64) string {
-		switch {
-		case math.Abs(impact) <= costs:
-			return VerdictNoDifference
-		case impact > 0:
-			return VerdictHelped
-		default:
-			return VerdictHurt
+	for _, score := range change.Scores {
+		if score.Sessions != VerdictSessions {
+			continue
 		}
-	}
-	reason := ""
-	for _, sessions := range []int{VerdictSessions, 1} {
-		for _, score := range change.Scores {
-			if score.Sessions != sessions {
-				continue
-			}
-			if score.DecisionImpactBase != nil {
-				return Verdict{Label: label(*score.DecisionImpactBase), Basis: VerdictBasisHorizon, Sessions: sessions, ImpactBase: cloneFloat(score.DecisionImpactBase)}
-			}
-			if reason == "" {
-				reason = score.Reason
-			}
+		if score.DecisionImpactBase == nil {
+			return Verdict{Label: VerdictNone, Reason: score.Reason}
 		}
+		// The impact is after costs. The band is on the price move before
+		// them, so a gain and a loss of the same size read alike; taking the
+		// costs off the net figure again made a small gain no difference
+		// and every small loss hurt.
+		label := VerdictHurt
+		switch move := *score.DecisionImpactBase + costs; {
+		case math.Abs(move) <= math.Abs(costs):
+			label = VerdictNoDifference
+		case move > 0:
+			label = VerdictHelped
+		}
+		return Verdict{Label: label, Basis: VerdictBasisHorizon, Sessions: VerdictSessions, ImpactBase: cloneFloat(score.DecisionImpactBase)}
 	}
-	if change.Position != nil && change.Position.ResultBase != nil {
-		// The position reading is before costs; the decision's own are taken off.
-		impact := *change.Position.ResultBase - costs
-		return Verdict{Label: label(impact), Basis: VerdictBasisPosition, ImpactBase: &impact}
-	}
-	if change.Position != nil && change.Position.Reason != "" {
-		// The position reading was the last one tried; why it has no
-		// figure (closed by delivery, no proven opening) is the nearest
-		// cause.
-		reason = change.Position.Reason
-	}
-	return Verdict{Label: VerdictNone, Reason: reason}
+	return Verdict{Label: VerdictNone}
 }
 
-// VerdictCount counts verdicts for one asset class. Verdict money is never
-// totalled: an option's buy and sale readings describe the same money.
+// VerdictCount counts the verdicts of one asset class's decisions. Options
+// are not in it: their positions are graded (OptionCycles). Verdict money is
+// never totalled.
 type VerdictCount struct {
 	AssetClass   string `json:"asset_class"`
 	Helped       int    `json:"helped"`
@@ -89,6 +88,9 @@ type VerdictCount struct {
 func buildVerdictCounts(changes []Change) []VerdictCount {
 	byClass := map[string]*VerdictCount{}
 	for _, change := range changes {
+		if change.Verdict.Reason == VerdictGradedByPosition {
+			continue
+		}
 		// A blank class fails the served result's validation, and one such
 		// row would take the whole read down.
 		class := strings.TrimSpace(change.AssetClass)

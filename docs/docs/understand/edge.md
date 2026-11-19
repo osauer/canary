@@ -1,6 +1,6 @@
 # Canary Edge
 
-Updated: 2026-11-19 06:27 CET
+Updated: 2026-11-19 20:04 CET
 
 Canary Edge is a retrospective broker-truth review. It answers three different questions without blending them:
 
@@ -44,7 +44,7 @@ signed quantity change x multiplier x
 
 The quantity change is signed. The same formula therefore works for long and short decisions and for buys and sells. A flip is split deterministically into an exit and a new entry; the allocated pieces add back to the original decision.
 
-The horizons are the first, fifth, and twentieth available IBKR daily closing bars after the execution session. Horizon FX is the latest broker conversion at or before that close and must be no more than seven calendar days old. Edge suppresses a horizon if a transfer, an option lifecycle event without a trade row, or a quantity-changing corporate action touches that contract before the horizon. A later trade in the same contract does not suppress it (see [Coverage is part of the result](#coverage-is-part-of-the-result)).
+For a stock or ETF the horizons are the first, fifth, and twentieth available IBKR daily closing bars after the execution session; for an option, see [Option decisions and verdicts](#option-decisions-and-verdicts). Horizon FX is the latest broker conversion at or before that close and must be no more than seven calendar days old. Edge suppresses a horizon if a transfer, an option lifecycle event without a trade row, or a quantity-changing corporate action touches that contract before the horizon. A later trade in the same contract does not suppress it (see [Coverage is part of the result](#coverage-is-part-of-the-result)).
 
 Decision price impact is not generic P/L. It excludes distributions, financing and borrow, market impact, and anything else outside that fixed price path. Rollups report only observed totals, medians, counts, and coverage. They are not a claim of causality, predictive edge, or statistical skill.
 
@@ -149,7 +149,7 @@ sections through the [existing reporting setup](../start/reporting.md#optional-s
 
 ## Options: broker actual, in separate scopes
 
-Options are a first-class review surface. An option decision is scored like a stock decision wherever the broker recorded the contract's close on the horizon session (see [Option decisions and verdicts](#option-decisions-and-verdicts)). Beside that, Edge keeps three broker-evidence scopes separate:
+Options are a first-class review surface. An option decision is scored like a stock decision wherever the contract has a close on the horizon session: the statement mark while it was held, the closing midpoint read from IBKR after it left the account (see [Option decisions and verdicts](#option-decisions-and-verdicts)). The score is a price reading. An option is graded by position, not by decision. Beside that, Edge keeps three broker-evidence scopes separate:
 
 - **Activity coverage** counts exact execution episodes as opening, closing, mixed, or unknown lifecycle, plus unmatched exercise, assignment, and expiration events. An opening-only execution with broker-reported zero realized P/L remains visible in coverage and is not promoted into the realized ranking.
 - **Realized episodes** use only broker-reported realized P/L inside the selected review window. Executions share one episode only when they carry the same IBKR order identity on the same day. A row without order linkage remains its own execution episode. An `OptionEAE` row is a separate lifecycle event unless its broker trade identity matches an already retained trade.
@@ -159,7 +159,7 @@ The option lists rank rows by absolute broker P/L and seat at least one gain and
 
 Tap an option row in the app, pass `--option option_…` to the CLI, or pass `option_id` to `canary_edge` to read the evidence behind that opaque result. A realized detail carries exact contracts, opening/closing indicator, side, quantity, execution price, multiplier, broker realized P/L, and direct costs where reported. An open detail carries the dated contract, side, quantity, mark, cost basis, and broker open P/L. This is evidence expansion, not a trading control.
 
-Exact shared-order grouping does not assert a strategy name. A mixed opening-and-closing order is reported as `mixed`, not called a roll. Edge does not infer trade intent, holding period, return on risk, max risk, Greeks, IV, theta, or a cross-order strategy identity. It also never manufactures an option price: a horizon without a broker-recorded close for that exact session has no figure. See [IBKR historical-data limitations](https://interactivebrokers.github.io/tws-api/historical_limitations.html).
+Exact shared-order grouping does not assert a strategy name. A mixed opening-and-closing order is reported as `mixed`, not called a roll. Edge does not infer trade intent, holding period, return on risk, max risk, Greeks, IV, theta, or a cross-order strategy identity. It also never manufactures an option price: a horizon with neither a statement mark nor a closing midpoint from IBKR for that exact session has no figure. See [IBKR historical-data limitations](https://interactivebrokers.github.io/tws-api/historical_limitations.html).
 
 ## Option decisions and verdicts
 
@@ -169,40 +169,77 @@ day. For the days after a contract left the account, Canary reads from IBKR
 the contract's bid/ask midpoint at the end of each regular session, about
 six months back on the first read and after every US close from then on,
 while the contract is still alive; the broker deletes that history at
-expiry. A midpoint is a quote, not a traded price: IBKR offers no
-end-of-day prices for options, and a thinly traded contract has no trade on
-most days. The read names the exact contract
-and never the underlying's symbol. On a day that has both, the statement mark
-counts. A contract that had expired before Canary first read it has no
-fetched close at all, so such a horizon has no figure. The 1st, 5th and 20th sessions are counted on the days the
-benchmarks and the account's other instruments have a close, and only a close
-on that exact session counts. With one, the option decision gets the same
-Decision price impact as a stock decision.
+expiry. A midpoint is a quote, not a traded price: IBKR's price history has
+no daily bars for options, and a thinly traded contract has no trade on most
+days. The read names the exact contract and never the underlying's symbol.
+On a day that has both, the statement mark counts. A contract that had
+expired before Canary first read it has no fetched close at all, and one
+that left the account more than about six months before the first read has
+none for its earliest sessions; such a horizon has no figure. The 1st, 5th
+and 20th sessions are counted on the days the benchmarks and the account's
+other instruments have a close, and only a close on that exact session
+counts. With one, the option decision gets the same Decision price impact as
+a stock decision, and the score says what its close rests on: `close_source`
+is `statement_mark` or `closing_quote` (`daily_bar` for a stock or ETF).
 
-`options.decisions` also reads every option decision against its own
-flat-to-flat position, from executions alone:
+### The verdict on a stock or ETF decision
 
-- An **open** or **add** compares the price paid with the average price the
-  position's contracts were closed at. Contracts still held are valued at the
-  latest statement mark.
-- A **trim** or **exit** compares the price taken with the position's average
-  entry price. Where contracts were closed later, `later_exit` compares the
-  price taken with what those fetched: positive means the contracts kept did
-  better than the ones sold.
-- An expiry is a sale at zero. A position closed by exercise or assignment,
-  or without a proven opening, has no price reading.
+A stock or ETF decision carries a **verdict**: `helped`, `hurt` or
+`no_difference`, with the money behind it. It rests on one measure, Decision
+price impact after costs at five sessions. A decision with no five-session
+figure, one made less than five sessions ago included, has verdict `none`
+and the reason; no other horizon stands in, so a verdict never changes its
+meaning when more data arrives. A price move within the decision's own
+costs, in either direction, is `no_difference`. `verdicts.counts` counts
+the verdicts by asset class. Verdict money is per decision and is never
+totalled.
 
-Entry rows and sale rows describe the same money and are never added. Money
-figures there are before costs.
+### The grade of an option position
 
-Every decision carries a **verdict**: `helped`, `hurt` or `no_difference`,
-with the money behind it. It rests on Decision price impact after costs at
-five sessions; at one session when five has no figure; and, for an option
-decision with neither, on the outcome of its own position less the decision's
-costs. A result no larger than the decision's own costs is `no_difference`.
-A decision with no figure at all has verdict `none` and the reason.
-`verdicts.counts` counts them by asset class and `verdicts.recent` lists the
-20 newest decisions. Verdict money is per decision and is never totalled.
+An option decision carries no verdict (`none`, reason `graded_by_position`).
+Profit grades the position: once an option position is closed, it gets one
+grade, by the sign of the broker's realized result for all of its
+executions, costs included. `options.cycles` carries it on each completed
+position as `grade`: `made_money`, `lost_money` or `flat`, and counts the
+positions in `made_money`, `lost_money`, `flat` and `ungraded`. A position
+closed by exercise or assignment has grade `none` (`closed_by_delivery`),
+because the broker books the option leg alone and the value moved into the
+stock delivered or taken. A position whose realized result is incomplete has
+none either, and a position still open has no grade yet. An expiry is how a
+position closed, not a decision: it has no row of its own and is in no
+count, and the position's result carries it as a close at zero.
+
+Each option decision states a fact about its fill instead, read against its
+own flat-to-flat position from executions alone:
+
+- A trade that **opened or added** to the position is compared with the
+  average price the position's contracts were closed at. Contracts still held
+  are valued at the latest statement mark.
+- A trade that **reduced or closed** it is compared with the position's
+  average entry price.
+- A position closed by exercise or assignment, or whose opening is not in
+  the statement history, has no price comparison.
+
+`canary edge` prints the fact as a sentence, for example "sold 14.0% below
+the position's average cost", and `verdicts.recent` lists the 20 newest
+decisions of every class: a stock or ETF decision with its verdict, an
+option decision with `position`. The comparison is `result_pct`, positive
+when it favours the holder; it is a fact, not a grade.
+
+What an option's price did after a trade is a price reading and grades
+nothing. A quote read after a sale says what the contract was later worth,
+not whether the position made money: judged by it, the sale of a profitable
+position reads as a mistake whenever the contract rose afterwards. The 1, 5
+and 20-session figures of an option decision therefore stay in the
+decision's detail, the action table, the findings and the headline, and no
+verdict or grade is taken from them.
+
+`options.decisions` rolls the same position readings up by action. For a
+trade that reduced the position while contracts were kept, `later_exit`
+there compares its price with what the kept contracts fetched afterwards:
+positive means they did better than the ones sold. Entry rows and sale rows
+describe the same money and are never added. Money figures there are before
+costs.
 
 ## Completed option positions
 
@@ -219,7 +256,8 @@ counts that pair once, as the execution that closed the position, and says how
 it closed: `closed_by` is `trade`, `expiry`, `exercise` or `assignment`. After
 an exercise or assignment the realized P/L is the option leg's as the broker
 reports it; the stock delivered or taken is not part of the position, and Edge
-does not calculate a P/L for it.
+does not calculate a P/L for it. Such a position has no grade (see
+[The grade of an option position](#the-grade-of-an-option-position)).
 
 Closing-only history or an add to an already-held position cannot prove the
 opening. Unknown quantities, ambiguous simultaneous opposing executions,

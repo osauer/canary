@@ -503,11 +503,11 @@ func goldenEdge(offset, limit int) rpc.EdgeResult {
 	at := result.AsOf
 	money := func(v float64) *float64 { return &v }
 	cycles := []rpc.EdgeOptionCycle{
-		{ID: "option-cycle_a1", Symbol: "SYNA  260821C00115000", Direction: "short", OpenedAt: at.AddDate(0, -2, 0), ClosedAt: at.AddDate(0, 0, -3), ClosedBy: "assignment", ExecutionCount: 2, RealizedPNLBase: money(4890), PNLStatus: "complete", MissingEvidence: []string{}},
-		{ID: "option-cycle_a2", Symbol: "SYNB  260918P00090000", Direction: "long", OpenedAt: at.AddDate(0, -1, 0), ClosedAt: at.AddDate(0, 0, -5), ClosedBy: "expiry", ExecutionCount: 3, RealizedPNLBase: money(-1250), PNLStatus: "complete", MissingEvidence: []string{}},
-		{ID: "option-cycle_a3", Symbol: "SYNC  261016C00050000", Direction: "long", OpenedAt: at.AddDate(0, -1, 0), ClosedAt: at.AddDate(0, 0, -8), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: money(830), PNLStatus: "complete", MissingEvidence: []string{}},
-		{ID: "option-cycle_a4", Symbol: "SYNA  260821P00100000", Direction: "long", OpenedAt: at.AddDate(0, -1, -5), ClosedAt: at.AddDate(0, 0, -10), ClosedBy: "exercise", ExecutionCount: 2, RealizedPNLBase: money(-310), PNLStatus: "complete", MissingEvidence: []string{}},
-		{ID: "option-cycle_a5", Symbol: "SYND  260918C00020000", Direction: "short", OpenedAt: at.AddDate(0, -1, -9), ClosedAt: at.AddDate(0, 0, -12), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: money(120), PNLStatus: "complete", MissingEvidence: []string{}},
+		{ID: "option-cycle_a1", Symbol: "SYNA  260821C00115000", Direction: "short", OpenedAt: at.AddDate(0, -2, 0), ClosedAt: at.AddDate(0, 0, -3), ClosedBy: "assignment", ExecutionCount: 2, RealizedPNLBase: money(4890), PNLStatus: "complete", MissingEvidence: []string{}, Grade: "none", GradeReason: "closed_by_delivery"},
+		{ID: "option-cycle_a2", Symbol: "SYNB  260918P00090000", Direction: "long", OpenedAt: at.AddDate(0, -1, 0), ClosedAt: at.AddDate(0, 0, -5), ClosedBy: "expiry", ExecutionCount: 3, RealizedPNLBase: money(-1250), PNLStatus: "complete", MissingEvidence: []string{}, Grade: "lost_money"},
+		{ID: "option-cycle_a3", Symbol: "SYNC  261016C00050000", Direction: "long", OpenedAt: at.AddDate(0, -1, 0), ClosedAt: at.AddDate(0, 0, -8), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: money(830), PNLStatus: "complete", MissingEvidence: []string{}, Grade: "made_money"},
+		{ID: "option-cycle_a4", Symbol: "SYNA  260821P00100000", Direction: "long", OpenedAt: at.AddDate(0, -1, -5), ClosedAt: at.AddDate(0, 0, -10), ClosedBy: "exercise", ExecutionCount: 2, RealizedPNLBase: money(-310), PNLStatus: "complete", MissingEvidence: []string{}, Grade: "none", GradeReason: "closed_by_delivery"},
+		{ID: "option-cycle_a5", Symbol: "SYND  260918C00020000", Direction: "short", OpenedAt: at.AddDate(0, -1, -9), ClosedAt: at.AddDate(0, 0, -12), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: money(120), PNLStatus: "complete", MissingEvidence: []string{}, Grade: "made_money"},
 	}
 	leg := func(symbol string, strike float64, putCall string) []rpc.EdgeOptionLegIdentity {
 		return []rpc.EdgeOptionLegIdentity{{Symbol: symbol, Underlying: symbol[:4], Expiry: "2026-09-18", Strike: &strike, PutCall: putCall}}
@@ -540,7 +540,7 @@ func goldenEdge(offset, limit int) rpc.EdgeResult {
 			{Action: "trim", Changes: 2, WithResult: 2, Losses: 1, MedianResultPct: money(3), TotalResultBase: money(140), WithLaterExit: 2, LaterExitBetter: 1, TotalLaterExitBase: money(-220)},
 			{Action: "exit", Changes: 3, WithResult: 2, Losses: 1, TotalResultBase: money(-750)},
 		}},
-		Cycles:   rpc.EdgeOptionCycles{CompletedCount: 5, CompletePNLCount: 5, OpenContractCount: 4, ExcludedContracts: 1, Reasons: map[string]int{"opened_before_window": 2, "lifecycle_or_transfer": 1}, KnownPNLBase: money(4280), Offset: offset},
+		Cycles:   rpc.EdgeOptionCycles{CompletedCount: 5, CompletePNLCount: 5, OpenContractCount: 4, ExcludedContracts: 1, MadeMoney: 2, LostMoney: 1, Ungraded: 2, Reasons: map[string]int{"opened_before_window": 2, "lifecycle_or_transfer": 1}, KnownPNLBase: money(4280), Offset: offset},
 		Realized: rpc.EdgeOptionRealizedReview{KnownPNLBase: money(4590), PositiveCount: 3, NegativeCount: 1, CompleteCount: 4, UnavailableCount: 1, TotalCount: 5, Offset: offset},
 		Open:     rpc.EdgeOptionOpenReview{SnapshotDate: at, KnownPNLBase: money(-285), PositiveCount: 2, NegativeCount: 2, CompleteCount: 4, TotalCount: 4, Offset: offset},
 	}
@@ -551,16 +551,27 @@ func goldenEdge(offset, limit int) rpc.EdgeResult {
 	start, end, next = page(len(positions))
 	options.Open.Positions, options.Open.NextOffset, options.Open.Truncated = positions[start:end], next, end-start < len(positions)
 	result.Options = options
-	// One row of each kind the verdict list can print: a horizon verdict,
-	// a position verdict, a result within costs, and a decision with none.
+	// One row of each kind the verdict list can print: a stock verdict, a
+	// result within costs, a decision with none, and the facts an option
+	// decision states: a buy against later sales, a sale against average
+	// cost, a written option still held, and a close by delivery.
+	graded := rpc.EdgeVerdict{Label: "none", Reason: "graded_by_position"}
 	result.Verdicts = rpc.EdgeVerdicts{
-		Counts: []rpc.EdgeVerdictCount{{AssetClass: "OPT", Helped: 4, Hurt: 5, NoDifference: 1, None: 1}, {AssetClass: "STK", Helped: 3, Hurt: 2, NoDifference: 1, None: 2}},
+		Counts: []rpc.EdgeVerdictCount{{AssetClass: "STK", Helped: 3, Hurt: 2, NoDifference: 1, None: 2}},
 		Recent: []rpc.EdgeTradeVerdict{
-			{ChangeID: "change_v1", Symbol: "SYNA  260821C00115000", AssetClass: "OPT", Action: "add", Direction: "long", ExecutedAt: at.AddDate(0, 0, -3), Verdict: rpc.EdgeVerdict{Label: "helped", Basis: "horizon", Sessions: 5, ImpactBase: money(1240)}},
-			{ChangeID: "change_v2", Symbol: "SYNB  260918P00090000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: at.AddDate(0, 0, -5), Verdict: rpc.EdgeVerdict{Label: "hurt", Basis: "position", ImpactBase: money(-860)}},
-			{ChangeID: "change_v3", Symbol: "SYNC", AssetClass: "STK", Action: "trim", Direction: "long", ExecutedAt: at.AddDate(0, 0, -6), Verdict: rpc.EdgeVerdict{Label: "no_difference", Basis: "horizon", Sessions: 1, ImpactBase: money(-1.2)}},
-			{ChangeID: "change_v4", Symbol: "SYNA  260821P00100000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: at.AddDate(0, 0, -10), Verdict: rpc.EdgeVerdict{Label: "none", Reason: "closed_by_delivery"}},
+			{ChangeID: "change_v1", Symbol: "SYNC  261016C00050000", AssetClass: "OPT", Action: "add", Direction: "long", ExecutedAt: at.AddDate(0, 0, -3), Verdict: graded,
+				Position: &rpc.EdgeChangePosition{State: "closed", PositionID: "option-cycle_a3", ClosedBy: "trade", PositionGrade: "made_money", PositionPNLBase: money(830), ReferenceKind: "exit_average", ResultPct: money(22)}},
+			{ChangeID: "change_v2", Symbol: "SYNB  260918P00090000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: at.AddDate(0, 0, -5), Verdict: graded,
+				Position: &rpc.EdgeChangePosition{State: "closed", PositionID: "option-cycle_a2", ClosedBy: "expiry", PositionGrade: "lost_money", PositionPNLBase: money(-1250), ReferenceKind: "entry_average", ResultPct: money(-14)}},
+			{ChangeID: "change_v3", Symbol: "SYNC", AssetClass: "STK", Action: "trim", Direction: "long", ExecutedAt: at.AddDate(0, 0, -6), Verdict: rpc.EdgeVerdict{Label: "no_difference", Basis: "horizon", Sessions: 5, ImpactBase: money(-1.2)}},
+			{ChangeID: "change_v4", Symbol: "SYNA  260821P00100000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: at.AddDate(0, 0, -10), Verdict: graded,
+				Position: &rpc.EdgeChangePosition{State: "closed", PositionID: "option-cycle_a4", ClosedBy: "exercise", PositionGrade: "none", Reason: "closed_by_delivery"}},
 			{ChangeID: "change_v5", Symbol: "SYND", AssetClass: "STK", Action: "open", Direction: "long", ExecutedAt: at.AddDate(0, 0, -1), Verdict: rpc.EdgeVerdict{Label: "none", Reason: "missing_horizon"}},
+			{ChangeID: "change_v6", Symbol: "SYND  261218C00020000", AssetClass: "OPT", Action: "open", Direction: "short", ExecutedAt: at.AddDate(0, 0, -12), Verdict: graded,
+				Position: &rpc.EdgeChangePosition{State: "open", ReferenceKind: "exit_average_and_mark", ResultPct: money(30)}},
+			{ChangeID: "change_v8", Symbol: "SYNB  260918P00090000", AssetClass: "OPT", Action: "open", Direction: "long", ExecutedAt: at.AddDate(0, 0, -13), Verdict: graded,
+				Position: &rpc.EdgeChangePosition{State: "closed", PositionID: "option-cycle_a2", ClosedBy: "expiry", PositionGrade: "lost_money", PositionPNLBase: money(-1250), ReferenceKind: "exit_average", ResultPct: money(-100)}},
+			{ChangeID: "change_v7", Symbol: "SYNE", AssetClass: "STK", Action: "add", Direction: "long", ExecutedAt: at.AddDate(0, 0, -14), Verdict: rpc.EdgeVerdict{Label: "helped", Basis: "horizon", Sessions: 5, ImpactBase: money(1240)}},
 		},
 	}
 	return result

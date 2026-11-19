@@ -28,6 +28,8 @@ const (
 // PositionOutcome reads one option decision against the flat-to-flat position
 // it belonged to. It is built from broker executions and the latest statement
 // mark only: no option price is modelled and no counterfactual is claimed.
+// It states facts about the fill; the grade belongs to the position
+// (PositionGrade, set once the position is closed) and no fill has one.
 //
 // For an open or add, ResultPct compares the price paid with the average
 // price the position's contracts were closed at (and the latest statement
@@ -43,6 +45,7 @@ type PositionOutcome struct {
 	ClosedAt        *time.Time `json:"closed_at,omitempty"`
 	ClosedBy        string     `json:"closed_by,omitempty"`
 	PositionPNLBase *float64   `json:"position_pnl_base,omitempty"`
+	PositionGrade   string     `json:"position_grade,omitempty"`
 	ReferenceKind   string     `json:"reference_kind,omitempty"`
 	ReferencePrice  *float64   `json:"reference_price,omitempty"`
 	ResultPct       *float64   `json:"result_pct,omitempty"`
@@ -93,6 +96,7 @@ type optionPosition struct {
 	closedAt  time.Time
 	closedBy  string
 	pnlBase   *float64
+	grade     string
 	entries   []optionFill
 	exits     []optionFill
 	remaining float64
@@ -102,7 +106,7 @@ type optionPosition struct {
 func optionPositionFromRows(rows []flexstmt.Trade, cycle OptionCycle, state string, remaining float64, mark *float64) *optionPosition {
 	out := &optionPosition{id: cycle.ID, state: state, direction: cycle.Direction, openedAt: cycle.OpenedAt, closedBy: cycle.ClosedBy, pnlBase: cycle.RealizedPNLBase, remaining: remaining, mark: mark}
 	if state == OptionPositionClosed {
-		out.closedAt = cycle.ClosedAt
+		out.closedAt, out.grade = cycle.ClosedAt, cycle.Grade
 	} else {
 		out.closedBy = ""
 	}
@@ -174,7 +178,7 @@ func optionPositionOutcome(change Change, group groupedTrade, ledger map[string]
 	}
 	out.OpenedAt = &position.openedAt
 	if position.state == OptionPositionClosed {
-		out.ClosedAt = &position.closedAt
+		out.ClosedAt, out.PositionGrade = &position.closedAt, position.grade
 	} else {
 		// Realized so far is not the position's result while contracts are held.
 		out.PositionPNLBase = nil
@@ -186,7 +190,8 @@ func optionPositionOutcome(change Change, group groupedTrade, ledger map[string]
 		return out
 	}
 	entry := change.Action == ActionOpen || change.Action == ActionAdd
-	// An expiry closes at a price of zero: a real sale price, never an entry.
+	// A close booked at zero is a real closing price, never an entry. (An
+	// expiry is no change at all: Analyze leaves it to the position.)
 	if change.ExecutionVWAP == nil || *change.ExecutionVWAP < 0 || entry && *change.ExecutionVWAP == 0 {
 		out.Reason = OptionOutcomePriceMissing
 		return out

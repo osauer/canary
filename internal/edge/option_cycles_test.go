@@ -157,11 +157,17 @@ func TestLifecycleClosedOptionCyclesAreCompleted(t *testing.T) {
 		name, eventType, closedBy string
 		openSide                  string
 		pnl                       float64
+		grade, gradeReason        string
+		decisions                 int
 	}{
-		{"long expires worthless", "Expiration", "expiry", "BUY", -200},
-		{"short expires worthless", "EXPIRATION", "expiry", "SELL", 150},
-		{"short assigned", "Assignment", "assignment", "SELL", 80},
-		{"long exercised", "Exercise", "exercise", "BUY", 0},
+		// An expiry is how the position closed: the buy or the sale that
+		// opened it is the only decision, and the grade carries the expiry.
+		{"long expires worthless", "Expiration", "expiry", "BUY", -200, OptionGradeLostMoney, "", 1},
+		{"short expires worthless", "EXPIRATION", "expiry", "SELL", 150, OptionGradeMadeMoney, "", 1},
+		// The broker books the option leg alone at a delivery, so the
+		// position has no grade.
+		{"short assigned", "Assignment", "assignment", "SELL", 80, OptionGradeNone, OptionOutcomeDelivered, 2},
+		{"long exercised", "Exercise", "exercise", "BUY", 0, OptionGradeNone, OptionOutcomeDelivered, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			st := edgeStatement()
@@ -196,6 +202,22 @@ func TestLifecycleClosedOptionCyclesAreCompleted(t *testing.T) {
 			row := c.Cycles[0]
 			if row.ClosedBy != tc.closedBy || row.RealizedPNLBase == nil || *row.RealizedPNLBase != tc.pnl || row.PNLStatus != OptionPNLComplete || row.ExecutionCount != 2 {
 				t.Fatalf("cycle=%+v, want closed by %s with the broker's %.0f once", row, tc.closedBy, tc.pnl)
+			}
+			if row.Grade != tc.grade || row.GradeReason != tc.gradeReason {
+				t.Fatalf("grade=%q reason=%q, want %q %q", row.Grade, row.GradeReason, tc.grade, tc.gradeReason)
+			}
+			decisions := 0
+			for _, change := range result.Changes {
+				if change.AssetClass != "OPT" {
+					continue
+				}
+				decisions++
+				if change.Verdict.Label != VerdictNone || change.Verdict.Reason != VerdictGradedByPosition || change.Position == nil || change.Position.PositionGrade != tc.grade {
+					t.Fatalf("option change=%+v, want no verdict and the position's grade %q", change, tc.grade)
+				}
+			}
+			if decisions != tc.decisions {
+				t.Fatalf("option decisions=%d, want %d", decisions, tc.decisions)
 			}
 		})
 	}

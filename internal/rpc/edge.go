@@ -3,6 +3,7 @@ package rpc
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 )
@@ -204,11 +205,13 @@ type EdgeFinding struct {
 	MarketContext        []EdgeMarketContext `json:"market_context,omitempty"`
 }
 
-// EdgeVerdict says in one word whether a decision helped: helped, hurt,
-// no_difference (a result no larger than the decision's own costs) or none.
-// Basis horizon is Decision price impact after costs at Sessions; basis
-// position is the outcome of an option decision's own position. None carries
-// the reason no figure exists.
+// EdgeVerdict says in one word whether a stock or ETF decision helped:
+// helped, hurt, no_difference (a price move within the decision's own costs,
+// either way) or none. It rests on one measure, Decision price impact after
+// costs at five sessions (basis horizon, sessions 5); none carries the reason
+// no five-session figure exists. An option decision is always none with
+// reason graded_by_position: the closed position carries the grade
+// (EdgeOptionCycle.Grade) and the decision states its facts (Position).
 type EdgeVerdict struct {
 	Label      string   `json:"label"`
 	Basis      string   `json:"basis,omitempty"`
@@ -217,8 +220,9 @@ type EdgeVerdict struct {
 	Reason     string   `json:"reason,omitempty"`
 }
 
-// EdgeVerdicts counts every decision's verdict by asset class and lists the
-// most recent decisions, newest first. Verdict money is never totalled.
+// EdgeVerdicts counts the verdicts of stock and ETF decisions by asset class
+// and lists the most recent decisions of every class, newest first. Options
+// are counted by position in options.cycles. Verdict money is never totalled.
 type EdgeVerdicts struct {
 	Counts []EdgeVerdictCount `json:"counts"`
 	Recent []EdgeTradeVerdict `json:"recent"`
@@ -243,6 +247,29 @@ type EdgeTradeVerdict struct {
 	Direction  string      `json:"direction"`
 	ExecutedAt time.Time   `json:"executed_at"`
 	Verdict    EdgeVerdict `json:"verdict"`
+	// Position is set for an option decision.
+	Position *EdgeChangePosition `json:"position,omitempty"`
+}
+
+// EdgeChangePosition states what an option decision's own flat-to-flat
+// position says about it, from broker executions and the latest statement
+// value. ResultPct is positive when the comparison favours the holder: for a
+// trade that opened or added, the average price the position's contracts
+// were closed at against the price of this trade (reference_kind
+// exit_average, or exit_average_and_mark while some are still held); for a
+// trade that reduced or closed, the price of this trade against the
+// position's average entry price (entry_average). It is a fact about the
+// fill, not a grade. PositionGrade and PositionPNLBase are the closed
+// position's one grade and the broker's realized result behind it.
+type EdgeChangePosition struct {
+	State           string   `json:"state"`
+	Reason          string   `json:"reason,omitempty"`
+	PositionID      string   `json:"position_id,omitempty"`
+	ClosedBy        string   `json:"closed_by,omitempty"`
+	PositionGrade   string   `json:"position_grade,omitempty"`
+	PositionPNLBase *float64 `json:"position_pnl_base,omitempty"`
+	ReferenceKind   string   `json:"reference_kind,omitempty"`
+	ResultPct       *float64 `json:"result_pct,omitempty"`
 }
 
 // MaxEdgeRecentVerdicts bounds the recent decision list.
@@ -267,13 +294,20 @@ type EdgeChangeDetail struct {
 	DirectCostsBase       *float64              `json:"direct_costs_base,omitempty"`
 	Scores                []EdgeHorizonScore    `json:"scores"`
 	Verdict               EdgeVerdict           `json:"verdict"`
+	// Position is set for an option decision.
+	Position *EdgeChangePosition `json:"position,omitempty"`
 }
 
 // EdgeHorizonScore exposes either one calculated impact or a typed reason.
+// CloseSource says what HorizonClose rests on: daily_bar (the broker's
+// closing trade bar of a stock or ETF), statement_mark (the broker's
+// statement value of an option held that day) or closing_quote (the
+// session's last bid/ask midpoint of an option, a quote and not a trade).
 type EdgeHorizonScore struct {
 	Sessions             int                 `json:"sessions"`
 	HorizonDay           *time.Time          `json:"horizon_day,omitempty"`
 	HorizonClose         *float64            `json:"horizon_close,omitempty"`
+	CloseSource          string              `json:"close_source,omitempty"`
 	HorizonFX            *float64            `json:"horizon_fx,omitempty"`
 	DecisionNotionalBase *float64            `json:"decision_notional_base,omitempty"`
 	DecisionImpactBase   *float64            `json:"decision_impact_base,omitempty"`
@@ -633,6 +667,9 @@ func ValidateEdgeResult(result EdgeResult) error {
 	if result.Change != nil && result.Change.Verdict.Label != "" && !validEdgeVerdict(result.Change.Verdict) {
 		return fmt.Errorf("invalid Edge change verdict")
 	}
+	if result.Change != nil && !validEdgeChangePosition(result.Change.Position) {
+		return fmt.Errorf("invalid Edge change position")
+	}
 	if err := validateEdgeOptionReview(result.Options); err != nil {
 		return err
 	}
@@ -698,6 +735,9 @@ func ValidateEdgeResult(result EdgeResult) error {
 			}
 			if score.DecisionImpactBase != nil && (score.DecisionNotionalBase == nil || score.DecisionImpactPct == nil || *score.DecisionNotionalBase <= 0) {
 				return fmt.Errorf("invalid Edge score ranking inputs")
+			}
+			if !slices.Contains([]string{"", "daily_bar", "statement_mark", "closing_quote"}, score.CloseSource) || score.CloseSource != "" && score.HorizonClose == nil {
+				return fmt.Errorf("invalid Edge score close source")
 			}
 			for _, amount := range []*float64{score.HorizonClose, score.HorizonFX, score.DecisionNotionalBase, score.DecisionImpactBase, score.DecisionImpactPct} {
 				if amount != nil && !finite(*amount) {
@@ -777,11 +817,34 @@ func validateEdgeOptionReview(review EdgeOptionReview) error {
 func validEdgeVerdict(verdict EdgeVerdict) bool {
 	switch verdict.Label {
 	case "helped", "hurt", "no_difference":
-		return verdict.ImpactBase != nil && finite(*verdict.ImpactBase) && (verdict.Basis == "horizon" && validEdgeHorizon(verdict.Sessions) || verdict.Basis == "position" && verdict.Sessions == 0)
+		return verdict.ImpactBase != nil && finite(*verdict.ImpactBase) && verdict.Basis == "horizon" && verdict.Sessions == 5
 	case "none":
 		return verdict.ImpactBase == nil && verdict.Basis == ""
 	}
 	return false
+}
+
+// validEdgeOptionGrade accepts the grades of a closed option position.
+func validEdgeOptionGrade(grade string) bool {
+	return slices.Contains([]string{"made_money", "lost_money", "flat", "none"}, grade)
+}
+
+func validEdgeChangePosition(position *EdgeChangePosition) bool {
+	if position == nil {
+		return true
+	}
+	if !slices.Contains([]string{"closed", "open", "unproved"}, position.State) {
+		return false
+	}
+	if position.PositionGrade != "" && (position.State != "closed" || !validEdgeOptionGrade(position.PositionGrade)) {
+		return false
+	}
+	for _, amount := range []*float64{position.PositionPNLBase, position.ResultPct} {
+		if amount != nil && !finite(*amount) {
+			return false
+		}
+	}
+	return position.ResultPct == nil || position.ReferenceKind != ""
 }
 
 func validateEdgeVerdicts(verdicts EdgeVerdicts) error {
@@ -794,7 +857,7 @@ func validateEdgeVerdicts(verdicts EdgeVerdicts) error {
 		return fmt.Errorf("too many Edge recent verdicts")
 	}
 	for _, row := range verdicts.Recent {
-		if strings.TrimSpace(row.ChangeID) == "" || !validEdgeAction(row.Action) || row.ExecutedAt.IsZero() || !validEdgeVerdict(row.Verdict) {
+		if strings.TrimSpace(row.ChangeID) == "" || !validEdgeAction(row.Action) || row.ExecutedAt.IsZero() || !validEdgeVerdict(row.Verdict) || !validEdgeChangePosition(row.Position) {
 			return fmt.Errorf("invalid Edge trade verdict")
 		}
 	}

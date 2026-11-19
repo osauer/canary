@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"math"
 	"regexp"
 	"sort"
 	"strconv"
@@ -440,8 +441,8 @@ func renderEdgeOptions(env *Env, result rpc.EdgeResult, paged bool) {
 	}
 }
 
-// edgeVerdictText is the one-line verdict of a decision: the word, the money
-// and what it rests on.
+// edgeVerdictText is the one-line verdict of a stock or ETF decision: the
+// word, the money and the five sessions it rests on.
 func edgeVerdictText(env *Env, verdict rpc.EdgeVerdict, currency string) string {
 	words := map[string]string{"helped": "helped", "hurt": "hurt", "no_difference": "no difference"}
 	word, ok := words[verdict.Label]
@@ -452,23 +453,91 @@ func edgeVerdictText(env *Env, verdict rpc.EdgeVerdict, currency string) string 
 		}
 		return "no verdict: " + reason
 	}
-	basis := "by its position's outcome"
-	if verdict.Basis == "horizon" {
-		basis = "after " + edgeSessionCount(verdict.Sessions)
-	}
-	return fmt.Sprintf("%s %s %s", word, edgeSignedMoney(env, *verdict.ImpactBase, currency), basis)
+	return fmt.Sprintf("%s %s after %s", word, edgeSignedMoney(env, *verdict.ImpactBase, currency), edgeSessionCount(verdict.Sessions))
 }
 
-// renderEdgeVerdicts counts every decision's verdict and lists the newest
-// decisions. Verdict money is per decision and is never totalled.
+// edgeOptionFactText states what an option decision's own position says
+// about it. It is a fact about the fill and carries no helped or hurt: the
+// closed position has the one grade. Nothing here says what the price did
+// after a sale.
+func edgeOptionFactText(action, direction string, position *rpc.EdgeChangePosition) string {
+	if position == nil {
+		return "no position reading"
+	}
+	if position.ResultPct == nil {
+		reasons := map[string]string{
+			"closed_by_delivery":     "closed by exercise or assignment, so no price comparison",
+			"execution_not_retained": "its position is not in the statement history",
+			"opening_unproved":       "its position's opening is not in the statement history",
+			"mark_unavailable":       "contracts still held have no statement value yet",
+			"price_missing":          "a price of its position is missing",
+		}
+		if text := reasons[position.Reason]; text != "" {
+			return text
+		}
+		if position.Reason == "" {
+			return "no position reading"
+		}
+		return "no position reading: " + strings.ReplaceAll(position.Reason, "_", " ")
+	}
+	// ResultPct favours the holder; for a written option the raw price
+	// difference has the opposite sign.
+	difference := *position.ResultPct
+	short := direction == "short"
+	if short {
+		difference = -difference
+	}
+	where := fmt.Sprintf("%.1f%% above", difference)
+	switch {
+	case math.Abs(difference) < 0.05:
+		where = "level with"
+	case difference < 0:
+		where = fmt.Sprintf("%.1f%% below", -difference)
+	}
+	entry := action == "open" || action == "add"
+	held := position.ReferenceKind == "exit_average_and_mark"
+	// An expiry closes contracts at zero, and nothing was sold or bought
+	// back: a position that ended by expiry says so, and one that only
+	// expired says nothing else.
+	expired := position.ClosedBy == "expiry"
+	worthless := expired && math.Abs(difference+100) < 0.05
+	switch {
+	case entry && worthless && short:
+		return "these contracts expired worthless, so you kept what you received"
+	case entry && worthless:
+		return "these contracts expired worthless"
+	case entry && expired && short:
+		return "these contracts were bought back or expired, on average " + where + " what you received"
+	case entry && expired:
+		return "these contracts were sold or expired, on average " + where + " what you paid"
+	case entry && !short && held:
+		return "these contracts were sold since, or stand at the latest statement value, " + where + " what you paid"
+	case entry && !short:
+		return "these contracts were later sold " + where + " what you paid"
+	case entry && held:
+		return "these contracts were bought back since, or stand at the latest statement value, " + where + " what you received"
+	case entry:
+		return "these contracts were later bought back " + where + " what you received"
+	case short:
+		return "bought back " + where + " the position's average price received"
+	default:
+		return "sold " + where + " the position's average cost"
+	}
+}
+
+// renderEdgeVerdicts counts the stock and ETF verdicts by decision and the
+// option grades by closed position, then lists the newest decisions: a stock
+// or ETF decision with its verdict, an option decision with its facts.
+// Verdict money is per decision and is never totalled.
 func renderEdgeVerdicts(env *Env, result rpc.EdgeResult) {
 	verdicts := result.Verdicts
-	if len(verdicts.Counts) == 0 {
+	cycles := result.Options.Cycles
+	if len(verdicts.Counts) == 0 && len(verdicts.Recent) == 0 && cycles.CompletedCount == 0 {
 		return
 	}
 	currency := edgeBaseCurrency(result)
-	fmt.Fprintf(env.Stdout, "\nVerdicts  %s\n", env.dim("per decision, after costs; a result within the decision's own costs is no difference"))
-	names := map[string]string{"STK": "Stocks", "ETF": "ETFs", "OPT": "Options", "CASH": "Currency"}
+	fmt.Fprintf(env.Stdout, "\nVerdicts  %s\n", env.dim("stocks by decision at 5 sessions, after costs; options by closed position"))
+	names := map[string]string{"STK": "Stocks", "ETF": "ETFs", "CASH": "Currency"}
 	for _, row := range verdicts.Counts {
 		name := names[row.AssetClass]
 		if name == "" {
@@ -476,11 +545,25 @@ func renderEdgeVerdicts(env *Env, result rpc.EdgeResult) {
 		}
 		edgeRow(env, name, fmt.Sprintf("%d helped", row.Helped), fmt.Sprintf("%d hurt", row.Hurt), fmt.Sprintf("%d no difference", row.NoDifference), fmt.Sprintf("%d without a verdict", row.None))
 	}
+	if cycles.CompletedCount > 0 {
+		values := []string{fmt.Sprintf("%d of %d closed %s made money", cycles.MadeMoney, cycles.CompletedCount, pluralWord(cycles.CompletedCount, "position", "positions")), fmt.Sprintf("%d lost money", cycles.LostMoney)}
+		if cycles.Flat > 0 {
+			values = append(values, fmt.Sprintf("%d flat", cycles.Flat))
+		}
+		if cycles.Ungraded > 0 {
+			values = append(values, fmt.Sprintf("%d without a grade", cycles.Ungraded))
+		}
+		edgeRow(env, "Options", values...)
+	}
 	for i, row := range verdicts.Recent {
 		if i == 10 {
 			break
 		}
-		edgeRow(env, "  "+row.ExecutedAt.Format("2006-01-02"), fmt.Sprintf("%s %s %s", row.Action, row.Direction, row.Symbol), edgeVerdictText(env, row.Verdict, currency))
+		text := edgeVerdictText(env, row.Verdict, currency)
+		if row.AssetClass == "OPT" {
+			text = edgeOptionFactText(row.Action, row.Direction, row.Position)
+		}
+		edgeRow(env, "  "+row.ExecutedAt.Format("2006-01-02"), fmt.Sprintf("%s %s %s", row.Action, row.Direction, row.Symbol), text)
 	}
 }
 
@@ -788,13 +871,43 @@ func renderEdgeChange(env *Env, change rpc.EdgeChangeDetail, currency string) {
 				value += fmt.Sprintf(" · %+.2f%% of %s", *score.DecisionImpactPct, edgeSignedMoney(env, *score.DecisionNotionalBase, currency))
 			}
 			if score.HorizonDay != nil && score.HorizonClose != nil && score.HorizonFX != nil {
-				value += fmt.Sprintf(" · %s close %.4g FX %.6g", score.HorizonDay.Format(time.DateOnly), *score.HorizonClose, *score.HorizonFX)
+				value += fmt.Sprintf(" · %s %s %.4g FX %.6g", score.HorizonDay.Format(time.DateOnly), edgeCloseSourceWord(score.CloseSource), *score.HorizonClose, *score.HorizonFX)
 			}
 		}
 		fmt.Fprintf(out, "  %-11s  %s\n", edgeSessionCount(score.Sessions), value)
 		if len(score.MarketContext) > 0 {
 			fmt.Fprintln(out, "               "+env.dim(edgeFindingContext(score.MarketContext)))
 		}
+	}
+	if change.AssetClass != "OPT" {
+		edgeRow(env, "Verdict", edgeVerdictText(env, change.Verdict, currency))
+		return
+	}
+	edgeRow(env, "In its position", edgeOptionFactText(change.Action, change.Direction, change.Position))
+	if position := change.Position; position != nil && position.State == "closed" {
+		grades := map[string]string{"made_money": "made money", "lost_money": "lost money", "flat": "ended flat"}
+		grade := grades[position.PositionGrade]
+		if grade == "" {
+			grade = "has no grade"
+		}
+		values := []string{"closed, " + grade}
+		if position.PositionPNLBase != nil {
+			values = append(values, edgeSignedMoney(env, *position.PositionPNLBase, currency)+" booked by the broker")
+		}
+		edgeRow(env, "Position grade", append(values, "the figures above are price readings, not a grade")...)
+	}
+}
+
+// edgeCloseSourceWord names what a horizon close rests on. A quote is said
+// as one: it is the session's last bid/ask midpoint, not a traded price.
+func edgeCloseSourceWord(source string) string {
+	switch source {
+	case "statement_mark":
+		return "statement value"
+	case "closing_quote":
+		return "closing quote"
+	default:
+		return "close"
 	}
 }
 

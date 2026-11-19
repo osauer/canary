@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -266,10 +267,10 @@ func TestEdgeCycleRowsNameLifecycleClose(t *testing.T) {
 	now := result.AsOf
 	gain, loss, flat := 4890.0, -200.0, 0.0
 	total := gain + loss + flat
-	result.Options.Cycles = rpc.EdgeOptionCycles{CompletedCount: 3, CompletePNLCount: 3, Reasons: map[string]int{}, KnownPNLBase: &total, Cycles: []rpc.EdgeOptionCycle{
-		{ID: "option-cycle_a", Symbol: "SYNX 260918C00100000", Direction: "short", OpenedAt: now.AddDate(0, 0, -30), ClosedAt: now.AddDate(0, 0, -2), ClosedBy: "assignment", ExecutionCount: 2, RealizedPNLBase: &gain, PNLStatus: "complete", MissingEvidence: []string{}},
-		{ID: "option-cycle_b", Symbol: "SYNX 260918P00090000", Direction: "long", OpenedAt: now.AddDate(0, 0, -30), ClosedAt: now.AddDate(0, 0, -2), ClosedBy: "expiry", ExecutionCount: 2, RealizedPNLBase: &loss, PNLStatus: "complete", MissingEvidence: []string{}},
-		{ID: "option-cycle_c", Symbol: "SYNX 260918C00110000", Direction: "long", OpenedAt: now.AddDate(0, 0, -30), ClosedAt: now.AddDate(0, 0, -2), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: &flat, PNLStatus: "complete", MissingEvidence: []string{}},
+	result.Options.Cycles = rpc.EdgeOptionCycles{CompletedCount: 3, CompletePNLCount: 3, LostMoney: 1, Flat: 1, Ungraded: 1, Reasons: map[string]int{}, KnownPNLBase: &total, Cycles: []rpc.EdgeOptionCycle{
+		{ID: "option-cycle_a", Symbol: "SYNX 260918C00100000", Direction: "short", OpenedAt: now.AddDate(0, 0, -30), ClosedAt: now.AddDate(0, 0, -2), ClosedBy: "assignment", ExecutionCount: 2, RealizedPNLBase: &gain, PNLStatus: "complete", MissingEvidence: []string{}, Grade: "none", GradeReason: "closed_by_delivery"},
+		{ID: "option-cycle_b", Symbol: "SYNX 260918P00090000", Direction: "long", OpenedAt: now.AddDate(0, 0, -30), ClosedAt: now.AddDate(0, 0, -2), ClosedBy: "expiry", ExecutionCount: 2, RealizedPNLBase: &loss, PNLStatus: "complete", MissingEvidence: []string{}, Grade: "lost_money"},
+		{ID: "option-cycle_c", Symbol: "SYNX 260918C00110000", Direction: "long", OpenedAt: now.AddDate(0, 0, -30), ClosedAt: now.AddDate(0, 0, -2), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: &flat, PNLStatus: "complete", MissingEvidence: []string{}, Grade: "flat"},
 	}}
 	if err := rpc.ValidateEdgeResult(result); err != nil {
 		t.Fatal(err)
@@ -394,29 +395,125 @@ func TestEdgeOptionDecisionsRows(t *testing.T) {
 	}
 }
 
-// Every decision gets one line: the word, the money and what it rests on.
+// A stock decision gets its verdict at five sessions. An option decision gets
+// no helped or hurt: the line states what its own position says about the
+// fill, and the closed positions are counted by their booked result. A
+// written option reads from the seller's side.
 func TestEdgeVerdictRows(t *testing.T) {
 	t.Parallel()
 	result := edgeCLIResult()
-	gain, loss := 1240.0, -860.0
-	result.Verdicts = rpc.EdgeVerdicts{Counts: []rpc.EdgeVerdictCount{{AssetClass: "OPT", Helped: 3, Hurt: 2, None: 1}}, Recent: []rpc.EdgeTradeVerdict{
-		{ChangeID: "change_a", Symbol: "SYNX 260918C00100000", AssetClass: "OPT", Action: "add", Direction: "long", ExecutedAt: result.AsOf.AddDate(0, 0, -3), Verdict: rpc.EdgeVerdict{Label: "helped", Basis: "horizon", Sessions: 5, ImpactBase: &gain}},
-		{ChangeID: "change_b", Symbol: "SYNX 260918C00100000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: result.AsOf.AddDate(0, 0, -2), Verdict: rpc.EdgeVerdict{Label: "hurt", Basis: "position", ImpactBase: &loss}},
-		{ChangeID: "change_c", Symbol: "SYNX", AssetClass: "STK", Action: "open", Direction: "long", ExecutedAt: result.AsOf.AddDate(0, 0, -1), Verdict: rpc.EdgeVerdict{Label: "none", Reason: "missing_horizon"}},
+	gain := 1240.0
+	graded := rpc.EdgeVerdict{Label: "none", Reason: "graded_by_position"}
+	fact := func(grade, kind string, pct float64) *rpc.EdgeChangePosition {
+		state := "closed"
+		if grade == "" {
+			state = "open"
+		}
+		return &rpc.EdgeChangePosition{State: state, PositionID: "option-cycle_a", PositionGrade: grade, ReferenceKind: kind, ResultPct: &pct}
+	}
+	at := result.AsOf
+	result.Verdicts = rpc.EdgeVerdicts{Counts: []rpc.EdgeVerdictCount{{AssetClass: "STK", Helped: 3, Hurt: 2, None: 1}}, Recent: []rpc.EdgeTradeVerdict{
+		{ChangeID: "change_a", Symbol: "SYNX 260918C00100000", AssetClass: "OPT", Action: "add", Direction: "long", ExecutedAt: at.AddDate(0, 0, -3), Verdict: graded, Position: fact("made_money", "exit_average", 22)},
+		{ChangeID: "change_b", Symbol: "SYNX 260918C00100000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: at.AddDate(0, 0, -2), Verdict: graded, Position: fact("made_money", "entry_average", -14)},
+		{ChangeID: "change_c", Symbol: "SYNX 260918P00090000", AssetClass: "OPT", Action: "open", Direction: "short", ExecutedAt: at.AddDate(0, 0, -2), Verdict: graded, Position: fact("", "exit_average_and_mark", 30)},
+		{ChangeID: "change_d", Symbol: "SYNX 260918P00090000", AssetClass: "OPT", Action: "trim", Direction: "short", ExecutedAt: at.AddDate(0, 0, -2), Verdict: graded, Position: fact("", "entry_average", 40)},
+		{ChangeID: "change_e", Symbol: "SYNX 260918C00110000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: at.AddDate(0, 0, -2), Verdict: graded, Position: &rpc.EdgeChangePosition{State: "closed", PositionGrade: "none", Reason: "closed_by_delivery", ClosedBy: "exercise"}},
+		// Positions that ended by expiry: nothing was sold or bought back at zero.
+		{ChangeID: "change_h", Symbol: "SYNX 260821P00080000", AssetClass: "OPT", Action: "open", Direction: "long", ExecutedAt: at.AddDate(0, 0, -20), Verdict: graded, Position: &rpc.EdgeChangePosition{State: "closed", ClosedBy: "expiry", PositionGrade: "lost_money", ReferenceKind: "exit_average", ResultPct: new(-100.0)}},
+		{ChangeID: "change_i", Symbol: "SYNX 260821C00130000", AssetClass: "OPT", Action: "open", Direction: "short", ExecutedAt: at.AddDate(0, 0, -20), Verdict: graded, Position: &rpc.EdgeChangePosition{State: "closed", ClosedBy: "expiry", PositionGrade: "made_money", ReferenceKind: "exit_average", ResultPct: new(100.0)}},
+		{ChangeID: "change_j", Symbol: "SYNX 260821P00085000", AssetClass: "OPT", Action: "add", Direction: "long", ExecutedAt: at.AddDate(0, 0, -20), Verdict: graded, Position: &rpc.EdgeChangePosition{State: "closed", ClosedBy: "expiry", PositionGrade: "lost_money", ReferenceKind: "exit_average", ResultPct: new(-60.0)}},
+		{ChangeID: "change_f", Symbol: "SYNX", AssetClass: "STK", Action: "add", Direction: "long", ExecutedAt: at.AddDate(0, 0, -9), Verdict: rpc.EdgeVerdict{Label: "helped", Basis: "horizon", Sessions: 5, ImpactBase: &gain}},
+		{ChangeID: "change_g", Symbol: "SYNX", AssetClass: "STK", Action: "open", Direction: "long", ExecutedAt: at.AddDate(0, 0, -1), Verdict: rpc.EdgeVerdict{Label: "none", Reason: "missing_horizon"}},
 	}}
+	result.Options.Cycles = rpc.EdgeOptionCycles{CompletedCount: 5, CompletePNLCount: 5, MadeMoney: 3, LostMoney: 1, Ungraded: 1, Reasons: map[string]int{}, Cycles: []rpc.EdgeOptionCycle{}}
+	for i, grade := range []string{"made_money", "made_money", "made_money", "lost_money", "none"} {
+		booked, reason, closedBy := 100.0, "", "trade"
+		switch grade {
+		case "lost_money":
+			booked = -100
+		case "none":
+			reason, closedBy = "closed_by_delivery", "exercise"
+		}
+		result.Options.Cycles.Cycles = append(result.Options.Cycles.Cycles, rpc.EdgeOptionCycle{ID: fmt.Sprintf("option-cycle_%d", i), Symbol: "SYNX 260918C00100000", Direction: "long", OpenedAt: at.AddDate(0, 0, -30), ClosedAt: at.AddDate(0, 0, -2), ClosedBy: closedBy, ExecutionCount: 2, RealizedPNLBase: &booked, PNLStatus: "complete", MissingEvidence: []string{}, Grade: grade, GradeReason: reason})
+	}
 	if err := rpc.ValidateEdgeResult(result); err != nil {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
 	renderEdgeText(&Env{Stdout: &out}, result)
 	got := strings.Join(strings.Fields(out.String()), " ")
-	for _, want := range []string{"3 helped", "2 hurt", "1 without a verdict", "helped $ 1,240.00 after 5 sessions", "by its position's outcome", "no verdict: missing horizon"} {
+	for _, want := range []string{
+		"Stocks · 3 helped · 2 hurt · 0 no difference · 1 without a verdict",
+		"Options · 3 of 5 closed positions made money · 1 lost money · 1 without a grade",
+		"these contracts were later sold 22.0% above what you paid",
+		"sold 14.0% below the position's average cost",
+		"these contracts were bought back since, or stand at the latest statement value, 30.0% below what you received",
+		"bought back 40.0% below the position's average price received",
+		"closed by exercise or assignment, so no price comparison",
+		"open long SYNX 260821P00080000 · these contracts expired worthless",
+		"these contracts expired worthless, so you kept what you received",
+		"these contracts were sold or expired, on average 60.0% below what you paid",
+		"helped $ 1,240.00 after 5 sessions",
+		"no verdict: missing horizon",
+	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in:\n%s", want, out.String())
 		}
 	}
-	result.Verdicts.Recent[0].Verdict.ImpactBase = nil
+	// No option line carries a verdict word, whatever its position did.
+	for line := range strings.SplitSeq(out.String(), "\n") {
+		if strings.Contains(line, "260918") && (strings.Contains(line, "helped") || strings.Contains(line, "hurt")) {
+			t.Fatalf("an option decision is graded: %q", line)
+		}
+	}
+	// The contract refuses a verdict resting on anything but five sessions.
+	result.Verdicts.Recent[8].Verdict.Sessions = 1
 	if err := rpc.ValidateEdgeResult(result); err == nil {
-		t.Fatal("a verdict without its figure validated")
+		t.Fatal("a one-session verdict validated")
+	}
+	result.Verdicts.Recent[8].Verdict = rpc.EdgeVerdict{Label: "hurt", Basis: "position", ImpactBase: &gain}
+	if err := rpc.ValidateEdgeResult(result); err == nil {
+		t.Fatal("a verdict on the position's outcome validated")
+	}
+}
+
+// The detail of an option sale shows what the contract was quoted at
+// afterwards as a price reading that names its source, states the fill
+// against its position, and gives the position's grade. It carries no helped
+// or hurt, however the quote moved: this sale closed a position that made
+// money and the contract was quoted higher five sessions later.
+func TestEdgeChangeDetailGradesThePositionNotTheSale(t *testing.T) {
+	t.Parallel()
+	day := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	money := func(v float64) *float64 { return &v }
+	sale := rpc.EdgeChangeDetail{ID: "change_sale", Symbol: "SYNX 260918C00100000", AssetClass: "OPT", Action: "exit", Direction: "long", ExecutedAt: day.AddDate(0, 0, -7),
+		DeltaQuantity: -2, PositionBefore: 2, ExecutionVWAP: money(3), Multiplier: money(100), DirectCostsBase: money(2),
+		Scores: []rpc.EdgeHorizonScore{
+			{Sessions: 1, HorizonDay: &day, HorizonClose: money(3.5), CloseSource: "statement_mark", HorizonFX: money(1), DecisionNotionalBase: money(600), DecisionImpactBase: money(-102), DecisionImpactPct: money(-17)},
+			{Sessions: 5, HorizonDay: &day, HorizonClose: money(9), CloseSource: "closing_quote", HorizonFX: money(1), DecisionNotionalBase: money(600), DecisionImpactBase: money(-1202), DecisionImpactPct: money(-200.33)},
+			{Sessions: 20, Reason: "missing_horizon"},
+		},
+		Verdict:  rpc.EdgeVerdict{Label: "none", Reason: "graded_by_position"},
+		Position: &rpc.EdgeChangePosition{State: "closed", PositionID: "option-cycle_a", ClosedBy: "trade", PositionGrade: "made_money", PositionPNLBase: money(196), ReferenceKind: "entry_average", ResultPct: money(50)},
+	}
+	var out bytes.Buffer
+	renderEdgeChange(&Env{Stdout: &out}, sale, "USD")
+	got := strings.Join(strings.Fields(out.String()), " ")
+	for _, want := range []string{"statement value 3.5", "closing quote 9", "In its position · sold 50.0% above the position's average cost", "Position grade · closed, made money · $ 196.00 booked by the broker"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in:\n%s", want, out.String())
+		}
+	}
+	if strings.Contains(got, "hurt") || strings.Contains(got, "helped") || strings.Contains(got, "Verdict") {
+		t.Fatalf("an option sale is graded:\n%s", out.String())
+	}
+	stock := sale
+	stock.Symbol, stock.AssetClass, stock.Position = "SYNX", "STK", nil
+	stock.Scores = []rpc.EdgeHorizonScore{{Sessions: 5, HorizonDay: &day, HorizonClose: money(9), CloseSource: "daily_bar", HorizonFX: money(1), DecisionNotionalBase: money(600), DecisionImpactBase: money(-1202), DecisionImpactPct: money(-200.33)}}
+	stock.Verdict = rpc.EdgeVerdict{Label: "hurt", Basis: "horizon", Sessions: 5, ImpactBase: money(-1202)}
+	out.Reset()
+	renderEdgeChange(&Env{Stdout: &out}, stock, "USD")
+	if got := strings.Join(strings.Fields(out.String()), " "); !strings.Contains(got, "Verdict · hurt -$ 1,202.00 after 5 sessions") || !strings.Contains(got, "close 9") {
+		t.Fatalf("stock detail:\n%s", out.String())
 	}
 }

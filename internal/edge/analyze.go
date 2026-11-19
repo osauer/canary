@@ -139,6 +139,15 @@ func Analyze(input Input) (Result, error) {
 	for _, group := range groups {
 		groupByKey[group.key] = group
 	}
+	// An expiry is how a position closed, not a decision (owner, 2026-11-19
+	// 19:45 CET): its booked execution moves the position and feeds the
+	// position's grade, and it is no change, so it is in no count.
+	expiries := map[string]bool{}
+	for _, event := range ev.optionEvents {
+		if event.TradeID != "" && optionCycleCloser(event.TransactionType) == "expiry" {
+			expiries[lifecycleTradeKey(event.ConID, event.TradeID)] = true
+		}
+	}
 	for _, mutation := range mutations {
 		if mutation.kind != "trade" {
 			positions[mutation.conid] += mutation.delta
@@ -151,6 +160,9 @@ func Analyze(input Input) (Result, error) {
 		before := positions[group.conid]
 		parts := classifyChange(before, group.delta)
 		positions[group.conid] = before + group.delta
+		if slices.ContainsFunc(group.tradeIDs, func(id string) bool { return expiries[lifecycleTradeKey(group.conid, id)] }) {
+			continue
+		}
 		for _, part := range parts {
 			if !inStatementWindow(group.statementDay, windowStart, asOf) {
 				continue
@@ -634,7 +646,7 @@ func buildScoringIndex(input Input, mutations []mutation, ev evidence) scoringIn
 		if !strings.EqualFold(position.AssetClass, "OPT") || position.ConID == 0 || position.MarkPrice == nil || *position.MarkPrice <= 0 || position.ReportDate.IsZero() {
 			continue
 		}
-		marks[position.ConID] = append(marks[position.ConID], DailyBar{ConID: position.ConID, Day: position.ReportDate, Close: *position.MarkPrice})
+		marks[position.ConID] = append(marks[position.ConID], DailyBar{ConID: position.ConID, Day: position.ReportDate, Close: *position.MarkPrice, Source: CloseSourceStatementMark})
 	}
 	for conid, bars := range marks {
 		index.rawBarsByConID[conid] = true
@@ -859,6 +871,15 @@ func scoreHorizon(change Change, group groupedTrade, sessions int, input Input, 
 	}
 	day, close := bar.Day, bar.Close
 	score.HorizonDay, score.HorizonClose = &day, &close
+	score.CloseSource = bar.Source
+	if score.CloseSource == "" {
+		// A fetched series is closing trade bars for a stock or ETF and
+		// closing bid/ask midpoints for an option.
+		score.CloseSource = CloseSourceDailyBar
+		if strings.EqualFold(group.assetClass, "OPT") {
+			score.CloseSource = CloseSourceClosingQuote
+		}
+	}
 	if reason := interveningReason(group, bar.Day, index.mutationsByConID[group.conid]); reason != "" {
 		score.Reason = reason
 		return score

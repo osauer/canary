@@ -73,6 +73,8 @@ type EdgeProtectionContext struct {
 // EdgeOptionCycles describes proven exact-contract positions opened and fully
 // closed inside the review window. It does not infer multi-leg strategies.
 // Cycles is one page; the counts and known total describe every cycle.
+// MadeMoney, LostMoney, Flat and Ungraded count every cycle by its grade and
+// add up to CompletedCount.
 type EdgeOptionCycles struct {
 	Truncated         bool              `json:"truncated"`
 	Offset            int               `json:"offset"`
@@ -81,6 +83,10 @@ type EdgeOptionCycles struct {
 	CompletePNLCount  int               `json:"complete_pnl_count"`
 	OpenContractCount int               `json:"open_contract_count"`
 	ExcludedContracts int               `json:"excluded_contracts"`
+	MadeMoney         int               `json:"made_money"`
+	LostMoney         int               `json:"lost_money"`
+	Flat              int               `json:"flat"`
+	Ungraded          int               `json:"ungraded"`
 	Reasons           map[string]int    `json:"reasons"`
 	KnownPNLBase      *float64          `json:"known_pnl_base,omitempty"`
 	Cycles            []EdgeOptionCycle `json:"cycles"`
@@ -90,6 +96,11 @@ type EdgeOptionCycles struct {
 // ClosedBy is how the flattening execution closed it: trade, expiry,
 // exercise or assignment. After an exercise or assignment the realized P/L is
 // the option leg's as the broker reports it; the stock leg is not included.
+// Grade is the position's one grade, the sign of the broker's complete
+// realized result: made_money, lost_money or flat. It is none, with
+// GradeReason, after an exercise or assignment (closed_by_delivery) and when
+// the realized result is incomplete (result_incomplete). No price read after
+// a trade enters the grade.
 type EdgeOptionCycle struct {
 	ID                    string    `json:"id"`
 	Symbol                string    `json:"symbol"`
@@ -102,6 +113,8 @@ type EdgeOptionCycle struct {
 	PNLStatus             string    `json:"pnl_status"`
 	MissingEvidence       []string  `json:"missing_evidence"`
 	LinkedProtectionCount int       `json:"linked_protection_count"`
+	Grade                 string    `json:"grade"`
+	GradeReason           string    `json:"grade_reason,omitempty"`
 }
 
 func validateEdgeLearning(result EdgeResult) error {
@@ -217,8 +230,16 @@ func validateEdgeLearning(result EdgeResult) error {
 	if c.CompletedCount < 0 || c.CompletePNLCount < 0 || c.CompletePNLCount > c.CompletedCount || c.OpenContractCount < 0 || c.ExcludedContracts < 0 || !validEdgeOptionPage(c.CompletedCount, c.Offset, len(c.Cycles), c.NextOffset) || c.Truncated != (len(c.Cycles) < c.CompletedCount) || !edgeLearningAmount(c.KnownPNLBase) {
 		return fmt.Errorf("invalid Edge option cycles")
 	}
+	if c.MadeMoney < 0 || c.LostMoney < 0 || c.Flat < 0 || c.Ungraded < 0 || c.MadeMoney+c.LostMoney+c.Flat+c.Ungraded != c.CompletedCount {
+		return fmt.Errorf("invalid Edge option cycle grades")
+	}
 	ids := map[string]bool{}
 	for _, row := range c.Cycles {
+		graded := row.Grade == "made_money" || row.Grade == "lost_money" || row.Grade == "flat"
+		if !validEdgeOptionGrade(row.Grade) || graded != (row.GradeReason == "") || graded && (row.PNLStatus != "complete" || row.RealizedPNLBase == nil) ||
+			row.Grade == "made_money" && *row.RealizedPNLBase <= 0 || row.Grade == "lost_money" && *row.RealizedPNLBase >= 0 {
+			return fmt.Errorf("invalid Edge option cycle grade")
+		}
 		if !strings.HasPrefix(row.ID, "option-cycle_") || ids[row.ID] || row.Symbol == "" || !validEdgeDirection(row.Direction) || row.OpenedAt.IsZero() || row.ClosedAt.Before(row.OpenedAt) || !validEdgeCycleCloser(row.ClosedBy) || row.ExecutionCount < 2 || row.LinkedProtectionCount < 0 || row.LinkedProtectionCount > row.ExecutionCount || !edgeLearningAmount(row.RealizedPNLBase) {
 			return fmt.Errorf("invalid Edge option cycle")
 		}

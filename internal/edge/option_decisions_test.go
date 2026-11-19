@@ -104,9 +104,11 @@ func TestUnprovedOptionPositionCarriesAReason(t *testing.T) {
 	}
 }
 
-// An option that expires worthless was sold at zero: a full loss on its
-// entry cost, counted on the sale side like any other sale.
-func TestExpiredOptionIsAZeroPriceSale(t *testing.T) {
+// A close the broker books at zero is a full loss on the entry cost, read on
+// the closing side like any other close. (An expiry reported with its
+// lifecycle row is no decision at all:
+// TestLifecycleClosedOptionCyclesAreCompleted.)
+func TestACloseBookedAtZeroIsAFullLossOnEntryCost(t *testing.T) {
 	result := optionDecisionResult(t, []float64{1, -1}, []string{"O", "C"}, []float64{2, 0}, 0, nil)
 	open, exit := result.Changes[0].Position, result.Changes[1].Position
 	if !nearPtr(open.ResultPct, -100) || !nearPtr(open.ResultBase, -200) || !nearPtr(exit.ResultPct, -100) || !nearPtr(exit.ResultBase, -200) || exit.LaterExitPct != nil {
@@ -115,8 +117,9 @@ func TestExpiredOptionIsAZeroPriceSale(t *testing.T) {
 }
 
 // An option decision is scored like a stock decision, with the broker's
-// statement mark as the close on the Nth market session. A mark on any other
-// day is not that horizon, and the verdict follows the figure.
+// statement mark as the close on the Nth market session, and the score says
+// it rests on a mark. A mark on any other day is not that horizon. The
+// figure is no verdict: an option's position is graded, not its fills.
 func TestOptionDecisionIsScoredFromStatementMarks(t *testing.T) {
 	st := cycleTestStatement([]float64{2}, []string{"O"}, 2)
 	st.Positions[0].MarkPrice = new(float64(9))
@@ -136,53 +139,111 @@ func TestOptionDecisionIsScoredFromStatementMarks(t *testing.T) {
 	change := result.Changes[0]
 	one, five := change.Scores[0], change.Scores[1]
 	// Two contracts bought at 2, marked 3 one session later, one of costs.
-	if one.DecisionImpactBase == nil || math.Abs(*one.DecisionImpactBase-(2*100*(3-2)-1)) > 1e-6 {
+	if one.DecisionImpactBase == nil || math.Abs(*one.DecisionImpactBase-(2*100*(3-2)-1)) > 1e-6 || one.CloseSource != CloseSourceStatementMark {
 		t.Fatalf("one session=%+v", one)
 	}
 	// The fifth session is the 12th. The mark of the 9th is not its close.
 	if five.DecisionImpactBase != nil || five.Reason != ReasonMissingHorizon {
 		t.Fatalf("five sessions=%+v", five)
 	}
-	if v := change.Verdict; v.Label != VerdictHelped || v.Basis != VerdictBasisHorizon || v.Sessions != 1 || v.ImpactBase == nil {
-		t.Fatalf("verdict=%+v", v)
+	if v := change.Verdict; v.Label != VerdictNone || v.Reason != VerdictGradedByPosition || v.ImpactBase != nil {
+		t.Fatalf("verdict=%+v, want none: the position is graded", v)
 	}
 	if result.Coverage.EligibleChanges != 1 || result.Coverage.ScoredByHorizon[1] != 1 {
 		t.Fatalf("coverage=%+v", result.Coverage)
 	}
 }
 
-// A result no larger than the decision's own costs is no difference, and a
-// decision with no figure says why.
+// A stock or ETF verdict rests on the five-session figure alone. A price move
+// within the decision's own costs is no difference in either direction; the
+// figures below are after costs of 5, so the move is the figure plus 5.
 func TestVerdictLabels(t *testing.T) {
-	impact := func(v float64) []HorizonScore { return []HorizonScore{{Sessions: 5, DecisionImpactBase: &v}} }
+	five := func(v float64) []HorizonScore { return []HorizonScore{{Sessions: 5, DecisionImpactBase: &v}} }
 	for _, tc := range []struct {
+		name   string
 		change Change
 		want   string
 	}{
-		{Change{DirectCostsBase: new(float64(5)), Scores: impact(4)}, VerdictNoDifference},
-		{Change{DirectCostsBase: new(float64(5)), Scores: impact(40)}, VerdictHelped},
-		{Change{DirectCostsBase: new(float64(5)), Scores: impact(-40)}, VerdictHurt},
-		{Change{Scores: []HorizonScore{{Sessions: 5, Reason: ReasonInterveningChange}}, Position: &PositionOutcome{ResultBase: new(float64(-90))}}, VerdictHurt},
-		{Change{Scores: []HorizonScore{{Sessions: 5, Reason: ReasonInterveningChange}}}, VerdictNone},
+		{"a gain beyond costs", Change{DirectCostsBase: new(float64(5)), Scores: five(40)}, VerdictHelped},
+		{"a loss beyond costs", Change{DirectCostsBase: new(float64(5)), Scores: five(-40)}, VerdictHurt},
+		// A move of +6 and of -6: the old band read the first as no
+		// difference and the second as hurt.
+		{"a gain just beyond costs", Change{DirectCostsBase: new(float64(5)), Scores: five(1)}, VerdictHelped},
+		{"a loss just beyond costs", Change{DirectCostsBase: new(float64(5)), Scores: five(-11)}, VerdictHurt},
+		// A move of +2 and of -3.
+		{"a gain within costs", Change{DirectCostsBase: new(float64(5)), Scores: five(-3)}, VerdictNoDifference},
+		{"a loss within costs", Change{DirectCostsBase: new(float64(5)), Scores: five(-8)}, VerdictNoDifference},
 	} {
-		if got := changeVerdict(tc.change); got.Label != tc.want || tc.want == VerdictNone && got.Reason != ReasonInterveningChange {
-			t.Fatalf("verdict=%+v want %s", got, tc.want)
+		if got := changeVerdict(tc.change); got.Label != tc.want || got.Sessions != VerdictSessions || got.Basis != VerdictBasisHorizon {
+			t.Fatalf("%s: verdict=%+v want %s at five sessions", tc.name, got, tc.want)
 		}
 	}
 }
 
-// A decision with no figure names the nearest cause: where an option's own
-// position cannot be read either, its reason is the one served, not the
-// horizon's. An exercised option used to read "query field missing".
-func TestVerdictWithoutAFigureNamesThePositionReason(t *testing.T) {
-	change := Change{AssetClass: "OPT", Scores: []HorizonScore{{Sessions: 1, Reason: ReasonQueryFieldMissing}, {Sessions: 5, Reason: ReasonQueryFieldMissing}},
-		Position: &PositionOutcome{Reason: "closed_by_delivery"}}
-	if got := changeVerdict(change); got.Label != VerdictNone || got.Reason != "closed_by_delivery" {
-		t.Fatalf("verdict=%+v, want none with the position's reason", got)
+// A verdict never changes its measure. With no five-session figure a stock
+// decision has no verdict and gives that horizon's reason, whatever the one
+// session figure says: the fallback to it called a decision helped one day
+// and hurt four days later.
+func TestStockVerdictDoesNotFallBackToOneSession(t *testing.T) {
+	change := Change{AssetClass: "STK", DirectCostsBase: new(float64(1)), Scores: []HorizonScore{
+		{Sessions: 1, DecisionImpactBase: new(float64(300))},
+		{Sessions: 5, Reason: ReasonMissingHorizon},
+	}}
+	if got := changeVerdict(change); got.Label != VerdictNone || got.Reason != ReasonMissingHorizon || got.ImpactBase != nil {
+		t.Fatalf("verdict=%+v, want none with the five-session reason", got)
 	}
-	change.Position = nil
-	if got := changeVerdict(change); got.Label != VerdictNone || got.Reason != ReasonQueryFieldMissing {
-		t.Fatalf("verdict=%+v, want the horizon's reason without a position", got)
+}
+
+// Profit grades the position, and a price read after a trade grades
+// nothing. The position below was bought at 2 and sold out at 3; the broker
+// booked +20 for it. Closing quotes read after the sale put the contract at
+// 9, which until 2026-11-19 turned the final sale from helped to hurt. The
+// quotes change no grade and no verdict, and the scores they fill say they
+// rest on a quote.
+func TestFetchedClosesChangeNoOptionGrade(t *testing.T) {
+	var calendar []DailyBar
+	for i := range 12 {
+		calendar = append(calendar, DailyBar{Day: day("2026-01-05").AddDate(0, 0, i), Close: 100})
+	}
+	run := func(bars map[int64][]DailyBar) Result {
+		st := cycleTestStatement([]float64{2, -2}, []string{"O", "C"}, 0)
+		st.Trades[0].Price, st.Trades[1].Price = new(float64(2)), new(float64(3))
+		result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: bars, ContextBars: map[string][]DailyBar{"SPY": calendar}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+	var quotes []DailyBar
+	for i := 1; i < 12; i++ {
+		quotes = append(quotes, DailyBar{ConID: 456, Day: day("2026-01-05").AddDate(0, 0, i), Close: 9})
+	}
+	before, after := run(nil), run(map[int64][]DailyBar{456: quotes})
+	for _, result := range []Result{before, after} {
+		cycles := result.Options.Cycles
+		if len(cycles.Cycles) != 1 || cycles.MadeMoney != 1 || cycles.LostMoney+cycles.Flat+cycles.Ungraded != 0 {
+			t.Fatalf("cycles=%+v, want one position that made money", cycles)
+		}
+		// The grade is the sign of the broker's realized result, 10 on the
+		// one closing execution, and of nothing else.
+		if row := cycles.Cycles[0]; row.Grade != OptionGradeMadeMoney || row.RealizedPNLBase == nil || *row.RealizedPNLBase != 10 {
+			t.Fatalf("cycle=%+v, want made_money on the broker's 10", row)
+		}
+		if len(result.Changes) != 2 || len(result.Verdicts) != 0 {
+			t.Fatalf("changes=%d verdict counts=%+v, want two option fills and no fill counted", len(result.Changes), result.Verdicts)
+		}
+		for _, change := range result.Changes {
+			if change.Verdict.Label != VerdictNone || change.Verdict.Reason != VerdictGradedByPosition || change.Position.PositionGrade != OptionGradeMadeMoney {
+				t.Fatalf("change=%+v, want no verdict and the position's grade", change)
+			}
+		}
+	}
+	sale := after.Changes[1].Scores[1]
+	if sale.Sessions != 5 || sale.DecisionImpactBase == nil || *sale.DecisionImpactBase >= 0 || sale.CloseSource != CloseSourceClosingQuote {
+		t.Fatalf("five sessions after the sale=%+v, want a negative figure resting on a closing quote", sale)
+	}
+	if got := before.Changes[1].Scores[1]; got.DecisionImpactBase != nil {
+		t.Fatalf("without quotes the sale has a five-session figure: %+v", got)
 	}
 }
 

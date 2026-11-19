@@ -132,7 +132,7 @@ func edgeOptionPagingReview() edgecore.OptionReview {
 	}
 	for i := range 45 {
 		value := float64(500 - i)
-		cycles = append(cycles, edgecore.OptionCycle{ID: fmt.Sprintf("option-cycle_c%02d", i), Symbol: "SYNX CALL", Direction: edgecore.DirectionLong, OpenedAt: day, ClosedAt: day.AddDate(0, 0, 1), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: &value, PNLStatus: edgecore.OptionPNLComplete, MissingEvidence: []string{}})
+		cycles = append(cycles, edgecore.OptionCycle{ID: fmt.Sprintf("option-cycle_c%02d", i), Symbol: "SYNX CALL", Direction: edgecore.DirectionLong, OpenedAt: day, ClosedAt: day.AddDate(0, 0, 1), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: &value, PNLStatus: edgecore.OptionPNLComplete, MissingEvidence: []string{}, Grade: edgecore.OptionGradeMadeMoney})
 	}
 	for i := range 25 {
 		value := float64(-100 + i)
@@ -142,7 +142,7 @@ func edgeOptionPagingReview() edgecore.OptionReview {
 	for _, row := range cycles {
 		total += *row.RealizedPNLBase
 	}
-	out := edgecore.OptionReview{Cycles: edgecore.OptionCycles{CompletedCount: 45, CompletePNLCount: 45, Reasons: map[string]int{}, KnownPNLBase: &total, Cycles: cycles}}
+	out := edgecore.OptionReview{Cycles: edgecore.OptionCycles{CompletedCount: 45, CompletePNLCount: 45, MadeMoney: 45, Reasons: map[string]int{}, KnownPNLBase: &total, Cycles: cycles}}
 	realized := edgecore.OptionRealizedReview{Episodes: episodes, KnownPNLBase: new(0.0)}
 	for _, row := range episodes {
 		if row.RealizedPNLBase == nil {

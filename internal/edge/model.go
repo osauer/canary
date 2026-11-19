@@ -110,7 +110,21 @@ type DailyBar struct {
 	ConID int64     `json:"conid"`
 	Day   time.Time `json:"day"`
 	Close float64   `json:"close"`
+	// Source is one of the CloseSource values; empty means the kind the
+	// contract's fetched series has (scoreHorizon).
+	Source string `json:"source,omitempty"`
 }
+
+// What a horizon close rests on. A statement mark is the broker's own
+// valuation of a held option; a closing quote is the last bid/ask midpoint of
+// the session, read for an option after it left the account, and can sit far
+// from a price a thin contract could have traded at; a daily bar is the
+// broker's closing trade bar of a stock or ETF.
+const (
+	CloseSourceStatementMark = "statement_mark"
+	CloseSourceClosingQuote  = "closing_quote"
+	CloseSourceDailyBar      = "daily_bar"
+)
 
 // Input contains only typed, already-retained broker evidence and regenerable
 // daily bars. WindowDays is 90 or 365.
@@ -179,7 +193,8 @@ type Change struct {
 	// Position is set for option changes only: the outcome of the
 	// flat-to-flat position the decision belonged to.
 	Position *PositionOutcome `json:"position,omitempty"`
-	// Verdict is the one-word reading of the decision.
+	// Verdict is the one-word reading of a stock or ETF decision. An option
+	// decision has none: its position is graded, not the fill.
 	Verdict Verdict `json:"verdict"`
 }
 
@@ -192,6 +207,7 @@ type HorizonScore struct {
 	Sessions             int             `json:"sessions"`
 	HorizonDay           *time.Time      `json:"horizon_day,omitempty"`
 	HorizonClose         *float64        `json:"horizon_close,omitempty"`
+	CloseSource          string          `json:"close_source,omitempty"`
 	HorizonFX            *float64        `json:"horizon_fx,omitempty"`
 	DecisionNotionalBase *float64        `json:"decision_notional_base,omitempty"`
 	DecisionImpactBase   *float64        `json:"decision_impact_base,omitempty"`
@@ -408,7 +424,7 @@ func defaultMethod() Method {
 		MarketContext:       "For SPY, QQQ, DIA, and VIX, compare the last daily close before the execution session with the close on the decision horizon day. QQQ and DIA are ETF proxies. Context is informational and never changes Decision price impact.",
 		AccountDefinition:   "Ending equity minus starting equity minus statement-confirmed external flows.",
 		Exclusions:          "Decision price impact excludes distributions, financing and borrow, market impact, and effects outside the fixed price-path comparison.",
-		OptionsMethod:       "Proven exact-contract flat-to-flat positions opened and closed inside the window are a subset of broker-reported realized option episodes; a close by expiry, exercise or assignment counts once with the broker's realized P/L for the option leg, never a stock-leg P/L. Both are separate from the latest dated open-position P/L snapshot. Opening-only zero-P/L executions remain coverage, gains and losses are seated before magnitude ranking, missing evidence is never zero-filled, and no historical option counterfactual or cross-order strategy identity is synthesized. Each option decision is also read against its own flat-to-flat position from broker executions: an open or add compares the price paid with the average price the position's contracts were closed at, with contracts still held valued at the latest statement mark; a trim or exit compares the price taken with the position's average entry price and, where contracts were closed later, with the average price those fetched. Entry readings and exit readings describe the same booked money and are never added together. A position closed by exercise or assignment, or without a proven opening, carries no price reading. Option decisions also carry Decision price impact: the close on the horizon session is the broker's statement mark for a contract held that day, or else the session's closing bid/ask midpoint read from IBKR, which is a quote and not a traded price; a contract with neither on that exact session has no figure. Every decision carries a verdict: helped, hurt or no difference (a result no larger than the decision's own costs) from Decision price impact after costs at five sessions, else at one session, else, for an option, from the outcome of its own position.",
+		OptionsMethod:       "Proven exact-contract flat-to-flat positions opened and closed inside the window are a subset of broker-reported realized option episodes; a close by expiry, exercise or assignment counts once with the broker's realized P/L for the option leg, never a stock-leg P/L. Both are separate from the latest dated open-position P/L snapshot. Opening-only zero-P/L executions remain coverage, gains and losses are seated before magnitude ranking, missing evidence is never zero-filled, and no historical option counterfactual or cross-order strategy identity is synthesized. Each option decision is also read against its own flat-to-flat position from broker executions: an open or add compares the price paid with the average price the position's contracts were closed at, with contracts still held valued at the latest statement mark; a trim or exit compares the price taken with the position's average entry price and, where contracts were closed later, with the average price those fetched. Entry readings and exit readings describe the same booked money and are never added together. A position closed by exercise or assignment, or without a proven opening, carries no price reading. Option decisions also carry Decision price impact: the close on the horizon session is the broker's statement mark for a contract held that day, or else the session's closing bid/ask midpoint read from IBKR, which is a quote and not a traded price; a contract with neither on that exact session has no figure. A stock or ETF decision carries a verdict: helped, hurt or no difference (a price move within the decision's own costs, either way) from Decision price impact after costs at five sessions and from nothing else; with no five-session figure it has no verdict and says why. An option decision carries no verdict. Its position is graded once it is closed, by the sign of the broker's realized result for the whole position: made money, lost money or flat; a position closed by exercise or assignment has no grade, and an expiry is how a position closed, not a decision. No price read after an option trade enters a grade.",
 		NoCausalClaim:       true,
 		NoPredictiveClaim:   true,
 		NotInvestmentAdvice: true,

@@ -27,16 +27,24 @@ Findings  by absolute impact at 20 sessions; not the headline group
         $ 99.00    +9.00%  DEF add  change_def
         $ 98.00    +8.00%  GHI add  change_ghi
 
-Verdicts  per decision, after costs; a result within the decision's own costs is no difference
-  Options · 4 helped · 5 hurt · 1 no difference · 1 without a verdict
+Verdicts  stocks by decision at 5 sessions, after costs; options by closed position
   Stocks · 3 helped · 2 hurt · 1 no difference · 2 without a verdict
-  2026-08-21 · add long SYNA 260821C00115000 · helped $ 1,240.00 after 5
-    sessions
-  2026-08-19 · exit long SYNB 260918P00090000 · hurt -$ 860.00 by its
-    position's outcome
-  2026-08-18 · trim long SYNC · no difference -$ 1.20 after 1 session
-  2026-08-14 · exit long SYNA 260821P00100000 · no verdict: closed by delivery
+  Options · 2 of 5 closed positions made money · 1 lost money · 2 without a
+    grade
+  2026-08-21 · add long SYNC 261016C00050000 · these contracts were later sold
+    22.0% above what you paid
+  2026-08-19 · exit long SYNB 260918P00090000 · sold 14.0% below the
+    position's average cost
+  2026-08-18 · trim long SYNC · no difference -$ 1.20 after 5 sessions
+  2026-08-14 · exit long SYNA 260821P00100000 · closed by exercise or
+    assignment, so no price comparison
   2026-08-23 · open long SYND · no verdict: missing horizon
+  2026-08-12 · open short SYND 261218C00020000 · these contracts were bought
+    back since, or stand at the latest statement value, 30.0% below what you
+    received
+  2026-08-11 · open long SYNB 260918P00090000 · these contracts expired
+    worthless
+  2026-08-10 · add long SYNE · helped $ 1,240.00 after 5 sessions
 
 Options  broker actuals in separate scopes; they do not add together
   Completed positions · 5 proven flat-to-flat contract cycles · 5 complete
@@ -100,16 +108,24 @@ Findings  \x1b[2mby absolute impact at 20 sessions; not the headline group\x1b[0
         \x1b[32m$ 99.00\x1b[0m    +9.00%  DEF add  \x1b[2mchange_def\x1b[0m
         \x1b[32m$ 98.00\x1b[0m    +8.00%  GHI add  \x1b[2mchange_ghi\x1b[0m
 
-Verdicts  \x1b[2mper decision, after costs; a result within the decision's own costs is no difference\x1b[0m
-  Options · 4 helped · 5 hurt · 1 no difference · 1 without a verdict
+Verdicts  \x1b[2mstocks by decision at 5 sessions, after costs; options by closed position\x1b[0m
   Stocks · 3 helped · 2 hurt · 1 no difference · 2 without a verdict
-  2026-08-21 · add long SYNA 260821C00115000 · helped \x1b[32m$ 1,240.00\x1b[0m after 5
-    sessions
-  2026-08-19 · exit long SYNB 260918P00090000 · hurt \x1b[31m-$ 860.00\x1b[0m by its
-    position's outcome
-  2026-08-18 · trim long SYNC · no difference \x1b[31m-$ 1.20\x1b[0m after 1 session
-  2026-08-14 · exit long SYNA 260821P00100000 · no verdict: closed by delivery
+  Options · 2 of 5 closed positions made money · 1 lost money · 2 without a
+    grade
+  2026-08-21 · add long SYNC 261016C00050000 · these contracts were later sold
+    22.0% above what you paid
+  2026-08-19 · exit long SYNB 260918P00090000 · sold 14.0% below the
+    position's average cost
+  2026-08-18 · trim long SYNC · no difference \x1b[31m-$ 1.20\x1b[0m after 5 sessions
+  2026-08-14 · exit long SYNA 260821P00100000 · closed by exercise or
+    assignment, so no price comparison
   2026-08-23 · open long SYND · no verdict: missing horizon
+  2026-08-12 · open short SYND 261218C00020000 · these contracts were bought
+    back since, or stand at the latest statement value, 30.0% below what you
+    received
+  2026-08-11 · open long SYNB 260918P00090000 · these contracts expired
+    worthless
+  2026-08-10 · add long SYNE · helped \x1b[32m$ 1,240.00\x1b[0m after 5 sessions
 
 Options  \x1b[2mbroker actuals in separate scopes; they do not add together\x1b[0m
   Completed positions · 5 proven flat-to-flat contract cycles · 5 complete

@@ -65,7 +65,7 @@ func TestEdgePublicationWithholdsChangedProtectionWithoutChangingPrices(t *testi
 	}
 	// A completed position is injected only to exercise publication transport;
 	// its reconstruction is separately proved by the option-cycle core tests.
-	core.Options.Cycles = edgecore.OptionCycles{CompletedCount: 1, CompletePNLCount: 1, KnownPNLBase: new(float64(90)), Cycles: []edgecore.OptionCycle{{ID: "option-cycle_fixture", Symbol: "SYN", Direction: "long", OpenedAt: now.AddDate(0, 0, -2), ClosedAt: now.AddDate(0, 0, -1), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: new(float64(90)), PNLStatus: "complete", LinkedProtectionCount: 2}}}
+	core.Options.Cycles = edgecore.OptionCycles{CompletedCount: 1, CompletePNLCount: 1, MadeMoney: 1, KnownPNLBase: new(float64(90)), Cycles: []edgecore.OptionCycle{{ID: "option-cycle_fixture", Symbol: "SYN", Direction: "long", OpenedAt: now.AddDate(0, 0, -2), ClosedAt: now.AddDate(0, 0, -1), ClosedBy: "trade", ExecutionCount: 2, RealizedPNLBase: new(float64(90)), PNLStatus: "complete", LinkedProtectionCount: 2, Grade: edgecore.OptionGradeMadeMoney}}}
 	port := 4001
 	srv := &Server{cfg: &config.Resolved{Gateway: config.Gateway{Account: account, Port: &port}, Flex: config.Flex{Enabled: true, QueryID: "424242"}}, coreStore: store, now: func() time.Time { return now }}
 	scope := srv.currentBrokerStateScope()

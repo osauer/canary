@@ -28,7 +28,7 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 9
+	edgePublicationVersion   = 10
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
@@ -1650,7 +1650,7 @@ func rpcEdgeOptionOpenDetail(in edgecore.OptionOpenPosition) rpc.EdgeOptionOpenP
 func rpcEdgeChange(in edgecore.Change) *rpc.EdgeChangeDetail {
 	out := &rpc.EdgeChangeDetail{ProtectionContext: rpcEdgeProtectionContext(in.ProtectionContext), ID: in.ID, Symbol: in.Symbol, AssetClass: in.AssetClass, Currency: in.Currency, Action: in.Action, Direction: in.Direction, ExecutedAt: in.ExecutedAt, DeltaQuantity: in.DeltaQuantity, PositionBefore: in.PositionBefore, PositionAfter: in.PositionAfter, ExecutionVWAP: cloneAmount(in.ExecutionVWAP), Multiplier: cloneAmount(in.Multiplier), ExecutionNotionalBase: cloneAmount(in.ExecutionNotionalBase), DirectCostsBase: cloneAmount(in.DirectCostsBase)}
 	for _, score := range in.Scores {
-		row := rpc.EdgeHorizonScore{Sessions: score.Sessions, HorizonClose: cloneAmount(score.HorizonClose), HorizonFX: cloneAmount(score.HorizonFX), DecisionNotionalBase: cloneAmount(score.DecisionNotionalBase), DecisionImpactBase: cloneAmount(score.DecisionImpactBase), DecisionImpactPct: cloneAmount(score.DecisionImpactPct), MarketContext: rpcEdgeMarketContext(score.MarketContext), Reason: score.Reason}
+		row := rpc.EdgeHorizonScore{Sessions: score.Sessions, HorizonClose: cloneAmount(score.HorizonClose), CloseSource: score.CloseSource, HorizonFX: cloneAmount(score.HorizonFX), DecisionNotionalBase: cloneAmount(score.DecisionNotionalBase), DecisionImpactBase: cloneAmount(score.DecisionImpactBase), DecisionImpactPct: cloneAmount(score.DecisionImpactPct), MarketContext: rpcEdgeMarketContext(score.MarketContext), Reason: score.Reason}
 		if score.HorizonDay != nil {
 			day := *score.HorizonDay
 			row.HorizonDay = &day
@@ -1658,7 +1658,20 @@ func rpcEdgeChange(in edgecore.Change) *rpc.EdgeChangeDetail {
 		out.Scores = append(out.Scores, row)
 	}
 	out.Verdict = rpcEdgeVerdict(in.Verdict)
+	out.Position = rpcEdgeChangePosition(in.Position)
 	return out
+}
+
+// rpcEdgeChangePosition serves what an option decision's position says
+// about it. The price the kept contracts fetched later stays out: the price
+// after a sale is collected for sell-or-hold rules, read in aggregate
+// (options.decisions), and is not said row by row.
+func rpcEdgeChangePosition(in *edgecore.PositionOutcome) *rpc.EdgeChangePosition {
+	if in == nil {
+		return nil
+	}
+	return &rpc.EdgeChangePosition{State: in.State, Reason: in.Reason, PositionID: in.PositionID, ClosedBy: in.ClosedBy, PositionGrade: in.PositionGrade,
+		PositionPNLBase: cloneAmount(in.PositionPNLBase), ReferenceKind: in.ReferenceKind, ResultPct: cloneAmount(in.ResultPct)}
 }
 
 func rpcEdgeVerdict(in edgecore.Verdict) rpc.EdgeVerdict {
@@ -1680,7 +1693,7 @@ func rpcEdgeVerdicts(in edgecore.Result) rpc.EdgeVerdicts {
 		if len(out.Recent) == rpc.MaxEdgeRecentVerdicts {
 			break
 		}
-		out.Recent = append(out.Recent, rpc.EdgeTradeVerdict{ChangeID: change.ID, Symbol: change.Symbol, AssetClass: change.AssetClass, Action: change.Action, Direction: change.Direction, ExecutedAt: change.ExecutedAt, Verdict: rpcEdgeVerdict(change.Verdict)})
+		out.Recent = append(out.Recent, rpc.EdgeTradeVerdict{ChangeID: change.ID, Symbol: change.Symbol, AssetClass: change.AssetClass, Action: change.Action, Direction: change.Direction, ExecutedAt: change.ExecutedAt, Verdict: rpcEdgeVerdict(change.Verdict), Position: rpcEdgeChangePosition(change.Position)})
 	}
 	return out
 }

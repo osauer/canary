@@ -131,7 +131,7 @@ func rpcEdgeProtectionContext(in edgecore.ProtectionContext) rpc.EdgeProtectionC
 }
 
 func rpcEdgeOptionCycles(in edgecore.OptionCycles, offset, limit int) rpc.EdgeOptionCycles {
-	out := rpc.EdgeOptionCycles{CompletedCount: in.CompletedCount, CompletePNLCount: in.CompletePNLCount, OpenContractCount: in.OpenContractCount, ExcludedContracts: in.ExcludedContracts, Reasons: in.Reasons, KnownPNLBase: in.KnownPNLBase, Cycles: []rpc.EdgeOptionCycle{}}
+	out := rpc.EdgeOptionCycles{CompletedCount: in.CompletedCount, CompletePNLCount: in.CompletePNLCount, OpenContractCount: in.OpenContractCount, ExcludedContracts: in.ExcludedContracts, MadeMoney: in.MadeMoney, LostMoney: in.LostMoney, Flat: in.Flat, Ungraded: in.Ungraded, Reasons: in.Reasons, KnownPNLBase: in.KnownPNLBase, Cycles: []rpc.EdgeOptionCycle{}}
 	ordered := seatEdgeOptionSigns(in.Cycles, rpc.MaxEdgeOptionResults, func(row edgecore.OptionCycle) float64 {
 		if row.RealizedPNLBase == nil {
 			return 0
@@ -141,7 +141,7 @@ func rpcEdgeOptionCycles(in edgecore.OptionCycles, offset, limit int) rpc.EdgeOp
 	rows, next := edgeOptionPage(ordered, offset, limit)
 	out.Offset, out.NextOffset = offset, next
 	for _, row := range rows {
-		out.Cycles = append(out.Cycles, rpc.EdgeOptionCycle{ID: row.ID, Symbol: row.Symbol, Direction: row.Direction, OpenedAt: row.OpenedAt, ClosedAt: row.ClosedAt, ClosedBy: row.ClosedBy, ExecutionCount: row.ExecutionCount, RealizedPNLBase: row.RealizedPNLBase, PNLStatus: row.PNLStatus, MissingEvidence: row.MissingEvidence, LinkedProtectionCount: row.LinkedProtectionCount})
+		out.Cycles = append(out.Cycles, rpc.EdgeOptionCycle{ID: row.ID, Symbol: row.Symbol, Direction: row.Direction, OpenedAt: row.OpenedAt, ClosedAt: row.ClosedAt, ClosedBy: row.ClosedBy, ExecutionCount: row.ExecutionCount, RealizedPNLBase: row.RealizedPNLBase, PNLStatus: row.PNLStatus, MissingEvidence: row.MissingEvidence, Grade: row.Grade, GradeReason: row.GradeReason, LinkedProtectionCount: row.LinkedProtectionCount})
 	}
 	out.Truncated = len(out.Cycles) < out.CompletedCount
 	return out
