@@ -28,7 +28,7 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 8
+	edgePublicationVersion   = 9
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
@@ -89,8 +89,9 @@ type edgeBarSeries struct {
 	// fetched again once the contract has expired.
 	Option bool `json:"option,omitempty"`
 	// FailedAt is the last failed ask for an option's closes; the next one
-	// waits edgeOptionRetryAfter.
-	FailedAt time.Time `json:"failed_at,omitzero"`
+	// waits edgeOptionRetryAfter. FailReason is that failure's error text.
+	FailedAt   time.Time `json:"failed_at,omitzero"`
+	FailReason string    `json:"fail_reason,omitempty"`
 }
 
 type edgeContractSpec struct {
@@ -221,7 +222,7 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 	full := cache.LastFullRevalidation.IsZero() || now.Sub(cache.LastFullRevalidation) >= edgeFullRevalidateAfter
 	fetchFailures := 0
 	fetchedAll := true
-	optionsAsked, optionsFailed := 0, 0
+	optionsAsked, optionsFailed, optionsSkipped := 0, 0, 0
 	var optionErr error
 	for _, spec := range contracts {
 		key := strconv.FormatInt(spec.ConID, 10)
@@ -231,6 +232,13 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 			continue
 		}
 		if spec.Option {
+			if edgeOptionReadLooksBroken(optionsFailed, optionsAsked-optionsFailed) {
+				// The read itself is failing: do not send the rest of
+				// the list after it. They are not stamped, so the next
+				// rebuild starts with them.
+				optionsSkipped++
+				continue
+			}
 			optionsAsked++
 		}
 		bars, fetchErr := s.fetchEdgeBars(ctx, spec, lookback)
@@ -252,6 +260,7 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 				continue
 			}
 			series.ConID, series.Symbol, series.Currency, series.Option, series.FailedAt = spec.ConID, spec.Symbol, spec.Currency, true, now
+			series.FailReason = edgeFailReason(fetchErr)
 			cache.Contracts[key] = series
 			if err := s.saveEdgeBarCache(ctx, cache); err != nil {
 				return err
@@ -279,6 +288,9 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 		line := fmt.Sprintf("Canary Edge: asked for the daily closes of %d live option contracts, %d answered", optionsAsked, optionsAsked-optionsFailed)
 		if optionsFailed > 0 {
 			line += fmt.Sprintf("; the rest are asked again in %s (first: %v)", edgeOptionRetryAfter, optionErr)
+		}
+		if optionsSkipped > 0 {
+			line += fmt.Sprintf("; %d more were not asked because the first %d all failed", optionsSkipped, edgeOptionBrokenAfter)
 		}
 		s.infof("%s", line)
 	}
@@ -365,6 +377,26 @@ func edgeBarRefreshPlan(now time.Time, globalFullDue bool, series edgeBarSeries)
 // reads as backfilling and is retried by the rebuild that follows.
 func edgeFetchDueAfterFailure(now time.Time, spec edgeContractSpec, series edgeBarSeries) bool {
 	return !spec.Option || series.FailedAt.IsZero() || now.Sub(series.FailedAt) >= edgeOptionRetryAfter
+}
+
+// edgeOptionBrokenAfter is how many option reads may fail in one rebuild,
+// with none answered, before the rest of the list is left unasked. On its
+// first live rebuild (2026-11-19) all 38 reads failed and the broker session
+// was redialled three minutes in; whatever a failing read costs the session,
+// three an hour bounds it. Engineering bound.
+const edgeOptionBrokenAfter = 3
+
+func edgeOptionReadLooksBroken(failed, answered int) bool {
+	return answered == 0 && failed >= edgeOptionBrokenAfter
+}
+
+// edgeFailReason is a failed read's error as one bounded line.
+func edgeFailReason(err error) string {
+	reason := strings.Join(strings.Fields(err.Error()), " ")
+	if len(reason) > 240 {
+		reason = reason[:240]
+	}
+	return reason
 }
 
 // edgeBarCacheForScope returns the bar cache for scope. A cache of another

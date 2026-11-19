@@ -208,3 +208,18 @@ func TestEdgeStateOnlyResultServesEmptyVerdictLists(t *testing.T) {
 		}
 	}
 }
+
+// When the first three option reads of a rebuild all fail and none has
+// answered, the read itself is taken to be failing and the rest of the list
+// is not sent after it. One answer keeps the list going: a thin contract
+// with no trade is an ordinary failure.
+func TestEdgeOptionReadsStopWhenTheFirstThreeAllFail(t *testing.T) {
+	for _, tc := range []struct {
+		failed, answered int
+		want             bool
+	}{{0, 0, false}, {2, 0, false}, {3, 0, true}, {20, 0, true}, {3, 1, false}, {20, 1, false}} {
+		if got := edgeOptionReadLooksBroken(tc.failed, tc.answered); got != tc.want {
+			t.Fatalf("failed=%d answered=%d: broken=%v, want %v", tc.failed, tc.answered, got, tc.want)
+		}
+	}
+}
