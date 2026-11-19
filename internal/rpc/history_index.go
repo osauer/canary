@@ -629,18 +629,24 @@ func regimeRowWithinMaxAge(r RegimeSnapshotResult, row regimeRow) bool {
 	return now.IsZero() || row.asOf.IsZero() || now.Sub(row.asOf) < time.Duration(maxAge)*time.Second
 }
 
-// regimeRowDark reports a row nobody can read: failed,
-// unavailable, stale or overdue by its own currency, missing a field it
-// needs to band, or older than its cluster's age bound (for VVIX on its
-// dated not-due schedule, past its next due close). A valid typed not-due or
-// pending schedule inside the bound is not dark. The row is judged by
+// regimeRowDark reports a row nobody can read: failed, unavailable or
+// overdue by its own currency, missing a field it needs to band, or older
+// than its cluster's age bound (for VVIX on its dated not-due schedule, past
+// its next due close). A valid typed not-due or pending schedule inside the
+// bound is not dark, and neither is a reading typed stale: the only one the
+// daemon serves is a VIX3M tick carried inside its tolerance (15 minutes,
+// VIX within 1%), which degrades readiness and is still a reading. Counted
+// as dark, one missed poll beside a yellow co-sign flipped quiet to
+// early_warning for one refresh (owner, 2026-11-19 06:19 CET: "Yes, apply").
+// A carry past the tolerance is refused and the row is in error, so it is
+// dark as before. The row is judged by
 // itself, never by its cluster-mate. These are the row-level parts of the
 // input verdict (regimeLifecycleInputVerdict); the verdict also reads the
 // served data-quality items and source health, which are stamped after the
 // summary reads the warning openers, so a defect only they carry is not a
 // dark witness.
 func regimeRowDark(r RegimeSnapshotResult, row regimeRow) bool {
-	if RegimeCurrencyGrade(RegimeRowCurrency(row.status, row.freshness)) != RegimeCurrencyGradeNone {
+	if RegimeCurrencyGrade(RegimeRowCurrency(row.status, row.freshness)) == RegimeCurrencyGradeFatal {
 		return true
 	}
 	return regimeSourceMissingRequiredFields(row.status, row.band, row.fieldsMissing) || !regimeRowWithinMaxAge(r, row)
@@ -1040,7 +1046,9 @@ type RegimeClusterBands struct {
 
 // RegimeContextNote is how every surface words a co-sign red with no stress
 // witness beside it. The daemon serves it with the rows it applies to, so no
-// reader keeps a copy.
+// reader keeps a copy. The sentence, and the "Normal regime" headline and
+// AMBER row label that go with it, are approved (owner, 2026-11-19 06:19
+// CET: "Approve as written").
 const RegimeContextNote = "Context, not a stress reading on its own"
 
 // Roles of a regime row. A stress witness measures stress directly and can

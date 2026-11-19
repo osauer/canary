@@ -355,3 +355,62 @@ func TestThreeStandingWitnessesPage(t *testing.T) {
 		t.Fatalf("two witnesses and a co-sign: stage %s at %s pages", got.Stage, got.Severity)
 	}
 }
+
+// A VIX3M tick carried inside its tolerance (15 minutes, VIX within 1%) is
+// a reading, not a dark witness: the term row degrades readiness and does
+// not open the dark-witness warning. Counted as dark, one missed poll beside
+// a yellow co-sign flipped quiet to early_warning and the rulebook's bucket
+// from calm to early warning for one refresh (owner, 2026-11-19 06:19 CET:
+// "Yes, apply"). A carry past the tolerance is refused, the row stays in
+// error, and the warning shows as before.
+func TestCarriedVIX3MInsideToleranceIsNotADarkWitness(t *testing.T) {
+	ny := newYorkLocation()
+	now := time.Date(2026, 11, 17, 10, 0, 0, 0, ny)
+	build := func(carriedFor time.Duration) *rpc.RegimeSnapshotResult {
+		r := currentRegimeRows()
+		r.AsOf = now
+		for _, meta := range []*rpc.RegimeIndicatorMeta{&r.VIXTermStructure.RegimeIndicatorMeta, &r.VolOfVol.RegimeIndicatorMeta, &r.HYGSPYDivergence.RegimeIndicatorMeta, &r.CreditSpreads.RegimeIndicatorMeta, &r.FundingStress.RegimeIndicatorMeta, &r.USDJPY.RegimeIndicatorMeta, &r.GammaZero.RegimeIndicatorMeta, &r.Breadth.RegimeIndicatorMeta} {
+			meta.AsOf = &rpc.RegimeAsOfSummary{Time: now}
+		}
+		r.HYGSPYDivergence.SPYQuality.AsOf = now
+		r.Breadth.Envelope.SessionKey = "2026-11-17"
+		r.HYGSPYDivergence.Band = "yellow"
+		r.VIXTermStructure.VIXQuality = &rpc.Quality{AsOf: now, FreshnessClass: rpc.FreshnessLive}
+		r.VIXTermStructure.VIX3MAnchorVIX = new(16.0)
+		r.VIXTermStructure.VIX3MQuality = &rpc.Quality{AsOf: now, FreshnessClass: rpc.FreshnessLive}
+		if carriedFor > 0 {
+			prev := *r
+			prev.VIXTermStructure.VIX3MQuality = &rpc.Quality{AsOf: now.Add(-carriedFor), FreshnessClass: rpc.FreshnessLive}
+			r.VIXTermStructure.Status = rpc.RegimeStatusError
+			r.VIXTermStructure.VIX3M, r.VIXTermStructure.Ratio = nil, nil
+			carryVIXTermFromLastGood(r, &prev, now)
+		}
+		r.VIXTermStructure.Freshness = &rpc.RegimeFreshness{Class: vixTermCadenceClass(r, now)}
+		assembleRegimeRead(r)
+		return r
+	}
+
+	live := build(0)
+	if live.Lifecycle.Stage != rpc.LifecycleQuiet || bucketRegimeStage(live.Lifecycle.Stage) != "calm" {
+		t.Fatalf("the fixture is not a calm day: stage %s", live.Lifecycle.Stage)
+	}
+
+	carried := build(10 * time.Minute)
+	if class := carried.VIXTermStructure.Freshness.Class; class != rpc.RegimeFreshnessStale {
+		t.Fatalf("a 10-minute carry reads %s, want stale; the test proves nothing", class)
+	}
+	if carried.Lifecycle.Stage != rpc.LifecycleQuiet || carried.Composite.Verdict != "Normal regime" || bucketRegimeStage(carried.Lifecycle.Stage) != "calm" {
+		t.Fatalf("a 10-minute carry reads stage %s, headline %q, bucket %q, openers %v; want the calm read it carries", carried.Lifecycle.Stage, carried.Composite.Verdict, bucketRegimeStage(carried.Lifecycle.Stage), rpc.RegimeWarningOpeners(carried))
+	}
+	if carried.Lifecycle.Readiness == "ready" {
+		t.Fatal("a carried reading no longer degrades readiness")
+	}
+
+	lost := build(20 * time.Minute)
+	if lost.VIXTermStructure.Status != rpc.RegimeStatusError {
+		t.Fatalf("a 20-minute carry was accepted: status %s", lost.VIXTermStructure.Status)
+	}
+	if lost.Lifecycle.Stage != rpc.LifecycleEarlyWarning || !slices.Contains(rpc.RegimeWarningOpeners(lost), "witness_unavailable") {
+		t.Fatalf("a term row lost past its tolerance reads stage %s, openers %v; want the dark-witness warning", lost.Lifecycle.Stage, rpc.RegimeWarningOpeners(lost))
+	}
+}

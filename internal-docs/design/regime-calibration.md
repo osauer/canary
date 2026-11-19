@@ -2,7 +2,7 @@
 
 **Status:** Implemented; persistence contract updated for `daemon.db`
 **Created:** 2026-06-12 13:09 CEST
-**Last update:** 2026-11-18 14:08 CET
+**Last update:** 2026-11-19 06:20 CET
 
 > **v3 citation note (2026-08-10):** file references below predate the v3
 > reduction. `internal/rpc/regime_policy.go` and `internal/rpc/fingerprint.go`
@@ -1225,10 +1225,21 @@ before it.
   rulebook's stage latch, calm included.
 
   The rule: a witness row (VIX term, VVIX, cash credit, funding) is dark when
-  its own row is failed, unavailable, stale or overdue, cannot fill a field
+  its own row is failed, unavailable or overdue, cannot fill a field
   it needs to band, or is older than its cluster's age bound (VVIX on its
   dated not-due schedule: past its next due close) (`regimeRowDark` in
-  `internal/rpc`). A valid typed `not_due` or `pending` schedule inside the
+  `internal/rpc`). A row typed `stale` is not dark (owner, 2026-11-19 06:19
+  CET, asked "Stop counting that short carry as unreadable before the
+  release?", answered "Yes, apply"): the one such reading is a VIX3M tick
+  carried inside its tolerance, 15 minutes with VIX within 1%, which
+  degrades readiness as before. Until then the code counted it dark while
+  the list of dark hours below named only a carry older than 15 minutes, and
+  one missed poll beside a yellow co-sign moved the stage and the rulebook's
+  bucket for one refresh. What still bounds it: a carry past the tolerance
+  is refused and the row is in error, which is dark. The words a co-sign-only
+  day shows ("Normal regime", AMBER, "Context, not a stress reading on its
+  own") were approved in the same answer set ("Approve as written"). A valid
+  typed `not_due` or `pending` schedule inside the
   bound is not dark, and each row is judged by itself, the cash row as much
   as the term row. These are the row-level parts of the input verdict; a
   defect that only the served data-quality items or source health carry is

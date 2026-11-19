@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-11-18 13:53 CET
+Updated: 2026-11-19 06:20 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -84,8 +84,8 @@ witness stands when its red is eligible to confirm (see
 [Eligibility gates](#eligibility-gates)). A witness is judged by its own row:
 an outage of the row beside it in its cluster does not mute it.
 
-When a witness row cannot be read (failed, unavailable, stale or overdue, or
-a schedule past its age bound) and a co-sign is yellow or red, the read is
+When a witness row cannot be read (failed, unavailable or overdue, or a
+schedule past its age bound) and a co-sign is yellow or red, the read is
 `early_warning`, never a calm stage and not `data_quality`: what cannot be
 read is assumed to be the worst. The owner ruled this on 2026-11-18 at 14:47
 CET, answering "Early warning" to "When a real stress input is dark and weak
@@ -107,7 +107,9 @@ until a newer one is due, at 09:30 New York the morning after the next
 session (an assumption that Cboe's file carries a close by then): Monday
 evening holds Friday's close, and so does the evening after a holiday. The
 VIX/VIX3M row holds the prior VIX3M close for five minutes from 09:31, until
-the first VIX3M tick. The warning still shows on real gaps: VVIX when a due
+the first VIX3M tick. A VIX3M tick carried for up to 15 minutes while VIX
+stays within 1% is still a reading: it degrades readiness and opens no
+warning (owner, 2026-11-19 06:19 CET). The warning still shows on real gaps: VVIX when a due
 close was not read, VIX/VIX3M from 09:36 without a VIX3M tick, after a
 carried tick older than 15 minutes, off the window when Cboe's dated close
 does not vouch for the gateway leg, and the cash or funding row when FRED
