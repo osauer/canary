@@ -90,8 +90,12 @@ type edgeBarSeries struct {
 	Option bool `json:"option,omitempty"`
 	// FailedAt is the last failed ask for an option's closes; the next one
 	// waits edgeOptionRetryAfter. FailReason is that failure's error text.
+	// FailedRead is the edgeOptionReadVersion that failure was made with: a
+	// refusal of an older request shape says nothing about this one and
+	// does not hold the contract back.
 	FailedAt   time.Time `json:"failed_at,omitzero"`
 	FailReason string    `json:"fail_reason,omitempty"`
+	FailedRead int       `json:"failed_read,omitempty"`
 }
 
 type edgeContractSpec struct {
@@ -260,7 +264,7 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 				continue
 			}
 			series.ConID, series.Symbol, series.Currency, series.Option, series.FailedAt = spec.ConID, spec.Symbol, spec.Currency, true, now
-			series.FailReason = edgeFailReason(fetchErr)
+			series.FailReason, series.FailedRead = edgeFailReason(fetchErr), edgeOptionReadVersion
 			cache.Contracts[key] = series
 			if err := s.saveEdgeBarCache(ctx, cache); err != nil {
 				return err
@@ -376,8 +380,13 @@ func edgeBarRefreshPlan(now time.Time, globalFullDue bool, series edgeBarSeries)
 // than edgeOptionRetryAfter ago. A stock is never held back: its failure
 // reads as backfilling and is retried by the rebuild that follows.
 func edgeFetchDueAfterFailure(now time.Time, spec edgeContractSpec, series edgeBarSeries) bool {
-	return !spec.Option || series.FailedAt.IsZero() || now.Sub(series.FailedAt) >= edgeOptionRetryAfter
+	return !spec.Option || series.FailedAt.IsZero() || series.FailedRead != edgeOptionReadVersion || now.Sub(series.FailedAt) >= edgeOptionRetryAfter
 }
+
+// edgeOptionReadVersion names the shape of the option read. 1 asked for
+// daily bars, which IBKR does not serve for an option; 2 asks for hourly
+// bars and keeps each day's last.
+const edgeOptionReadVersion = 2
 
 // edgeOptionBrokenAfter is how many option reads may fail in one rebuild,
 // with none answered, before the rest of the list is left unasked. On its

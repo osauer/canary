@@ -166,8 +166,9 @@ Exact shared-order grouping does not assert a strategy name. A mixed opening-and
 An option's close comes from the broker, never from a model. Two sources are
 used. The mark in the daily statement is the close of a contract held that
 day. For the days after a contract left the account, Canary reads the
-contract's daily closing trade from IBKR while the contract is still alive;
-the broker deletes that history at expiry. The read names the exact contract
+contract's last regular-session trade of each day from IBKR, for the last 30
+days, while the contract is still alive; the broker deletes that history at
+expiry. The read names the exact contract
 and never the underlying's symbol. On a day that has both, the statement mark
 counts. A session without a trade has no fetched close, and a contract that
 had expired before Canary first read it has none at all, so such a horizon

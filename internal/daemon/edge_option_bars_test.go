@@ -131,10 +131,11 @@ func TestEdgeOptionFetchWaitsAfterAFailure(t *testing.T) {
 		series edgeBarSeries
 		want   bool
 	}{
-		"never asked":              {option, edgeBarSeries{}, true},
-		"failed ten minutes ago":   {option, edgeBarSeries{FailedAt: now.Add(-10 * time.Minute)}, false},
-		"failed two hours ago":     {option, edgeBarSeries{FailedAt: now.Add(-2 * time.Hour)}, true},
-		"a stock that just failed": {edgeContractSpec{ConID: 1}, edgeBarSeries{FailedAt: now.Add(-time.Minute)}, true},
+		"never asked":               {option, edgeBarSeries{}, true},
+		"failed ten minutes ago":    {option, edgeBarSeries{FailedAt: now.Add(-10 * time.Minute), FailedRead: edgeOptionReadVersion}, false},
+		"an older read just failed": {option, edgeBarSeries{FailedAt: now.Add(-10 * time.Minute), FailedRead: edgeOptionReadVersion - 1}, true},
+		"failed two hours ago":      {option, edgeBarSeries{FailedAt: now.Add(-2 * time.Hour), FailedRead: edgeOptionReadVersion}, true},
+		"a stock that just failed":  {edgeContractSpec{ConID: 1}, edgeBarSeries{FailedAt: now.Add(-time.Minute)}, true},
 	} {
 		if got := edgeFetchDueAfterFailure(now, tc.spec, tc.series); got != tc.want {
 			t.Fatalf("%s: due=%v, want %v", name, got, tc.want)

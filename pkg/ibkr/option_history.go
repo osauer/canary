@@ -3,24 +3,31 @@ package ibkr
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 )
 
-// optionHistoryMaxDays caps one option read at a year of daily bars: a
-// request of 365 days or fewer keeps IBKR's day-count duration.
-const optionHistoryMaxDays = 365
+// optionHistoryMaxDays is the span of one option read. IBKR serves hourly
+// bars a month at a time, which covers every horizon Edge scores (20
+// sessions) for a contract read at least once in that month.
+const optionHistoryMaxDays = 30
 
-// FetchOptionDailyTradeBars reads the daily TRADES bars of one exact option
-// contract. The contract id is the whole identity: the request carries no
-// symbol, and nothing on this path consults the symbol-keyed contract cache
-// or resolves contract details, so a cached listing of the underlying can
-// never stand in for the option. A session with no trade has no bar; nothing
-// falls back to midpoint data. IBKR serves these bars only while the
-// contract is alive.
+// FetchOptionDailyTradeBars reads one exact option contract's last regular-
+// session trade of each day. IBKR has no end-of-day bars for an option on
+// its smart route: a "1 day" request is answered "No data of type EODChart
+// is available for the exchange 'BEST' and the security type 'Option'"
+// (live, 2026-11-19, every contract asked). So the read asks for hourly
+// TRADES bars of regular hours and keeps each New York day's last one as
+// that day's bar. A session with no trade has no bar; nothing falls back to
+// midpoint data. IBKR serves these bars only while the contract is alive.
 //
-// The shared historical client still owns pacing, registration and
-// cancellation. The label the request is registered under is the contract
-// id, so a pacing backoff is kept per option and never against a stock.
+// The contract id is the whole identity: the request carries no symbol, and
+// nothing on this path consults the symbol-keyed contract cache or resolves
+// contract details, so a cached listing of the underlying can never stand in
+// for the option. The shared historical client still owns pacing,
+// registration and cancellation, and the request is registered under the
+// contract id, so a pacing backoff is kept per option and never against a
+// stock.
 func (c *Connector) FetchOptionDailyTradeBars(ctx context.Context, contract Contract, lookbackDays int, timeout time.Duration) ([]HistoricalBar, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -39,5 +46,43 @@ func (c *Connector) FetchOptionDailyTradeBars(ctx context.Context, contract Cont
 		timeout = 45 * time.Second
 	}
 	exact := Contract{ConID: contract.ConID, SecType: "OPT", Exchange: "SMART", Currency: contract.Currency}
-	return c.fetchHistoricalWithContractOptions(ctx, fmt.Sprintf("OPT %d", contract.ConID), exact, lookbackDays, timeout, "TRADES", historicalRequestOptions{})
+	hourly, err := c.fetchHistoricalWithContractOptions(ctx, fmt.Sprintf("OPT %d", contract.ConID), exact, lookbackDays, timeout, "TRADES",
+		historicalRequestOptions{formatDate: 2, chartBarSize: "1 hour", strictDaily: true, waitForEnd: true, maxBars: ChartMaxBars})
+	if err != nil {
+		return nil, err
+	}
+	return lastBarOfEachNewYorkDay(hourly), nil
+}
+
+// lastBarOfEachNewYorkDay folds intraday bars into one bar per New York
+// day, the day's last, dated at that day.
+func lastBarOfEachNewYorkDay(bars []HistoricalBar) []HistoricalBar {
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		ny = time.FixedZone("EST", -5*60*60)
+	}
+	last := map[string]HistoricalBar{}
+	for _, bar := range bars {
+		if bar.Time.IsZero() || bar.Close <= 0 {
+			continue
+		}
+		day := bar.Time.In(ny).Format("20060102")
+		if kept, ok := last[day]; !ok || bar.Time.After(kept.Time) {
+			last[day] = bar
+		}
+	}
+	out := make([]HistoricalBar, 0, len(last))
+	for _, day := range slices.Sorted(func(yield func(string) bool) {
+		for day := range last {
+			if !yield(day) {
+				return
+			}
+		}
+	}) {
+		bar := last[day]
+		at, _ := time.Parse("20060102", day)
+		bar.Date, bar.Time = day, at
+		out = append(out, bar)
+	}
+	return out
 }
