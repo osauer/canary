@@ -271,10 +271,16 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 			return err
 		}
 	}
-	if optionsFailed > 0 {
-		// One line per rebuild that asked, so a read that never works is
-		// seen: the first version failed on every rebuild in silence.
-		s.infof("Canary Edge: %d of %d live option contracts asked gave no daily closes and are asked again in %s (first: %v)", optionsFailed, optionsAsked, edgeOptionRetryAfter, optionErr)
+	if optionsAsked > 0 {
+		// One line per rebuild that asked, success included, so a read
+		// that never works, or one that never runs, is seen: the first
+		// version failed on every rebuild in silence, and a silent success
+		// could not be told from nothing having been asked.
+		line := fmt.Sprintf("Canary Edge: asked for the daily closes of %d live option contracts, %d answered", optionsAsked, optionsAsked-optionsFailed)
+		if optionsFailed > 0 {
+			line += fmt.Sprintf("; the rest are asked again in %s (first: %v)", edgeOptionRetryAfter, optionErr)
+		}
+		s.infof("%s", line)
 	}
 	// Benchmarks are optional explanatory context. A failed context refresh
 	// never degrades or suppresses the broker-truth decision calculation; the
