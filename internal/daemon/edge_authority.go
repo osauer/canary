@@ -237,6 +237,7 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 	fetchFailures := 0
 	fetchedAll := true
 	optionsAsked, optionsFailed, optionsSkipped := 0, 0, 0
+	optionsUnreachable := false
 	var optionErr error
 	for _, spec := range contracts {
 		key := strconv.FormatInt(spec.ConID, 10)
@@ -249,6 +250,11 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 			continue
 		}
 		if spec.Option {
+			if optionsUnreachable {
+				// No gateway: nothing can be asked, and nothing is
+				// stamped. The reconnect's rebuild asks.
+				continue
+			}
 			if edgeOptionReadLooksBroken(optionsFailed, optionsAsked-optionsFailed) {
 				// The read itself is failing: do not send the rest of
 				// the list after it. They are not stamped, so the next
@@ -268,13 +274,18 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 			// An option that cannot be read keeps what it has and is
 			// asked again after edgeOptionRetryAfter. A contract with no
 			// trade in the window is such a failure too.
+			if errors.Is(fetchErr, ibkrlib.ErrIBKRUnavailable) {
+				// Nothing was asked, so nothing failed: a daemon start
+				// rebuilds before its gateway is up, and counting that
+				// warned "0 answered" at every restart (2026-11-19
+				// 09:03). The reconnect's rebuild asks at once.
+				optionsAsked--
+				optionsUnreachable = true
+				continue
+			}
 			optionsFailed++
 			if optionErr == nil {
 				optionErr = fetchErr
-			}
-			if errors.Is(fetchErr, ibkrlib.ErrIBKRUnavailable) {
-				// Nothing was asked: the reconnect's rebuild asks at once.
-				continue
 			}
 			series.ConID, series.Symbol, series.Currency, series.Option, series.FailedAt = spec.ConID, spec.Symbol, spec.Currency, true, now
 			series.FailReason, series.FailedRead = edgeFailReason(fetchErr), edgeOptionReadVersion
