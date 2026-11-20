@@ -1,6 +1,39 @@
 # Canary full context
 
-Updated: 2026-11-19 20:26 CET
+Updated: 2026-11-20 16:47 CET
+
+Version 3.41 adopts policy files left in the old directory. Through v3.34.1
+the four policy files lived in `~/.config/ibkr/policies`; v3.35.0 moved their
+default under `XDG_CONFIG_HOME` and stopped reading the old directory, so a
+daemon with another config directory ran on Canary's defaults in place of the
+user's limits, and orders its protection policy pre-authorises were not
+placed. At its first start on v3.41.0 such a daemon copies the files to its
+own directory, only when its own record shows it ran on them; the record
+covers the risk policy and the Rulebook policy, so a user who changed only the
+protection or opportunity policy copies the directory by hand, as does one
+whose daemon log shows no "adopted" line after the update. A second daemon
+with its own config directory keeps its own policies. Untouched defaults at
+the new place are replaced and kept as a backup; where the file at the new
+place already carries the user's settings neither is replaced, `canary policy
+show --explain` names both, and the user merges them by hand. `canary policy
+ensure` writes no default where the old directory holds the file. Edge
+registers six forward tests for each account: `forward_tests` lists each rule
+with its text, `rule_hash` and `registered_at`, only decisions executed after
+`registered_at` belong to a rule's sample, and the record survives updates,
+restarts and rebuilt reviews; `forward_tests_unavailable` says when it could
+not be read. Canary registers the rules and reads none: no verdict, grade,
+warning or order depends on them. At the first Regime read after each US close
+and before midnight New York the daemon records the stage Regime served and
+the Rulebook's premium budget act level, once and never rewritten; a
+decision's detail serves them as `prior_session` and `decision_session`. An
+option's sessions are counted on its own market's days: for a US-listed option
+the days SPY, QQQ or DIA has a close; an option whose statement names no US
+option exchange, and any option while no such close is on record, has no
+session score (`session_calendar_unavailable`). A stock quote read waits about
+250 ms at most for a new line's bid, ask and last, so `canary add` no longer
+prices from a lone bid while the ask and last are still arriving. A background
+account read no longer holds up price updates while a store write runs, and a
+book held for missing positions warns once per episode.
 
 Version 3.40 extends Edge to options. An option decision gets the same 1, 5
 and 20-session score as a stock decision: from IBKR's daily statement value

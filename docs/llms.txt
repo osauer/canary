@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-19 20:26 CET. Current release: v3.40.0.
+Updated: 2026-11-20 16:47 CET. Current release: v3.41.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -14,6 +14,19 @@ exist in Traditional Chinese (https://osauer.dev/canary/zh-hant/ and
 https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
 (https://osauer.dev/canary/zh-hans/ and https://osauer.dev/canary/docs/zh-hans/);
 English is the master.
+
+Version 3.41 adopts policy files left behind by v3.35.0. Since that release a
+daemon whose `XDG_CONFIG_HOME` is not `~/.config`, updated without copying its
+policy files, ran on Canary's defaults in place of the user's; it now copies
+the user's files from `~/.config/ibkr/policies` at its first start when its
+record shows it ran on the risk policy or the Rulebook policy there. Where the
+user has edited files in both directories neither is replaced and the user
+merges them by hand. Edge registers six forward tests for each account, rules
+written down before the results they will be read on, and for them records
+Regime's stage and the Rulebook's premium budget act level at the first Regime
+read after each US close. An option's 1, 5 and 20-session scores are counted
+on US market days; an option whose statement names no US option exchange has
+none. A stock quote read waits about 250 ms at most for the rest of the quote.
 
 Version 3.40 extends Edge, the review of past trades, to options. An option
 decision is scored from the broker's daily statement value while the contract

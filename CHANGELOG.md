@@ -2,6 +2,47 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.41.0 — 2026-11-20 16:47 CET
+
+### What's new
+
+**If your daemon's `XDG_CONFIG_HOME` is not `~/.config`, Canary adopts the policy files it left behind in v3.35.0.** Canary keeps four policy files: the risk policy, the Rulebook policy, the protection policy and the opportunity policy. Through v3.34.1 they lived in `~/.config/ibkr/policies`, whatever `XDG_CONFIG_HOME` said. v3.35.0 moved them into `ibkr/policies` under the directory `XDG_CONFIG_HOME` names, so that two daemons can keep separate policies, and stopped reading the old directory. A daemon whose environment sets `XDG_CONFIG_HOME` to another directory, updated across v3.35.0 without the manual copy those notes asked for, found no files there, wrote Canary's defaults and has run on them since. Your limits have not applied in that time, and orders your protection policy lets Canary place by itself (`pre_authorised`) were not placed. Both are in force again as soon as your files are adopted, so read your protection policy before you update.
+
+At its first start on v3.41.0 the daemon copies your files from the old directory to the new one and logs a line per file that begins "policy file" and says "adopted". It does this only when its own record shows that it ran on those files, so a second daemon you gave its own config directory keeps its own policies. That record covers the risk policy and the Rulebook policy. If the only files you changed were the protection or the opportunity policy, nothing is copied: copy `~/.config/ibkr/policies/` to `$XDG_CONFIG_HOME/ibkr/policies/` yourself and restart the daemon.
+
+Where the new directory holds Canary's untouched defaults, your files replace them and the defaults are kept beside them as a backup. Where the file in the new directory already carries a setting of yours, Canary replaces neither: that file stays in force, the old one is still not read, and the log and `canary policy show --explain` name both. Copy the settings you want from the old file yourself. The old directory is only read.
+
+After the first start on v3.41.0, look in the daemon log for the "adopted" lines. If your files were in the old directory and no line says "adopted", nothing was copied. That happens when you edited a file in the old directory after updating past v3.34.1, or when the daemon never restarted on your last edit before that update. Copy the directory yourself and restart the daemon. `canary policy show` tells you which files are in force. A file that reads `default, unreviewed` still carries the first header line Canary wrote: open it and check that the values are yours.
+
+Two cases to know. If `XDG_CONFIG_HOME` is unset or is `~/.config`, nothing changes. And a second daemon that already ran before v3.35.0, when every daemon read the one directory, and still has untouched defaults in its own directory gets those shared files back: they are what it ran on then.
+
+**Edge registers forward tests.** Edge is Canary's review of your past trades. A pattern found by looking back can be fitted to what already happened; a rule written down first, with the time it was written, cannot. Edge now carries six such rules: stock sales against a nearby day, entries into a position against a nearby day, option buys against the Rulebook's premium budget, option buys after a Regime warning session, final option sales against the contract's close five sessions later, and a floor under what is left after a partial sale. The daemon records when each rule was registered for your account the first time it builds your Edge review on this version; if Flex statements are not set up yet, that is the first build after you set them up. Only a decision made after that moment belongs to a rule's sample. The record is kept apart from everything Edge can rebuild, so an update, a restart and a rebuilt review leave the dates where they are.
+
+`canary edge` prints how many rules are registered and since when; the MCP tool `canary_edge` returns each rule's text and date, and the detail of a decision names the rules it was made after. Canary registers the rules and does not read them: no verdict, grade, warning or order depends on them. If a later release changes a rule's text, that rule is registered again with a new date and the others keep theirs.
+
+Two of the rules need what Canary said on the day, which cannot be worked out afterwards. Regime is Canary's reading of market stress, and its stage is the result. The Rulebook's premium budget act level is the share of the account in option premium at which the Rulebook asks you to cut back. The first time Regime is read after a US close and before midnight New York, the daemon now records the stage it served and that act level, once per session and never rewritten. The detail of a decision shows the record for its own session and for the session before; a session in which nothing read Regime in that time has no record and says so.
+
+**An option's sessions are counted on its own market's days.** Edge scores a decision by what the changed quantity was worth 1, 5 and 20 trading sessions later. For an option it counted a session on every day any other instrument in your account had a closing price, so a US holiday on which a European stock traded counted as a session and the fifth session landed one session early. For an option listed on a US exchange, Edge now counts the days SPY, QQQ or DIA has a close. Scores taken across a US holiday move to the correct session, and a score whose corrected session has no close for the contract goes away. Edge has no calendar for other exchanges and does not borrow one: an option whose statement names no US option exchange, and any option while Canary holds no SPY, QQQ or DIA close, has no 1, 5 or 20-session score and gives the reason `session_calendar_unavailable`. No grade of an option position changes, and stock scores are untouched.
+
+### Added
+
+- `canary edge` and the MCP tool `canary_edge`: `forward_tests`, each rule with its text, `rule_hash` and `registered_at`. `forward_tests_unavailable` says why the list is empty when the daemon could not read its record for a reply.
+- `canary edge --change` and the decision detail of `canary_edge`: `forward_tests` names the rules the decision was made after; `prior_session` and `decision_session` carry Regime's stage and the premium budget act level recorded at those US closes, or `missing: not_recorded`.
+
+### Changed
+
+- An option's 1, 5 and 20-session scores are counted on US market days for an option listed on a US exchange. An option whose statement names no US option exchange has none (`session_calendar_unavailable`). Before, any day another instrument of the account had a close counted as a session.
+- A stock quote read waits up to 250 ms for the rest of a new market-data line's bid, ask and last before it answers. Before, it answered at the first price it saw. Every caller of this read gets the fuller quote, about 250 ms later at most, including the price checks Canary makes when it places a reduction, a hedge sale or a trailing stop. The checks are unchanged but now more often see both sides: a reduction or hedge sale that was refused for a missing bid or ask can go through, and the trailing-stop guard makes a comparison it used to skip. Option quotes and the order preview quote are not changed.
+- `canary policy ensure` writes no default policy file where `~/.config/ibkr/policies` still holds that file and `XDG_CONFIG_HOME` names another directory. It reports the file as left to the daemon, which decides at its next start.
+- The daemon's warning that the broker reader is behind lists message kinds by the time their frames took, as in "message 3: 9 frames, 36s". Before, it listed them by frame count.
+
+### Fixed
+
+- With `XDG_CONFIG_HOME` set to a directory other than `~/.config`, a daemon updated across v3.35.0 ran on Canary's default policy files in place of yours. Your files are adopted at the first start on this version, and the orders your protection policy pre-authorises come back with them; you still copy by hand when you changed only the protection or the opportunity policy, when both directories hold settings of yours, or when no "adopted" line appears; see What's new.
+- `canary add` could price a stock from its bid alone while the rest of the quote was still arriving.
+- A background read of account data could stop the daemon from reading any broker message, price updates included, for as long as a slow write to its store took. Order status, error and account-summary messages can still wait behind a slow store write.
+- When the broker sent account values but no positions, the daemon logged the same warning every 30 seconds; it now warns once and, after ten minutes, says what it asked for and what came back. If it reports that no positions came back, check TWS for an open dialog or restart it.
+
 ## v3.40.0 — 2026-11-19 20:26 CET
 
 ### What's new

@@ -147,7 +147,7 @@ Next concern   Broker data connection unavailable
 | --- | --- |
 | `~/.local/bin/canary` | 二進位檔，除非你設定了 `CANARY_INSTALL_DIR` |
 | `~/.config/ibkr/config.toml` | 可選的固定設定。預設不存在 |
-| `~/.config/ibkr/policies/` | 安裝程式從 Canary 預設值寫入的政策檔，每個都以 `Canary defaults, not yet reviewed` 開頭：`rulebook-policy.toml`、`protection-policy.toml`、`opportunity-policy.toml` 和 `risk-policy.toml`，後者的資本數字是留給你填寫的佔位值，其 `[order_limits]` 載有每筆訂單的上限。永不被取代：守護程序在下一次啟動時先備份再就地遷移現有檔案，並保留你寫入的每項設定；見[交易政策](../understand/policy.md#policy-files-canary-writes-for-you) |
+| `~/.config/ibkr/policies/` | 安裝程式從 Canary 預設值寫入的政策檔，每個都以 `Canary defaults, not yet reviewed` 開頭：`rulebook-policy.toml`、`protection-policy.toml`、`opportunity-policy.toml` 和 `risk-policy.toml`，後者的資本數字是留給你填寫的佔位值，其 `[order_limits]` 載有每筆訂單的上限。更新不會取代它們：守護程序在下一次啟動時先備份再就地遷移現有檔案，並保留你寫入的每項設定。唯一的例外出現在 `XDG_CONFIG_HOME` 指向其他目錄時：該處未經修改的預設檔會讓位給 `~/.config/ibkr/policies` 中你自己的檔案（見下文），並保留為備份；見[交易政策](../understand/policy.md#policy-files-canary-writes-for-you) |
 | `~/.local/state/ibkr/daemon.db` | 守護程序擁有的狀態：設定、日誌記錄、成份股、證據 |
 | `~/.local/state/ibkr/ibkr-daemon.log` | 守護程序日誌。有東西無法啟動時第一個要看的地方 |
 | `~/.cache/ibkr/ibkr.sock` | 守護程序 socket；設定了 `$XDG_RUNTIME_DIR` 時位於 `$XDG_RUNTIME_DIR/ibkr/` |
@@ -157,7 +157,7 @@ Next concern   Broker data connection unavailable
 
 四個政策檔案位於與 `config.toml` 相同的設定根目錄下的 `ibkr/policies`：設定了 `XDG_CONFIG_HOME` 時為 `$XDG_CONFIG_HOME/ibkr/policies`，否則為 `~/.config/ibkr/policies`。`CANARY_CONFIG` 只指定一個檔案，不會移動其他任何東西。規則手冊、保護和機會政策在 `[rulebook]`、`[auto_trade]` 和 `[opportunities]` 中有明確的 `policy_file` 覆寫；風險憲章一律使用預設路徑。
 
-在 v3.34.1 及之前，無論 `XDG_CONFIG_HOME` 為何，政策檔案一律位於 `~/.config/ibkr/policies`。使用其他設定根目錄且曾以那些檔案運作的守護程序，更新後會在啟動時把它們複製到自己的目錄；舊目錄只會被讀取。只有在守護程序自身的紀錄顯示它曾使用那些檔案時才會這樣做，因此您另行指定設定根目錄的第二個守護程序會從 Canary 的預設值開始，絕不會沿用另一個守護程序的限額。若兩個目錄都有含您設定的檔案，Canary 兩者都不取代，`canary policy show --explain` 會說明目前使用的是哪一個。
+在 v3.34.1 及之前，無論 `XDG_CONFIG_HOME` 為何，政策檔案一律位於 `~/.config/ibkr/policies`。使用其他設定根目錄且曾以那些檔案運作的守護程序，更新後會在啟動時把它們複製到自己的目錄；舊目錄只會被讀取。若它自己的目錄中是未經修改的 Canary 預設值，您的檔案會取代它們，預設值則保留在旁作為備份。只有在守護程序自身的紀錄顯示它曾使用舊檔案時才會這樣做，而該紀錄只涵蓋 `risk-policy.toml` 與 `rulebook-policy.toml`：若您只改過 `protection-policy.toml` 或 `opportunity-policy.toml`，請自行複製該目錄並重新啟動守護程序。若更新後守護程序的日誌中沒有任何「adopted」字樣的紀錄，也請這樣做；這種情況出現在您於更新至 v3.34.1 之後的版本後才修改舊目錄中的檔案，或守護程序在該次更新前從未以您最後一次修改重新啟動。您另行指定設定根目錄的新守護程序會從 Canary 的預設值開始。在 v3.35.0 之前就曾以共用檔案運作、且自己的目錄中仍是未經修改預設值的第二個守護程序，則會取回那些檔案。若兩個目錄都有含您設定的檔案，Canary 兩者都不取代：守護程序自己目錄中的檔案繼續生效，`canary policy show --explain` 會列出兩者。
 
 ## 下一步 {#next}
 

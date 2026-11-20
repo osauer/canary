@@ -72,7 +72,7 @@ func ForwardTests() []ForwardTest {
 		},
 		{
 			ID:    "floor_after_partial_sale",
-			Title: "A floor under what is left after a partial sale (registered, not built)",
+			Title: "A floor under what is left after a partial sale",
 			Rule:  "At each partial sale of an option position its price is kept on the position, and a later read says whether the remainder closed below it. The floor is wrong if, over the next 40 to 55 positions with a partial sale, the remainder closes at or above the last partial sale's price on average, or if a floor recorded on the day does no better than selling on a random held day. No order behaviour changes.",
 		},
 	}

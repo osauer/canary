@@ -182,8 +182,9 @@ the days SPY, QQQ or DIA has a close, so a US holiday is not a session
 whatever else the account holds that traded that day. Edge has no calendar
 for any other option exchange and does not borrow one: an option listed
 elsewhere, or one whose statement names no listing exchange, has no horizon
-figure and the reason `session_calendar_unavailable`. Its position is graded
-all the same. With a close on the session, the option decision gets the same
+figure and the reason `session_calendar_unavailable`. The same reason appears
+on a US-listed option while no SPY, QQQ or DIA close is on record. Its
+position is graded all the same. With a close on the session, the option decision gets the same
 Decision price impact as a stock decision, and the score says what its close
 rests on: `close_source` is `statement_mark` or `closing_quote` (`daily_bar`
 for a stock or ETF).
@@ -303,7 +304,8 @@ A record is written once and never rewritten: a later snapshot with another
 stage, a restart, an update and a rebuilt review all leave it as it is, and
 it is kept apart from everything Edge can rebuild. Records are only added in
 session order, so a session Canary did not serve between its close and
-midnight (the daemon was not running) stays without one. Nothing fills it in
+midnight (the daemon was not running, or nothing read Regime in that time)
+stays without one. Nothing fills it in
 later.
 
 The detail of a decision (`--change`) carries two of these records:
