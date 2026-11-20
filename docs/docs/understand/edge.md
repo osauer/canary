@@ -321,7 +321,9 @@ of that statement with their marks and cost, against that day's net
 liquidation value) and the price of each partial option sale (its
 execution in the statement; Edge shows it as `execution_vwap` on that
 sale's own decision detail). Canary keeps every statement it has fetched
-and deletes none.
+and deletes none, and reads the ones fetched with the Flex query that is
+configured: after a change of Flex Query ID the earlier files stay on disk
+but no longer count, and what IBKR returns for the new query replaces them.
 
 ## Completed option positions
 

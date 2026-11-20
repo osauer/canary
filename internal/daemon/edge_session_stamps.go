@@ -97,10 +97,12 @@ func (s *Server) loadEdgeSessionStamps(ctx context.Context) (edgeSessionStampLog
 }
 
 // recordEdgeSessionStamp writes the session's record when view is the first
-// snapshot served after its close. It runs beside every Regime read and
-// returns nothing: Regime must never wait on, fail with or learn of this
-// record. A failed write is retried by the next snapshot of the same evening
-// and warned about once per session.
+// snapshot served after its close. It runs inline after every Regime read
+// and returns nothing: Regime must never fail with or learn of this record.
+// A settled session costs a calendar lookup and no store access; the one
+// write per session, and each retry of a failed one by the next snapshot of
+// the same evening, is a store read and a compare-and-swap in the reader's
+// path. A failure is warned about once per session.
 func (s *Server) recordEdgeSessionStamp(ctx context.Context, view regimeSnapshotCacheView) {
 	if s == nil || s.coreStore == nil || view.Snapshot == nil || view.Snapshot.AsOf.IsZero() || view.Snapshot.Lifecycle.Stage == "" {
 		return
