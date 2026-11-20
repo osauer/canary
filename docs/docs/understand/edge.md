@@ -176,11 +176,17 @@ On a day that has both, the statement mark counts. A contract that had
 expired before Canary first read it has no fetched close at all, and one
 that left the account more than about six months before the first read has
 none for its earliest sessions; such a horizon has no figure. The 1st, 5th
-and 20th sessions are counted on the days the benchmarks and the account's
-other instruments have a close, and only a close on that exact session
-counts. With one, the option decision gets the same Decision price impact as
-a stock decision, and the score says what its close rests on: `close_source`
-is `statement_mark` or `closing_quote` (`daily_bar` for a stock or ETF).
+and 20th sessions are sessions of the option's own market, and only a close
+on that exact session counts. For an option listed on a US exchange they are
+the days SPY, QQQ or DIA has a close, so a US holiday is not a session
+whatever else the account holds that traded that day. Edge has no calendar
+for any other option exchange and does not borrow one: an option listed
+elsewhere, or one whose statement names no listing exchange, has no horizon
+figure and the reason `session_calendar_unavailable`. Its position is graded
+all the same. With a close on the session, the option decision gets the same
+Decision price impact as a stock decision, and the score says what its close
+rests on: `close_source` is `statement_mark` or `closing_quote` (`daily_bar`
+for a stock or ETF).
 
 ### The verdict on a stock or ETF decision
 
@@ -406,6 +412,7 @@ Every snapshot says how many changes were found, how many stock, ETF and option 
 - `market_data_unavailable`
 - `query_field_missing`
 - `position_path_unbalanced`
+- `session_calendar_unavailable`
 
 If replayed quantities do not reconcile between Flex open-position anchors, Edge suppresses that contract instead of presenting a plausible-looking number.
 

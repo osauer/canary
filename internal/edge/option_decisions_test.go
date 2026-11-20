@@ -1,8 +1,10 @@
 package edge
 
 import (
+	"fmt"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v3/internal/flexstmt"
 )
@@ -269,5 +271,104 @@ func TestStatementMarkOutranksAFetchedCloseOnTheSameDay(t *testing.T) {
 	bars := buildScoringIndex(input, nil, ev).barsByConID[456]
 	if len(bars) != 2 || bars[0].Close != 4 || bars[1].Close != 6 {
 		t.Fatalf("bars=%+v, want the mark 4 on the held day and the fetched 6 after it", bars)
+	}
+}
+
+// holidayWeekStatement is one synthetic option position, bought on Monday
+// 2026-11-16 and sold on Friday 2026-11-20, the week before US Thanksgiving
+// (Thursday 2026-11-26, no US session). venue is the option's listing
+// exchange; an empty venue leaves the contract without an instrument row.
+func holidayWeekStatement(venue string) flexstmt.Statement {
+	st := edgeStatement()
+	st.FromDate, st.ToDate, st.WhenGenerated = day("2026-09-01"), day("2026-12-10"), dayTime("2026-12-11", 1)
+	st.Equity = []flexstmt.EquityRow{{ReportDate: day("2026-09-01"), TotalBase: 10000}, {ReportDate: day("2026-12-10"), TotalBase: 10000}}
+	st.Cash, st.FXRates = nil, nil
+	for i := range 45 {
+		st.FXRates = append(st.FXRates, flexstmt.FXRate{RecordID: fmt.Sprint("fx", i), Date: day("2026-11-01").AddDate(0, 0, i), FromCurrency: "USD", ToCurrency: "EUR", Rate: new(.9)})
+	}
+	opt := func(id, executed, side, marker string, pnl float64) flexstmt.Trade {
+		return flexstmt.Trade{RecordID: id, AccountID: "U", ConID: 456, Symbol: "SYN CALL", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: id, ExecutionID: id, ExecutedAt: dayTime(executed, 16), Side: side, OpenClose: marker, Quantity: new(float64(2)), Price: new(float64(5)), Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), RealizedPNL: new(pnl), LevelOfDetail: "EXECUTION"}
+	}
+	st.Trades = []flexstmt.Trade{opt("buy", "2026-11-16", "BUY", "O", 0), opt("sale", "2026-11-20", "SELL", "C", 10)}
+	st.Positions = []flexstmt.OpenPosition{{RecordID: "end", AccountID: "U", ConID: 456, AssetClass: "OPT", ReportDate: day("2026-12-10"), Quantity: new(float64(0))}}
+	if venue != "" {
+		st.Instruments = []flexstmt.Instrument{{RecordID: "i456", ConID: 456, Symbol: "SYN CALL", UnderlyingSymbol: "SYN", AssetClass: "OPT", Currency: "USD", ListingExchange: venue, ReportDate: day("2026-12-10")}}
+	}
+	return st
+}
+
+// holidayWeekBars is what the daemon would hold for that week: SPY with a
+// close on every US session and none on Thanksgiving, a stock listed in
+// Europe (contract 789) with a close on every weekday including
+// Thanksgiving, and the option's closing quotes on Friday the 27th (9) and
+// Monday the 30th (4).
+func holidayWeekBars() (bars map[int64][]DailyBar, context map[string][]DailyBar) {
+	var us, europe []DailyBar
+	for d := day("2026-11-09"); !d.After(day("2026-12-04")); d = d.AddDate(0, 0, 1) {
+		if d.Weekday() == time.Saturday || d.Weekday() == time.Sunday {
+			continue
+		}
+		europe = append(europe, DailyBar{ConID: 789, Day: d, Close: 50})
+		if !d.Equal(day("2026-11-26")) {
+			us = append(us, DailyBar{Day: d, Close: 100})
+		}
+	}
+	quotes := []DailyBar{{ConID: 456, Day: day("2026-11-27"), Close: 9}, {ConID: 456, Day: day("2026-11-30"), Close: 4}}
+	return map[int64][]DailyBar{456: quotes, 789: europe}, map[string][]DailyBar{"SPY": us}
+}
+
+// Five sessions after a US option's sale are five US trading days. The sale
+// is on Friday 2026-11-20; the US sessions after it are the 23rd, 24th, 25th,
+// 27th and 30th, because Thanksgiving (the 26th) has none. A stock listed in
+// Europe traded on the 26th, and until 2026-11-20 its close made that day a
+// session for every option of the account: the fifth session landed on the
+// 27th and the score read that day's quote.
+func TestOptionHorizonCountsSessionsOfTheOptionsOwnMarket(t *testing.T) {
+	bars, context := holidayWeekBars()
+	result, err := Analyze(Input{AsOf: day("2026-12-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{holidayWeekStatement("CBOE")}, Bars: bars, ContextBars: context})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Changes) != 2 {
+		t.Fatalf("changes=%d, want the buy and the sale", len(result.Changes))
+	}
+	five := result.Changes[1].Scores[1]
+	if five.Sessions != 5 || five.HorizonDay == nil || five.HorizonClose == nil {
+		t.Fatalf("five sessions after the sale=%+v, want a figure", five)
+	}
+	if !five.HorizonDay.Equal(day("2026-11-30")) || *five.HorizonClose != 4 || five.CloseSource != CloseSourceClosingQuote {
+		t.Fatalf("fifth session=%s close=%v source=%q, want 2026-11-30 (the fifth US session; the 26th is a US holiday), close 4, a closing quote", five.HorizonDay.Format("2006-01-02"), *five.HorizonClose, five.CloseSource)
+	}
+}
+
+// Only the US calendar can be derived from what Edge holds. An option listed
+// on another exchange, one whose statement names no listing, and any option
+// while no US benchmark close is on record get no horizon figure and say why:
+// a figure counted on another market's days would look like one and be wrong.
+func TestOptionWithoutAKnownSessionCalendarHasNoHorizonFigure(t *testing.T) {
+	bars, context := holidayWeekBars()
+	for _, tc := range []struct {
+		name    string
+		venue   string
+		context map[string][]DailyBar
+	}{
+		{"listed outside the US", "EUREX", context},
+		{"no instrument row", "", context},
+		{"no US benchmark close on record", "CBOE", map[string][]DailyBar{"VIX": context["SPY"]}},
+	} {
+		result, err := Analyze(Input{AsOf: day("2026-12-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{holidayWeekStatement(tc.venue)}, Bars: bars, ContextBars: tc.context})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, score := range result.Changes[1].Scores {
+			if score.DecisionImpactBase != nil || score.HorizonDay != nil || score.Reason != ReasonSessionCalendarUnavailable {
+				t.Fatalf("%s: %d sessions=%+v, want no figure and reason %s", tc.name, score.Sessions, score, ReasonSessionCalendarUnavailable)
+			}
+		}
+		// The position's grade rests on the broker's realized result and
+		// needs no calendar.
+		if cycles := result.Options.Cycles; len(cycles.Cycles) != 1 || cycles.Cycles[0].Grade != OptionGradeMadeMoney {
+			t.Fatalf("%s: cycles=%+v, want the position still graded", tc.name, cycles)
+		}
 	}
 }
