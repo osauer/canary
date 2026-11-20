@@ -76,12 +76,7 @@ func (c *Connector) CaptureDisplay() (DisplaySnapshot, bool) {
 // The account/portfolio boundary must be released before taking subMu: some
 // subscription paths hold subMu while waiting for a broker response.
 func (c *Connector) captureDisplayAccount(binding ConnectorSessionBinding) (DisplaySnapshot, bool) {
-	c.publicationBarrier.RLock()
-	defer c.publicationBarrier.RUnlock()
-	binding.connection.inboundEpochMu.Lock()
-	defer binding.connection.inboundEpochMu.Unlock()
-	c.evidenceBarrier.Lock()
-	defer c.evidenceBarrier.Unlock()
+	defer c.lockInboundCapture(binding.connection)()
 	if !c.SessionCurrent(binding) {
 		return DisplaySnapshot{}, false
 	}

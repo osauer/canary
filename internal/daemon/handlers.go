@@ -944,17 +944,18 @@ func (s *Server) snapshotHeldStockQuote(ctx context.Context, c *ibkrlib.Connecto
 		AsOf:     time.Now(),
 	}
 	var seen bool
+	var burst quoteBurst
 	pollStarted := time.Now()
 	_ = pollMarketData(ctx, c, pollKey, pollStarted.Add(timeout), func(d *ibkrlib.MarketData) bool {
 		fillQuoteMarketData(&q, d)
 		labelQuoteCurrency(&q, d)
 		seen = true
-		ready := q.Bid != nil || q.Ask != nil || q.Last != nil
+		priced := q.Bid != nil || q.Ask != nil || q.Last != nil
 		fallback := quoteFallbackReady(&q, pollStarted, timeout)
-		if ready || fallback {
-			q.DataType = quoteDataTypeName(d.FeedType, ready, fallback)
+		if priced || fallback {
+			q.DataType = quoteDataTypeName(d.FeedType, priced, fallback)
 		}
-		return ready || fallback
+		return burst.settled(&q, d, time.Now(), timeout) || !priced && fallback
 	})
 	if !seen {
 		return rpc.Quote{}, false, false
@@ -2153,22 +2154,26 @@ func (s *Server) handleQuoteSnapshot(ctx context.Context, req *rpc.Request) (res
 	}
 	defer releaseSub()
 
+	var burst quoteBurst
 	pollStarted := time.Now()
 	if err := pollMarketData(ctx, c, pollKey, pollStarted.Add(timeout), func(d *ibkrlib.MarketData) bool {
 		fillQuoteMarketData(q, d)
 		labelQuoteCurrency(q, d)
-		ready := q.Bid != nil || q.Ask != nil || q.Last != nil
+		priced := q.Bid != nil || q.Ask != nil || q.Last != nil
 		fallback := quoteFallbackReady(q, pollStarted, timeout)
-		if ready || fallback {
+		if priced || fallback {
 			// Capture the gateway's feed state while the subscription is
 			// still live — once the deferred unsubscribe fires, the
 			// connector's symbol→reqID mapping is gone and the type would
 			// always read "". When IBKR omits that notice but only
 			// fallback ticks landed, label the row frozen so JSON consumers
-			// don't mistake mark/close-only data for a live quote.
-			q.DataType = quoteDataTypeName(d.FeedType, ready, fallback)
+			// don't mistake mark/close-only data for a live quote. A read
+			// that ends at its deadline mid-burst keeps this label too.
+			q.DataType = quoteDataTypeName(d.FeedType, priced, fallback)
 		}
-		return ready || fallback
+		// A mark or close alone ends the read after its grace; beside a
+		// price it must not, or a late line's lone bid would end it too.
+		return burst.settled(q, d, time.Now(), timeout) || !priced && fallback
 	}); err != nil {
 		switch {
 		case err == context.DeadlineExceeded:
@@ -3345,6 +3350,51 @@ func quoteSessionFor(q *rpc.Quote, market marketcal.Market) *rpc.MarketSession {
 	}
 	converted := marketSessionToRPC(session)
 	return &converted
+}
+
+// quoteBurstSettle is how long a quote read waits for the rest of a line's
+// opening messages once it has seen the first price.
+const quoteBurstSettle = 250 * time.Millisecond
+
+// quoteBurst decides when a quote read holds the broker's quote rather than
+// the start of it. The broker sends bid, ask and last as separate messages,
+// so a read that stops at the first price takes a lone bid as the price
+// while the last trade is a moment behind it (2026-11-19: an Add read
+// returned 109.99 "bid" with ask 110.01 and last 110 already on the wire).
+//
+// A complete quote is settled at once. Anything less waits quoteBurstSettle,
+// counted from the newest price receipt at first sight: a line that went
+// quiet long ago (a closed market may show one side) answers immediately,
+// and a line that keeps ticking cannot extend the wait. After the wait the
+// read returns what the broker sent, and the quote's price source names the
+// field it used.
+type quoteBurst struct{ since time.Time }
+
+func (b *quoteBurst) settled(q *rpc.Quote, d *ibkrlib.MarketData, now time.Time, timeout time.Duration) bool {
+	if q == nil || d == nil || q.Bid == nil && q.Ask == nil && q.Last == nil {
+		return false
+	}
+	if quoteComplete(q) {
+		return true
+	}
+	if b.since.IsZero() {
+		b.since = d.LastPriceTickAt
+	}
+	// A short read keeps half its budget, as quoteFallbackReady does.
+	return now.Sub(b.since) >= min(quoteBurstSettle, timeout/2)
+}
+
+// quoteComplete reports whether the broker has sent every price this kind of
+// instrument quotes: a currency pair has no last trade, an index no bid or
+// ask.
+func quoteComplete(q *rpc.Quote) bool {
+	switch strings.ToUpper(strings.TrimSpace(q.Contract.SecType)) {
+	case "CASH":
+		return q.Bid != nil && q.Ask != nil
+	case "IND":
+		return q.Last != nil
+	}
+	return q.Bid != nil && q.Ask != nil && q.Last != nil
 }
 
 func quoteFallbackReady(q *rpc.Quote, pollStarted time.Time, timeout time.Duration) bool {

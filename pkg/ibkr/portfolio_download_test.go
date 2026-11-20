@@ -3,6 +3,7 @@ package ibkr
 import (
 	"bufio"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -162,6 +163,73 @@ func TestShortPortfolioDownloadResubscribesWhileRowsAreRetained(t *testing.T) {
 	}
 	if got := subscribes(); got != 3 {
 		t.Fatalf("short download did not resubscribe after the throttle: %d subscriptions", got)
+	}
+}
+
+// TestHeldPortfolioBookIsOneEpisode replays 2026-11-19 23:45 to 2026-11-20
+// 05:18: after the nightly TWS restart the stream carried the gross position
+// value, a download ended with no rows, and the 30-second resubscribe ran 660
+// times with a warning each, none of which said whether IBKR answered. The
+// hold is now one episode: a warning when the repair starts, one once it has
+// lasted portfolioHeldWarnAfter naming what was sent and what came back, and
+// one when the book is current again.
+func TestHeldPortfolioBookIsOneEpisode(t *testing.T) {
+	buf := captureConnectorLogs(t)
+	conn, connector, _, _, gate := newQueuedInstructionReconnectFixture(t)
+	account := gate.Account
+	now := time.Date(2026, 11, 19, 22, 45, 18, 0, time.UTC)
+	connector.acctUpdatesNow = func() time.Time { return now }
+
+	if err := connector.RequestAccountUpdates(account); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	feedAccountValues(conn, account)
+	feedDownloadEnd(conn, account)
+
+	for range 25 {
+		now = now.Add(acctUpdatesResubscribeThrottle)
+		if rows, health, err := connector.CachedPositionsWithHealth(); err != nil || len(rows) != 0 || !health.InitialCompletedAt.IsZero() {
+			t.Fatalf("held book read as current: rows=%d completed=%v err=%v", len(rows), health.InitialCompletedAt, err)
+		}
+	}
+	if got := logLines(buf, "resubscribing account updates"); len(got) != 1 {
+		t.Fatalf("want one warning when the repair starts, got %d:\n%s", len(got), strings.Join(got, "\n"))
+	}
+	held := logLines(buf, "Portfolio book held as not current")
+	if len(held) != 1 {
+		t.Fatalf("want one warning once the hold lasts %s, got %d:\n%s", portfolioHeldWarnAfter, len(held), buf.Bytes())
+	}
+	for _, want := range []string{"level=WARN", "for 10m0s", "21 resubscribes sent", "0 failed to send", "0 portfolio rows", "0 download end markers", "open dialog"} {
+		if !strings.Contains(held[0], want) {
+			t.Errorf("hold warning lacks %q: %s", want, held[0])
+		}
+	}
+
+	feedAccountValues(conn, account)
+	for conID := 1; conID <= syntheticBookRows; conID++ {
+		feedOptionRow(conn, account, 800000+conID)
+	}
+	feedDownloadEnd(conn, account)
+	for range 2 {
+		if rows, health, err := connector.CachedPositionsWithHealth(); err != nil || len(rows) != syntheticBookRows || health.InitialCompletedAt.IsZero() {
+			t.Fatalf("complete download not current: rows=%d completed=%v err=%v", len(rows), health.InitialCompletedAt, err)
+		}
+	}
+	recovered := logLines(buf, "Portfolio book current again")
+	if len(recovered) != 1 || !strings.Contains(recovered[0], "level=WARN") || !strings.Contains(recovered[0], "after 12m0s") || !strings.Contains(recovered[0], "25 resubscribes") {
+		t.Fatalf("want one recovery warning naming the hold, got %d:\n%s", len(recovered), strings.Join(recovered, "\n"))
+	}
+
+	// A later hold is a new episode with its own first warning.
+	if err := connector.RequestAccountUpdates(account); err != nil {
+		t.Fatalf("resubscribe: %v", err)
+	}
+	feedAccountValues(conn, account)
+	feedDownloadEnd(conn, account)
+	now = now.Add(acctUpdatesResubscribeThrottle)
+	connector.CachedPositionsWithHealth()
+	if got := logLines(buf, "resubscribing account updates"); len(got) != 2 {
+		t.Fatalf("a new hold did not warn once more: %d warnings", len(got))
 	}
 }
 

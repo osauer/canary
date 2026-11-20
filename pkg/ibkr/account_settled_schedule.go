@@ -163,12 +163,7 @@ func (c *Connector) CaptureSettledCashSchedulesForSession(binding ConnectorSessi
 	if c == nil || !accountCodeConcrete(expected) || binding.connector != c || binding.connection == nil {
 		return nil
 	}
-	c.publicationBarrier.RLock()
-	defer c.publicationBarrier.RUnlock()
-	binding.connection.inboundEpochMu.Lock()
-	defer binding.connection.inboundEpochMu.Unlock()
-	c.evidenceBarrier.Lock()
-	defer c.evidenceBarrier.Unlock()
+	defer c.lockInboundCapture(binding.connection)()
 	if !c.SessionCurrent(binding) {
 		return nil
 	}

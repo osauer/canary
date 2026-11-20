@@ -53,7 +53,34 @@ func TestAddCallQuoteWaitsForAClassifiedModel(t *testing.T) {
 	runAddSnapshotScenario(t, "model-before-notice")
 }
 
+// The broker sends a new line's bid, ask and last as separate messages. On
+// 2026-11-19 a read taken between them returned the bid alone as the stock's
+// price (109.99 "bid", no ask, no last) with the last trade already on the
+// wire. The read waits for the rest of the line's opening messages.
+func TestAddSpotWaitsForTheLastTradeBehindALoneBid(t *testing.T) {
+	runAddSnapshotScenario(t, "unknown/pause-after-bid")
+}
+
+func TestAddSpotWaitsForTheLastTradeBehindBothSides(t *testing.T) {
+	runAddSnapshotScenario(t, "unknown/pause-after-ask")
+}
+
+// A line that opens late finds the read past its grace for a close alone;
+// the close and a lone bid together must not end it either.
+func TestAddSpotWaitsForTheLastTradeWhenTheLineOpensLate(t *testing.T) {
+	runAddSnapshotScenario(t, "unknown/late-pause-after-bid")
+}
+
+// A stock that has not traded sends no last. The read must not wait out its
+// budget for one, and its price must say it is a midpoint.
+func TestAddSpotNamesTheMidpointWhenNoTradeArrives(t *testing.T) {
+	runAddSnapshotScenario(t, "unknown/no-last")
+}
+
 func runAddSnapshotScenario(t *testing.T, scenario string) {
+	// "unknown/<burst>" varies how the stock line's opening messages arrive.
+	scenario, burst, _ := strings.Cut(scenario, "/")
+	burst, late := strings.CutPrefix(burst, "late-")
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +158,34 @@ func runAddSnapshotScenario(t *testing.T, scenario string) {
 		send(9, "1", "1")          // nextValidId
 		send(15, "1", "DU1234567") // managedAccounts: no one-second startup grace
 		failed := func() bool { sendMu.Lock(); defer sendMu.Unlock(); return writeErr != nil }
+		// A stock line's opening messages, one per field as the broker sends
+		// them. The pause is longer than the read's poll interval and shorter
+		// than its wait for the rest of the burst.
+		pause := func(after string) {
+			if burst == "pause-after-"+after {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+		stockBurst := func(id string) {
+			if late {
+				// Longer than the read's grace for a mark or close alone.
+				time.Sleep(800 * time.Millisecond)
+			}
+			send(58, "1", id, "1")
+			if late {
+				send(1, "6", id, "9", "109", "100", "0")
+			}
+			send(1, "6", id, "1", "109.99", "100", "0")
+			pause("bid")
+			send(1, "6", id, "2", "110.01", "100", "0")
+			pause("ask")
+			if burst != "no-last" {
+				send(1, "6", id, "4", "110", "100", "0")
+			}
+			if !late {
+				send(1, "6", id, "9", "109", "100", "0")
+			}
+		}
 		for !failed() {
 			frame, err := readTWSFrame(r)
 			if err != nil {
@@ -169,11 +224,7 @@ func runAddSnapshotScenario(t *testing.T, scenario string) {
 				}
 				mu.Unlock()
 				if f[5] == "STK" && scenario == "unknown" {
-					send(58, "1", id, "1")
-					send(1, "6", id, "1", "109.99", "100", "0")
-					send(1, "6", id, "2", "110.01", "100", "0")
-					send(1, "6", id, "4", "110", "100", "0")
-					send(1, "6", id, "9", "109", "100", "0")
+					stockBurst(id)
 				}
 				if f[5] == "OPT" {
 					go func() {
@@ -202,11 +253,7 @@ func runAddSnapshotScenario(t *testing.T, scenario string) {
 				mu.Lock()
 				listingRequests++
 				for _, id := range stockRequests {
-					send(58, "1", id, "1")
-					send(1, "6", id, "1", "109.99", "100", "0")
-					send(1, "6", id, "2", "110.01", "100", "0")
-					send(1, "6", id, "4", "110", "100", "0")
-					send(1, "6", id, "9", "109", "100", "0")
+					stockBurst(id)
 				}
 				mu.Unlock()
 				send(75, f[1], "SMART", "17", "SYNTH", "100", "1", expiry, "3", "100", "110", "120")
@@ -258,9 +305,24 @@ func runAddSnapshotScenario(t *testing.T, scenario string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spot, _ := quoteCurrentPrice(got.Quote)
-	if spot == nil || *spot != 110 {
-		t.Fatalf("metadata-time callback was not consumed from the held stock cache: spot=%v", spot)
+	// Bid 109.99 and ask 110.01 have the midpoint 110 too, so the source
+	// decides whether the price is the last trade.
+	wantSource := "last"
+	if burst == "no-last" {
+		wantSource = "mid"
+	}
+	spot, source := quoteCurrentPrice(got.Quote)
+	if spot == nil || *spot != 110 || source != wantSource {
+		// A pointer says nothing: print the price and the ticks it was built from.
+		show := func(v *float64) string {
+			if v == nil {
+				return "none"
+			}
+			return strconv.FormatFloat(*v, 'f', -1, 64)
+		}
+		q := got.Quote
+		t.Fatalf("stock spot is not 110 from %q: spot=%s source=%q bid=%s ask=%s last=%s prev_close=%s price=%s/%q quote_price=%s/%q data_type=%q",
+			wantSource, show(spot), source, show(q.Bid), show(q.Ask), show(q.Last), show(q.PrevClose), show(q.Price), q.PriceSource, show(q.QuotePrice), q.QuotePriceSource, q.DataType)
 	}
 	if scenario == "unknown" {
 		mu.Lock()
