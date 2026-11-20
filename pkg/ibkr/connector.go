@@ -208,6 +208,7 @@ type Connector struct {
 	acctUpdatesMu      sync.Mutex
 	acctUpdatesLastAt  time.Time
 	acctUpdatesAccount string
+	acctUpdatesHeld    portfolioHeldEpisode
 	acctUpdatesNow     func() time.Time
 
 	// pnlResubMu guards the daily-P&L resubscribe throttle.
@@ -2977,6 +2978,7 @@ func (c *Connector) invalidateUnstampedConnectorObservations(conn *Connection) {
 	c.acctUpdatesMu.Lock()
 	c.acctUpdatesLastAt = time.Time{}
 	c.acctUpdatesAccount = ""
+	c.acctUpdatesHeld = portfolioHeldEpisode{}
 	c.acctUpdatesMu.Unlock()
 	c.pnlResubMu.Lock()
 	c.pnlResubLastAt = time.Time{}
@@ -6204,6 +6206,13 @@ func (c *Connector) resubscribeAccountUpdates() error {
 // one resubscribe attempt per window, counted from the last subscribe.
 const acctUpdatesResubscribeThrottle = 30 * time.Second
 
+// portfolioHeldWarnAfter is how long the repair below may run before the hold
+// is reported with what was sent and what came back. Ten minutes matches the
+// answer-path redial wait. Nothing is redialled here: a TWS that has not
+// loaded the portfolio (2026-11-19, behind an open dialog) still answers
+// account values, and a new socket does not load it.
+const portfolioHeldWarnAfter = 10 * time.Minute
+
 func (c *Connector) acctUpdatesClock() time.Time {
 	if c.acctUpdatesNow != nil {
 		return c.acctUpdatesNow()
@@ -6246,20 +6255,102 @@ func (c *Connector) maybeResubscribeAccountUpdatesForReason(reason accountUpdate
 	}
 	now := c.acctUpdatesClock()
 	c.acctUpdatesMu.Lock()
-	stale := now.Sub(c.acctUpdatesLastAt) >= acctUpdatesResubscribeThrottle
-	c.acctUpdatesMu.Unlock()
-	if !stale {
+	if now.Sub(c.acctUpdatesLastAt) < acctUpdatesResubscribeThrottle {
+		c.acctUpdatesMu.Unlock()
 		return
+	}
+	c.acctUpdatesLastAt = now
+	held := &c.acctUpdatesHeld
+	first := held.since.IsZero()
+	if first {
+		*held = portfolioHeldEpisode{since: now, wire: c.conn.portfolioWireCounts()}
+	}
+	held.repairs++
+	c.acctUpdatesMu.Unlock()
+	logf := ibkrLogger.Debugf
+	if first {
+		logf = ibkrLogger.Warnf
 	}
 	switch reason {
 	case repairScopeConflict:
-		ibkrLogger.Warnf("portfolio stream account scope conflicted; resubscribing account updates")
+		logf("portfolio stream account scope conflicted; resubscribing account updates")
 	case repairShortDownload:
-		ibkrLogger.Warnf("portfolio download does not account for gross position value; resubscribing account updates")
+		logf("portfolio download does not account for gross position value; resubscribing account updates")
 	default:
-		ibkrLogger.Warnf("positions cache empty while account summary shows gross position value; resubscribing account updates")
+		logf("positions cache empty while account summary shows gross position value; resubscribing account updates")
 	}
-	_ = c.resubscribeAccountUpdates()
+	c.noteHeldPortfolioRepair(now, c.resubscribeAccountUpdates())
+}
+
+// portfolioHeldEpisode is one stretch of account-updates repairs, from the
+// first resubscribe until a positions read sees a completed download. Only
+// its first repair warns; the rest log at debug, and the hold is reported
+// once at portfolioHeldWarnAfter with the evidence that tells a subscribe that
+// never left from a Gateway that sent nothing back.
+type portfolioHeldEpisode struct {
+	since      time.Time
+	repairs    int
+	sendErrors int
+	lastErr    error
+	wire       portfolioWireCounts // as the first repair was sent
+	reported   bool
+}
+
+func (c *Connector) noteHeldPortfolioRepair(now time.Time, err error) {
+	c.acctUpdatesMu.Lock()
+	held := &c.acctUpdatesHeld
+	if held.since.IsZero() {
+		c.acctUpdatesMu.Unlock()
+		return // a new session reset the episode meanwhile
+	}
+	if err != nil {
+		held.sendErrors++
+		held.lastErr = err
+	}
+	if held.reported || now.Sub(held.since) < portfolioHeldWarnAfter {
+		c.acctUpdatesMu.Unlock()
+		return
+	}
+	held.reported = true
+	ep := *held
+	c.acctUpdatesMu.Unlock()
+	wire := c.conn.portfolioWireCounts().since(ep.wire)
+	lastErr := ""
+	if ep.lastErr != nil {
+		lastErr = fmt.Sprintf(" (last: %v)", ep.lastErr)
+	}
+	hint := ""
+	switch {
+	case ep.sendErrors == ep.repairs:
+		hint = "; none of the resubscribes reached IBKR"
+	case wire.rowsAccepted == 0 && wire.rowsDropped == 0:
+		hint = "; TWS is not sending the portfolio, so check it for an open dialog or restart it"
+	}
+	ibkrLogger.Warnf("Portfolio book held as not current for %s: %d resubscribes sent, %d failed to send%s; since the first, IBKR sent %d portfolio rows for this account (%d dropped for another account) and %d download end markers%s",
+		now.Sub(ep.since).Round(time.Second), ep.repairs, ep.sendErrors, lastErr,
+		wire.rowsAccepted, wire.rowsDropped, wire.endMarkers, hint)
+}
+
+// endHeldPortfolioEpisode closes the episode once a read sees a completed
+// download. The recovery warns only when the hold itself was reported.
+func (c *Connector) endHeldPortfolioEpisode(health PortfolioStreamHealth) {
+	if health.InitialCompletedAt.IsZero() {
+		return
+	}
+	c.acctUpdatesMu.Lock()
+	ep := c.acctUpdatesHeld
+	if ep.since.IsZero() {
+		c.acctUpdatesMu.Unlock()
+		return
+	}
+	c.acctUpdatesHeld = portfolioHeldEpisode{}
+	c.acctUpdatesMu.Unlock()
+	logf := ibkrLogger.Infof
+	if ep.reported {
+		logf = ibkrLogger.Warnf
+	}
+	logf("Portfolio book current again after %s; %d resubscribes sent during the hold",
+		c.acctUpdatesClock().Sub(ep.since).Round(time.Second), ep.repairs)
 }
 
 // accountSummaryShowsPositions reports whether any GrossPositionValue
@@ -6320,11 +6411,13 @@ func (c *Connector) CachedPositionsWithHealth() ([]*RawPosition, PortfolioStream
 	case len(result) == 0 && accountSummaryShowsPositions(conn.GetAccountSummary()):
 		c.maybeResubscribeAccountUpdates()
 	default:
+		c.endHeldPortfolioEpisode(health)
 		return result, health, nil
 	}
 	// Rows and receipt must come from one capture: a download that completes
 	// between two reads would otherwise label the older rows current.
 	ibkrPositions, health = conn.GetPositionsWithPortfolioHealth()
+	c.endHeldPortfolioEpisode(health)
 	return c.filteredCachedPositions(ibkrPositions), health, nil
 }
 
