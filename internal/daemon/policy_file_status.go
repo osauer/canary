@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -22,8 +23,17 @@ func (s *Server) policyFileStatuses(mgr riskPolicySnapshot) []rpc.PolicyFileStat
 	done, all := s.mandateDefaultsDone(set.Constitution)
 	set.WriteMandateDefaults, set.MandateDefaultsDone = !all, done
 	dry := map[string]PolicyFileAction{}
-	for _, a := range EnsurePolicyFiles(set, EnsureOptions{DryRun: true, Release: s.version}) {
+	for _, a := range EnsurePolicyFiles(set, EnsureOptions{DryRun: true, Release: s.version, LegacyDirDecided: true}) {
 		dry[a.Policy] = a
+	}
+	// A file kept beside a different one from before v3.35.0 says so on its row.
+	for path, note := range s.policyDirNotes(context.Background()) {
+		for name, d := range dry {
+			if d.Path == path {
+				d.Notes = append(d.Notes, note)
+				dry[name] = d
+			}
+		}
 	}
 	withDry := func(row rpc.PolicyFileStatus) rpc.PolicyFileStatus {
 		a, ok := dry[row.Policy]

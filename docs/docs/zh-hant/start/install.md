@@ -155,7 +155,9 @@ Next concern   Broker data connection unavailable
 
 `XDG_CONFIG_HOME` 重新定位 `config.toml`；`XDG_STATE_HOME` 重新定位守護程序狀態和日誌，而 `XDG_CACHE_HOME` 重新定位快取和更新暫存空間。socket 在設定了 `XDG_RUNTIME_DIR` 時使用它，否則使用 `HOME/.cache/ibkr`，與 `XDG_CACHE_HOME` 無關。`CANARY_CONFIG`、`CANARY_SOCKET` 和 `CANARY_LOG` 各自覆寫對應的檔案。
 
-政策預設值維持在 `HOME/.config/ibkr/policies` 下，即使設定了 `XDG_CONFIG_HOME` 或 `CANARY_CONFIG`。規則手冊、保護和機會政策在 `[rulebook]`、`[auto_trade]` 和 `[opportunities]` 中有明確的 `policy_file` 覆寫；風險憲章使用其固定的預設路徑。更改設定路徑不會重新定位政策。
+四個政策檔案位於與 `config.toml` 相同的設定根目錄下的 `ibkr/policies`：設定了 `XDG_CONFIG_HOME` 時為 `$XDG_CONFIG_HOME/ibkr/policies`，否則為 `~/.config/ibkr/policies`。`CANARY_CONFIG` 只指定一個檔案，不會移動其他任何東西。規則手冊、保護和機會政策在 `[rulebook]`、`[auto_trade]` 和 `[opportunities]` 中有明確的 `policy_file` 覆寫；風險憲章一律使用預設路徑。
+
+在 v3.34.1 及之前，無論 `XDG_CONFIG_HOME` 為何，政策檔案一律位於 `~/.config/ibkr/policies`。使用其他設定根目錄且曾以那些檔案運作的守護程序，更新後會在啟動時把它們複製到自己的目錄；舊目錄只會被讀取。只有在守護程序自身的紀錄顯示它曾使用那些檔案時才會這樣做，因此您另行指定設定根目錄的第二個守護程序會從 Canary 的預設值開始，絕不會沿用另一個守護程序的限額。若兩個目錄都有含您設定的檔案，Canary 兩者都不取代，`canary policy show --explain` 會說明目前使用的是哪一個。
 
 ## 下一步 {#next}
 

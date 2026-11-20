@@ -144,6 +144,12 @@ type EnsureOptions struct {
 	// the daemon reads them from the file, so nobody runs a plan first
 	// (owner instruction 2026-10-06 06:33 CEST).
 	ApplyMigrations bool
+	// LegacyDirDecided is set by the daemon, which has already adopted the
+	// old directory's files where its record showed they were its own
+	// (adoptLegacyPolicyFilesOnStart). Unset, the ensure step runs without
+	// that record, as the installer's `canary policy ensure` does, and
+	// writes no default where the old directory still holds a file.
+	LegacyDirDecided bool
 }
 
 // policyFileKind binds one policy file to its template, parser and migration.
@@ -219,6 +225,14 @@ func ensurePolicyFile(k policyFileKind, release string, opts EnsureOptions) Poli
 	}
 	switch {
 	case errors.Is(err, os.ErrNotExist):
+		if legacy := legacyPolicyPath(k.path); legacy != "" && !opts.LegacyDirDecided {
+			// Writing Canary's defaults here would put them in force in
+			// place of the limits in the old directory. Only the daemon can
+			// tell whether those are this install's, so it decides at start.
+			act.Action = PolicyFileLeftToDaemon
+			act.Notes = append(act.Notes, "no file written: one exists at "+legacy+" from before v3.35.0; the daemon adopts it at its next start if its record shows this install used it, and writes Canary's defaults otherwise")
+			return act
+		}
 		if opts.DryRun {
 			act.Action = PolicyFileWouldCreate
 			return act
@@ -1559,9 +1573,13 @@ func (s *Server) ensurePolicyFilesOnStart() {
 		return
 	}
 	set := PolicyFileSetFor(s.cfg)
+	// Adoption comes first: the ensure step then migrates the adopted files
+	// like any other, and the mandate-defaults record read below is the one
+	// carried over with the risk policy.
+	s.adoptLegacyPolicyFilesOnStart(set)
 	done, all := s.mandateDefaultsDone(set.Constitution)
 	set.WriteMandateDefaults, set.MandateDefaultsDone = !all, done
-	actions := EnsurePolicyFiles(set, EnsureOptions{Release: s.version, ApplyMigrations: true})
+	actions := EnsurePolicyFiles(set, EnsureOptions{Release: s.version, ApplyMigrations: true, LegacyDirDecided: true})
 	if set.WriteMandateDefaults {
 		s.recordMandateDefaults(set.Constitution, actions)
 	}

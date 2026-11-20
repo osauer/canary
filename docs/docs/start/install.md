@@ -1,6 +1,6 @@
 # Install and first run
 
-Updated: 2026-11-07 07:48 CET
+Updated: 2026-11-20 07:59 CET
 
 `canary` is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.
 
@@ -153,7 +153,9 @@ No config file is needed for this. The daemon probes `4001` (Gateway live), `400
 
 `XDG_CONFIG_HOME` relocates `config.toml`; `XDG_STATE_HOME` relocates daemon state and logs, and `XDG_CACHE_HOME` relocates caches and update scratch space. The socket uses `XDG_RUNTIME_DIR` when set, otherwise `HOME/.cache/ibkr`, independently of `XDG_CACHE_HOME`. `CANARY_CONFIG`, `CANARY_SOCKET`, and `CANARY_LOG` override the corresponding file individually.
 
-Policy defaults remain under `HOME/.config/ibkr/policies`, even with `XDG_CONFIG_HOME` or `CANARY_CONFIG`. Rulebook, protection and opportunity policies have explicit `policy_file` overrides in `[rulebook]`, `[auto_trade]` and `[opportunities]`; the risk constitution uses its fixed default path. Changing the config path does not relocate policies.
+The four policy files live in `ibkr/policies` under the same config root as `config.toml`: `$XDG_CONFIG_HOME/ibkr/policies` when `XDG_CONFIG_HOME` is set, and `~/.config/ibkr/policies` otherwise. `CANARY_CONFIG` names one file and moves nothing else. Rulebook, protection and opportunity policies have explicit `policy_file` overrides in `[rulebook]`, `[auto_trade]` and `[opportunities]`; the risk constitution always uses the default path.
+
+Through v3.34.1 the policy files were always in `~/.config/ibkr/policies`, whatever `XDG_CONFIG_HOME` said. A daemon with another config root that ran on those files finds them there after an update and copies them to its own directory at start; the old directory is only read. It does this only when its own record shows it ran on them, so a second daemon you give its own config root starts on Canary's defaults and never inherits another daemon's limits. Where both directories hold a file with settings of yours, Canary replaces neither, and `canary policy show --explain` says which one is in use.
 
 ## Next
 
