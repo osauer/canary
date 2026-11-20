@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -330,9 +331,7 @@ func (s *Server) adoptLegacyPolicyFilesOnStart(set PolicyFileSet) {
 	// fails the next start looks again and finds each adopted file equal to
 	// its twin, which it records as the same.
 	actions, outcomes := adoptLegacyPolicyFiles(set, s.version, time.Now(), settled)
-	for path, outcome := range outcomes {
-		settled[path] = outcome
-	}
+	maps.Copy(settled, outcomes)
 	raw, err := json.Marshal(settled)
 	if err == nil {
 		_, err = s.coreStore.CompareAndSwapStateDocument(ctx, corestore.StateDocumentCAS{ScopeKey: daemonStateScope, Kind: stateKindPolicyDirAdoption, ExpectedRevision: revision, JSON: raw})
