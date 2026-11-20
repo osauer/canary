@@ -162,6 +162,7 @@ func renderEdgeView(env *Env, result rpc.EdgeResult, paged bool, optionLimit int
 	if next := edgeOptionNextOffset(result.Options); next != nil {
 		fmt.Fprintf(out, "  More option rows: canary edge --option-offset %d --option-limit %d\n", *next, optionLimit)
 	}
+	renderEdgeForwardTests(env, result)
 	if result.Change != nil {
 		renderEdgeChange(env, *result.Change, edgeBaseCurrency(result))
 	}
@@ -879,6 +880,9 @@ func renderEdgeChange(env *Env, change rpc.EdgeChangeDetail, currency string) {
 			fmt.Fprintln(out, "               "+env.dim(edgeFindingContext(score.MarketContext)))
 		}
 	}
+	if len(change.ForwardTests) > 0 {
+		edgeRow(env, "Forward tests", fmt.Sprintf("made after %d registered %s: %s", len(change.ForwardTests), pluralWord(len(change.ForwardTests), "rule", "rules"), strings.Join(change.ForwardTests, ", ")))
+	}
 	if change.AssetClass != "OPT" {
 		edgeRow(env, "Verdict", edgeVerdictText(env, change.Verdict, currency))
 		return
@@ -896,6 +900,40 @@ func renderEdgeChange(env *Env, change rpc.EdgeChangeDetail, currency string) {
 		}
 		edgeRow(env, "Position grade", append(values, "the figures above are price readings, not a grade")...)
 	}
+}
+
+// renderEdgeForwardTests says that rules are registered and since when. The
+// rules themselves are long and stay in the JSON; the date is what makes
+// them forward tests, so it is the one thing printed.
+func renderEdgeForwardTests(env *Env, result rpc.EdgeResult) {
+	if len(result.ForwardTests) == 0 {
+		return
+	}
+	var first, last time.Time
+	registered := 0
+	for _, test := range result.ForwardTests {
+		if test.RegisteredAt.IsZero() {
+			continue
+		}
+		registered++
+		if first.IsZero() || test.RegisteredAt.Before(first) {
+			first = test.RegisteredAt
+		}
+		if test.RegisteredAt.After(last) {
+			last = test.RegisteredAt
+		}
+	}
+	fmt.Fprintf(env.Stdout, "\nForward tests  %s\n", env.dim("rules written down before the results they will be read on"))
+	total := len(result.ForwardTests)
+	when := "not registered yet"
+	switch {
+	case registered > 0 && first.Equal(last):
+		when = "registered " + first.Local().Format("2006-01-02 15:04 MST")
+	case registered > 0:
+		when = "registered between " + first.Local().Format("2006-01-02 15:04 MST") + " and " + last.Local().Format("2006-01-02 15:04 MST")
+	}
+	edgeRow(env, "Registered", fmt.Sprintf("%d of %d %s", registered, total, pluralWord(total, "rule", "rules")), when,
+		"only decisions made afterwards count", "the rules are in canary edge --json")
 }
 
 // edgeCloseSourceWord names what a horizon close rests on. A quote is said

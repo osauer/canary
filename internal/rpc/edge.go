@@ -113,6 +113,7 @@ type EdgeResult struct {
 	Findings             []EdgeFinding             `json:"findings"`
 	Options              EdgeOptionReview          `json:"options"`
 	Verdicts             EdgeVerdicts              `json:"verdicts"`
+	ForwardTests         []EdgeForwardTest         `json:"forward_tests"`
 	Coverage             EdgeCoverage              `json:"coverage"`
 	Method               EdgeMethod                `json:"method"`
 	Setup                *EdgeSetup                `json:"setup,omitempty"`
@@ -272,6 +273,20 @@ type EdgeChangePosition struct {
 	ResultPct       *float64 `json:"result_pct,omitempty"`
 }
 
+// EdgeForwardTest is one rule registered before the results it will be read
+// on. RegisteredAt is when this install first registered this exact text for
+// the account (RuleHash identifies the text); it is absent until then. Only
+// decisions executed after RegisteredAt belong to the rule's sample. Canary
+// registers the rules and keeps what a later read needs; it does not read
+// the tests, and no verdict, grade or order behaviour depends on them.
+type EdgeForwardTest struct {
+	ID           string    `json:"id"`
+	Title        string    `json:"title"`
+	Rule         string    `json:"rule"`
+	RuleHash     string    `json:"rule_hash"`
+	RegisteredAt time.Time `json:"registered_at,omitzero"`
+}
+
 // MaxEdgeRecentVerdicts bounds the recent decision list.
 const MaxEdgeRecentVerdicts = 20
 
@@ -296,6 +311,9 @@ type EdgeChangeDetail struct {
 	Verdict               EdgeVerdict           `json:"verdict"`
 	// Position is set for an option decision.
 	Position *EdgeChangePosition `json:"position,omitempty"`
+	// ForwardTests names the registered rules whose sample this decision
+	// can belong to by date: those registered before it was executed.
+	ForwardTests []string `json:"forward_tests,omitempty"`
 }
 
 // EdgeHorizonScore exposes either one calculated impact or a typed reason.
@@ -660,6 +678,20 @@ func ValidateEdgeResult(result EdgeResult) error {
 	}
 	if err := validateEdgeLearning(result); err != nil {
 		return err
+	}
+	seenForwardTests := map[string]bool{}
+	for _, test := range result.ForwardTests {
+		if strings.TrimSpace(test.ID) == "" || seenForwardTests[test.ID] || strings.TrimSpace(test.Title) == "" || strings.TrimSpace(test.Rule) == "" || !strings.HasPrefix(test.RuleHash, "rule_") {
+			return fmt.Errorf("invalid Edge forward test")
+		}
+		seenForwardTests[test.ID] = true
+	}
+	if result.Change != nil {
+		for _, id := range result.Change.ForwardTests {
+			if !seenForwardTests[id] {
+				return fmt.Errorf("unregistered forward test named on an Edge change")
+			}
+		}
 	}
 	if err := validateEdgeVerdicts(result.Verdicts); err != nil {
 		return err

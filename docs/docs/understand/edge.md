@@ -1,6 +1,6 @@
 # Canary Edge
 
-Updated: 2026-11-19 20:04 CET
+Updated: 2026-11-20 06:32 CET
 
 Canary Edge is a retrospective broker-truth review. It answers three different questions without blending them:
 
@@ -240,6 +240,36 @@ there compares its price with what the kept contracts fetched afterwards:
 positive means they did better than the ones sold. Entry rows and sale rows
 describe the same money and are never added. Money figures there are before
 costs.
+
+## Forward tests
+
+A pattern found by looking back can be fitted to what already happened. A
+rule written down first, with the time it was written, cannot. Edge
+therefore carries a small set of **forward tests**: rules registered before
+the results they will be read on. `forward_tests` in `canary edge --json`
+lists each rule with its full text, a `rule_hash` that identifies that exact
+text, and `registered_at`, the moment this install first registered it for
+the account. `canary edge` prints how many are registered and since when.
+
+Only a decision executed after `registered_at` belongs to a rule's sample;
+one made at that moment or earlier is hindsight for the rule, whatever was
+learned about it later. That includes option closes Canary fetched after the
+fact for an earlier sale. The detail of a decision (`--change`) names the
+rules it was made after.
+
+The registration is kept in the daemon's store, apart from everything Edge
+can rebuild, and is never rewritten: an update, a restart and a rebuilt
+review all leave the dates where they are. Each account and mode has its own
+dates. If a later release changes a rule's text, that rule is registered
+again with a new date beside the old record, and the other rules keep
+theirs.
+
+Canary registers the rules and keeps what a later read needs. It does not
+read the tests: no verdict, grade, warning or order depends on them. The
+rules cover stock sales and entries against a nearby day, option buys
+against the Rulebook's premium budget, option buys after a Regime warning
+session, final option sales against the contract's close five sessions
+later, and a floor under what is left after a partial sale.
 
 ## Completed option positions
 
