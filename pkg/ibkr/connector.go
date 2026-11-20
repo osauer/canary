@@ -5665,6 +5665,50 @@ func (c *Connector) CapturePortfolioProjectionForSession(binding ConnectorSessio
 	}, true
 }
 
+// lockInboundCapture holds the publication read side, conn's inbound lease
+// exclusively and the evidence write side, for a capture that must see one
+// inbound generation. It never holds the inbound lease while it waits for
+// evidence: every inbound frame, ticks included, needs that lease, and
+// evidence stays held for as long as a derived-state commit takes, so a
+// capture queued for evidence behind the lease stopped the reader for that
+// long. Whichever of the two it waits for, it only tries the other, and a try
+// never waits, so it cannot invert the canonical order (publication,
+// inbound, evidence) against a reader that holds the lease and wants
+// evidence. It queues for evidence first; when the reader is inside a frame
+// it lets evidence go, waits for the frame to finish, and tries evidence.
+// After inboundCaptureAttempts it takes the canonical order, which is always
+// live.
+func (c *Connector) lockInboundCapture(conn *Connection) (unlock func()) {
+	unlock = func() {
+		c.evidenceBarrier.Unlock()
+		conn.inboundEpochMu.Unlock()
+		c.publicationBarrier.RUnlock()
+	}
+	for range inboundCaptureAttempts {
+		c.publicationBarrier.RLock()
+		c.evidenceBarrier.Lock()
+		if conn.inboundEpochMu.TryLock() {
+			return unlock
+		}
+		c.evidenceBarrier.Unlock()
+		conn.inboundEpochMu.Lock()
+		if c.evidenceBarrier.TryLock() {
+			return unlock
+		}
+		conn.inboundEpochMu.Unlock()
+		c.publicationBarrier.RUnlock()
+	}
+	c.publicationBarrier.RLock()
+	conn.inboundEpochMu.Lock()
+	c.evidenceBarrier.Lock()
+	return unlock
+}
+
+// inboundCaptureAttempts bounds lockInboundCapture's tries before it falls
+// back to the canonical order. A try fails while the reader is inside a
+// frame or another holder has the lock the capture did not wait for.
+const inboundCaptureAttempts = 4
+
 // CapturePortfolioProjectionForBoundSession snapshots the structural
 // portfolio authority without acquiring publicationBarrier or evidenceBarrier.
 // It is only valid from a protected order wire guard while the transport owns
@@ -5719,6 +5763,7 @@ func (c *Connector) WithStableBrokerEvidence(binding BrokerEvidenceBinding, comm
 	defer c.publicationBarrier.RUnlock()
 	c.evidenceBarrier.Lock()
 	defer c.evidenceBarrier.Unlock()
+	defer c.noteEvidenceHold(time.Now())
 	if !c.SessionCurrent(binding.Session) || c.OrderLifecycleGeneration() != binding.OrderLifecycleGeneration ||
 		c.PortfolioProjectionGeneration() != binding.PortfolioProjectionGeneration {
 		return false
