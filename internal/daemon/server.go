@@ -568,6 +568,9 @@ type Server struct {
 	// edgeOptionReadWarned is the reason of the last warning that the
 	// option close read looks broken, so the same reason warns once.
 	edgeOptionReadWarned atomic.Pointer[string]
+	// edgeForwardTestsWarned is the last forward-test registry read failure
+	// that was logged; the same failure is logged once.
+	edgeForwardTestsWarned atomic.Pointer[string]
 	// edgeSessionStamped is the newest US session known to have its record
 	// in the Edge session stamp log; edgeSessionStampWarned is the session
 	// whose failed write was last warned about.

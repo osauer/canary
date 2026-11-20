@@ -114,14 +114,19 @@ type EdgeResult struct {
 	Options              EdgeOptionReview          `json:"options"`
 	Verdicts             EdgeVerdicts              `json:"verdicts"`
 	ForwardTests         []EdgeForwardTest         `json:"forward_tests"`
-	Coverage             EdgeCoverage              `json:"coverage"`
-	Method               EdgeMethod                `json:"method"`
-	Setup                *EdgeSetup                `json:"setup,omitempty"`
-	Change               *EdgeChangeDetail         `json:"change,omitempty"`
-	Option               *EdgeOptionDetail         `json:"option,omitempty"`
-	Fingerprint          string                    `json:"fingerprint,omitempty"`
-	LastFullRevalidation time.Time                 `json:"last_full_revalidation,omitzero"`
-	NotExecution         bool                      `json:"not_execution"`
+	// ForwardTestsUnavailable says why forward_tests is empty when the
+	// registry could not be consulted: account_scope_unavailable or
+	// registry_unreadable. Empty forward_tests with this set does not mean
+	// that no rule is registered; ask again.
+	ForwardTestsUnavailable string            `json:"forward_tests_unavailable,omitempty"`
+	Coverage                EdgeCoverage      `json:"coverage"`
+	Method                  EdgeMethod        `json:"method"`
+	Setup                   *EdgeSetup        `json:"setup,omitempty"`
+	Change                  *EdgeChangeDetail `json:"change,omitempty"`
+	Option                  *EdgeOptionDetail `json:"option,omitempty"`
+	Fingerprint             string            `json:"fingerprint,omitempty"`
+	LastFullRevalidation    time.Time         `json:"last_full_revalidation,omitzero"`
+	NotExecution            bool              `json:"not_execution"`
 }
 
 // EdgeHorizonSelection explains whether the selected lens was explicit or the
@@ -729,6 +734,9 @@ func ValidateEdgeResult(result EdgeResult) error {
 	}
 	if err := validateEdgeLearning(result); err != nil {
 		return err
+	}
+	if !slices.Contains([]string{"", "account_scope_unavailable", "registry_unreadable"}, result.ForwardTestsUnavailable) || result.ForwardTestsUnavailable != "" && len(result.ForwardTests) > 0 {
+		return fmt.Errorf("invalid Edge forward-test availability")
 	}
 	seenForwardTests := map[string]bool{}
 	for _, test := range result.ForwardTests {

@@ -1162,6 +1162,24 @@ func (s *Server) replaceEdgeStateDocument(ctx context.Context, kind string, raw 
 }
 
 func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc.EdgeResult, error) {
+	// First, while the request's time is unspent (edgeForwardTestsForRequest).
+	tests, unavailable := s.edgeForwardTestsForRequest(ctx)
+	result, err := s.edgeSnapshotResult(ctx, req)
+	if err != nil || result == nil {
+		return result, err
+	}
+	result.ForwardTests, result.ForwardTestsUnavailable = tests, unavailable
+	if result.Change != nil {
+		result.Change.ForwardTests = edgeForwardSampleIDs(tests, result.Change.ExecutedAt)
+	}
+	if err := rpc.ValidateEdgeResult(*result); err != nil {
+		return nil, fmt.Errorf("invalid Edge publication: %w", err)
+	}
+	return result, nil
+}
+
+// edgeSnapshotResult builds the reply without its forward tests.
+func (s *Server) edgeSnapshotResult(ctx context.Context, req *rpc.Request) (*rpc.EdgeResult, error) {
 	var params rpc.EdgeSnapshotParams
 	if err := decodeFor(api.EdgeSnapshot, req.Params, &params); err != nil {
 		return nil, err
@@ -1212,7 +1230,6 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 		populateRPCEdgeResult(result, coreResult, horizon, limit, params.OptionOffset, params.OptionLimit, params.AutomaticHorizon)
 		result.State, result.Reason = publication.State, publication.Reason
 	}
-	result.ForwardTests = s.edgeForwardTestsView(ctx, scopeFingerprint)
 	if params.ChangeID != "" {
 		if !haveWindow {
 			return nil, errBadRequest("edge change is unavailable before a snapshot is published")
@@ -1221,7 +1238,6 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 		for _, change := range coreResult.Changes {
 			if change.ID == params.ChangeID {
 				result.Change = rpcEdgeChange(change)
-				result.Change.ForwardTests = edgeForwardSampleIDs(result.ForwardTests, change.ExecutedAt)
 				result.Change.PriorSession, result.Change.DecisionSession = s.edgeChangeSessionStamps(ctx, change.ExecutedAt)
 				found = true
 				break

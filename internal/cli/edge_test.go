@@ -517,3 +517,29 @@ func TestEdgeChangeDetailGradesThePositionNotTheSale(t *testing.T) {
 		t.Fatalf("stock detail:\n%s", out.String())
 	}
 }
+
+// When the daemon could not read the forward-test registry the reply names no
+// rule and says so. `canary edge` prints that, because printing nothing would
+// read as "none registered", and the contract refuses a reply that claims
+// both a list and that the registry was unreadable.
+func TestEdgeSaysWhenTheForwardTestRegistryCouldNotBeRead(t *testing.T) {
+	t.Parallel()
+	result := edgeCLIResult()
+	result.ForwardTests, result.ForwardTestsUnavailable = []rpc.EdgeForwardTest{}, "registry_unreadable"
+	if err := rpc.ValidateEdgeResult(result); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	renderEdgeText(&Env{Stdout: &out}, result)
+	if got := strings.Join(strings.Fields(out.String()), " "); !strings.Contains(got, "could not be read this time") || !strings.Contains(got, "this does not mean none are registered") {
+		t.Fatalf("the unreadable registry is not said:\n%s", out.String())
+	}
+	result.ForwardTests = []rpc.EdgeForwardTest{{ID: "x", Title: "t", Rule: "r", RuleHash: "rule_x"}}
+	if err := rpc.ValidateEdgeResult(result); err == nil {
+		t.Fatal("a reply with rules and an unreadable registry validated")
+	}
+	result.ForwardTests, result.ForwardTestsUnavailable = []rpc.EdgeForwardTest{}, "something_else"
+	if err := rpc.ValidateEdgeResult(result); err == nil {
+		t.Fatal("an unknown reason validated")
+	}
+}

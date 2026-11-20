@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"testing"
@@ -23,7 +24,11 @@ func forwardTestServer(t *testing.T, path string, now *time.Time) *Server {
 func forwardTestInstants(t *testing.T, s *Server, scope string) map[string]time.Time {
 	t.Helper()
 	out := map[string]time.Time{}
-	for _, test := range s.edgeForwardTestsView(t.Context(), scope) {
+	tests, err := s.edgeForwardTestsView(t.Context(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range tests {
 		out[test.ID] = test.RegisteredAt
 	}
 	return out
@@ -127,7 +132,10 @@ func TestEdgeForwardTestRegistrationIsWrittenOnce(t *testing.T) {
 
 	// A decision made before a rule's registration is outside its sample,
 	// one made after is inside; the reworded rule's sample starts later.
-	view := s.edgeForwardTestsView(t.Context(), scope)
+	view, err := s.edgeForwardTestsView(t.Context(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if ids := edgeForwardSampleIDs(view, t0); len(ids) != 0 {
 		t.Fatalf("a decision at the registration instant is in %v", ids)
 	}
@@ -162,5 +170,30 @@ func TestEdgeForwardTestRegistryFromALaterBuildIsLeftAlone(t *testing.T) {
 	doc, ok, err := s.coreStore.GetStateDocument(t.Context(), daemonStateScope, edgeForwardTestsStateKind)
 	if err != nil || !ok || string(doc.JSON) != string(raw) {
 		t.Fatalf("the later build's registry was changed: ok=%v err=%v json=%s", ok, err, doc.JSON)
+	}
+}
+
+// A registry that cannot be read is an error, never an empty list. On
+// 2026-11-20 a request that ran out of its time while the daemon was busy
+// after a restart got a failed read, and the reply carried an empty list
+// beside otherwise full content: "could not be read" looked like "nothing is
+// registered". The reply now names no rule and says why.
+func TestAnUnreadableForwardTestRegistryIsNotAnEmptyList(t *testing.T) {
+	now := time.Date(2026, 11, 20, 6, 30, 0, 0, time.UTC)
+	s := forwardTestServer(t, filepath.Join(privateTestDir(t), "daemon.db"), &now)
+	if err := s.registerEdgeForwardTests(t.Context(), "scope-a"); err != nil {
+		t.Fatal(err)
+	}
+	// The request's time is spent before the registry is read.
+	spent, cancel := context.WithCancel(t.Context())
+	cancel()
+	tests, err := s.edgeForwardTestsView(spent, "scope-a")
+	if err == nil || len(tests) != 0 {
+		t.Fatalf("tests=%d err=%v, want the failed read as an error and no list", len(tests), err)
+	}
+	// With the time it needs, the same registry reads in full.
+	tests, err = s.edgeForwardTestsView(t.Context(), "scope-a")
+	if err != nil || len(tests) != len(edgecore.ForwardTests()) || tests[0].RegisteredAt.IsZero() {
+		t.Fatalf("tests=%d err=%v, want every rule with its instant", len(tests), err)
 	}
 }

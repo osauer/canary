@@ -932,6 +932,12 @@ func edgeSessionStampText(stamp *rpc.EdgeSessionStamp) string {
 // rules themselves are long and stay in the JSON; the date is what makes
 // them forward tests, so it is the one thing printed.
 func renderEdgeForwardTests(env *Env, result rpc.EdgeResult) {
+	if result.ForwardTestsUnavailable == "registry_unreadable" {
+		// Said, because silence would read as "nothing is registered".
+		fmt.Fprintf(env.Stdout, "\nForward tests  %s\n", env.dim("rules written down before the results they will be read on"))
+		edgeRow(env, "Registered", "could not be read this time", "this does not mean none are registered", "ask again")
+		return
+	}
 	if len(result.ForwardTests) == 0 {
 		return
 	}

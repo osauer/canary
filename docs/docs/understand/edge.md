@@ -261,7 +261,10 @@ Only a decision executed after `registered_at` belongs to a rule's sample;
 one made at that moment or earlier is hindsight for the rule, whatever was
 learned about it later. That includes option closes Canary fetched after the
 fact for an earlier sale. The detail of a decision (`--change`) names the
-rules it was made after.
+rules it was made after. When the daemon cannot consult the registry for a
+reply, `forward_tests` is empty and `forward_tests_unavailable` says why
+(`registry_unreadable` or `account_scope_unavailable`): that is not "no rule
+is registered", so ask again.
 
 The registration is kept in the daemon's store, apart from everything Edge
 can rebuild, and is never rewritten: an update, a restart and a rebuilt

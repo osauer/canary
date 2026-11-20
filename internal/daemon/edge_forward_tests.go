@@ -109,16 +109,50 @@ func (s *Server) registerEdgeForwardTests(ctx context.Context, scopeFingerprint 
 	return fmt.Errorf("edge forward-test registration conflicted repeatedly")
 }
 
+// Reasons a reply carries no forward tests (EdgeResult.ForwardTestsUnavailable).
+const (
+	edgeForwardTestsNoScope    = "account_scope_unavailable"
+	edgeForwardTestsUnreadable = "registry_unreadable"
+)
+
+// edgeForwardTestsForRequest reads the registry for an Edge reply. It runs
+// before everything else in the request. Read last, a request that ran into
+// its deadline while the daemon was busy after a restart got a failed read,
+// and the failure was served as an empty list beside an otherwise full reply
+// (seen 2026-11-20 08:21 CET, 53 seconds after a start): a reader could not
+// tell "could not be read" from "nothing is registered". A registry that
+// cannot be read is said so, by reason, and no rule is listed.
+func (s *Server) edgeForwardTestsForRequest(ctx context.Context) ([]rpc.EdgeForwardTest, string) {
+	none := []rpc.EdgeForwardTest{}
+	if s == nil || s.coreStore == nil {
+		return none, edgeForwardTestsUnreadable
+	}
+	scope := s.currentBrokerStateScope()
+	if !brokerScopeConcrete(scope) {
+		return none, edgeForwardTestsNoScope
+	}
+	tests, err := s.edgeForwardTestsView(ctx, edgeScopeFingerprint(scope))
+	if err != nil {
+		reason := err.Error()
+		if previous := s.edgeForwardTestsWarned.Swap(&reason); previous == nil || *previous != reason {
+			s.warnf("Canary Edge: the forward-test registry could not be read, so replies name no rule: %v", err)
+		}
+		return none, edgeForwardTestsUnreadable
+	}
+	return tests, ""
+}
+
 // edgeForwardTestsView serves the shipped rules with the instant each was
-// registered for this scope. A rule not yet registered has no instant.
-func (s *Server) edgeForwardTestsView(ctx context.Context, scopeFingerprint string) []rpc.EdgeForwardTest {
+// registered for this scope. A rule not yet registered has no instant. A
+// registry that cannot be read is an error, never an empty list.
+func (s *Server) edgeForwardTestsView(ctx context.Context, scopeFingerprint string) ([]rpc.EdgeForwardTest, error) {
 	out := []rpc.EdgeForwardTest{}
 	if s == nil || s.coreStore == nil {
-		return out
+		return nil, fmt.Errorf("edge authority is unavailable")
 	}
 	registry, _, err := s.loadEdgeForwardTestRegistry(ctx)
 	if err != nil {
-		return out
+		return nil, err
 	}
 	registered := map[string]time.Time{}
 	for _, record := range registry.Scopes[scopeFingerprint] {
@@ -128,7 +162,7 @@ func (s *Server) edgeForwardTestsView(ctx context.Context, scopeFingerprint stri
 		hash := rule.RuleHash()
 		out = append(out, rpc.EdgeForwardTest{ID: rule.ID, Title: rule.Title, Rule: rule.Rule, RuleHash: hash, RegisteredAt: registered[rule.ID+"\x00"+hash]})
 	}
-	return out
+	return out, nil
 }
 
 // edgeForwardSampleIDs names the rules whose sample a decision executed at
