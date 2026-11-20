@@ -7,6 +7,7 @@ import (
 	"github.com/osauer/canary/v3/internal/rpc"
 	"strings"
 	"testing"
+	"time"
 )
 
 type setupCLIConn struct {
@@ -40,10 +41,13 @@ func (c *setupCLIConn) Call(_ context.Context, method string, params, out any) e
 }
 
 func TestSetupOptionsCLIUsesFixedReadOnlyMethodAndExactTuple(t *testing.T) {
+	// The command refuses an expiry before today on the wall clock, so the
+	// accepted expiry is a year after the test runs, not a fixed date.
+	expiry := time.Now().AddDate(1, 0, 0).Format("20060102")
 	for _, args := range [][]string{
 		{"options", "--symbol", "SYNTH", "--con-id", "17", "--json"},
-		{"options", "--symbol", "SYNTH", "--con-id", "17", "--expiry", "20351120", "--json"},
-		{"options", "--symbol", "SYNTH", "--con-id", "17", "--expiry", "20351120", "--strike", "100", "--json"},
+		{"options", "--symbol", "SYNTH", "--con-id", "17", "--expiry", expiry, "--json"},
+		{"options", "--symbol", "SYNTH", "--con-id", "17", "--expiry", expiry, "--strike", "100", "--json"},
 	} {
 		var stdout, stderr bytes.Buffer
 		c := &setupCLIConn{}
@@ -62,7 +66,7 @@ func TestSetupOptionsCLIUsesFixedReadOnlyMethodAndExactTuple(t *testing.T) {
 		{"options", "--symbol", "SYNTH"},
 		{"options", "--symbol", "SYNTH", "--con-id", "17", "--strike", "100"},
 		{"options", "--symbol", "SYNTH", "--con-id", "17", "--expiry", "20000101"},
-		{"options", "--symbol", "SYNTH", "--con-id", "17", "--expiry", "20351120", "--strike", "NaN"},
+		{"options", "--symbol", "SYNTH", "--con-id", "17", "--expiry", expiry, "--strike", "NaN"},
 	} {
 		c := &setupCLIConn{}
 		env := &Env{Stdout: new(bytes.Buffer), Stderr: new(bytes.Buffer), Conn: c}

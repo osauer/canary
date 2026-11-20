@@ -14,6 +14,7 @@ import (
 
 	"github.com/osauer/canary/v3/internal/chainrec"
 	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/marketcal"
 	"github.com/osauer/canary/v3/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
@@ -155,32 +156,43 @@ func TestChainRecorderSettingsDocumentUpgradesStrictly(t *testing.T) {
 
 // Enabled with no gateway: the run waits five minutes for one, then records
 // the outage as a failed run, once per session.
+//
+// The session is the first one at least a day after the test runs. The
+// schedule takes the instant the test passes in, but the run reads the wall
+// clock and stops at the session's close, so with a fixed session date every
+// run after that close recorded "deadline" instead of the outage (2027-03-17
+// 16:00 New York for the date this test used to carry).
 func TestChainRecorderRecordsAnOutageOncePerSession(t *testing.T) {
 	srv := newChainRecorderTestServer(t)
 	if err := setChainRecorder(t, srv, `{"enabled":true,"symbols":["SPX","SYNA"]}`); err != nil {
 		t.Fatal(err)
 	}
+	slot, ok := chainrec.NextSlot(marketcal.New(), time.Now().AddDate(0, 0, 1))
+	if !ok {
+		t.Fatal("the embedded market calendar has no US equity session after tomorrow; the recorder schedules nothing past its coverage")
+	}
+	at := func(sinceStart time.Duration) time.Time { return slot.ScheduledAt.Add(sinceStart) }
 	ctx := context.Background()
-	if srv.maybeRunChainRecorder(ctx, newYork(t, "2027-03-17 15:29")) {
+	if srv.maybeRunChainRecorder(ctx, at(-time.Minute)) {
 		t.Fatal("ran before the slot")
 	}
-	if srv.maybeRunChainRecorder(ctx, newYork(t, "2027-03-17 15:32")) {
+	if srv.maybeRunChainRecorder(ctx, at(2*time.Minute)) {
 		t.Fatal("ran without a gateway inside the grace period")
 	}
 	if _, err := os.Stat(srv.chainRecorderStorePath()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("store created before a run: %v", err)
 	}
-	if !srv.maybeRunChainRecorder(ctx, newYork(t, "2027-03-17 15:36")) {
+	if !srv.maybeRunChainRecorder(ctx, at(6*time.Minute)) {
 		t.Fatal("no run after the gateway grace")
 	}
-	if srv.maybeRunChainRecorder(ctx, newYork(t, "2027-03-17 15:37")) {
+	if srv.maybeRunChainRecorder(ctx, at(7*time.Minute)) {
 		t.Fatal("a session ran twice")
 	}
 	info, err := os.Stat(srv.chainRecorderStorePath())
 	if err != nil || info.Mode().Perm() != 0o600 {
 		t.Fatalf("store = %v, %v; want a private file", info, err)
 	}
-	res, err := srv.handleChainsRecorded(ctx, &rpc.Request{Params: json.RawMessage(`{"date":"2027-03-17"}`)})
+	res, err := srv.handleChainsRecorded(ctx, &rpc.Request{Params: json.RawMessage(`{"date":"` + slot.SessionDate + `"}`)})
 	if err != nil || len(res.Runs) != 1 {
 		t.Fatalf("chains.recorded = %+v, %v", res, err)
 	}
