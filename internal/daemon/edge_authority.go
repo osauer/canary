@@ -1222,6 +1222,7 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 			if change.ID == params.ChangeID {
 				result.Change = rpcEdgeChange(change)
 				result.Change.ForwardTests = edgeForwardSampleIDs(result.ForwardTests, change.ExecutedAt)
+				result.Change.PriorSession, result.Change.DecisionSession = s.edgeChangeSessionStamps(ctx, change.ExecutedAt)
 				found = true
 				break
 			}

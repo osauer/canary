@@ -883,6 +883,12 @@ func renderEdgeChange(env *Env, change rpc.EdgeChangeDetail, currency string) {
 	if len(change.ForwardTests) > 0 {
 		edgeRow(env, "Forward tests", fmt.Sprintf("made after %d registered %s: %s", len(change.ForwardTests), pluralWord(len(change.ForwardTests), "rule", "rules"), strings.Join(change.ForwardTests, ", ")))
 	}
+	if text := edgeSessionStampText(change.PriorSession); text != "" {
+		edgeRow(env, "Session before", text)
+	}
+	if text := edgeSessionStampText(change.DecisionSession); text != "" {
+		edgeRow(env, "Its session", text)
+	}
 	if change.AssetClass != "OPT" {
 		edgeRow(env, "Verdict", edgeVerdictText(env, change.Verdict, currency))
 		return
@@ -900,6 +906,26 @@ func renderEdgeChange(env *Env, change rpc.EdgeChangeDetail, currency string) {
 		}
 		edgeRow(env, "Position grade", append(values, "the figures above are price readings, not a grade")...)
 	}
+}
+
+// edgeSessionStampText says what Canary recorded when a US session closed:
+// Regime's stage as served then and the Rulebook's premium budget act level.
+// A session without a record says so; nothing is filled in from today.
+func edgeSessionStampText(stamp *rpc.EdgeSessionStamp) string {
+	if stamp == nil {
+		return ""
+	}
+	if stamp.Missing != "" || stamp.RegimeStage == "" {
+		return stamp.Session + " · no record of its close"
+	}
+	text := fmt.Sprintf("%s · Regime %s at the close", stamp.Session, strings.ReplaceAll(sanitizeRunText(stamp.RegimeStage), "_", " "))
+	if stamp.PremiumBudgetActPct != nil {
+		text += fmt.Sprintf(" · premium budget act level %.4g%% of NLV", *stamp.PremiumBudgetActPct)
+		if stamp.PremiumBudgetSet != "" {
+			text += ", " + sanitizeRunText(stamp.PremiumBudgetSet) + " set"
+		}
+	}
+	return text
 }
 
 // renderEdgeForwardTests says that rules are registered and since when. The

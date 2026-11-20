@@ -277,6 +277,49 @@ against the Rulebook's premium budget, option buys after a Regime warning
 session, final option sales against the contract's close five sessions
 later, and a floor under what is left after a partial sale.
 
+### What is recorded at each US close
+
+Two of the rules label a decision with something Canary said on the day,
+which cannot be worked out afterwards. Regime's stage, recomputed later,
+follows the vote as it is then and would relabel past sessions; and the
+policy file keeps no history of its values. So at the close of every US
+session Canary writes one record:
+
+- **Regime's stage**, from the first complete Regime snapshot served at or
+  after the official close (13:00 New York on a half day) and before
+  midnight New York. It is recorded as served, `data_quality` included.
+  Regime's stage rules have no version number of their own, so the record
+  names the build that computed the stage (`daemon_version`,
+  `daemon_revision`), which identifies them exactly, with the snapshot's
+  revision and the time it was served.
+- **The premium budget act level** the Rulebook was applying at that
+  moment: `premium_budget_act_pct` in percent of net liquidation, the regime
+  set it came from in the Rulebook's words, and the policy's fingerprint.
+
+A record is written once and never rewritten: a later snapshot with another
+stage, a restart, an update and a rebuilt review all leave it as it is, and
+it is kept apart from everything Edge can rebuild. Records are only added in
+session order, so a session Canary did not serve between its close and
+midnight (the daemon was not running) stays without one. Nothing fills it in
+later.
+
+The detail of a decision (`--change`) carries two of these records:
+`prior_session`, for the US session before the decision's New York date, and
+`decision_session`, for the session of that date. Each is looked up by exact
+date. A session without a record is served with `missing: not_recorded`,
+never with a neighbouring session's stage; a decision made on a day without
+a US session has no `decision_session`; and for dates outside the embedded
+exchange calendar neither is named. Recording began with the first close
+after this was installed, so earlier sessions have no record.
+
+The other two things the rules need are in the retained statements and are
+not stamped: premium at risk at the prior statement (the option positions
+of that statement with their marks and cost, against that day's net
+liquidation value) and the price of each partial option sale (its
+execution in the statement; Edge shows it as `execution_vwap` on that
+sale's own decision detail). Canary keeps every statement it has fetched
+and deletes none.
+
 ## Completed option positions
 
 Alongside order-level episodes, Edge reconstructs exact-contract positions that

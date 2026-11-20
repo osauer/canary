@@ -35,6 +35,9 @@ func (s *Server) handleRegimeSnapshot(ctx context.Context, _ *rpc.Request) (*rpc
 			return nil, &regimeSnapshotCacheUnavailableError{cause: errRegimeSnapshotRefreshIncomplete}
 		}
 		s.observeRegimeAlertShadow(ctx, view.Snapshot, brokerScope)
+		// After Regime's own projections are committed and outside them:
+		// this record cannot fail or delay a Regime read.
+		s.recordEdgeSessionStamp(ctx, view)
 		return view.Snapshot, nil
 	}
 

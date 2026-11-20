@@ -314,6 +314,57 @@ type EdgeChangeDetail struct {
 	// ForwardTests names the registered rules whose sample this decision
 	// can belong to by date: those registered before it was executed.
 	ForwardTests []string `json:"forward_tests,omitempty"`
+	// PriorSession is what Canary recorded at the close of the US session
+	// before the decision's New York date, and DecisionSession the same for
+	// the decision's own session (absent when that day had no US session).
+	// Both are absent outside the official calendar's coverage.
+	PriorSession    *EdgeSessionStamp `json:"prior_session,omitempty"`
+	DecisionSession *EdgeSessionStamp `json:"decision_session,omitempty"`
+}
+
+// EdgeSessionStampNotRecorded marks a US session Canary has no record for:
+// it ended before recording began, the daemon was not running between its
+// close and midnight New York, or it has not closed yet.
+const EdgeSessionStampNotRecorded = "not_recorded"
+
+// EdgeSessionStamp is what Canary served when one US session ended, written
+// once from the first complete Regime snapshot at or after the official
+// close and never rewritten: Regime's stage, and the Rulebook's premium
+// budget act level in force (percent of net liquidation, with the regime set
+// it came from in the Rulebook's words). DaemonVersion and DaemonRevision
+// name the build that computed the stage. A session without a record carries
+// Missing and nothing else; it is never filled in from a later Regime read.
+type EdgeSessionStamp struct {
+	Session                   string     `json:"session"`
+	Missing                   string     `json:"missing,omitempty"`
+	ClosedAt                  *time.Time `json:"closed_at,omitempty"`
+	ServedAt                  *time.Time `json:"served_at,omitempty"`
+	RegimeStage               string     `json:"regime_stage,omitempty"`
+	SnapshotRevision          int64      `json:"snapshot_revision,omitempty"`
+	RegimeFingerprintVersion  string     `json:"regime_fingerprint_version,omitempty"`
+	DaemonVersion             string     `json:"daemon_version,omitempty"`
+	DaemonRevision            string     `json:"daemon_revision,omitempty"`
+	PremiumBudgetActPct       *float64   `json:"premium_budget_act_pct,omitempty"`
+	PremiumBudgetSet          string     `json:"premium_budget_set,omitempty"`
+	RulebookPolicyFingerprint string     `json:"rulebook_policy_fingerprint,omitempty"`
+}
+
+// ValidEdgeSessionStamp says whether a served stamp is one of the two shapes
+// the contract allows: a full record, or a session marked as not recorded.
+func ValidEdgeSessionStamp(stamp *EdgeSessionStamp) bool {
+	if stamp == nil {
+		return true
+	}
+	if _, err := time.Parse(time.DateOnly, stamp.Session); err != nil {
+		return false
+	}
+	if stamp.Missing != "" {
+		return stamp.Missing == EdgeSessionStampNotRecorded && stamp.RegimeStage == "" && stamp.ServedAt == nil && stamp.PremiumBudgetActPct == nil
+	}
+	if stamp.RegimeStage == "" || stamp.ClosedAt == nil || stamp.ServedAt == nil || stamp.ServedAt.Before(*stamp.ClosedAt) {
+		return false
+	}
+	return stamp.PremiumBudgetActPct == nil || finite(*stamp.PremiumBudgetActPct) && *stamp.PremiumBudgetActPct >= 0
 }
 
 // EdgeHorizonScore exposes either one calculated impact or a typed reason.
@@ -691,6 +742,9 @@ func ValidateEdgeResult(result EdgeResult) error {
 			if !seenForwardTests[id] {
 				return fmt.Errorf("unregistered forward test named on an Edge change")
 			}
+		}
+		if !ValidEdgeSessionStamp(result.Change.PriorSession) || !ValidEdgeSessionStamp(result.Change.DecisionSession) {
+			return fmt.Errorf("invalid Edge session stamp")
 		}
 	}
 	if err := validateEdgeVerdicts(result.Verdicts); err != nil {
