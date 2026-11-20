@@ -32,7 +32,7 @@ type readerWindow struct {
 	span   time.Duration
 	busy   time.Duration
 	frames int
-	byType map[int]int
+	byType map[int]ReaderLoadMessage
 }
 
 type readerLoad struct {
@@ -53,13 +53,17 @@ type ReaderLoad struct {
 	// Running is how long the frame being processed has taken so far; it is
 	// counted in Busy.
 	Running time.Duration
-	// Top are the commonest inbound message ids with their frame counts.
+	// Top are the inbound message ids the reader spent the most time on. Time,
+	// not count, ranks them: on 2026-11-19 the commonest frames were ticks,
+	// and the count could not say which frames the reader was waiting in.
 	Top []ReaderLoadMessage
 }
 
-// ReaderLoadMessage is one inbound message id's frame count.
+// ReaderLoadMessage is one inbound message id's frame count and the time
+// spent processing its frames.
 type ReaderLoadMessage struct {
 	ID, Frames int
+	Busy       time.Duration
 }
 
 // BusyPct is the share of the span spent processing frames.
@@ -77,7 +81,7 @@ func (r ReaderLoad) String() string {
 	}
 	var top []string
 	for _, m := range r.Top {
-		top = append(top, fmt.Sprintf("message %d: %d", m.ID, m.Frames))
+		top = append(top, fmt.Sprintf("message %d: %d frames, %s", m.ID, m.Frames, m.Busy.Round(time.Millisecond)))
 	}
 	text := fmt.Sprintf("the reader spent %.0f%% of the last %s processing %d frames", r.BusyPct(), r.Span.Round(time.Second), r.Frames)
 	if len(top) > 0 {
@@ -110,9 +114,12 @@ func (l *readerLoad) observe(msgID int, took time.Duration, now time.Time) (bool
 	l.cur.busy += took
 	l.cur.frames++
 	if l.cur.byType == nil {
-		l.cur.byType = map[int]int{}
+		l.cur.byType = map[int]ReaderLoadMessage{}
 	}
-	l.cur.byType[msgID]++
+	m := l.cur.byType[msgID]
+	m.Frames++
+	m.Busy += took
+	l.cur.byType[msgID] = m
 	return rolled, full
 }
 
@@ -127,11 +134,14 @@ func (l *readerLoad) snapshot(now time.Time) ReaderLoad {
 		span:   l.prev.span + now.Sub(l.start),
 		busy:   l.prev.busy + l.cur.busy,
 		frames: l.prev.frames + l.cur.frames,
-		byType: map[int]int{},
+		byType: map[int]ReaderLoadMessage{},
 	}
 	for _, w := range []readerWindow{l.prev, l.cur} {
 		for id, n := range w.byType {
-			both.byType[id] += n
+			m := both.byType[id]
+			m.Frames += n.Frames
+			m.Busy += n.Busy
+			both.byType[id] = m
 		}
 	}
 	out := both.load()
@@ -146,11 +156,12 @@ func (l *readerLoad) snapshot(now time.Time) ReaderLoad {
 
 func (w readerWindow) load() ReaderLoad {
 	out := ReaderLoad{Span: w.span, Busy: w.busy, Frames: w.frames}
-	for id, n := range w.byType {
-		out.Top = append(out.Top, ReaderLoadMessage{ID: id, Frames: n})
+	for id, m := range w.byType {
+		m.ID = id
+		out.Top = append(out.Top, m)
 	}
 	slices.SortFunc(out.Top, func(a, b ReaderLoadMessage) int {
-		return cmp.Or(cmp.Compare(b.Frames, a.Frames), cmp.Compare(a.ID, b.ID))
+		return cmp.Or(cmp.Compare(b.Busy, a.Busy), cmp.Compare(b.Frames, a.Frames), cmp.Compare(a.ID, b.ID))
 	})
 	out.Top = out.Top[:min(3, len(out.Top))]
 	return out
