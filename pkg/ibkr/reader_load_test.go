@@ -34,8 +34,8 @@ func TestReaderLoadSeparatesAnIdleReaderFromABusyOne(t *testing.T) {
 	if got.BusyPct() < 90 {
 		t.Fatalf("a reader processing for 29 of 30 seconds read as %.0f%% busy", got.BusyPct())
 	}
-	if text := got.String(); !strings.Contains(text, "101 frames") || !strings.Contains(text, "message 1: 91") {
-		t.Fatalf("the load line does not name the frames and the commonest message: %s", text)
+	if text := got.String(); !strings.Contains(text, "101 frames") || !strings.Contains(text, "message 1: 91 frames, 26.1s") {
+		t.Fatalf("the load line does not name the frames and the message that took the time: %s", text)
 	}
 
 	// A finished minute is kept beside the running one, so a read just after
@@ -46,6 +46,29 @@ func TestReaderLoadSeparatesAnIdleReaderFromABusyOne(t *testing.T) {
 	}
 	if got = busy.snapshot(start.Add(62 * time.Second)); got.Frames != 102 {
 		t.Fatalf("the turned window dropped the minute before it: %+v", got)
+	}
+}
+
+// Time ranks the messages, not count: a few frames that each waited seconds
+// are where the minute went, however many quick ticks came beside them.
+func TestReaderLoadRanksMessagesByTimeSpent(t *testing.T) {
+	start := time.Date(2026, 11, 19, 14, 33, 0, 0, time.UTC)
+	var l readerLoad
+	at := start
+	for range 1500 {
+		at = at.Add(10 * time.Millisecond)
+		l.observe(msgTickPrice, 100*time.Microsecond, at)
+	}
+	for range 9 {
+		at = at.Add(5 * time.Second)
+		l.observe(msgOrderStatus, 4*time.Second, at)
+	}
+	got := l.snapshot(at)
+	if len(got.Top) < 2 || got.Top[0].ID != msgOrderStatus || got.Top[0].Busy != 36*time.Second || got.Top[1].ID != msgTickPrice {
+		t.Fatalf("messages not ranked by time spent: %+v", got.Top)
+	}
+	if text := got.String(); !strings.Contains(text, "(message 3: 9 frames, 36s, message 1: 1500 frames, 150ms)") {
+		t.Fatalf("the load line does not lead with the message that took the time: %s", text)
 	}
 }
 
