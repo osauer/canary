@@ -293,6 +293,21 @@ func (cache *regimeSnapshotCache) current() (regimeSnapshotCacheView, error) {
 	return materializeRegimeSnapshotCacheView(view, raw)
 }
 
+// held names the snapshot the cache holds without decoding it: its revision
+// (zero when it holds none) and whether its projections are still owed. It
+// lets a daemon-local consumer look at each snapshot once.
+func (cache *regimeSnapshotCache) held() (revision int64, projectionPending bool) {
+	if cache == nil {
+		return 0, false
+	}
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if len(cache.raw) == 0 {
+		return 0, false
+	}
+	return cache.revision, cache.projectionPending
+}
+
 // refreshing is the allocation-free status hook used by backgroundTasks. It
 func (cache *regimeSnapshotCache) refreshing() bool {
 	cache.mu.Lock()

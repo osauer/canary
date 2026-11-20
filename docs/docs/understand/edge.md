@@ -289,13 +289,14 @@ follows the vote as it is then and would relabel past sessions; and the
 policy file keeps no history of its values. So at the close of every US
 session Canary writes one record:
 
-- **Regime's stage**, from the first complete Regime snapshot served at or
-  after the official close (13:00 New York on a half day) and before
-  midnight New York. It is recorded as served, `data_quality` included.
-  Regime's stage rules have no version number of their own, so the record
-  names the build that computed the stage (`daemon_version`,
-  `daemon_revision`), which identifies them exactly, with the snapshot's
-  revision and the time it was served.
+- **Regime's stage**, from the first complete Regime snapshot the daemon
+  computed at or after the official close (13:00 New York on a half day)
+  and before midnight New York. The daemon writes it in its own work, so
+  nobody has to read Regime that evening. It is recorded as computed,
+  `data_quality` included. Regime's stage rules have no version number of
+  their own, so the record names the build that computed the stage
+  (`daemon_version`, `daemon_revision`), which identifies them exactly, with
+  the snapshot's revision and the time it was computed (`served_at`).
 - **The premium budget act level** the Rulebook was applying at that
   moment: `premium_budget_act_pct` in percent of net liquidation, the regime
   set it came from in the Rulebook's words, and the policy's fingerprint.
@@ -303,10 +304,10 @@ session Canary writes one record:
 A record is written once and never rewritten: a later snapshot with another
 stage, a restart, an update and a rebuilt review all leave it as it is, and
 it is kept apart from everything Edge can rebuild. Records are only added in
-session order, so a session Canary did not serve between its close and
-midnight (the daemon was not running, or nothing read Regime in that time)
-stays without one. Nothing fills it in
-later.
+session order, so a session in which the daemon had no complete Regime
+snapshot between the close and midnight New York (it was not running, or
+had no broker connection) stays without one. Nothing works it out
+afterwards.
 
 The detail of a decision (`--change`) carries two of these records:
 `prior_session`, for the US session before the decision's New York date, and

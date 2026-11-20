@@ -576,6 +576,9 @@ type Server struct {
 	// whose failed write was last warned about.
 	edgeSessionStamped     atomic.Pointer[string]
 	edgeSessionStampWarned atomic.Pointer[string]
+	// edgeSessionStampLooked is the newest Regime snapshot revision the
+	// daemon's own loop has looked at for a session record.
+	edgeSessionStampLooked atomic.Int64
 	edgeFetchMarketBarsFn  func(context.Context, string, int) ([]ibkrlib.HistoricalBar, error)
 	edgeFlexFetchRangeFn   func(context.Context, time.Time, time.Time) (flexFetchOutcome, error)
 	edgeScheduleRebuildFn  func(time.Duration)

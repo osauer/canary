@@ -24,12 +24,18 @@ const (
 // stage recomputed later follows the vote as it is then and would relabel
 // past sessions, and the policy file keeps no history of its values.
 //
-// A session gets one record, written from the first complete Regime snapshot
-// served at or after its official close and before midnight New York, and
-// that record is never rewritten. Records are added in session order only,
-// so nothing goes back to fill a session that has none: a daemon that was
-// not running between a close and midnight leaves that session unrecorded,
-// and a reader sees it as missing instead of as a later reconstruction.
+// A session gets one record, written by the daemon's own Regime refresh loop
+// from the first complete Regime snapshot it holds that was computed at or
+// after the session's official close and before midnight New York, and that
+// record is never rewritten. No Regime read is involved. Records are added
+// in session order only, so nothing goes back to fill a session that has
+// none: a daemon that held no such snapshot (it was not running, or had no
+// gateway, between a close and midnight) leaves that session unrecorded, and
+// a reader sees it as missing instead of as a later reconstruction. That
+// holds for a daemon stopped in the evening and started the next day with
+// that evening's snapshot still in its cache: the stage would be genuine,
+// but the premium line is read from the policy when the record is written,
+// and the next day's policy is not that evening's.
 //
 // Like the forward-test registry the log is not regenerable. It lives
 // outside the Edge publication, which every analytical version bump throws
@@ -97,12 +103,11 @@ func (s *Server) loadEdgeSessionStamps(ctx context.Context) (edgeSessionStampLog
 }
 
 // recordEdgeSessionStamp writes the session's record when view is the first
-// snapshot served after its close. It runs inline after every Regime read
-// and returns nothing: Regime must never fail with or learn of this record.
-// A settled session costs a calendar lookup and no store access; the one
-// write per session, and each retry of a failed one by the next snapshot of
-// the same evening, is a store read and a compare-and-swap in the reader's
-// path. A failure is warned about once per session.
+// snapshot computed after its close. It returns nothing: Regime must never
+// fail with or learn of this record. A settled session costs a calendar
+// lookup and no store access; the one write per session, and each retry of a
+// failed one by the next snapshot of the same evening, is a store read and a
+// compare-and-swap. A failure is warned about once per session.
 func (s *Server) recordEdgeSessionStamp(ctx context.Context, view regimeSnapshotCacheView) {
 	if s == nil || s.coreStore == nil || view.Snapshot == nil || view.Snapshot.AsOf.IsZero() || view.Snapshot.Lifecycle.Stage == "" {
 		return
@@ -112,8 +117,7 @@ func (s *Server) recordEdgeSessionStamp(ctx context.Context, view regimeSnapshot
 	if !ok {
 		return
 	}
-	// Settled sessions cost no store read: a snapshot is served every few
-	// seconds all evening.
+	// Settled sessions cost no store read.
 	if settled := s.edgeSessionStamped.Load(); settled != nil && *settled >= session.Date {
 		return
 	}
@@ -135,6 +139,47 @@ func (s *Server) recordEdgeSessionStamp(ctx context.Context, view regimeSnapshot
 		return
 	}
 	s.edgeSessionStamped.Store(&session.Date)
+}
+
+// edgeSessionStampWriteTimeout bounds the one store write a session costs
+// the Regime refresh loop.
+const edgeSessionStampWriteTimeout = 5 * time.Second
+
+// recordHeldEdgeSessionStamp is the daemon's own step: on every tick of the
+// Regime refresh loop it looks at the snapshot the cache holds, once per
+// snapshot, and writes the session's record when that snapshot is the first
+// computed after a close. No Regime read is needed for a session to get its
+// record. It writes only while its own clock is still on the snapshot's New
+// York day, because the premium line is the one in force when it writes. A
+// snapshot whose projections are still owed is left for a later tick, as a
+// Regime read would not serve it; those are repaired by the next Regime,
+// brief or status read or by a restart, not by this loop. A write that fails
+// is tried again with the evening's next snapshot.
+func (s *Server) recordHeldEdgeSessionStamp(ctx context.Context) {
+	if s == nil || s.coreStore == nil || s.regimeSnapshots == nil {
+		return
+	}
+	revision, pending := s.regimeSnapshots.held()
+	if revision <= 0 || pending || revision <= s.edgeSessionStampLooked.Load() {
+		return
+	}
+	view, err := s.regimeSnapshots.current()
+	if err != nil || view.Snapshot == nil || view.Revision != revision {
+		// Unreadable, or replaced since the check: the next tick looks again.
+		return
+	}
+	if sameNewYorkDay(s.nowUTC(), view.Snapshot.AsOf) {
+		writeCtx, cancel := context.WithTimeout(ctx, edgeSessionStampWriteTimeout)
+		defer cancel()
+		s.recordEdgeSessionStamp(writeCtx, view)
+	}
+	s.edgeSessionStampLooked.Store(revision)
+}
+
+func sameNewYorkDay(a, b time.Time) bool {
+	ay, am, ad := nyTime(a).Date()
+	by, bm, bd := nyTime(b).Date()
+	return ay == by && am == bm && ad == bd
 }
 
 // appendEdgeSessionStamp adds the record unless its session, or a later one,

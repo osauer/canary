@@ -213,16 +213,18 @@ func (s *Server) startRegimeRefreshLoop(ctx context.Context) {
 		return
 	}
 	s.regimeRefreshLoopWG.Go(func() {
-		runRegimeRefreshLoop(
-			ctx,
-			s.regimeSnapshots,
-			regimeSnapshotRefreshPoll,
-			regimeSnapshotRefreshAhead,
-			s.regimeRefreshWakeChannel(),
-			s.regimeRefreshGatewayReady,
-			s.acquireRegimeSnapshot,
-		)
+		s.regimeRefreshLoop(ctx, regimeSnapshotRefreshPoll, s.regimeRefreshGatewayReady, s.acquireRegimeSnapshot)
 	})
+}
+
+// regimeRefreshLoop is the loop the daemon runs for its whole life: the
+// scheduler below on this daemon's cache and wake channel. Each tick first
+// writes the Edge session record the held snapshot owes, so a session gets
+// its record from the daemon's own work and not from whoever reads Regime
+// that evening.
+func (s *Server) regimeRefreshLoop(ctx context.Context, pollEvery time.Duration, ready func() bool, refresh regimeSnapshotRefreshFunc) {
+	runRegimeRefreshLoop(ctx, s.regimeSnapshots, pollEvery, regimeSnapshotRefreshAhead, s.regimeRefreshWakeChannel(), ready, refresh,
+		func() { s.recordHeldEdgeSessionStamp(ctx) })
 }
 
 // regimeRefreshGatewayReady is a non-triggering readiness read. The scheduler
@@ -247,11 +249,18 @@ func runRegimeRefreshLoop(
 	wake <-chan struct{},
 	ready func() bool,
 	refresh regimeSnapshotRefreshFunc,
+	eachTick func(),
 ) {
 	if ctx == nil || cache == nil || ready == nil || refresh == nil || pollEvery <= 0 || refreshAhead <= 0 {
 		return
 	}
+	// eachTick is the daemon's own work on the snapshot the cache holds. It
+	// runs whether or not the gateway is ready, and before a refresh starts,
+	// so it always sees the snapshot held when the tick began.
 	kick := func() {
+		if eachTick != nil {
+			eachTick()
+		}
 		if ready() {
 			cache.startRefreshAhead(refresh, refreshAhead)
 		}
