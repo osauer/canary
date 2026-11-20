@@ -567,10 +567,15 @@ type Server struct {
 	edgeFetchBarsFn func(context.Context, ibkrlib.Contract, int) ([]ibkrlib.HistoricalBar, error)
 	// edgeOptionReadWarned is the reason of the last warning that the
 	// option close read looks broken, so the same reason warns once.
-	edgeOptionReadWarned  atomic.Pointer[string]
-	edgeFetchMarketBarsFn func(context.Context, string, int) ([]ibkrlib.HistoricalBar, error)
-	edgeFlexFetchRangeFn  func(context.Context, time.Time, time.Time) (flexFetchOutcome, error)
-	edgeScheduleRebuildFn func(time.Duration)
+	edgeOptionReadWarned atomic.Pointer[string]
+	// edgeSessionStamped is the newest US session known to have its record
+	// in the Edge session stamp log; edgeSessionStampWarned is the session
+	// whose failed write was last warned about.
+	edgeSessionStamped     atomic.Pointer[string]
+	edgeSessionStampWarned atomic.Pointer[string]
+	edgeFetchMarketBarsFn  func(context.Context, string, int) ([]ibkrlib.HistoricalBar, error)
+	edgeFlexFetchRangeFn   func(context.Context, time.Time, time.Time) (flexFetchOutcome, error)
+	edgeScheduleRebuildFn  func(time.Duration)
 	// scorecardWake drives the single-worker decision scorecard pass
 	// (internal-docs/design/decision-scorecard.md): the ledger append, the
 	// bounded history fetch and the evaluation the read serves.

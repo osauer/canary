@@ -28,7 +28,7 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 10
+	edgePublicationVersion   = 11
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
@@ -343,10 +343,13 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 			s.infof("%s", line)
 		}
 	}
-	// Benchmarks are optional explanatory context. A failed context refresh
-	// never degrades or suppresses the broker-truth decision calculation; the
-	// last usable series remains available and missing series stay explicit by
-	// omission from the typed context arrays.
+	// Benchmarks are explanatory context for every decision, and the three
+	// ETF proxies are also the US session calendar an option's horizons are
+	// counted on. A failed refresh keeps the last usable series and never
+	// degrades the publication: stock and ETF scores do not need it, a
+	// missing context series stays explicit by omission from the typed
+	// context arrays, and an option horizon past the last benchmark close
+	// has no figure until a later refresh brings the days.
 	for _, benchmark := range edgecore.MarketBenchmarks() {
 		series := cache.MarketContext[benchmark.Symbol]
 		lookback, fetch := edgeBarRefreshPlan(now, full, series)
@@ -1219,6 +1222,7 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 			if change.ID == params.ChangeID {
 				result.Change = rpcEdgeChange(change)
 				result.Change.ForwardTests = edgeForwardSampleIDs(result.ForwardTests, change.ExecutedAt)
+				result.Change.PriorSession, result.Change.DecisionSession = s.edgeChangeSessionStamps(ctx, change.ExecutedAt)
 				found = true
 				break
 			}

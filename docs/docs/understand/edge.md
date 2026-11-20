@@ -176,11 +176,17 @@ On a day that has both, the statement mark counts. A contract that had
 expired before Canary first read it has no fetched close at all, and one
 that left the account more than about six months before the first read has
 none for its earliest sessions; such a horizon has no figure. The 1st, 5th
-and 20th sessions are counted on the days the benchmarks and the account's
-other instruments have a close, and only a close on that exact session
-counts. With one, the option decision gets the same Decision price impact as
-a stock decision, and the score says what its close rests on: `close_source`
-is `statement_mark` or `closing_quote` (`daily_bar` for a stock or ETF).
+and 20th sessions are sessions of the option's own market, and only a close
+on that exact session counts. For an option listed on a US exchange they are
+the days SPY, QQQ or DIA has a close, so a US holiday is not a session
+whatever else the account holds that traded that day. Edge has no calendar
+for any other option exchange and does not borrow one: an option listed
+elsewhere, or one whose statement names no listing exchange, has no horizon
+figure and the reason `session_calendar_unavailable`. Its position is graded
+all the same. With a close on the session, the option decision gets the same
+Decision price impact as a stock decision, and the score says what its close
+rests on: `close_source` is `statement_mark` or `closing_quote` (`daily_bar`
+for a stock or ETF).
 
 ### The verdict on a stock or ETF decision
 
@@ -270,6 +276,49 @@ rules cover stock sales and entries against a nearby day, option buys
 against the Rulebook's premium budget, option buys after a Regime warning
 session, final option sales against the contract's close five sessions
 later, and a floor under what is left after a partial sale.
+
+### What is recorded at each US close
+
+Two of the rules label a decision with something Canary said on the day,
+which cannot be worked out afterwards. Regime's stage, recomputed later,
+follows the vote as it is then and would relabel past sessions; and the
+policy file keeps no history of its values. So at the close of every US
+session Canary writes one record:
+
+- **Regime's stage**, from the first complete Regime snapshot served at or
+  after the official close (13:00 New York on a half day) and before
+  midnight New York. It is recorded as served, `data_quality` included.
+  Regime's stage rules have no version number of their own, so the record
+  names the build that computed the stage (`daemon_version`,
+  `daemon_revision`), which identifies them exactly, with the snapshot's
+  revision and the time it was served.
+- **The premium budget act level** the Rulebook was applying at that
+  moment: `premium_budget_act_pct` in percent of net liquidation, the regime
+  set it came from in the Rulebook's words, and the policy's fingerprint.
+
+A record is written once and never rewritten: a later snapshot with another
+stage, a restart, an update and a rebuilt review all leave it as it is, and
+it is kept apart from everything Edge can rebuild. Records are only added in
+session order, so a session Canary did not serve between its close and
+midnight (the daemon was not running) stays without one. Nothing fills it in
+later.
+
+The detail of a decision (`--change`) carries two of these records:
+`prior_session`, for the US session before the decision's New York date, and
+`decision_session`, for the session of that date. Each is looked up by exact
+date. A session without a record is served with `missing: not_recorded`,
+never with a neighbouring session's stage; a decision made on a day without
+a US session has no `decision_session`; and for dates outside the embedded
+exchange calendar neither is named. Recording began with the first close
+after this was installed, so earlier sessions have no record.
+
+The other two things the rules need are in the retained statements and are
+not stamped: premium at risk at the prior statement (the option positions
+of that statement with their marks and cost, against that day's net
+liquidation value) and the price of each partial option sale (its
+execution in the statement; Edge shows it as `execution_vwap` on that
+sale's own decision detail). Canary keeps every statement it has fetched
+and deletes none.
 
 ## Completed option positions
 
@@ -406,6 +455,7 @@ Every snapshot says how many changes were found, how many stock, ETF and option 
 - `market_data_unavailable`
 - `query_field_missing`
 - `position_path_unbalanced`
+- `session_calendar_unavailable`
 
 If replayed quantities do not reconcile between Flex open-position anchors, Edge suppresses that contract instead of presenting a plausible-looking number.
 

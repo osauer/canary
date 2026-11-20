@@ -31,6 +31,9 @@ const (
 	ReasonMarketDataUnavailable  = "market_data_unavailable"
 	ReasonQueryFieldMissing      = "query_field_missing"
 	ReasonPositionPathUnbalanced = "position_path_unbalanced"
+	// ReasonSessionCalendarUnavailable is an option horizon that cannot be
+	// counted: the sessions of the option's own market are not known.
+	ReasonSessionCalendarUnavailable = "session_calendar_unavailable"
 
 	// MinimumPatternSample is the smallest repeated-action sample that may
 	// receive a pattern label.

@@ -416,6 +416,7 @@ func renderGoldenCases() []renderGoldenCase {
 		}},
 		{name: "positions_bond_facts", argv: []string{"positions"}, render: func(env *Env) { renderBondFacts(env, env.Stdout, goldenBondFacts()) }},
 		{name: "edge", argv: []string{"edge"}, conn: goldenConn{rpc.MethodEdgeSnapshot: goldenEdge(0, 3)}},
+		{name: "edge_change", argv: []string{"edge", "--change", "change_s2"}, conn: goldenConn{rpc.MethodEdgeSnapshot: goldenEdgeChange()}},
 		{name: "edge_option_page", argv: []string{"edge", "--option-offset", "3", "--option-limit", "3"}, conn: goldenConn{rpc.MethodEdgeSnapshot: goldenEdge(3, 3)}},
 		{name: "edge_replay", argv: []string{"edge", "replay", "--from", "2026-08-03"}, conn: goldenConn{rpc.MethodEdgeReplay: goldenEdgeReplay()}},
 		{name: "edge_replay_incomplete", argv: []string{"edge", "replay", "--from", "2026-08-03"}, conn: goldenConn{rpc.MethodEdgeReplay: goldenEdgeReplayIncomplete()}},
@@ -495,6 +496,33 @@ func goldenEdgeReplayUnreconciled() rpc.EdgeReplayResult {
 	rec := &result.Reconciliation
 	rec.Reconciled, rec.Status, rec.CycleCashResidual = false, rpc.EdgeReplayUnreconciled, -18
 	rec.ResidualContracts = []rpc.EdgeReplayReconContract{{Underlying: "SYNA", Contract: "SYNA 2026-09-18 120 C", Reason: rpc.EdgeReplayResidualCashVsRealized}}
+	return result
+}
+
+// goldenEdgeChange is the detail of one option sale: its scores, the rules
+// it was made after, and what Canary recorded at the close of the session
+// before it (a stage and the premium line) and of its own session (nothing).
+func goldenEdgeChange() rpc.EdgeResult {
+	result := goldenEdge(0, 3)
+	at := result.AsOf
+	money := func(v float64) *float64 { return &v }
+	closed, served := at.AddDate(0, 0, -3).Truncate(24*time.Hour).Add(21*time.Hour), at.AddDate(0, 0, -3).Truncate(24*time.Hour).Add(21*time.Hour+40*time.Second)
+	horizon := at.AddDate(0, 0, -1).Truncate(24 * time.Hour)
+	result.Change = &rpc.EdgeChangeDetail{
+		ID: "change_s2", Symbol: "SYNC  261016C00050000", AssetClass: "OPT", Currency: "USD", Action: "exit", Direction: "long",
+		ExecutedAt: at.AddDate(0, 0, -2), DeltaQuantity: -2, PositionBefore: 2, PositionAfter: 0,
+		ExecutionVWAP: money(6.15), Multiplier: money(100), DirectCostsBase: money(2.1),
+		Scores: []rpc.EdgeHorizonScore{
+			{Sessions: 1, HorizonDay: &horizon, HorizonClose: money(5.4), CloseSource: "closing_quote", HorizonFX: money(0.92), DecisionNotionalBase: money(1131.6), DecisionImpactBase: money(135.9), DecisionImpactPct: money(12.01)},
+			{Sessions: 5, Reason: "missing_horizon"},
+			{Sessions: 20, Reason: "session_calendar_unavailable"},
+		},
+		Verdict:         rpc.EdgeVerdict{Label: "none", Reason: "graded_by_position"},
+		Position:        &rpc.EdgeChangePosition{State: "closed", PositionID: "option-cycle_a3", ClosedBy: "trade", PositionGrade: "made_money", PositionPNLBase: money(830), ReferenceKind: "entry_average", ResultPct: money(22)},
+		ForwardTests:    []string{"final_option_sales_vs_close_5_sessions", "floor_after_partial_sale"},
+		PriorSession:    &rpc.EdgeSessionStamp{Session: closed.Format(time.DateOnly), ClosedAt: &closed, ServedAt: &served, RegimeStage: "early_warning", SnapshotRevision: 41, RegimeFingerprintVersion: "regime-fp-v2", DaemonVersion: "v0.0.0-golden", DaemonRevision: "0123abcd", PremiumBudgetActPct: money(35), PremiumBudgetSet: "early-warning", RulebookPolicyFingerprint: "sha256:golden"},
+		DecisionSession: &rpc.EdgeSessionStamp{Session: at.AddDate(0, 0, -2).Format(time.DateOnly), Missing: rpc.EdgeSessionStampNotRecorded},
+	}
 	return result
 }
 

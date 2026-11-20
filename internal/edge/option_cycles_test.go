@@ -78,6 +78,7 @@ func cycleTestStatement(deltas []float64, markers []string, final float64) flexs
 	st := edgeStatement()
 	st.Trades = nil
 	st.Positions = []flexstmt.OpenPosition{{RecordID: "end", AccountID: "U", ConID: 456, AssetClass: "OPT", ReportDate: day("2026-02-01"), Quantity: &final}}
+	st.Instruments = []flexstmt.Instrument{{RecordID: "i456", ConID: 456, Symbol: "SYN CALL", AssetClass: "OPT", ListingExchange: "CBOE", ReportDate: day("2026-02-01")}}
 	for i, delta := range deltas {
 		side := "BUY"
 		if delta < 0 {

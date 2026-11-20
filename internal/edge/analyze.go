@@ -94,10 +94,27 @@ type scoringIndex struct {
 	barsByConID      map[int64][]DailyBar
 	rawBarsByConID   map[int64]bool
 	contextBars      map[string][]DailyBar
-	// sessionDays is the calendar an option horizon is counted on. A
-	// contract's own closes are too sparse to count sessions with: it has
-	// one only on the days it was held or traded.
-	sessionDays []DailyBar
+	// usSessionDays is the calendar a US-listed option's horizon is counted
+	// on: the days a US benchmark ETF has a close. A contract's own closes
+	// are too sparse to count sessions with (it has one only on the days it
+	// was held or traded), and the account's other instruments trade on
+	// their own markets' days: a stock listed in Europe has a close on US
+	// Thanksgiving.
+	usSessionDays []DailyBar
+	// usListedOption marks the option contracts whose statement instrument
+	// row names a US option exchange.
+	usListedOption map[int64]bool
+}
+
+// usOptionVenues are IBKR's codes for the US option exchanges, as a
+// statement's instrument row names a listing. They share one holiday
+// calendar, that of the US cash market. The list is closed on purpose: an
+// option on any other or unknown exchange has no session calendar here and
+// gets no horizon figure, instead of one counted on another market's days.
+var usOptionVenues = map[string]bool{
+	"CBOE": true, "CBOE2": true, "AMEX": true, "PHLX": true, "PSE": true, "ISE": true, "GEMINI": true, "MERCURY": true,
+	"BOX": true, "NASDAQOM": true, "NASDAQBX": true, "BATS": true, "EDGX": true, "MIAX": true, "PEARL": true,
+	"EMERALD": true, "MEMX": true,
 }
 
 // Analyze deterministically computes one 90- or 365-day Edge result.
@@ -623,6 +640,7 @@ func buildScoringIndex(input Input, mutations []mutation, ev evidence) scoringIn
 		barsByConID:      make(map[int64][]DailyBar, len(input.Bars)),
 		rawBarsByConID:   make(map[int64]bool, len(input.Bars)),
 		contextBars:      make(map[string][]DailyBar, len(input.ContextBars)),
+		usListedOption:   map[int64]bool{},
 	}
 	for _, item := range mutations {
 		index.mutationsByConID[item.conid] = append(index.mutationsByConID[item.conid], item)
@@ -652,17 +670,33 @@ func buildScoringIndex(input Input, mutations []mutation, ev evidence) scoringIn
 		index.rawBarsByConID[conid] = true
 		index.barsByConID[conid] = normalizedBars(append(bars, input.Bars[conid]...), input.AsOf)
 	}
+	// The benchmark ETFs trade on every US session and on no other day. The
+	// volatility index is left out: it is not an exchange-traded instrument,
+	// and nothing here vouches for the days it has a value.
 	var calendar []DailyBar
-	for _, bars := range index.contextBars {
-		calendar = append(calendar, bars...)
-	}
-	for conid, bars := range input.Bars {
-		if marks[conid] == nil {
-			calendar = append(calendar, bars...)
+	for _, benchmark := range marketBenchmarks {
+		if benchmark.Kind == MarketContextKindProxy {
+			calendar = append(calendar, index.contextBars[benchmark.Symbol]...)
 		}
 	}
-	index.sessionDays = normalizedBars(calendar, input.AsOf)
+	index.usSessionDays = normalizedBars(calendar, input.AsOf)
+	for _, instrument := range ev.instruments {
+		if usOptionVenues[strings.ToUpper(strings.TrimSpace(instrument.ListingExchange))] {
+			index.usListedOption[instrument.ConID] = true
+		}
+	}
 	return index
+}
+
+// optionSessionDays is the calendar an option's horizon is counted on: the
+// sessions of the option's own market. Only the US calendar can be derived
+// from what Edge holds, so an option that is not known to be US-listed, or
+// any option while no benchmark close is on record, has none.
+func (index scoringIndex) optionSessionDays(conid int64) []DailyBar {
+	if !index.usListedOption[conid] {
+		return nil
+	}
+	return index.usSessionDays
 }
 
 // optionHorizonBar finds the option's close on the Nth market session after
@@ -863,7 +897,12 @@ func scoreHorizon(change Change, group groupedTrade, sessions int, input Input, 
 	}
 	bar, ok := horizonBar(index.barsByConID[group.conid], group.executedAt, sessions)
 	if strings.EqualFold(group.assetClass, "OPT") {
-		bar, ok = optionHorizonBar(index.barsByConID[group.conid], index.sessionDays, group.executedAt, sessions)
+		sessionDays := index.optionSessionDays(group.conid)
+		if len(sessionDays) == 0 {
+			score.Reason = ReasonSessionCalendarUnavailable
+			return score
+		}
+		bar, ok = optionHorizonBar(index.barsByConID[group.conid], sessionDays, group.executedAt, sessions)
 	}
 	if !ok {
 		score.Reason = ReasonMissingHorizon
