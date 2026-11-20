@@ -551,6 +551,11 @@ func goldenEdge(offset, limit int) rpc.EdgeResult {
 	start, end, next = page(len(positions))
 	options.Open.Positions, options.Open.NextOffset, options.Open.Truncated = positions[start:end], next, end-start < len(positions)
 	result.Options = options
+	// Forward tests: the line prints how many rules are registered and when.
+	result.ForwardTests = []rpc.EdgeForwardTest{
+		{ID: "final_option_sales_vs_close_5_sessions", Title: "Final option sales against the close five sessions later", Rule: "One reading per position.", RuleHash: "rule_0123456789abcdef0123456789abcdef", RegisteredAt: at.AddDate(0, 0, -4)},
+		{ID: "floor_after_partial_sale", Title: "A floor under what is left after a partial sale", Rule: "At each partial sale its price is kept.", RuleHash: "rule_fedcba9876543210fedcba9876543210", RegisteredAt: at.AddDate(0, 0, -4)},
+	}
 	// One row of each kind the verdict list can print: a stock verdict, a
 	// result within costs, a decision with none, and the facts an option
 	// decision states: a buy against later sales, a sale against average

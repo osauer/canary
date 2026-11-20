@@ -76,6 +76,10 @@ Options  broker actuals in separate scopes; they do not add together
         -$ 640.00  SYNA 2026-12-18 120 C · complete · option_o1
   More option rows: canary edge --option-offset 3 --option-limit 20
 
+Forward tests  rules written down before the results they will be read on
+  Registered · 2 of 2 rules · registered 2026-08-20 14:00 TZ · only
+    decisions made afterwards count · the rules are in canary edge --json
+
 Details: canary edge --change <id> · canary edge --option <id> · canary edge --json
 # canary edge · COLUMNS=80 · colour on, ESC written as \x1b
 Canary Edge · 90d decision review · 20-session lens · evidence to 2026-08-24
@@ -154,5 +158,9 @@ Options  \x1b[2mbroker actuals in separate scopes; they do not add together\x1b[
          \x1b[32m$ 410.00\x1b[0m  SYNB 2026-12-18 85 P · complete · \x1b[2moption_o2\x1b[0m
         \x1b[31m-$ 640.00\x1b[0m  SYNA 2026-12-18 120 C · complete · \x1b[2moption_o1\x1b[0m
   More option rows: canary edge --option-offset 3 --option-limit 20
+
+Forward tests  \x1b[2mrules written down before the results they will be read on\x1b[0m
+  Registered · 2 of 2 rules · registered 2026-08-20 14:00 TZ · only
+    decisions made afterwards count · the rules are in canary edge --json
 
 Details: canary edge --change <id> · canary edge --option <id> · canary edge --json

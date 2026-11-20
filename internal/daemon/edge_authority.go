@@ -185,6 +185,13 @@ func (s *Server) rebuildEdgePublication(ctx context.Context) error {
 		return s.saveEdgePublication(ctx, edgePublication{Version: edgePublicationVersion, State: rpc.EdgeStateUnavailable, Reason: "account_scope_unavailable", UpdatedAt: s.edgeNow()})
 	}
 	scopeFingerprint := edgeScopeFingerprint(scope)
+	// The rules are registered before anything is read for this rebuild, so
+	// their instants precede every figure it produces. A failure here stops
+	// nothing: the next rebuild registers, and a later instant only makes
+	// the sample smaller.
+	if err := s.registerEdgeForwardTests(ctx, scopeFingerprint); err != nil {
+		s.warnf("Canary Edge: forward-test registration failed: %v", err)
+	}
 	acquisition, err := s.advanceEdgeFlexAcquisition(ctx, scopeFingerprint)
 	if err != nil {
 		return err
@@ -1202,6 +1209,7 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 		populateRPCEdgeResult(result, coreResult, horizon, limit, params.OptionOffset, params.OptionLimit, params.AutomaticHorizon)
 		result.State, result.Reason = publication.State, publication.Reason
 	}
+	result.ForwardTests = s.edgeForwardTestsView(ctx, scopeFingerprint)
 	if params.ChangeID != "" {
 		if !haveWindow {
 			return nil, errBadRequest("edge change is unavailable before a snapshot is published")
@@ -1210,6 +1218,7 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 		for _, change := range coreResult.Changes {
 			if change.ID == params.ChangeID {
 				result.Change = rpcEdgeChange(change)
+				result.Change.ForwardTests = edgeForwardSampleIDs(result.ForwardTests, change.ExecutedAt)
 				found = true
 				break
 			}
@@ -1269,7 +1278,7 @@ func edgeStateOnlyResult(state, reason, window string, horizon int, automatic bo
 		HorizonSelection: rpc.EdgeHorizonSelection{Mode: mode, Reason: "snapshot_unavailable", MinimumSample: edgecore.MinimumPatternSample, MinimumCoveragePct: edgecore.MinimumAutomaticCoveragePct},
 		MarketContext:    []rpc.EdgeMarketContextRollup{}, MarketContextMissing: []string{},
 		ActionRollups: []rpc.EdgeActionRollup{}, Findings: []rpc.EdgeFinding{},
-		Verdicts: rpc.EdgeVerdicts{Counts: []rpc.EdgeVerdictCount{}, Recent: []rpc.EdgeTradeVerdict{}},
+		Verdicts: rpc.EdgeVerdicts{Counts: []rpc.EdgeVerdictCount{}, Recent: []rpc.EdgeTradeVerdict{}}, ForwardTests: []rpc.EdgeForwardTest{},
 		Options: rpc.EdgeOptionReview{Realized: rpc.EdgeOptionRealizedReview{Episodes: []rpc.EdgeOptionEpisodeSummary{}}, Open: rpc.EdgeOptionOpenReview{Positions: []rpc.EdgeOptionOpenPositionSummary{}},
 			Decisions: rpc.EdgeOptionDecisions{Reasons: map[string]int{}, Actions: []rpc.EdgeOptionDecisionRoll{}}},
 		Coverage: rpc.EdgeCoverage{ScoredByHorizon: map[int]int{}, ReasonCounts: map[string]int{}}, NotExecution: true,

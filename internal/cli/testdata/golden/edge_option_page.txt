@@ -78,6 +78,10 @@ Option rows  this page of each list; the counts and totals above cover every row
   Open positions · row 4 of 4
           $ 35.00  SYND 2027-01-15 18 P · complete · option_o4
 
+Forward tests  rules written down before the results they will be read on
+  Registered · 2 of 2 rules · registered 2026-08-20 14:00 TZ · only
+    decisions made afterwards count · the rules are in canary edge --json
+
 Details: canary edge --change <id> · canary edge --option <id> · canary edge --json
 # canary edge --option-offset 3 --option-limit 3 · COLUMNS=80 · colour on, ESC written as \x1b
 Canary Edge · 90d decision review · 20-session lens · evidence to 2026-08-24
@@ -158,5 +162,9 @@ Option rows  \x1b[2mthis page of each list; the counts and totals above cover ev
       \x1b[2munavailable\x1b[0m  SYNE 2026-09-18 30 P · 2026-08-10 · unavailable · \x1b[2moption_e5\x1b[0m
   Open positions · row 4 of 4
           \x1b[32m$ 35.00\x1b[0m  SYND 2027-01-15 18 P · complete · \x1b[2moption_o4\x1b[0m
+
+Forward tests  \x1b[2mrules written down before the results they will be read on\x1b[0m
+  Registered · 2 of 2 rules · registered 2026-08-20 14:00 TZ · only
+    decisions made afterwards count · the rules are in canary edge --json
 
 Details: canary edge --change <id> · canary edge --option <id> · canary edge --json
