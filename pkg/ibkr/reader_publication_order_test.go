@@ -152,18 +152,25 @@ func TestConnectionLossErrorEndsSessionAfterReaderLeases(t *testing.T) {
 		conn.processMessageAtEpoch(wireTErrorFrame(-1, 504, "Not connected"), origin.epoch)
 		close(done)
 	}()
+	// The reader takes both leases briefly while it handles the frame, so one
+	// busy sample proves nothing. A reader that waits for the transport while
+	// holding a lease holds it until the transport is released below: count
+	// only a lease that stays held for 25 samples in a row.
 	held := ""
+	busy := map[string]int{}
+	sample := func(name string, try func() bool, release func()) {
+		if try() {
+			release()
+			busy[name] = 0
+			return
+		}
+		if busy[name]++; busy[name] >= 25 {
+			held = name
+		}
+	}
 	for deadline := time.Now().Add(150 * time.Millisecond); held == "" && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-		if !c.publicationBarrier.TryLock() {
-			held = "publication"
-			break
-		}
-		c.publicationBarrier.Unlock()
-		if !conn.inboundEpochMu.TryLock() {
-			held = "inbound"
-			break
-		}
-		conn.inboundEpochMu.Unlock()
+		sample("publication", c.publicationBarrier.TryLock, c.publicationBarrier.Unlock)
+		sample("inbound", conn.inboundEpochMu.TryLock, conn.inboundEpochMu.Unlock)
 	}
 	conn.transportMu.Unlock()
 	select {
