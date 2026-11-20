@@ -13,10 +13,15 @@ import (
 	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
+// The fan-out drops a leg whose expiry has passed on its own clock, so the
+// jobs expire thirty days after the test runs. A fixed date here failed every
+// run from the moment that date's SPX settlement passed (2026-11-20 09:30 New
+// York).
 func gammaTestJobs(n int) []gammaLegSpec {
+	expiry := time.Now().AddDate(0, 0, 30)
 	jobs := make([]gammaLegSpec, 0, n)
 	for i := range n {
-		jobs = append(jobs, gammaLegSpec{expiryYMD: "20261120", expiryDate: "2026-11-20", strike: 5000 + float64(i)*5, right: "C", tradingClass: "SPX"})
+		jobs = append(jobs, gammaLegSpec{expiryYMD: expiry.Format("20060102"), expiryDate: expiry.Format("2006-01-02"), strike: 5000 + float64(i)*5, right: "C", tradingClass: "SPX"})
 	}
 	return jobs
 }
