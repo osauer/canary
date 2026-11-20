@@ -434,6 +434,7 @@ type Connection struct {
 	// generation accounts for the stream's gross position value.
 	portfolioStaging       map[string]*RawPosition
 	portfolioStagingActive bool
+	portfolioWire          portfolioWireTally
 	// positionsSnapshot is isolated reqPositions state. It must never mutate
 	positionsSnapshot       map[string]*RawPosition
 	positionsSnapshotResult map[string]*RawPosition
@@ -527,6 +528,35 @@ type PortfolioStreamHealth struct {
 	// The rows stay staged and unpublished and InitialCompletedAt stays zero
 	// until late rows make the generation foot or a resubscribe replaces it.
 	DownloadShortAt time.Time
+}
+
+// portfolioWireTally counts account-updates frames for the held-book warning
+// (see portfolioHeldEpisode). It carries no account data.
+type portfolioWireTally struct {
+	rowsAccepted atomic.Uint64
+	rowsDropped  atomic.Uint64
+	endMarkers   atomic.Uint64
+}
+
+type portfolioWireCounts struct {
+	rowsAccepted, rowsDropped, endMarkers uint64
+}
+
+func (c *Connection) portfolioWireCounts() portfolioWireCounts {
+	return portfolioWireCounts{
+		rowsAccepted: c.portfolioWire.rowsAccepted.Load(),
+		rowsDropped:  c.portfolioWire.rowsDropped.Load(),
+		endMarkers:   c.portfolioWire.endMarkers.Load(),
+	}
+}
+
+// since returns the frames counted after start.
+func (w portfolioWireCounts) since(start portfolioWireCounts) portfolioWireCounts {
+	return portfolioWireCounts{
+		rowsAccepted: w.rowsAccepted - start.rowsAccepted,
+		rowsDropped:  w.rowsDropped - start.rowsDropped,
+		endMarkers:   w.endMarkers - start.endMarkers,
+	}
 }
 
 // portfolioFootingTolerance is the share of the stream's GrossPositionValue a
@@ -2397,6 +2427,7 @@ func (c *Connection) processMessageAtEpoch(msgBytes []byte, epoch uint64) {
 			account = fields[2]
 		}
 		completedAt := time.Now().UTC()
+		c.portfolioWire.endMarkers.Add(1)
 		c.observeAccountStreamEnd(account, completedAt)
 		c.completePortfolioDownload(account, completedAt)
 	case msgMarketDataType:
@@ -3397,8 +3428,10 @@ func (c *Connection) handlePortfolioValue(fields []string) {
 	c.portfolioProjectionMu.Lock()
 	defer c.portfolioProjectionMu.Unlock()
 	if !c.acceptPortfolioAccountFrame(fields[19], time.Now().UTC()) {
+		c.portfolioWire.rowsDropped.Add(1)
 		return
 	}
+	c.portfolioWire.rowsAccepted.Add(1)
 
 	// A malformed row invalidates the whole staged generation. Treating a bad
 	// false all-clear at accountDownloadEnd.
