@@ -157,12 +157,65 @@ func TestShortPortfolioDownloadResubscribesWhileRowsAreRetained(t *testing.T) {
 
 	now = now.Add(acctUpdatesResubscribeThrottle)
 	rows, health, err = connector.CachedPositionsWithHealth()
-	if err != nil || len(rows) != syntheticBookRows || !health.DownloadShortAt.IsZero() || !health.InitialCompletedAt.IsZero() || health.RequestedAt.IsZero() {
-		t.Fatalf("self-heal did not return one fresh unprimed capture: rows=%d short=%v completed=%v requested=%v err=%v",
-			len(rows), health.DownloadShortAt, health.InitialCompletedAt, health.RequestedAt, err)
+	if err != nil || len(rows) != syntheticBookRows || !health.InitialCompletedAt.IsZero() {
+		t.Fatalf("self-heal capture: rows=%d completed=%v err=%v", len(rows), health.InitialCompletedAt, err)
 	}
 	if got := subscribes(); got != 3 {
 		t.Fatalf("short download did not resubscribe after the throttle: %d subscriptions", got)
+	}
+	for conID := 2; conID <= syntheticBookRows; conID++ {
+		feedOptionRow(conn, account, 800000+conID)
+	}
+	if rows, health, err = connector.CachedPositionsWithHealth(); err != nil || len(rows) != syntheticBookRows || health.InitialCompletedAt.IsZero() {
+		t.Fatalf("late rows after the self-heal did not complete the book: rows=%d completed=%v err=%v", len(rows), health.InitialCompletedAt, err)
+	}
+}
+
+// TestSelfHealKeepsTheShortGenerationUntilRowsFootIt replays 2026-11-20
+// 23:45 to 2026-11-21 03:25: after the nightly TWS restart a download ended
+// with no rows, the self-heal resubscribed every 30 seconds, one download
+// ended short, and TWS then answered none of the 434 resubscribes with an end
+// marker while it kept sending portfolio rows. Each resubscribe emptied the
+// staged rows and cleared the short marker, so no row could complete the book
+// and it stayed not current until the socket dropped. A self-heal on the same
+// session keeps the staged rows; late rows complete them once they foot, and
+// never before.
+func TestSelfHealKeepsTheShortGenerationUntilRowsFootIt(t *testing.T) {
+	conn, connector, _, _, gate := newQueuedInstructionReconnectFixture(t)
+	account := gate.Account
+	now := time.Date(2026, 11, 20, 22, 45, 18, 0, time.UTC)
+	connector.acctUpdatesNow = func() time.Time { return now }
+	notCurrent := func(step string) {
+		t.Helper()
+		if rows, health, err := connector.CachedPositionsWithHealth(); err != nil || !health.InitialCompletedAt.IsZero() {
+			t.Fatalf("%s: short book read as current: rows=%d err=%v", step, len(rows), err)
+		}
+	}
+
+	if err := connector.RequestAccountUpdates(account); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	feedAccountValues(conn, account)
+	feedDownloadEnd(conn, account)
+	now = now.Add(acctUpdatesResubscribeThrottle)
+	notCurrent("empty download")
+
+	for conID := 1; conID <= syntheticBookRows-2; conID++ {
+		feedOptionRow(conn, account, 800000+conID)
+	}
+	feedDownloadEnd(conn, account)
+	now = now.Add(acctUpdatesResubscribeThrottle)
+	notCurrent("download ended short")
+	now = now.Add(acctUpdatesResubscribeThrottle)
+	notCurrent("resubscribed again")
+
+	feedOptionRow(conn, account, 800000+syntheticBookRows-1)
+	notCurrent("one row short")
+	feedOptionRow(conn, account, 800000+syntheticBookRows)
+	rows, health, err := connector.CachedPositionsWithHealth()
+	if err != nil || health.InitialCompletedAt.IsZero() || len(rows) != syntheticBookRows {
+		t.Fatalf("late rows did not complete the book: rows=%d completed=%v short=%v err=%v",
+			len(rows), health.InitialCompletedAt, health.DownloadShortAt, err)
 	}
 }
 

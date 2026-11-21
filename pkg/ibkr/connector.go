@@ -6240,11 +6240,17 @@ func (c *Connector) RequestAccountUpdates(account string) error {
 // stream is already bound to. The self-heal paths must not pass "": on a
 // multi-account login that resolves through the raw managedAccounts list to
 // the operator's pinned account and makes the pinned account's own frames
-func (c *Connector) resubscribeAccountUpdates() error {
+//
+// A scope conflict starts a fresh generation; every other repair repeats the
+// subscription and keeps a same-session generation still staging.
+func (c *Connector) resubscribeAccountUpdates(reason accountUpdatesRepair) error {
 	c.acctUpdatesMu.Lock()
 	account := c.acctUpdatesAccount
 	c.acctUpdatesMu.Unlock()
-	return c.RequestAccountUpdates(account)
+	if reason == repairScopeConflict || !accountCodeConcrete(account) || !c.isConnected() {
+		return c.RequestAccountUpdates(account)
+	}
+	return c.conn.RepeatAccountUpdates(account)
 }
 
 // acctUpdatesResubscribeThrottle bounds the dead-stream self-heal below to
@@ -6324,7 +6330,7 @@ func (c *Connector) maybeResubscribeAccountUpdatesForReason(reason accountUpdate
 	default:
 		logf("positions cache empty while account summary shows gross position value; resubscribing account updates")
 	}
-	c.noteHeldPortfolioRepair(now, c.resubscribeAccountUpdates())
+	c.noteHeldPortfolioRepair(now, c.resubscribeAccountUpdates(reason))
 }
 
 // portfolioHeldEpisode is one stretch of account-updates repairs, from the
@@ -6371,9 +6377,13 @@ func (c *Connector) noteHeldPortfolioRepair(now time.Time, err error) {
 	case wire.rowsAccepted == 0 && wire.rowsDropped == 0:
 		hint = "; TWS is not sending the portfolio, so check it for an open dialog or restart it"
 	}
-	ibkrLogger.Warnf("Portfolio book held as not current for %s: %d resubscribes sent, %d failed to send%s; since the first, IBKR sent %d portfolio rows for this account (%d dropped for another account) and %d download end markers%s",
+	coverage := ""
+	if share, ok := c.conn.stagedPortfolioCoverage(); ok {
+		coverage = fmt.Sprintf("; staged rows cover %.0f%% of gross position value", share*100)
+	}
+	ibkrLogger.Warnf("Portfolio book held as not current for %s: %d resubscribes sent, %d failed to send%s; since the first, IBKR sent %d portfolio rows for this account (%d dropped for another account) and %d download end markers%s%s",
 		now.Sub(ep.since).Round(time.Second), ep.repairs, ep.sendErrors, lastErr,
-		wire.rowsAccepted, wire.rowsDropped, wire.endMarkers, hint)
+		wire.rowsAccepted, wire.rowsDropped, wire.endMarkers, coverage, hint)
 }
 
 // endHeldPortfolioEpisode closes the episode once a read sees a completed

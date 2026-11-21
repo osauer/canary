@@ -245,6 +245,29 @@ func TestDataHealthHistoryRestoresNoCurrentAccess(t *testing.T) {
 	}
 }
 
+// 2026-11-21 06:00 CET: New York midnight made Friday's statement due, while
+// Canary's own first Flex check runs at 06:30. With Thursday's statement in,
+// the row is on schedule, not a source concern. Missing an older statement it
+// still is one.
+func TestReportingHealthBeforeTheDailyWindowIsOnSchedule(t *testing.T) {
+	now := time.Date(2026, 11, 21, 5, 10, 0, 0, time.UTC)
+	waiting := func(coverage time.Time) *rpc.DataSourceHealth {
+		return reportingDataHealth(func(context.Context) (*rpc.ReportingStatusResult, error) {
+			return &rpc.ReportingStatusResult{
+				State: rpc.ReportingStateBackfilling, Reason: rpc.ReconReportReasonBeforeDailyWindow,
+				Broker:   rpc.ReportingBrokerStatus{State: rpc.ReconReportStateWaiting, Reason: rpc.ReconReportReasonBeforeDailyWindow},
+				Evidence: rpc.ReportingEvidenceStatus{CoverageTo: coverage},
+			}, nil
+		}, now)
+	}
+	if row := waiting(time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)); row == nil || row.State != "not_due" || len(row.ProblemIDs) != 0 {
+		t.Fatalf("statement wait before the daily window counted as a concern: %+v", row)
+	}
+	if row := waiting(time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)); row == nil || row.State != "limited" || len(row.ProblemIDs) != 1 {
+		t.Fatalf("a missing older statement was hidden behind the daily window: %+v", row)
+	}
+}
+
 // A real projection read may queue behind accepted-history work on the single
 // SQLite connection. This callback models that wait without acquiring data.
 func TestReportingHealthAllowsCompletedReadBeyondOneSecond(t *testing.T) {
@@ -255,14 +278,14 @@ func TestReportingHealthAllowsCompletedReadBeyondOneSecond(t *testing.T) {
 		case <-ctx.Done():
 			return &rpc.ReportingStatusResult{State: rpc.ReportingStateUnavailable, Reason: rpc.ReconReportReasonAuthorityUnavailable}, nil
 		}
-	})
+	}, time.Now())
 	if row == nil || row.State != "current" || len(row.ProblemIDs) != 0 {
 		t.Fatalf("valid slow read became a storage warning: %+v", row)
 	}
 	// A genuine unavailable authority must retain the failure and its cause.
 	row = reportingDataHealth(func(context.Context) (*rpc.ReportingStatusResult, error) {
 		return &rpc.ReportingStatusResult{State: rpc.ReportingStateUnavailable, Reason: rpc.ReconReportReasonAuthorityUnavailable}, nil
-	})
+	}, time.Now())
 	if row == nil || row.State != "unavailable" || row.Detail != rpc.ReconReportReasonAuthorityUnavailable || len(row.ProblemIDs) != 1 {
 		t.Fatalf("failed read was hidden: %+v", row)
 	}
