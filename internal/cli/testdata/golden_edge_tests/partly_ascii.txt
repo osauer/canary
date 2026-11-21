@@ -78,7 +78,7 @@ Collecting ------------------------------- 7 tests - counting since 21 Nov 2026
     of these, sent by Canary's protection                3
     no date for a full count
 
-  waiting: a trade whose result is not known yet - 467 counted per complete
+  waiting: a trade whose result is not known yet - 0-9 counted per complete
   month, Dec 2026-Feb 2027 - a bar without a track has no number to reach
   * more than a year away, and Canary counts only the last 365 days: this count
     cannot fill in this version
@@ -165,7 +165,7 @@ One test in full: canary edge tests <name> - all in full: --all - data: --json
     of these, sent by Canary's protection                3
     no date for a full count
 
-  waiting: a trade whose result is not known yet - 467 counted per complete
+  waiting: a trade whose result is not known yet - 0-9 counted per complete
   month, Dec 2026-Feb 2027 - a bar without a track has no number to reach
   * more than a year away, and Canary counts only the last 365 days: this count
     cannot fill in this version

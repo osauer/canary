@@ -236,14 +236,19 @@ func edgeTestsFullness(t rpc.EdgeForwardTest) float64 {
 
 func (s *edgeTestsScreen) overview(tests []rpc.EdgeForwardTest) {
 	env := s.env
-	full, next := 0, ""
+	// The next date comes only from a test that can fill: a date the screen
+	// marks as one that cannot fill is never the next one.
+	full, collecting, next := 0, 0, ""
 	for _, t := range tests {
 		if t.Sample == nil {
 			continue
 		}
 		if t.Sample.State == rpc.EdgeForwardFull {
 			full++
-		} else if e := t.Sample.Expected; e != nil && (next == "" || e.Date < next) {
+			continue
+		}
+		collecting++
+		if e := t.Sample.Expected; e != nil && t.Sample.CanFill && (next == "" || e.Date < next) {
 			next = e.Date
 		}
 	}
@@ -253,12 +258,20 @@ func (s *edgeTestsScreen) overview(tests []rpc.EdgeForwardTest) {
 	} else {
 		top = append(top, fmt.Sprintf("%d full", full))
 	}
-	if next != "" {
+	switch {
+	case next != "":
 		top = append(top, "next about "+edgeTestsMonth(next[:7]))
+	case collecting > 0:
+		top = append(top, "no date yet")
 	}
 	s.line(env.bold("Forward tests") + "  " + strings.Join(top, " · "))
-	s.prose("  ", "", "Questions about your own trading. Each was fixed as a written rule on a set date, and only trading after that date counts. Canary is filling the counts. This version does not work out the answers yet, and nothing here changes a verdict, a warning or an order.", nil)
-	if cause := edgeTestsNoCountCause(tests); cause != "" {
+	cause := edgeTestsNoCountCause(tests)
+	filling := " Canary is filling the counts."
+	if cause != "" {
+		filling = ""
+	}
+	s.prose("  ", "", "Questions about your own trading. Each was fixed as a written rule on a set date, and only trading after that date counts."+filling+" This version does not work out the answers yet, and nothing here changes a verdict, a warning or an order.", nil)
+	if cause != "" {
 		s.cause = true
 		s.line("")
 		head, rest, _ := strings.Cut(cause, ":")
@@ -746,7 +759,12 @@ func (s *edgeTestsScreen) legend(tests []rpc.EdgeForwardTest) {
 		if len(s.axis) > 1 {
 			span += "–" + edgeTestsMonth(s.axis[len(s.axis)-1])
 		}
-		items = append(items, s.spark+" counted per complete month, "+span)
+		// A fixed sample: a test's own digits would read as one number.
+		sample := s.spark
+		if s.g.ascii {
+			sample = "0-9"
+		}
+		items = append(items, sample+" counted per complete month, "+span)
 	}
 	if s.trackless {
 		items = append(items, "a bar without a track has no number to reach")

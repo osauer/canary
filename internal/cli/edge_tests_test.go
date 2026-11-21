@@ -168,6 +168,21 @@ func goldenForwardEmpty() rpc.EdgeResult {
 	}, goldenForwardRegistered.AddDate(0, 0, 1), "2026-11-20")
 }
 
+// goldenForwardNoDate is the day after registration with no date from a
+// test that can fill: the only date is one the screen marks as unable to
+// fill, so the first line names none.
+func goldenForwardNoDate() rpc.EdgeResult {
+	return goldenForwardReply(map[string]goldenForwardCount{
+		"stock_sales_vs_nearby_day":              {noDate: "no_pace"},
+		"entries_vs_nearby_day":                  {expected: "2028-03-02", basis: "past_year", beyond: true},
+		"option_buys_below_premium_line":         {noDate: "group_not_worked_out"},
+		"option_buys_after_regime_warning":       {noDate: "not_recorded_before"},
+		"final_option_sales_vs_close_5_sessions": {noDate: "no_pace"},
+		"floor_after_partial_sale":               {noDate: "no_pace"},
+		"option_sales_after_adverse_move":        {noDate: "group_not_worked_out"},
+	}, goldenForwardRegistered.AddDate(0, 0, 1), "2026-11-20")
+}
+
 // goldenForwardPartly is four months on: every test part filled.
 func goldenForwardPartly() rpc.EdgeResult {
 	return goldenForwardReply(goldenForwardPartlyCounts(), goldenForwardLater, "2027-03-19")
@@ -236,6 +251,7 @@ func TestRenderGoldenEdgeTests(t *testing.T) {
 		{"older_daemon", []string{"edge", "tests"}, goldenForwardOlderDaemon(), "en_US.UTF-8"},
 		{"one_test", []string{"edge", "tests", "option_buys_after_regime_warning"}, goldenForwardPartly(), "en_US.UTF-8"},
 		{"partly_ascii", []string{"edge", "tests"}, goldenForwardPartly(), "C"},
+		{"no_date", []string{"edge", "tests"}, goldenForwardNoDate(), "en_US.UTF-8"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("LC_ALL", tc.locale)
@@ -263,7 +279,7 @@ func TestRenderGoldenEdgeTests(t *testing.T) {
 func TestEdgeTestsKeepTheGrid(t *testing.T) {
 	t.Setenv("COLUMNS", "80")
 	t.Setenv("LC_ALL", "en_US.UTF-8")
-	for name, result := range map[string]rpc.EdgeResult{"empty": goldenForwardEmpty(), "partly": goldenForwardPartly(), "full": goldenForwardFull()} {
+	for name, result := range map[string]rpc.EdgeResult{"empty": goldenForwardEmpty(), "partly": goldenForwardPartly(), "full": goldenForwardFull(), "no_date": goldenForwardNoDate()} {
 		for _, all := range []bool{false, true} {
 			var out bytes.Buffer
 			renderEdgeTests(&Env{Stdout: &out, Color: true}, edgeTestsView{ForwardTests: result.ForwardTests}, all)

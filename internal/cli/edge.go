@@ -955,8 +955,8 @@ func edgeSessionStampText(stamp *rpc.EdgeSessionStamp) string {
 func renderEdgeForwardTests(env *Env, result rpc.EdgeResult) {
 	if result.ForwardTestsUnavailable == "registry_unreadable" {
 		// Said, because silence would read as "nothing is registered".
-		fmt.Fprintf(env.Stdout, "\nForward tests  %s\n", env.dim("rules written down before the results they will be read on"))
-		edgeRow(env, "Registered", "could not be read this time", "this does not mean none are registered", "ask again")
+		fmt.Fprintf(env.Stdout, "\nForward tests  %s\n", env.dim("questions about your own trading"))
+		edgeRow(env, "Tests", "could not be read this time", "this does not mean none are registered", "ask again")
 		return
 	}
 	if len(result.ForwardTests) == 0 {
@@ -976,17 +976,16 @@ func renderEdgeForwardTests(env *Env, result rpc.EdgeResult) {
 			last = test.RegisteredAt
 		}
 	}
-	fmt.Fprintf(env.Stdout, "\nForward tests  %s\n", env.dim("rules written down before the results they will be read on"))
+	fmt.Fprintf(env.Stdout, "\nForward tests  %s\n", env.dim("questions about your own trading"))
 	total := len(result.ForwardTests)
-	when := "not registered yet"
+	when := "they register when Canary next connects to the broker"
 	switch {
 	case registered > 0 && first.Equal(last):
-		when = "registered " + first.Local().Format("2006-01-02 15:04 MST")
+		when = "fixed as written rules " + first.Local().Format("2006-01-02 15:04 MST") + ", before the trades that answer them"
 	case registered > 0:
-		when = "registered between " + first.Local().Format("2006-01-02 15:04 MST") + " and " + last.Local().Format("2006-01-02 15:04 MST")
+		when = "fixed as written rules between " + first.Local().Format("2006-01-02 15:04 MST") + " and " + last.Local().Format("2006-01-02 15:04 MST") + ", before the trades that answer them"
 	}
-	edgeRow(env, "Registered", fmt.Sprintf("%d of %d %s", registered, total, pluralWord(total, "rule", "rules")), when,
-		"only decisions made afterwards count")
+	edgeRow(env, fmt.Sprintf("%d of %d %s registered", registered, total, pluralWord(total, "test", "tests")), when)
 	if counted := edgeForwardCounted(result.ForwardTests); counted != "" {
 		edgeRow(env, "Counted", counted)
 	}

@@ -1,9 +1,8 @@
 # canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour off
 Forward tests  7 tests · none full
   Questions about your own trading. Each was fixed as a written rule on a set
-  date, and only trading after that date counts. Canary is filling the counts.
-  This version does not work out the answers yet, and nothing here changes a
-  verdict, a warning or an order.
+  date, and only trading after that date counts. This version does not work out
+  the answers yet, and nothing here changes a verdict, a warning or an order.
 
   The running Canary does not count yet: restart it with canary restart.
 
@@ -34,9 +33,8 @@ One test in full: canary edge tests <name> · all in full: --all · data: --json
 # canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour on, ESC written as \x1b
 \x1b[1mForward tests\x1b[0m  7 tests · none full
   Questions about your own trading. Each was fixed as a written rule on a set
-  date, and only trading after that date counts. Canary is filling the counts.
-  This version does not work out the answers yet, and nothing here changes a
-  verdict, a warning or an order.
+  date, and only trading after that date counts. This version does not work out
+  the answers yet, and nothing here changes a verdict, a warning or an order.
 
   \x1b[33mThe running Canary does not count yet:\x1b[0m restart it with canary restart.
 
