@@ -46,6 +46,7 @@ type dataHealthState struct {
 	latest                      rpc.DataHealthResult
 	persistedDiagnosticRevision uint64
 	historyUnavailable          bool
+	historyProbedAt             time.Time
 }
 
 func unknownDataSource(id, name, provider, kind string, affects ...string) rpc.DataSourceHealth {

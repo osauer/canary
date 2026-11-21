@@ -10,8 +10,9 @@ import (
 )
 
 // One joined worker owns checks. Reads never wake it; explicit checks and the
-// due timer coalesce. Each pass admits at most eight reference quote probes and keeps
-// derivatives, history and analytics with their existing acquisition owners.
+// due timer coalesce. Each pass admits at most eight reference quote probes and,
+// when no chart read has proven it, one reference history read; derivatives,
+// instrument history and analytics stay with their existing acquisition owners.
 func (s *Server) startDataHealthChecks(ctx context.Context) {
 	s.loadDataHealthHistory()
 	s.dataHealth.mu.Lock()
@@ -41,6 +42,9 @@ func (s *Server) startDataHealthChecks(ctx context.Context) {
 			checkCtx, cancel := context.WithTimeout(ctx, 24*time.Second)
 			result := s.runDataHealthCheck(checkCtx)
 			cancel()
+			if s.opend == nil && s.brokerReadyForChecks() {
+				s.checkHistorySource(ctx, s.fetchMarketHistoryDays)
+			}
 			persistCtx, persistCancel := context.WithTimeout(ctx, 2*time.Second)
 			s.persistDataHealthHistory(persistCtx)
 			persistCancel()
@@ -152,6 +156,46 @@ func (s *Server) runDataHealthCheck(ctx context.Context) rpc.DataCheckResult {
 
 	result.CompletedAt = s.orderNow()
 	return result
+}
+
+// brokerReadyForChecks reports a connected, set-up broker session that a
+// source check may read through.
+func (s *Server) brokerReadyForChecks() bool {
+	c := s.gatewayConnector()
+	return c != nil && c.IsReady() && !c.BackendLink().Down && s.postConnectSetupDone.Load()
+}
+
+// historyProbe is the chart the check reads to prove the history service:
+// a week of SPY daily closes, which answers on a shut market as well as an
+// open one. It is a market reference, never a holding.
+var historyProbe = rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SPY", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1M"}
+
+const historyProbeTimeout = 8 * time.Second
+
+// checkHistorySource proves the history service when no chart read has done
+// so within its observation window: after a start or reconnect, and after a
+// quiet stretch with no chart open. Without it the source reads "Not
+// checked" until a chart happens to be read, and status shows attention
+// with nothing wrong (owner instruction 2026-11-21 14:05 CET). A read that
+// fails or returns nothing is not repeated within the five-minute
+// observation window, so a broken service is asked at most that often.
+func (s *Server) checkHistorySource(ctx context.Context, fetch func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error)) {
+	now := s.orderNow()
+	if s.feedDataHealth(historySourceID, now).State != "unknown" {
+		return
+	}
+	s.dataHealth.mu.Lock()
+	recent := !s.dataHealth.historyProbedAt.IsZero() && now.Sub(s.dataHealth.historyProbedAt) < quoteHealthObservationValidity
+	if !recent {
+		s.dataHealth.historyProbedAt = now
+	}
+	s.dataHealth.mu.Unlock()
+	if recent {
+		return
+	}
+	readCtx, cancel := context.WithTimeout(ctx, historyProbeTimeout)
+	defer cancel()
+	_, _ = fetch(readCtx, historyProbe, 7, now) // the read records its own observation
 }
 
 func (s *Server) attachQuoteAccess(row *rpc.DataSourceHealth, contract rpc.ContractParams, c *ibkr.Connector) {
