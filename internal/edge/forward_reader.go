@@ -67,6 +67,10 @@ const (
 	ForwardExcludedNoClosingQuote  = "no_closing_quote"
 	ForwardExcludedSoldAtCost      = "sold_at_cost"
 	ForwardExcludedUnderlyingUnset = "underlying_not_known"
+	// ForwardExcludedSpread: the option was traded as a leg of a spread, so
+	// judged alone it would misread the trade. Canary does not yet judge a
+	// spread's legs as one trade.
+	ForwardExcludedSpread = "part_of_spread"
 )
 
 // Why a test has no expected date.
@@ -164,7 +168,7 @@ var forwardFacts = map[string]ForwardFacts{
 		Question: "Do your entries do better than the same entry on a random nearby day?",
 		Informs:  []string{ForwardInformsBuy}, Unit: ForwardUnitNameWeek, UnitText: "each name once per week with an entry",
 		Needs: 167, NeedsGroup: ForwardGroupAll, SampleLabel: "entries", PaceNoun: "entry",
-		InShort: "Each name you buy or add to counts once per week. Canary looks at the underlying's move over the next five sessions, with the market's own move taken out, and compares it with the same entry placed on a random day within 20 sessions either side, 2,000 times. The test holds if your entries did better than nine out of ten of those runs, in both halves. It is answered once, at 167.",
+		InShort: "Each name you buy or add to counts once per week. Canary looks at the underlying's move over the next five sessions, with the market's own move taken out, and compares it with the same entry placed on a random day within 20 sessions either side, 2,000 times. The test holds if your entries did better than nine out of ten of those runs, in both halves. It is answered once, at 167. An option traded as part of a spread is left out.",
 	},
 	"option_buys_below_premium_line": {
 		Question:  "Do option buys made while premium at risk was at or below the budget line pay better than buys made above it?",
@@ -175,7 +179,7 @@ var forwardFacts = map[string]ForwardFacts{
 		Groups: []ForwardGroup{{ID: "at_or_below", Label: "at or below the line"}, {ID: "above", Label: "above the line"}},
 		Policy: "the Rulebook's premium budget", PaceNoun: "option buy",
 		NotSorted: "Canary cannot sort these buys yet: this version does not work out premium at risk at the last statement. Until it does, no count can grow.",
-		InShort:   "Each option contract you buy counts once per week, once its position has closed. Its result is the average price you later sold at (zero if it expired), less the price you paid, after the buy's costs. Buys made while premium at risk was at or below the Rulebook's premium budget line are compared with buys made above it, by return on the premium paid. The line is not supported if the buys at or below it return no more. It is answered once, at 30 buys at or below the line.",
+		InShort:   "Each option contract you buy counts once per week, once its position has closed. Its result is the average price you later sold at (zero if it expired), less the price you paid, after the buy's costs. Buys made while premium at risk was at or below the Rulebook's premium budget line are compared with buys made above it, by return on the premium paid. The line is not supported if the buys at or below it return no more. It is answered once, at 30 buys at or below the line. An option traded as part of a spread is left out.",
 	},
 	"option_buys_after_regime_warning": {
 		Question:  "Do single-name option buys made the session after a Regime warning do better or worse than the rest?",
@@ -185,7 +189,7 @@ var forwardFacts = map[string]ForwardFacts{
 		Needs: 40, NeedsGroup: "after_warning", NeedsDays: 20,
 		Groups:     []ForwardGroup{{ID: "after_warning", Label: "after a warning"}, {ID: "other", Label: "after any other session"}},
 		CannotSort: "Canary has no Regime record for the close before them", PaceNoun: "single-name option buy",
-		InShort: "Each single-name option contract you buy counts once per week, once its position has closed. Its result is the average price you later sold at (zero if it expired), less the price you paid, after the buy's costs. Buys made the session after a Regime warning (early warning, confirmed stress or panic) are compared with all other such buys. No pass mark is set: the answer is a direction, looked at in the earlier and the later half of the buys. It is answered once, at 40 buys after a warning that fall on at least 20 separate days.",
+		InShort: "Each single-name option contract you buy counts once per week, once its position has closed. Its result is the average price you later sold at (zero if it expired), less the price you paid, after the buy's costs. Buys made the session after a Regime warning (early warning, confirmed stress or panic) are compared with all other such buys. No pass mark is set: the answer is a direction, looked at in the earlier and the later half of the buys. It is answered once, at 40 buys after a warning that fall on at least 20 separate days. An option traded as part of a spread is left out.",
 	},
 	"final_option_sales_vs_close_5_sessions": {
 		Question:  "After you close an option position, is the contract worth more or less five sessions later?",
@@ -195,7 +199,7 @@ var forwardFacts = map[string]ForwardFacts{
 		Needs: 30, NeedsGroup: ForwardNeedsAnyGroup, AboutSales: true,
 		Groups:     []ForwardGroup{{ID: "above_cost", Label: "sold above cost"}, {ID: "below_cost", Label: "sold below cost"}},
 		CannotSort: "the sale price or the position's average cost is missing", PaceNoun: "closing option sale",
-		InShort: "Each single-name option position you close by a sale counts once. Canary compares the contract's closing quote five sessions later with the price you took. Positions sold above their average cost and positions sold below it are looked at separately, and neither is answered before it holds 30. It counts as a finding only if a group's average move points the same way in the earlier and the later half and its 95% confidence interval leaves out zero.",
+		InShort: "Each single-name option position you close by a sale counts once. Canary compares the contract's closing quote five sessions later with the price you took. Positions sold above their average cost and positions sold below it are looked at separately, and neither is answered before it holds 30. It counts as a finding only if a group's average move points the same way in the earlier and the later half and its 95% confidence interval leaves out zero. A position traded as part of a spread is left out.",
 	},
 	"floor_after_partial_sale": {
 		Question:  "After a partial sale, would a floor at that sale's price have protected what was left?",
@@ -203,7 +207,7 @@ var forwardFacts = map[string]ForwardFacts{
 		Condition: "the remainder's statement value against the price of the last partial sale",
 		Unit:      ForwardUnitPartialPosition, UnitText: "each single-name option position with a partial sale once, when it has closed",
 		Needs: 40, NeedsGroup: ForwardGroupAll, SampleLabel: "positions", AboutSales: true, PaceNoun: "partial sale",
-		InShort: "Each single-name option position with a partial sale counts once, when it has closed. The price of the last partial sale is treated as a floor under what was left. The floor is wrong if the rest closed for at least that price anyway, or if selling the rest on the first day its value fell below the floor did no better than selling it on a random day. It is answered once, at 40 positions.",
+		InShort: "Each single-name option position with a partial sale counts once, when it has closed. The price of the last partial sale is treated as a floor under what was left. The floor is wrong if the rest closed for at least that price anyway, or if selling the rest on the first day its value fell below the floor did no better than selling it on a random day. It is answered once, at 40 positions. A position traded as part of a spread is left out.",
 	},
 	"option_sales_after_adverse_move": {
 		Question:  "After the underlying moved against you, is an option you sell worth more or less five sessions later?",
@@ -214,7 +218,7 @@ var forwardFacts = map[string]ForwardFacts{
 		Groups:    []ForwardGroup{{ID: "against", Label: "after a move against"}, {ID: "in_favour", Label: "after a move in favour"}},
 		PaceNoun:  "option sale",
 		NotSorted: "Canary cannot sort these sales yet: this version does not work out the underlying's five-session move in expected moves. Until it does, no count can grow.",
-		InShort:   "Each name whose option you sell counts once per week. Sales are sorted by what the underlying did over the five sessions before: against your position by half an expected move or more, in its favour by as much, or neither. Canary compares the contract's closing quote five sessions after the sale with the price you took. Selling after a move against you counts as too early only if those contracts were worth more on average in both halves, with a 95% confidence interval that leaves out zero, and by more than after a move in your favour. It is answered once, at 50.",
+		InShort:   "Each name whose option you sell counts once per week. Sales are sorted by what the underlying did over the five sessions before: against your position by half an expected move or more, in its favour by as much, or neither. Canary compares the contract's closing quote five sessions after the sale with the price you took. Selling after a move against you counts as too early only if those contracts were worth more on average in both halves, with a 95% confidence interval that leaves out zero, and by more than after a move in your favour. It is answered once, at 50. An option traded as part of a spread is left out.",
 	},
 }
 
@@ -240,6 +244,9 @@ type ForwardCountInput struct {
 	// PriorSessionStage is Regime's stage recorded at the close of the US
 	// session before the decision's New York date.
 	PriorSessionStage func(time.Time) (string, bool)
+	// spread holds the ids of the changes that are a spread leg, worked out
+	// once from all Changes.
+	spread map[string]bool
 }
 
 // ForwardUnit is one counted unit of a test. Label names it for a reader:
@@ -269,13 +276,14 @@ func CountForwardUnits(id string, in ForwardCountInput) []ForwardUnit {
 		changes = append(changes, change)
 	}
 	slices.SortStableFunc(changes, func(a, b Change) int { return a.ExecutedAt.Compare(b.ExecutedAt) })
+	in.spread = spreadLegs(in.Changes)
 	switch id {
 	case "stock_sales_vs_nearby_day":
 		return in.countWeeks(changes, func(c Change) bool { return stockLike(c) && longSale(c) }, ForwardGroupAll, in.stockSaleState)
 	case "entries_vs_nearby_day":
 		units := in.countWeeks(changes, func(c Change) bool {
 			return longEntry(c) && (stockLike(c) || isOption(c) && singleName(c))
-		}, ForwardGroupAll, in.entryState)
+		}, ForwardGroupAll, in.notSpread(in.entryState))
 		return append(units, in.unnamed(changes, longEntry)...)
 	case "option_buys_below_premium_line":
 		return in.countOptionBuys(changes, func(Change) bool { return true }, func(Change) string { return ForwardGroupNotSorted })
@@ -291,7 +299,7 @@ func CountForwardUnits(id string, in ForwardCountInput) []ForwardUnit {
 	case "option_sales_after_adverse_move":
 		units := in.countWeeks(changes, func(c Change) bool {
 			return isOption(c) && longSale(c) && c.Underlying != "" && !strings.EqualFold(c.Underlying, "VIX")
-		}, ForwardGroupNotSorted, in.optionSaleState)
+		}, ForwardGroupNotSorted, in.notSpread(in.optionSaleState))
 		return append(units, in.unnamed(changes, longSale)...)
 	}
 	return nil
@@ -308,6 +316,69 @@ func (in ForwardCountInput) unnamed(changes []Change, kind func(Change) bool) []
 		}
 	}
 	return out
+}
+
+// spreadLegs names the option changes that are a spread leg: their order
+// also traded another option contract on the same underlying. The order is
+// the one the statement links the executions to (Change.Order); nothing is
+// inferred from times, strikes or symbols, so a spread built from separate
+// orders is not recognised. It reads every change given, inside the sample
+// or not, so a leg whose other leg falls outside the sample is still a leg.
+func spreadLegs(changes []Change) map[string]bool {
+	type order struct{ key, underlying string }
+	key := func(c Change) (order, bool) {
+		u := strings.ToUpper(strings.TrimSpace(c.Underlying))
+		return order{c.Order, u}, isOption(c) && c.Order != "" && u != ""
+	}
+	contracts := map[order]map[string]bool{}
+	for _, c := range changes {
+		if k, ok := key(c); ok {
+			if contracts[k] == nil {
+				contracts[k] = map[string]bool{}
+			}
+			contracts[k][strings.ToUpper(strings.TrimSpace(c.Symbol))] = true
+		}
+	}
+	out := map[string]bool{}
+	for _, c := range changes {
+		if k, ok := key(c); ok && len(contracts[k]) > 1 {
+			out[c.ID] = true
+		}
+	}
+	return out
+}
+
+// notSpread leaves a spread leg out of its unit, as a decision without a
+// result is; the other decisions keep their state.
+func (in ForwardCountInput) notSpread(state func(Change) (string, string)) func(Change) (string, string) {
+	return func(c Change) (string, string) {
+		if in.spread[c.ID] {
+			return forwardUnitExcluded, ForwardExcludedSpread
+		}
+		return state(c)
+	}
+}
+
+// spreadPositions names the option positions with a trade, among all the
+// changes given, that is a spread leg.
+func (in ForwardCountInput) spreadPositions() map[string]bool {
+	out := map[string]bool{}
+	for _, c := range in.Changes {
+		if in.spread[c.ID] && c.Position != nil && c.Position.PositionID != "" {
+			out[c.Position.PositionID] = true
+		}
+	}
+	return out
+}
+
+// positionSpread says whether a position unit is left out as part of a
+// spread: a trade of its position is a spread leg, or, for a change Edge
+// could tie to no position, the change itself is.
+func (in ForwardCountInput) positionSpread(c Change, positions map[string]bool) bool {
+	if c.Position != nil && c.Position.PositionID != "" && positions[c.Position.PositionID] {
+		return true
+	}
+	return in.spread[c.ID]
 }
 
 func stockLike(c Change) bool {
@@ -484,10 +555,13 @@ func positionState(c Change, deliveryGivesNone bool) (string, string) {
 }
 
 // countOptionBuys counts contract-weeks of option buys that open or add to
-// a long position, one per position and week.
+// a long position, one per position and week. A buy that is a spread leg is
+// left out of its contract-week; a contract-week with no other buy gives no
+// reading, by that reason.
 func (in ForwardCountInput) countOptionBuys(changes []Change, include func(Change) bool, group func(Change) string) []ForwardUnit {
 	var out []ForwardUnit
 	seen := map[string]bool{}
+	spreadOnly := map[string]int{}
 	for _, c := range changes {
 		if !isOption(c) || !longEntry(c) || !include(c) {
 			continue
@@ -504,9 +578,21 @@ func (in ForwardCountInput) countOptionBuys(changes []Change, include func(Chang
 		if seen[key] {
 			continue
 		}
+		if in.spread[c.ID] {
+			if _, ok := spreadOnly[key]; !ok {
+				spreadOnly[key] = len(out)
+				out = append(out, ForwardUnit{Key: key, Label: c.Symbol, Group: group(c), Date: in.day(c.ExecutedAt), State: forwardUnitExcluded, Reason: ForwardExcludedSpread})
+			}
+			continue
+		}
 		seen[key] = true
 		st, reason := positionState(c, true)
-		out = append(out, ForwardUnit{Key: key, Label: c.Symbol, Group: group(c), Date: in.day(c.ExecutedAt), State: st, Reason: reason})
+		unit := ForwardUnit{Key: key, Label: c.Symbol, Group: group(c), Date: in.day(c.ExecutedAt), State: st, Reason: reason}
+		if i, ok := spreadOnly[key]; ok {
+			out[i] = unit
+			continue
+		}
+		out = append(out, unit)
 	}
 	return out
 }
@@ -542,11 +628,20 @@ func ForwardRegimeGroup(stage string) string {
 // sale that closed them. An expiry is not a sale and is not a change.
 func (in ForwardCountInput) countFinalSales(changes []Change) []ForwardUnit {
 	var out []ForwardUnit
+	spread := in.spreadPositions()
 	for _, c := range changes {
 		if !isOption(c) || c.Direction != DirectionLong || c.Action != ActionExit || !singleName(c) {
 			continue
 		}
 		unit := ForwardUnit{Key: c.ID, Label: c.Symbol, Group: ForwardGroupCannotSort, Protection: in.sentByProtection(c), Date: in.day(c.ExecutedAt)}
+		if in.positionSpread(c, spread) {
+			if c.Position != nil && c.Position.PositionID != "" {
+				unit.Key = c.Position.PositionID
+			}
+			unit.State, unit.Reason = forwardUnitExcluded, ForwardExcludedSpread
+			out = append(out, unit)
+			continue
+		}
 		if c.Position == nil || c.Position.PositionID == "" {
 			unit.State, unit.Reason = forwardUnitExcluded, ForwardExcludedNotProved
 			out = append(out, unit)
@@ -574,6 +669,7 @@ func (in ForwardCountInput) countFinalSales(changes []Change) []ForwardUnit {
 // sale in the sample. A position on which Canary's protection sent any sale,
 // in the window, is marked as such.
 func (in ForwardCountInput) countPartialSales(sampled []Change) []ForwardUnit {
+	spread := in.spreadPositions()
 	protected := map[string]bool{}
 	for _, c := range in.Changes {
 		if isOption(c) && longSale(c) && c.Position != nil && c.Position.PositionID != "" && in.sentByProtection(c) {
@@ -596,6 +692,9 @@ func (in ForwardCountInput) countPartialSales(sampled []Change) []ForwardUnit {
 		}
 		unit.Protection = protected[unit.Key] || in.sentByProtection(c)
 		unit.State, unit.Reason = positionState(c, false)
+		if in.positionSpread(c, spread) {
+			unit.State, unit.Reason = forwardUnitExcluded, ForwardExcludedSpread
+		}
 		out = append(out, unit)
 	}
 	return out

@@ -288,6 +288,13 @@ many of those sales its own protection sent. A stop placed at the broker
 directly is not recognised as one, because the statement fields Canary
 reads carry no order type.
 
+The tests judge single option trades. A spread, meaning options on one
+underlying traded in one order, is left out of the six tests that read
+options, because Canary does not yet judge its legs as one trade: an option
+traded in such an order gives no result, and so does a position with any
+trade made in one. A spread built from separate orders is not recognised,
+and its long leg still counts alone.
+
 ### What is recorded at each US close
 
 Two of the rules label a decision with something Canary said on the day,
@@ -372,6 +379,10 @@ Canary knows it, the screen shows beside a count how many of those sales
 its own protection sent (`sample.sent_by_protection` in the JSON). A stop
 placed at the broker directly is not recognised as one: the statements
 Canary reads carry no order type.
+
+An option traded as part of a spread is left out and shown under "not
+counted" as part of a spread; the overview then says that a spread is left
+out. Legs placed as separate orders are not recognised as a spread.
 
 The test about the premium budget asks whether buying within the line
 pays, not whether the line was kept: it compares the results of buys made

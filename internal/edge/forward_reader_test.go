@@ -407,3 +407,162 @@ func TestForwardSampleServesWhatAReaderFilters(t *testing.T) {
 		t.Fatalf("premium line can fill: %+v", s)
 	}
 }
+
+// fwdLeg is one option change traded in an order: the contract is the
+// underlying and a strike, the order an opaque key as Edge sets it.
+func fwdLeg(id, underlying, strike, direction, action string, days int, position *PositionOutcome, order string) Change {
+	c := fwdOption(id, underlying, action, days, position)
+	c.Symbol, c.Direction, c.Order = underlying+" 270115C00"+strike+"000", direction, order
+	return c
+}
+
+type fwdSpreadCase struct {
+	name    string
+	changes []Change
+	want    []fwdWant
+}
+
+func checkSpreadCases(t *testing.T, id string, cases []fwdSpreadCase) {
+	t.Helper()
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			units := CountForwardUnits(id, fwdInput(fwdAt(20), tc.changes...))
+			checkUnits(t, units, tc.want)
+			facts, _ := ForwardTestFacts(id)
+			s := SummarizeForward(facts, units, nil, fwdRegistered, fwdAt(20), fwdZone)
+			spread := 0
+			for _, w := range tc.want {
+				if w.reason == ForwardExcludedSpread {
+					spread++
+				}
+			}
+			if s.Excluded[ForwardExcludedSpread] != spread {
+				t.Fatalf("left out as part of a spread=%d, want %d", s.Excluded[ForwardExcludedSpread], spread)
+			}
+		})
+	}
+}
+
+// Rule 2 and spreads: an option entry traded in the same order as another
+// option on the same underlying is left out of its week; the same contracts
+// in separate orders, or an order across two underlyings, are not a spread.
+func TestForwardEntriesLeaveOutASpread(t *testing.T) {
+	long := func(order string) Change {
+		return fwdLeg("long", "AAA", "100", DirectionLong, ActionOpen, 1, fwdPosition("p1", OptionPositionOpen), order)
+	}
+	short := func(underlying, order string) Change {
+		return fwdLeg("short", underlying, "110", DirectionShort, ActionOpen, 1, fwdPosition("p2", OptionPositionOpen), order)
+	}
+	checkSpreadCases(t, "entries_vs_nearby_day", []fwdSpreadCase{
+		{"two legs in one order", []Change{long("o1"), short("AAA", "o1")}, []fwdWant{
+			{key: "AAA:2026-W10", group: ForwardGroupAll, state: "excluded", reason: ForwardExcludedSpread}}},
+		{"the same contracts in two orders", []Change{long("o1"), short("AAA", "o2")}, []fwdWant{
+			{key: "AAA:2026-W10", group: ForwardGroupAll, state: "final"}}},
+		{"one order across two underlyings", []Change{long("o1"), short("BBB", "o1")}, []fwdWant{
+			{key: "AAA:2026-W10", group: ForwardGroupAll, state: "final"}}},
+		{"the week keeps its other entries", []Change{long("o1"), short("AAA", "o1"), fwdStock("stock", "AAA", ActionAdd, 2)}, []fwdWant{
+			{key: "AAA:2026-W10", group: ForwardGroupAll, state: "final"}}},
+	})
+}
+
+// Rule 3 and spreads: a buy that is a spread leg is left out of its
+// contract-week; another buy of the contract in that week still counts it,
+// whichever came first.
+func TestForwardPremiumLineLeavesOutASpread(t *testing.T) {
+	closed := func() *PositionOutcome { return fwdPosition("p1", OptionPositionClosed) }
+	long := func(id, order string, days int) Change {
+		return fwdLeg(id, "AAA", "100", DirectionLong, ActionOpen, days, closed(), order)
+	}
+	short := func(underlying, order string) Change {
+		return fwdLeg("short", underlying, "110", DirectionShort, ActionOpen, 1, fwdPosition("p2", OptionPositionClosed), order)
+	}
+	checkSpreadCases(t, "option_buys_below_premium_line", []fwdSpreadCase{
+		{"two legs in one order", []Change{long("long", "o1", 1), short("AAA", "o1")}, []fwdWant{
+			{key: "p1:2026-W10", group: ForwardGroupNotSorted, state: "excluded", reason: ForwardExcludedSpread}}},
+		{"the same contracts in two orders", []Change{long("long", "o1", 1), short("AAA", "o2")}, []fwdWant{
+			{key: "p1:2026-W10", group: ForwardGroupNotSorted, state: "final"}}},
+		{"one order across two underlyings", []Change{long("long", "o1", 1), short("BBB", "o1")}, []fwdWant{
+			{key: "p1:2026-W10", group: ForwardGroupNotSorted, state: "final"}}},
+		{"a later plain buy counts the week", []Change{long("long", "o1", 1), short("AAA", "o1"), long("add", "o3", 2)}, []fwdWant{
+			{key: "p1:2026-W10", group: ForwardGroupNotSorted, state: "final"}}},
+		{"an earlier plain buy keeps the week", []Change{long("add", "o3", 0), long("long", "o1", 1), short("AAA", "o1")}, []fwdWant{
+			{key: "p1:2026-W10", group: ForwardGroupNotSorted, state: "final"}}},
+	})
+}
+
+// Rule 4 and spreads, as rule 3.
+func TestForwardRegimeWarningLeavesOutASpread(t *testing.T) {
+	long := func(order string) Change {
+		return fwdLeg("long", "AAA", "100", DirectionLong, ActionOpen, 1, fwdPosition("p1", OptionPositionClosed), order)
+	}
+	short := func(underlying, order string) Change {
+		return fwdLeg("short", underlying, "110", DirectionShort, ActionOpen, 1, fwdPosition("p2", OptionPositionClosed), order)
+	}
+	checkSpreadCases(t, "option_buys_after_regime_warning", []fwdSpreadCase{
+		{"two legs in one order", []Change{long("o1"), short("AAA", "o1")}, []fwdWant{
+			{key: "p1:2026-W10", group: ForwardGroupCannotSort, state: "excluded", reason: ForwardExcludedSpread}}},
+		{"the same contracts in two orders", []Change{long("o1"), short("AAA", "o2")}, []fwdWant{
+			{key: "p1:2026-W10", group: ForwardGroupCannotSort, state: "final"}}},
+		{"one order across two underlyings", []Change{long("o1"), short("BBB", "o1")}, []fwdWant{
+			{key: "p1:2026-W10", group: ForwardGroupCannotSort, state: "final"}}},
+	})
+}
+
+// Rule 5 and spreads: a position with any trade made as a spread leg is left
+// out, also when that trade was its opening, before registration and so
+// outside the sample, and it was closed alone.
+func TestForwardFinalSalesLeaveOutASpread(t *testing.T) {
+	position := func(id string) *PositionOutcome {
+		pct := 12.0
+		p := fwdPosition(id, OptionPositionClosed)
+		p.ReferenceKind, p.ResultPct = OptionReferenceEntryAverage, &pct
+		return p
+	}
+	open := func(underlying, strike, direction, order, id string) Change {
+		return fwdLeg("open-"+id, underlying, strike, direction, ActionOpen, -3, position(id), order)
+	}
+	sale := fwdLeg("sale", "AAA", "100", DirectionLong, ActionExit, 1, position("p1"), "o9")
+	checkSpreadCases(t, "final_option_sales_vs_close_5_sessions", []fwdSpreadCase{
+		{"two legs in one order", []Change{open("AAA", "100", DirectionLong, "o1", "p1"), open("AAA", "110", DirectionShort, "o1", "p2"), sale}, []fwdWant{
+			{key: "p1", group: ForwardGroupCannotSort, state: "excluded", reason: ForwardExcludedSpread}}},
+		{"the same contracts in two orders", []Change{open("AAA", "100", DirectionLong, "o1", "p1"), open("AAA", "110", DirectionShort, "o2", "p2"), sale}, []fwdWant{
+			{key: "p1", group: "above_cost", state: "final"}}},
+		{"one order across two underlyings", []Change{open("AAA", "100", DirectionLong, "o1", "p1"), open("BBB", "110", DirectionShort, "o1", "p2"), sale}, []fwdWant{
+			{key: "p1", group: "above_cost", state: "final"}}},
+	})
+}
+
+// Rule 6 and spreads, as rule 5.
+func TestForwardPartialSalesLeaveOutASpread(t *testing.T) {
+	open := func(underlying, strike, direction, order, id string) Change {
+		return fwdLeg("open-"+id, underlying, strike, direction, ActionOpen, 0, fwdPosition(id, OptionPositionClosed), order)
+	}
+	trim := fwdLeg("trim", "AAA", "100", DirectionLong, ActionTrim, 1, fwdPosition("p1", OptionPositionClosed), "o9")
+	checkSpreadCases(t, "floor_after_partial_sale", []fwdSpreadCase{
+		{"two legs in one order", []Change{open("AAA", "100", DirectionLong, "o1", "p1"), open("AAA", "110", DirectionShort, "o1", "p2"), trim}, []fwdWant{
+			{key: "p1", group: ForwardGroupAll, state: "excluded", reason: ForwardExcludedSpread}}},
+		{"the same contracts in two orders", []Change{open("AAA", "100", DirectionLong, "o1", "p1"), open("AAA", "110", DirectionShort, "o2", "p2"), trim}, []fwdWant{
+			{key: "p1", group: ForwardGroupAll, state: "final"}}},
+		{"one order across two underlyings", []Change{open("AAA", "100", DirectionLong, "o1", "p1"), open("BBB", "110", DirectionShort, "o1", "p2"), trim}, []fwdWant{
+			{key: "p1", group: ForwardGroupAll, state: "final"}}},
+	})
+}
+
+// Rule 7 and spreads: an option sale traded in the same order as another
+// option on the same underlying is left out of its week.
+func TestForwardAdverseMoveLeavesOutASpread(t *testing.T) {
+	long := func(order string) Change {
+		return fwdLeg("long", "AAA", "100", DirectionLong, ActionExit, 1, fwdPosition("p1", OptionPositionClosed), order)
+	}
+	short := func(underlying, order string) Change {
+		return fwdLeg("short", underlying, "110", DirectionShort, ActionExit, 1, fwdPosition("p2", OptionPositionClosed), order)
+	}
+	checkSpreadCases(t, "option_sales_after_adverse_move", []fwdSpreadCase{
+		{"two legs in one order", []Change{long("o1"), short("AAA", "o1")}, []fwdWant{
+			{key: "AAA:2026-W10", group: ForwardGroupNotSorted, state: "excluded", reason: ForwardExcludedSpread}}},
+		{"the same contracts in two orders", []Change{long("o1"), short("AAA", "o2")}, []fwdWant{
+			{key: "AAA:2026-W10", group: ForwardGroupNotSorted, state: "final"}}},
+		{"one order across two underlyings", []Change{long("o1"), short("BBB", "o1")}, []fwdWant{
+			{key: "AAA:2026-W10", group: ForwardGroupNotSorted, state: "final"}}},
+	})
+}

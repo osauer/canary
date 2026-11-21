@@ -84,6 +84,7 @@ Collecting ───────────────────────
     cannot fill in this version
   sent by Canary's protection: orders its own protection sent; a stop placed at
     the broker directly is not recognised
+  a spread is left out: Canary does not yet judge its legs as one trade
 One test in full: canary edge tests <name> · all in full: --all · data: --json
 # canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour on, ESC written as \x1b
 \x1b[1mForward tests\x1b[0m  7 tests · none full · next about Jun 2027
@@ -171,4 +172,5 @@ One test in full: canary edge tests <name> · all in full: --all · data: --json
     cannot fill in this version
   sent by Canary's protection: orders its own protection sent; a stop placed at
     the broker directly is not recognised
+  a spread is left out: Canary does not yet judge its legs as one trade
 One test in full: canary edge tests <name> · all in full: --all · data: --json

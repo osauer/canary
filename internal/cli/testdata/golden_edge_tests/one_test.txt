@@ -4,7 +4,7 @@ Forward tests · option_buys_after_regime_warning · collecting
   Do single-name option buys made the session after a Regime warning do better
   or worse than the rest?
     helps with buying · tests no limit from your written policy
-    registered 21 Nov 2026 07:00 TZ · rule text fingerprint 1f4b514c8ba19305
+    registered 21 Nov 2026 07:00 TZ · rule text fingerprint 1d675e9bffa62dcc
     needs 40 after a warning, on 20 separate days
     checks Regime's stage at the last close
     counts each contract once per week with a buy, when its position has closed
@@ -19,6 +19,7 @@ Forward tests · option_buys_after_regime_warning · collecting
     a buy now counts as after a warning: Regime was at early warning at the 19
       Mar 2027 close
     waiting: SYNA 270115C00050000 15 Mar 2027, SYNB 270219C00030000 16 Mar 2027
+    not counted: 2 part of a spread
 
   In short
     Each single-name option contract you buy counts once per week, once its
@@ -28,7 +29,7 @@ Forward tests · option_buys_after_regime_warning · collecting
     panic) are compared with all other such buys. No pass mark is set: the
     answer is a direction, looked at in the earlier and the later half of the
     buys. It is answered once, at 40 buys after a warning that fall on at least
-    20 separate days.
+    20 separate days. An option traded as part of a spread is left out.
 
   The rule as registered
     Single-name option buys that open or add to a long position, made in the
@@ -43,14 +44,16 @@ Forward tests · option_buys_after_regime_warning · collecting
     rest is quiet, stabilization or opportunity. No pass threshold is set for
     this test; it is read by direction in both the earlier and the later half
     of the readings by date. Read once, at 40 final readings after a warning
-    session that fall on at least 20 separate days.
+    session that fall on at least 20 separate days. An option traded in the
+    same order as another option on the same underlying, as a spread is, is
+    left out.
 # canary edge tests option_buys_after_regime_warning · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour on, ESC written as \x1b
 \x1b[1mForward tests\x1b[0m · option_buys_after_regime_warning · collecting
 
   \x1b[1mDo single-name option buys made the session after a Regime warning do better\x1b[0m
   \x1b[1mor worse than the rest?\x1b[0m
     helps with buying · tests no limit from your written policy
-    registered 21 Nov 2026 07:00 TZ · rule text fingerprint 1f4b514c8ba19305
+    registered 21 Nov 2026 07:00 TZ · rule text fingerprint 1d675e9bffa62dcc
     needs 40 after a warning, on 20 separate days
     checks Regime's stage at the last close
     counts each contract once per week with a buy, when its position has closed
@@ -65,6 +68,7 @@ Forward tests · option_buys_after_regime_warning · collecting
     a buy now counts as after a warning: Regime was at early warning at the 19
       Mar 2027 close
     waiting: SYNA 270115C00050000 15 Mar 2027, SYNB 270219C00030000 16 Mar 2027
+    not counted: 2 part of a spread
 
   \x1b[1mIn short\x1b[0m
     Each single-name option contract you buy counts once per week, once its
@@ -74,7 +78,7 @@ Forward tests · option_buys_after_regime_warning · collecting
     panic) are compared with all other such buys. No pass mark is set: the
     answer is a direction, looked at in the earlier and the later half of the
     buys. It is answered once, at 40 buys after a warning that fall on at least
-    20 separate days.
+    20 separate days. An option traded as part of a spread is left out.
 
   \x1b[1mThe rule as registered\x1b[0m
     Single-name option buys that open or add to a long position, made in the
@@ -89,4 +93,6 @@ Forward tests · option_buys_after_regime_warning · collecting
     rest is quiet, stabilization or opportunity. No pass threshold is set for
     this test; it is read by direction in both the earlier and the later half
     of the readings by date. Read once, at 40 final readings after a warning
-    session that fall on at least 20 separate days.
+    session that fall on at least 20 separate days. An option traded in the
+    same order as another option on the same underlying, as a spread is, is
+    left out.

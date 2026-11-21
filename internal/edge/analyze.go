@@ -202,6 +202,9 @@ func Analyze(input Input) (Result, error) {
 			if strings.EqualFold(group.assetClass, "OPT") {
 				change.Position = optionPositionOutcome(change, group, optionLedger)
 				change.Underlying = strings.ToUpper(strings.TrimSpace(firstNonEmpty(group.underlyingSymbol, underlyings[group.conid])))
+				if len(group.orderIDs) > 0 {
+					change.Order = opaqueID("order", exactOrderKey(group.account, group.orderIDs[0], group.executedAt))
+				}
 			}
 			change.Verdict = changeVerdict(change)
 			before += part.delta
@@ -1259,8 +1262,8 @@ func buildOptionReview(ev evidence, from, to time.Time, base string, fxRates []f
 			tradeIDs[trade.TradeID] = true
 		}
 		key := "execution:" + trade.RecordID
-		if trade.OrderID != "" {
-			key = strings.Join([]string{"order", trade.AccountID, trade.OrderID, dayKey(trade.ExecutedAt)}, "\x00")
+		if order := exactOrderKey(trade.AccountID, trade.OrderID, trade.ExecutedAt); order != "" {
+			key = order
 		}
 		groups[key] = append(groups[key], trade)
 	}
@@ -1791,6 +1794,17 @@ func sectionPresent(coverage []flexstmt.SectionCoverage, key string) bool {
 	}
 	return false
 }
+
+// exactOrderKey is the key of one order's executions on one day, as the
+// option episodes group them (grouping exact_order); empty for an execution
+// the statement links to no order.
+func exactOrderKey(account, orderID string, at time.Time) string {
+	if orderID == "" {
+		return ""
+	}
+	return strings.Join([]string{"order", account, orderID, dayKey(at)}, "\x00")
+}
+
 func dayKey(v time.Time) string { return v.UTC().Format("2006-01-02") }
 func dayStart(v time.Time) time.Time {
 	y, m, d := v.UTC().Date()

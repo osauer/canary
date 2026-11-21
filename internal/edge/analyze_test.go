@@ -192,6 +192,56 @@ func TestAnalyzeExactOptionGroupingAndNoCounterfactual(t *testing.T) {
 	}
 }
 
+// Option changes traded in one order share the order key the option
+// episodes group by, and the forward tests read them as a spread; the same
+// contracts in separate orders do not share it, and an execution the
+// statement links to no order has none.
+func TestAnalyzeOptionChangesCarryTheirOrder(t *testing.T) {
+	t.Parallel()
+	analyze := func(callOrder, putOrder string) []Change {
+		st := edgeStatement()
+		st.Instruments = append(st.Instruments,
+			flexstmt.Instrument{RecordID: "call-instrument", ConID: 456, UnderlyingConID: 123, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", Multiplier: new(float64(100)), Strike: new(float64(100)), Expiry: "20260320", PutCall: "C"},
+			flexstmt.Instrument{RecordID: "call2-instrument", ConID: 789, UnderlyingConID: 123, Symbol: "ACME CALL2", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", Multiplier: new(float64(100)), Strike: new(float64(110)), Expiry: "20260320", PutCall: "C"},
+		)
+		st.Trades = append(st.Trades,
+			flexstmt.Trade{RecordID: "long", AccountID: "U", ConID: 456, UnderlyingConID: 123, Symbol: "ACME CALL", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: callOrder, ExecutionID: "l", ExecutedAt: dayTime("2026-01-12", 10), Side: "BUY", OpenClose: "O", Quantity: new(float64(1)), Price: new(float64(3)), Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), LevelOfDetail: "EXECUTION"},
+			flexstmt.Trade{RecordID: "short", AccountID: "U", ConID: 789, UnderlyingConID: 123, Symbol: "ACME CALL2", UnderlyingSymbol: "ACME", AssetClass: "OPT", Currency: "USD", FXRateToBase: new(.9), OrderID: putOrder, ExecutionID: "s", ExecutedAt: dayTime("2026-01-12", 10), Side: "SELL", OpenClose: "O", Quantity: new(float64(-1)), Price: new(float64(1)), Multiplier: new(float64(100)), Commission: new(float64(-1)), Taxes: new(float64(0)), LevelOfDetail: "EXECUTION"},
+		)
+		result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}, Bars: barsMap(123, "2026-01-06", 20, 105)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var options []Change
+		for _, change := range result.Changes {
+			if change.AssetClass == "OPT" {
+				options = append(options, change)
+			}
+		}
+		if len(options) != 2 {
+			t.Fatalf("option changes = %+v", options)
+		}
+		return options
+	}
+	one := analyze("combo", "combo")
+	if one[0].Order == "" || one[0].Order != one[1].Order {
+		t.Fatalf("one order: keys %q and %q", one[0].Order, one[1].Order)
+	}
+	if legs := spreadLegs(one); len(legs) != 2 {
+		t.Fatalf("one order: spread legs %v", legs)
+	}
+	two := analyze("first", "second")
+	if two[0].Order == "" || two[0].Order == two[1].Order {
+		t.Fatalf("two orders: keys %q and %q", two[0].Order, two[1].Order)
+	}
+	if legs := spreadLegs(two); len(legs) != 0 {
+		t.Fatalf("two orders: spread legs %v", legs)
+	}
+	if none := analyze("", ""); none[0].Order != "" || none[1].Order != "" {
+		t.Fatalf("no order: keys %q and %q", none[0].Order, none[1].Order)
+	}
+}
+
 func TestAnalyzeIsStableAcrossShuffleDuplicateAndRestatement(t *testing.T) {
 	t.Parallel()
 	older := edgeStatement()

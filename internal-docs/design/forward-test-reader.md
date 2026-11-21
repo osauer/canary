@@ -36,6 +36,25 @@ Tests in `internal/edge/forward_reader_test.go`, one per test.
 An option trade whose statement names no underlying gives no result, with
 that reason, in the five tests that keep single names or key on the name.
 
+A spread is left out of tests 2 to 7, by the sentence each of those rules
+ends with, with the reason `part_of_spread` ("part of a spread"). An option
+change is a spread leg when its order also traded another option contract on
+the same underlying (`spreadLegs`). The order is the one the statement links
+the executions to: each option `Change` carries `Order`, an opaque key of the
+account, the IBKR order id and the day (`exactOrderKey`, the key the option
+episodes group by as `exact_order`), never the broker id itself; contracts
+are told apart by symbol. Trade form (tests 2, 3, 4, 7): the decision that
+is a leg is left out of its unit, as a decision without a result is, and a
+unit left with none gives no result (`notSpread`, and `countOptionBuys` for
+a contract-week). Position form (tests 5, 6): a position with any change
+that is a leg is left out (`spreadPositions`). Both read every change in
+the review, inside the sample or not, so they see only the 365-day window: a
+position opened as a spread before that window is not recognised. A spread built from
+separate orders shares no order, is not recognised, and its long leg still
+counts alone. Tests: `Test…LeaveOutASpread`, one per test (one order on one
+underlying, the same contracts in two orders, one order across two
+underlyings), and `TestAnalyzeOptionChangesCarryTheirOrder`.
+
 ## Not built yet
 
 - Sorting the units of tests 3 and 7: premium at risk at the last
@@ -44,6 +63,8 @@ that reason, in the five tests that keep single names or key on the name.
 - A durable store of counted units. Without it a test that needs more than
   the 365-day window cannot fill (`cannot_fill: beyond_window`).
 - The answered display, below.
+- Count a spread as one trade, with its net cost and net result; and
+  recognise a spread built from separate orders.
 - Telling a stop placed at the broker by hand from a sale the holder chose:
   the statements Canary reads carry no order type.
 

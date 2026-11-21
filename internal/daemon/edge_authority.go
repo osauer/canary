@@ -28,7 +28,7 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 12
+	edgePublicationVersion   = 13
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400

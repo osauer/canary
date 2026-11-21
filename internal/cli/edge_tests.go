@@ -779,6 +779,9 @@ func (s *edgeTestsScreen) legend(tests []rpc.EdgeForwardTest) {
 	if s.protection {
 		s.prose("  ", "  ", "sent by Canary's protection: orders its own protection sent; a stop placed at the broker directly is not recognised", nil)
 	}
+	if slices.ContainsFunc(tests, func(t rpc.EdgeForwardTest) bool { return t.Sample != nil && t.Sample.Excluded["part_of_spread"] > 0 }) {
+		s.prose("  ", "  ", "a spread is left out: Canary does not yet judge its legs as one trade", nil)
+	}
 }
 
 func edgeTestsWindow(tests []rpc.EdgeForwardTest) int {
@@ -819,6 +822,7 @@ func (s *edgeTestsScreen) fullView(t rpc.EdgeForwardTest) {
 				"closed_by_delivery": "closed by delivery", "position_not_proved": "with a position the statements do not prove",
 				"no_close_stored": "without a stored close", "no_closing_quote": "without a stored closing quote",
 				"sold_at_cost": "sold at exactly cost, in neither group", "underlying_not_known": "whose statement names no underlying",
+				"part_of_spread": "part of a spread",
 			}
 			keys := make([]string, 0, len(sample.Excluded))
 			for k := range sample.Excluded {

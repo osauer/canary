@@ -182,7 +182,13 @@ type Change struct {
 	Symbol            string            `json:"symbol"`
 	// Underlying is an option's underlying symbol as the statement names
 	// it; empty for a stock or ETF and when the statement names none.
-	Underlying            string         `json:"underlying,omitempty"`
+	Underlying string `json:"underlying,omitempty"`
+	// Order is set for option changes only: an opaque key of the order the
+	// executions belong to, on its day, as the option episodes group them;
+	// empty when the statement links the executions to no order. Changes
+	// with the same key were traded in one order. It carries no broker
+	// identifier and is not served.
+	Order                 string         `json:"order,omitempty"`
 	AssetClass            string         `json:"asset_class"`
 	Currency              string         `json:"currency,omitempty"`
 	Action                string         `json:"action"`
