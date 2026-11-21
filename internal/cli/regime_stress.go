@@ -88,7 +88,7 @@ func renderRegime(env *Env, res rpc.RegimeSnapshotResult, explain bool) {
 	values := regimeDisplayValues(res)
 	for _, row := range monitor.Indicators {
 		renderRegimeIndicator(env, row, values[row.Name], current, explain)
-		if explain && (!current || !rpc.RegimeRowCurrent(row.Status, row.FreshnessClass)) && row.Band != "" {
+		if explain && (!current || !row.Current) && row.Band != "" {
 			riskReadLine(env, "    Recorded band", row.Band, "not a current rating")
 		}
 		if row.Eligibility != nil && !row.Eligibility.Eligible && !slices.Contains(row.Eligibility.Reasons, rpc.RegimeEligibilityInputUnavailable) {
