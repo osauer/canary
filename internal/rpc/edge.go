@@ -284,12 +284,195 @@ type EdgeChangePosition struct {
 // decisions executed after RegisteredAt belong to the rule's sample. Canary
 // registers the rules and keeps what a later read needs; it does not read
 // the tests, and no verdict, grade or order behaviour depends on them.
+//
+// The fields after RegisteredAt say in plain words what the rule is for:
+// its question, the decisions it informs (buy, hold, sell), the fact that
+// can be checked at the moment of a decision (empty when every decision
+// counts, so an automation has nothing to condition on), the unit it
+// counts, its read point and groups, and the written policy it touches.
+// They sit outside the rule's hash. Sample is the rule's count; it is
+// absent when nothing could be counted for this reply (no review yet, the
+// rule not registered yet, or a daemon that does not count), which is not
+// a count of zero.
 type EdgeForwardTest struct {
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`
 	Rule         string    `json:"rule"`
 	RuleHash     string    `json:"rule_hash"`
 	RegisteredAt time.Time `json:"registered_at,omitzero"`
+
+	Question  string   `json:"question,omitempty"`
+	Informs   []string `json:"informs,omitempty"`
+	Condition string   `json:"condition"`
+	Unit      string   `json:"unit,omitempty"`
+	UnitText  string   `json:"unit_text,omitempty"`
+	ReadAt    int      `json:"read_at,omitempty"`
+	// ReadGroup is the group the read point counts: all (a rule without
+	// groups), one group's id, or any (either group on its own).
+	ReadGroup string `json:"read_group,omitempty"`
+	// ReadDays is the number of separate days the read group must span.
+	ReadDays    int                `json:"read_days,omitempty"`
+	Groups      []EdgeForwardGroup `json:"groups,omitempty"`
+	SampleLabel string             `json:"sample_label,omitempty"`
+	Policy      string             `json:"policy,omitempty"`
+	// ProtectionApart: a sale a protection rule sent is read apart and
+	// counts neither in the test nor toward the read point.
+	ProtectionApart bool `json:"protection_apart,omitempty"`
+	// GroupNotRead says why this build cannot tell the groups apart.
+	GroupNotRead string             `json:"group_not_read,omitempty"`
+	Sample       *EdgeForwardSample `json:"sample,omitempty"`
+}
+
+// EdgeForwardGroup is one group a rule compares.
+type EdgeForwardGroup struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// Forward-test sample states. Read is reserved: this build counts, it does
+// not compute the reading, so a full sample is due.
+const (
+	EdgeForwardCollecting = "collecting"
+	EdgeForwardDue        = "due"
+	EdgeForwardRead       = "read"
+)
+
+// EdgeForwardSample counts one rule's units from Edge's 365-day review
+// window: only decisions executed after the rule was registered, each unit
+// final as the rule's text defines it. Test is the sample the rule is read
+// on, split in Groups (group not_read holds units whose group fact is not
+// computed; group all is a rule without groups). Protection, for the rules
+// about sales, is the sample of sales a protection rule sent, read apart;
+// SenderUnknown counts sale units whose sender could not be told for this
+// reply (protection evidence withheld), in neither sample. Excluded counts
+// units that give no reading, by reason. Months counts final units per
+// month since registration. Expected dates the read point at the pace of
+// the read group's final units, since registration (basis
+// since_registration) once three are final, otherwise over the review
+// window before registration (past_year, units used for pace only);
+// NoDate says why there is none. ReadingBuilt and UnitsStored are false in
+// this build: no reading is computed, and units are not stored apart from
+// the review window, so a rule that needs longer than WindowDays cannot
+// fill (Expected.BeyondWindow).
+type EdgeForwardSample struct {
+	State         string                  `json:"state"`
+	AsOf          time.Time               `json:"as_of"`
+	WindowDays    int                     `json:"window_days"`
+	ReadingBuilt  bool                    `json:"reading_built"`
+	UnitsStored   bool                    `json:"units_stored"`
+	Test          EdgeForwardCount        `json:"test"`
+	Groups        []EdgeForwardGroupCount `json:"groups"`
+	Protection    *EdgeForwardCount       `json:"protection,omitempty"`
+	SenderUnknown int                     `json:"sender_unknown"`
+	Excluded      map[string]int          `json:"excluded"`
+	FirstUnit     string                  `json:"first_unit,omitempty"`
+	LastUnit      string                  `json:"last_unit,omitempty"`
+	Months        []EdgeForwardMonth      `json:"months"`
+	ToRead        int                     `json:"to_read"`
+	Expected      *EdgeForwardExpected    `json:"expected,omitempty"`
+	NoDate        string                  `json:"no_date,omitempty"`
+	Today         *EdgeForwardToday       `json:"today,omitempty"`
+	Reading       *EdgeForwardReading     `json:"reading,omitempty"`
+}
+
+// EdgeForwardCount is final units and units not final yet.
+type EdgeForwardCount struct {
+	Final   int `json:"final"`
+	Pending int `json:"pending"`
+}
+
+// EdgeForwardGroupCount is one group's count in the test sample; Days is
+// the number of separate days its final units fall on.
+type EdgeForwardGroupCount struct {
+	ID      string `json:"id"`
+	Final   int    `json:"final"`
+	Pending int    `json:"pending"`
+	Days    int    `json:"days"`
+}
+
+// EdgeForwardMonth is one month's final units (month YYYY-MM).
+type EdgeForwardMonth struct {
+	Month string `json:"month"`
+	Final int    `json:"final"`
+}
+
+// EdgeForwardExpected is the date the read point is expected (YYYY-MM-DD).
+type EdgeForwardExpected struct {
+	Date         string `json:"date"`
+	Basis        string `json:"basis"`
+	BeyondWindow bool   `json:"beyond_window"`
+}
+
+// EdgeForwardToday says how a decision made now would be counted, from
+// what Canary recorded at the last US close only: Regime's stage for
+// option_buys_after_regime_warning, the premium budget line for
+// option_buys_below_premium_line. Group is the group a decision now would
+// join, not_read when the fact is not known.
+type EdgeForwardToday struct {
+	Session             string   `json:"session"`
+	Missing             string   `json:"missing,omitempty"`
+	RegimeStage         string   `json:"regime_stage,omitempty"`
+	PremiumBudgetActPct *float64 `json:"premium_budget_act_pct,omitempty"`
+	PremiumBudgetSet    string   `json:"premium_budget_set,omitempty"`
+	Group               string   `json:"group"`
+}
+
+// EdgeForwardReading is reserved for a read rule: the finding in one
+// sentence, its tone (favourable, unfavourable or neutral to the
+// decisions read), the measure the intervals are in, and one interval per
+// group. This build never serves one.
+type EdgeForwardReading struct {
+	ReadAt    time.Time             `json:"read_at"`
+	Finding   string                `json:"finding"`
+	Tone      string                `json:"tone"`
+	Measure   string                `json:"measure"`
+	Intervals []EdgeForwardInterval `json:"intervals"`
+}
+
+// EdgeForwardInterval is one group's estimate with its interval.
+type EdgeForwardInterval struct {
+	Group    string  `json:"group"`
+	Low      float64 `json:"low"`
+	Estimate float64 `json:"estimate"`
+	High     float64 `json:"high"`
+}
+
+func validateEdgeForwardSample(sample *EdgeForwardSample) error {
+	if sample == nil {
+		return nil
+	}
+	if !slices.Contains([]string{EdgeForwardCollecting, EdgeForwardDue, EdgeForwardRead}, sample.State) {
+		return fmt.Errorf("invalid Edge forward-test state")
+	}
+	if (sample.State == EdgeForwardRead) != (sample.Reading != nil) {
+		return fmt.Errorf("an Edge forward-test reading belongs to a read rule only")
+	}
+	counts := []int{sample.Test.Final, sample.Test.Pending, sample.SenderUnknown, sample.ToRead}
+	if sample.Protection != nil {
+		counts = append(counts, sample.Protection.Final, sample.Protection.Pending)
+	}
+	for _, g := range sample.Groups {
+		if g.ID == "" {
+			return fmt.Errorf("invalid Edge forward-test group")
+		}
+		counts = append(counts, g.Final, g.Pending, g.Days)
+	}
+	for _, n := range counts {
+		if n < 0 {
+			return fmt.Errorf("negative Edge forward-test count")
+		}
+	}
+	if sample.Expected != nil && !validEdgeDate(sample.Expected.Date) {
+		return fmt.Errorf("invalid Edge forward-test expected date")
+	}
+	if sample.Reading != nil {
+		for _, iv := range sample.Reading.Intervals {
+			if !finite(iv.Low) || !finite(iv.Estimate) || !finite(iv.High) || iv.Low > iv.Estimate || iv.Estimate > iv.High {
+				return fmt.Errorf("invalid Edge forward-test interval")
+			}
+		}
+	}
+	return nil
 }
 
 // MaxEdgeRecentVerdicts bounds the recent decision list.
@@ -744,6 +927,9 @@ func ValidateEdgeResult(result EdgeResult) error {
 			return fmt.Errorf("invalid Edge forward test")
 		}
 		seenForwardTests[test.ID] = true
+		if err := validateEdgeForwardSample(test.Sample); err != nil {
+			return err
+		}
 	}
 	if result.Change != nil {
 		for _, id := range result.Change.ForwardTests {

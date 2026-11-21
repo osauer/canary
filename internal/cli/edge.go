@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +20,9 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 	// Flags arrive hoisted ahead of positionals, so the subcommand is last.
 	if n := len(args); n > 0 && args[n-1] == "replay" && (n == 1 || !isValueFlag(args[n-2]) || strings.Contains(args[n-2], "=")) {
 		return runEdgeReplay(ctx, env, args[:n-1])
+	}
+	if rest, ok := edgeSubaction(args, "tests"); ok {
+		return runEdgeTests(ctx, env, rest)
 	}
 	fs := flagSet(env, "edge")
 	window := fs.String("window", "365d", "optional review override: 90d or 365d (default 365d)")
@@ -62,6 +66,23 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 // fetchEdge reads one Edge page or, with all set, follows next_offset until
 // every option list is complete and returns them as one page. Each page is
 // validated; pages from different snapshots are refused rather than merged.
+// edgeSubaction finds a sub-action among the positionals, which arrive
+// after the hoisted flags: last, or followed by one operand (a rule id).
+// A token that is the value of a flag before it is not the sub-action.
+func edgeSubaction(args []string, name string) ([]string, bool) {
+	n := len(args)
+	for _, i := range []int{n - 1, n - 2} {
+		if i < 0 || args[i] != name || i > 0 && isValueFlag(args[i-1]) && !strings.Contains(args[i-1], "=") {
+			continue
+		}
+		if i == n-2 && strings.HasPrefix(args[n-1], "-") {
+			continue
+		}
+		return append(slices.Clone(args[:i]), args[i+1:]...), true
+	}
+	return nil, false
+}
+
 func fetchEdge(ctx context.Context, env *Env, params rpc.EdgeSnapshotParams, all bool) (rpc.EdgeResult, error) {
 	var result rpc.EdgeResult
 	if err := rpc.Call(ctx, env.Conn, api.EdgeSnapshot, params, &result); err != nil {
@@ -965,7 +986,34 @@ func renderEdgeForwardTests(env *Env, result rpc.EdgeResult) {
 		when = "registered between " + first.Local().Format("2006-01-02 15:04 MST") + " and " + last.Local().Format("2006-01-02 15:04 MST")
 	}
 	edgeRow(env, "Registered", fmt.Sprintf("%d of %d %s", registered, total, pluralWord(total, "rule", "rules")), when,
-		"only decisions made afterwards count", "the rules are in canary edge --json")
+		"only decisions made afterwards count")
+	if counted := edgeForwardCounted(result.ForwardTests); counted != "" {
+		edgeRow(env, "Counted", counted)
+	}
+	edgeRow(env, "Each rule", "its question, count and expected date: canary edge tests")
+}
+
+// edgeForwardCounted says in one line how many rules are due and how many
+// are still collecting; empty when nothing was counted.
+func edgeForwardCounted(tests []rpc.EdgeForwardTest) string {
+	due, collecting := 0, 0
+	for _, test := range tests {
+		switch {
+		case test.Sample == nil:
+		case test.Sample.State == rpc.EdgeForwardCollecting:
+			collecting++
+		default:
+			due++
+		}
+	}
+	if due+collecting == 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d collecting", collecting)}
+	if due > 0 {
+		parts = append([]string{fmt.Sprintf("%d due, the reading is not built yet", due)}, parts...)
+	}
+	return briefJoin(parts...)
 }
 
 // edgeCloseSourceWord names what a horizon close rests on. A quote is said

@@ -9,6 +9,7 @@ import (
 
 	"github.com/osauer/canary/v3/internal/daemon/corestore"
 	edgecore "github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 func forwardTestServer(t *testing.T, path string, now *time.Time) *Server {
@@ -195,5 +196,105 @@ func TestAnUnreadableForwardTestRegistryIsNotAnEmptyList(t *testing.T) {
 	tests, err = s.edgeForwardTestsView(t.Context(), "scope-a")
 	if err != nil || len(tests) != len(edgecore.ForwardTests()) || tests[0].RegisteredAt.IsZero() {
 		t.Fatalf("tests=%d err=%v, want every rule with its instant", len(tests), err)
+	}
+}
+
+// The fifth US session after a decision is counted on the official
+// calendar: Thanksgiving is no session and the day after it is a half day.
+func TestEdgeForwardFifthSessionFollowsTheCalendar(t *testing.T) {
+	ny := edgeNewYork()
+	fifth := edgeFifthSessionCloses()
+	at, ok := fifth(time.Date(2026, 11, 23, 11, 0, 0, 0, ny))
+	if want := time.Date(2026, 12, 1, 16, 0, 0, 0, ny); !ok || !at.Equal(want) {
+		t.Fatalf("fifth session close=%s ok=%v, want %s", at, ok, want)
+	}
+	at, ok = fifth(time.Date(2026, 11, 19, 11, 0, 0, 0, ny))
+	if want := time.Date(2026, 11, 27, 13, 0, 0, 0, ny); !ok || !at.Equal(want) {
+		t.Fatalf("fifth session close=%s ok=%v, want the half day %s", at, ok, want)
+	}
+}
+
+// A reply counts each registered rule from the published review: only
+// decisions after registration, protection sales apart while the evidence
+// is served and in neither sample while it is withheld, a buy grouped by
+// the record of the close before it, and a buy now by the latest record.
+// A rule not registered has no sample: absent, not zero.
+func TestEdgeForwardTestsAreCountedFromTheReview(t *testing.T) {
+	ny := edgeNewYork()
+	registered := time.Date(2026, 11, 2, 9, 0, 0, 0, ny) // a Monday
+	now := time.Date(2026, 12, 18, 18, 0, 0, 0, ny)      // after the close
+	s := forwardTestServer(t, filepath.Join(privateTestDir(t), "daemon.db"), &now)
+	for _, stamp := range []edgeSessionStamp{
+		{Session: "2026-11-03", RegimeStage: "early_warning"},
+		{Session: "2026-11-04", RegimeStage: "quiet"},
+		{Session: "2026-12-18", RegimeStage: "confirmed_stress", PremiumBudgetActPct: new(2.5), PremiumBudgetSet: "calm"},
+	} {
+		stamp.ClosedAt, stamp.ServedAt = now, now
+		if err := s.appendEdgeSessionStamp(t.Context(), stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bar := 10.0
+	scored := []edgecore.HorizonScore{{Sessions: 5, HorizonClose: &bar, CloseSource: edgecore.CloseSourceDailyBar}}
+	at := func(day int) time.Time { return time.Date(2026, 11, day, 11, 0, 0, 0, ny) }
+	closed := func(id string) *edgecore.PositionOutcome {
+		return &edgecore.PositionOutcome{State: edgecore.OptionPositionClosed, PositionID: id, ClosedBy: "trade"}
+	}
+	review := edgecore.Result{AsOf: now, Changes: []edgecore.Change{
+		{ID: "old", Symbol: "AAA", AssetClass: "STK", Action: edgecore.ActionExit, Direction: edgecore.DirectionLong, ExecutedAt: time.Date(2026, 10, 20, 11, 0, 0, 0, ny), Scores: scored},
+		{ID: "s1", Symbol: "AAA", AssetClass: "STK", Action: edgecore.ActionTrim, Direction: edgecore.DirectionLong, ExecutedAt: at(3), Scores: scored},
+		{ID: "s2", Symbol: "BBB", AssetClass: "STK", Action: edgecore.ActionExit, Direction: edgecore.DirectionLong, ExecutedAt: at(5), Scores: scored,
+			ProtectionContext: edgecore.ProtectionContext{Status: "linked", ExecutionCount: 1, MatchedExecutions: 1}},
+		{ID: "b1", Symbol: "CCC 270115C00050000", Underlying: "CCC", AssetClass: "OPT", Action: edgecore.ActionOpen, Direction: edgecore.DirectionLong, ExecutedAt: at(4), Position: closed("p1")},
+		{ID: "b2", Symbol: "DDD 270115C00050000", Underlying: "DDD", AssetClass: "OPT", Action: edgecore.ActionOpen, Direction: edgecore.DirectionLong, ExecutedAt: at(5), Position: closed("p2")},
+		{ID: "b3", Symbol: "EEE 270115C00050000", Underlying: "EEE", AssetClass: "OPT", Action: edgecore.ActionOpen, Direction: edgecore.DirectionLong, ExecutedAt: at(10), Position: closed("p3")},
+	}}
+	tests, err := s.edgeForwardTestsView(t.Context(), "scope-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]*rpc.EdgeForwardTest{}
+	for i := range tests {
+		if tests[i].ID != "entries_vs_nearby_day" {
+			tests[i].RegisteredAt = registered
+		}
+		byID[tests[i].ID] = &tests[i]
+	}
+	s.countEdgeForwardTests(t.Context(), tests, edgeForwardEvidence{result: review, protectionKnown: true})
+	if byID["entries_vs_nearby_day"].Sample != nil {
+		t.Fatal("a rule that is not registered was counted")
+	}
+	sales := byID["stock_sales_vs_nearby_day"].Sample
+	if sales == nil || sales.Test.Final != 1 || sales.Protection == nil || sales.Protection.Final != 1 || sales.ToRead != 79 || sales.State != rpc.EdgeForwardCollecting || sales.ReadingBuilt || sales.UnitsStored || sales.WindowDays != 365 {
+		t.Fatalf("stock sales sample = %+v", sales)
+	}
+	regime := byID["option_buys_after_regime_warning"].Sample
+	groups := map[string]int{}
+	for _, g := range regime.Groups {
+		groups[g.ID] = g.Final
+	}
+	if groups["after_warning"] != 1 || groups["other"] != 1 || groups[edgecore.ForwardGroupNotRead] != 1 {
+		t.Fatalf("regime groups = %+v", regime.Groups)
+	}
+	if today := regime.Today; today == nil || today.Session != "2026-12-18" || today.RegimeStage != "confirmed_stress" || today.Group != "after_warning" {
+		t.Fatalf("regime today = %+v", regime.Today)
+	}
+	if today := byID["option_buys_below_premium_line"].Sample.Today; today == nil || today.PremiumBudgetActPct == nil || *today.PremiumBudgetActPct != 2.5 || today.Group != edgecore.ForwardGroupNotRead {
+		t.Fatalf("premium line today = %+v", today)
+	}
+	for _, test := range tests {
+		if test.Question == "" || len(test.Informs) == 0 {
+			t.Fatalf("rule %s served without its facts", test.ID)
+		}
+	}
+
+	// Protection evidence withheld from the reply: the sales are in neither
+	// sample, never counted as the holder's.
+	for i := range tests {
+		tests[i].Sample = nil
+	}
+	s.countEdgeForwardTests(t.Context(), tests, edgeForwardEvidence{result: review, protectionKnown: false})
+	if sales := byID["stock_sales_vs_nearby_day"].Sample; sales.Test.Final != 0 || sales.Protection.Final != 0 || sales.SenderUnknown != 2 {
+		t.Fatalf("withheld protection: %+v", sales)
 	}
 }

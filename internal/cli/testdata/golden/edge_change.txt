@@ -78,7 +78,8 @@ Options  broker actuals in separate scopes; they do not add together
 
 Forward tests  rules written down before the results they will be read on
   Registered · 2 of 2 rules · registered 2026-08-20 14:00 TZ · only
-    decisions made afterwards count · the rules are in canary edge --json
+    decisions made afterwards count
+  Each rule · its question, count and expected date: canary edge tests
 
 Change change_s2 · SYNC  261016C00050000 exit -2 · 2026-08-22 14:00 TZ
   Position · 2 to 0 · execution VWAP 6.15 · multiplier 100 · direct costs
@@ -176,7 +177,8 @@ Options  \x1b[2mbroker actuals in separate scopes; they do not add together\x1b[
 
 Forward tests  \x1b[2mrules written down before the results they will be read on\x1b[0m
   Registered · 2 of 2 rules · registered 2026-08-20 14:00 TZ · only
-    decisions made afterwards count · the rules are in canary edge --json
+    decisions made afterwards count
+  Each rule · its question, count and expected date: canary edge tests
 
 Change change_s2 · SYNC  261016C00050000 exit -2 · 2026-08-22 14:00 TZ
   Position · 2 to 0 · execution VWAP 6.15 · multiplier 100 · direct costs

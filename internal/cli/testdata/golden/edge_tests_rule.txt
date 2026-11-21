@@ -1,0 +1,82 @@
+# canary edge tests option_buys_after_regime_warning · COLUMNS=80 · colour off
+Forward tests
+  A forward test is a rule written down before the decisions it is read on: only
+  decisions made after the rule was registered count. Canary counts them; the
+  reading that turns a full count into an answer is not built yet. In the rules
+  about sales, a sale a protection rule sent is read apart from one you chose; a
+  stop placed directly at the broker cannot be told apart yet.
+
+Collecting  1 rule
+
+  Do single-name option buys made the session after a Regime warning do better
+  or worse than the rest?
+    informs buying · checks Regime's stage at the last close
+    after a warning          ███▋░░░░░░░░░░░░░░░░░░░░     6 of 40  +2 not final
+    after any other session  ████████▍░░░░░░░░░░░░░░░          14  +3 not final
+    group not read yet                                          2
+    after a warning also needs 20 separate days: 5 so far
+    group not read yet: the fact that places them was not recorded
+    final per month ·▅▃█▆ Nov 2026–Mar 2027, at most 8
+    counting from 21 Nov 2026 · at this pace about Apr 2028, more than 365
+      days out: it cannot fill until counted decisions are kept, which is not
+      built yet
+    a buy now counts as after a warning: Regime was at early warning at the 19
+      Mar close
+    counts one contract in one week, final when its position has closed · read
+      at 40
+    touches no written policy
+    registered 2026-11-21 07:00 TZ as rule_1f4b514c8ba19305e2520fd867497e48
+    Rule: Single-name option buys that open or add to a long position, made in
+      the session after a Regime warning, against all other such buys. A single
+      name is any underlying but SPY and VIX. One reading per contract and week,
+      final when its position has closed: the average price of the position's
+      sales after the buy, zero at expiry, less the price paid, on the contracts
+      bought, after the buy's costs. A position closed by delivery gives no
+      reading. The figure for each group is the sum of its readings divided by
+      the premium paid for them. The label is Regime's stage of the session
+      before the buy: warning is early warning, confirmed stress or panic; the
+      rest is quiet, stabilization or opportunity. No pass threshold is set for
+      this test; it is read by direction in both the earlier and the later half
+      of the readings by date. Read once, at 40 final readings after a warning
+      session that fall on at least 20 separate days.
+# canary edge tests option_buys_after_regime_warning · COLUMNS=80 · colour on, ESC written as \x1b
+\x1b[1mForward tests\x1b[0m
+  A forward test is a rule written down before the decisions it is read on: only
+  decisions made after the rule was registered count. Canary counts them; the
+  reading that turns a full count into an answer is not built yet. In the rules
+  about sales, a sale a protection rule sent is read apart from one you chose; a
+  stop placed directly at the broker cannot be told apart yet.
+
+\x1b[1mCollecting\x1b[0m  \x1b[2m1 rule\x1b[0m
+
+  \x1b[1mDo single-name option buys made the session after a Regime warning do better\x1b[0m
+  \x1b[1mor worse than the rest?\x1b[0m
+    informs buying · checks Regime's stage at the last close
+    after a warning          \x1b[2m███▋\x1b[0m\x1b[2m░░░░░░░░░░░░░░░░░░░░\x1b[0m     6 of 40  \x1b[2m+2 not final\x1b[0m
+    after any other session  \x1b[2m████████▍\x1b[0m\x1b[2m░░░░░░░░░░░░░░░\x1b[0m          14  \x1b[2m+3 not final\x1b[0m
+    group not read yet                                          2
+    after a warning also needs 20 separate days: 5 so far
+    group not read yet: the fact that places them was not recorded
+    final per month \x1b[2m·▅▃█▆\x1b[0m Nov 2026–Mar 2027, at most 8
+    counting from 21 Nov 2026 · at this pace about Apr 2028, more than 365
+      days out: it cannot fill until counted decisions are kept, which is not
+      built yet
+    a buy now counts as after a warning: Regime was at early warning at the 19
+      Mar close
+    counts one contract in one week, final when its position has closed · read
+      at 40
+    touches no written policy
+    registered 2026-11-21 07:00 TZ as rule_1f4b514c8ba19305e2520fd867497e48
+    \x1b[2mRule: Single-name option buys that open or add to a long position, made in\x1b[0m
+      \x1b[2mthe session after a Regime warning, against all other such buys. A single\x1b[0m
+      \x1b[2mname is any underlying but SPY and VIX. One reading per contract and week,\x1b[0m
+      \x1b[2mfinal when its position has closed: the average price of the position's\x1b[0m
+      \x1b[2msales after the buy, zero at expiry, less the price paid, on the contracts\x1b[0m
+      \x1b[2mbought, after the buy's costs. A position closed by delivery gives no\x1b[0m
+      \x1b[2mreading. The figure for each group is the sum of its readings divided by\x1b[0m
+      \x1b[2mthe premium paid for them. The label is Regime's stage of the session\x1b[0m
+      \x1b[2mbefore the buy: warning is early warning, confirmed stress or panic; the\x1b[0m
+      \x1b[2mrest is quiet, stabilization or opportunity. No pass threshold is set for\x1b[0m
+      \x1b[2mthis test; it is read by direction in both the earlier and the later half\x1b[0m
+      \x1b[2mof the readings by date. Read once, at 40 final readings after a warning\x1b[0m
+      \x1b[2msession that fall on at least 20 separate days.\x1b[0m

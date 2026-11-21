@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/daemon/corestore"
 	edgecore "github.com/osauer/canary/v3/internal/edge"
+	"github.com/osauer/canary/v3/internal/marketcal"
 	"github.com/osauer/canary/v3/internal/rpc"
 )
 
@@ -160,9 +162,170 @@ func (s *Server) edgeForwardTestsView(ctx context.Context, scopeFingerprint stri
 	}
 	for _, rule := range edgeForwardTestRules() {
 		hash := rule.RuleHash()
-		out = append(out, rpc.EdgeForwardTest{ID: rule.ID, Title: rule.Title, Rule: rule.Rule, RuleHash: hash, RegisteredAt: registered[rule.ID+"\x00"+hash]})
+		test := rpc.EdgeForwardTest{ID: rule.ID, Title: rule.Title, Rule: rule.Rule, RuleHash: hash, RegisteredAt: registered[rule.ID+"\x00"+hash]}
+		if facts, ok := edgecore.ForwardTestFacts(rule.ID); ok {
+			test.Question, test.Informs, test.Condition, test.Unit, test.UnitText = facts.Question, facts.Informs, facts.Condition, facts.Unit, facts.UnitText
+			test.ReadAt, test.ReadGroup, test.ReadDays, test.SampleLabel, test.Policy = facts.ReadAt, facts.ReadGroup, facts.ReadDays, facts.SampleLabel, facts.Policy
+			test.ProtectionApart, test.GroupNotRead = facts.ProtectionApart, facts.GroupNotRead
+			for _, group := range facts.Groups {
+				test.Groups = append(test.Groups, rpc.EdgeForwardGroup{ID: group.ID, Label: group.Label})
+			}
+		}
+		out = append(out, test)
 	}
 	return out, nil
+}
+
+// edgeForwardWindow is the review window the forward tests count from.
+const edgeForwardWindow = "365d"
+
+// edgeForwardEvidence is what one reply counts the forward tests from: the
+// published full-window result, and whether its protection evidence is
+// served (sales then count apart by sender; otherwise in neither sample).
+type edgeForwardEvidence struct {
+	result          edgecore.Result
+	protectionKnown bool
+}
+
+// countEdgeForwardTests counts each registered rule's sample from the
+// published review and attaches it to the served rule. A rule not yet
+// registered, or one whose facts this build does not know, gets no sample:
+// absent, never zero. Nothing is stored; the count is the review's.
+func (s *Server) countEdgeForwardTests(ctx context.Context, tests []rpc.EdgeForwardTest, evidence edgeForwardEvidence) {
+	zone := edgeNewYork()
+	asOf := evidence.result.AsOf
+	stamps := map[string]edgeSessionStamp{}
+	var latest *edgeSessionStamp
+	if log, _, err := s.loadEdgeSessionStamps(ctx); err == nil {
+		for _, stamp := range log.Sessions {
+			stamps[stamp.Session] = stamp
+		}
+		if n := len(log.Sessions); n > 0 {
+			latest = &log.Sessions[n-1]
+		}
+	}
+	fifth := edgeFifthSessionCloses()
+	in := edgecore.ForwardCountInput{
+		Changes: evidence.result.Changes, AsOf: asOf, ProtectionKnown: evidence.protectionKnown, Zone: zone,
+		FifthSessionClose: fifth,
+		PriorSessionStage: func(at time.Time) (string, bool) {
+			prior, _ := edgeDecisionSessions(at)
+			stamp, ok := stamps[prior]
+			return stamp.RegimeStage, ok && prior != ""
+		},
+	}
+	for i := range tests {
+		test := &tests[i]
+		facts, ok := edgecore.ForwardTestFacts(test.ID)
+		if !ok || test.RegisteredAt.IsZero() {
+			continue
+		}
+		sampled := in
+		sampled.After = test.RegisteredAt
+		pace := in
+		pace.After, pace.Through = asOf.AddDate(0, 0, -edgecore.ForwardReviewDays), test.RegisteredAt
+		summary := edgecore.SummarizeForward(facts, edgecore.CountForwardUnits(test.ID, sampled), edgecore.CountForwardUnits(test.ID, pace), test.RegisteredAt, asOf, zone)
+		test.Sample = rpcEdgeForwardSample(summary, asOf)
+		test.Sample.Today = edgeForwardToday(test.ID, latest, s.edgeNow())
+	}
+}
+
+func rpcEdgeForwardSample(in edgecore.ForwardSample, asOf time.Time) *rpc.EdgeForwardSample {
+	out := &rpc.EdgeForwardSample{
+		State: in.State, AsOf: asOf, WindowDays: edgecore.ForwardReviewDays,
+		Test: rpc.EdgeForwardCount{Final: in.Test.Final, Pending: in.Test.Pending}, SenderUnknown: in.SenderUnknown,
+		Excluded: maps.Clone(in.Excluded), Months: []rpc.EdgeForwardMonth{}, ToRead: in.ToRead, NoDate: in.NoDate,
+	}
+	for _, g := range in.Groups {
+		out.Groups = append(out.Groups, rpc.EdgeForwardGroupCount{ID: g.ID, Final: g.Final, Pending: g.Pending, Days: g.Days})
+	}
+	if in.Protection != nil {
+		out.Protection = &rpc.EdgeForwardCount{Final: in.Protection.Final, Pending: in.Protection.Pending}
+	}
+	if !in.FirstUnit.IsZero() {
+		out.FirstUnit, out.LastUnit = in.FirstUnit.Format(time.DateOnly), in.LastUnit.Format(time.DateOnly)
+	}
+	for _, m := range in.Months {
+		out.Months = append(out.Months, rpc.EdgeForwardMonth{Month: m.Month, Final: m.Final})
+	}
+	if in.Expected != nil {
+		out.Expected = &rpc.EdgeForwardExpected{Date: in.Expected.Date.In(edgeNewYork()).Format(time.DateOnly), Basis: in.Expected.Basis, BeyondWindow: in.Expected.BeyondWindow}
+	}
+	return out
+}
+
+// edgeForwardToday says how an option buy made now would be counted, from
+// the record of the US session such a buy would follow: the latest session
+// closed by now. Only the two rules that label a buy by a recorded close
+// have one, and only from that record; nothing else is read.
+func edgeForwardToday(id string, latest *edgeSessionStamp, now time.Time) *rpc.EdgeForwardToday {
+	if id != "option_buys_after_regime_warning" && id != "option_buys_below_premium_line" {
+		return nil
+	}
+	prior, own := edgeDecisionSessions(now)
+	if ended, ok := usSessionEndedBy(now); ok && ended.Date == own {
+		prior = own
+	}
+	if prior == "" {
+		return nil
+	}
+	out := &rpc.EdgeForwardToday{Session: prior, Group: edgecore.ForwardGroupNotRead}
+	if latest == nil || latest.Session != prior {
+		out.Missing = rpc.EdgeSessionStampNotRecorded
+		return out
+	}
+	if id == "option_buys_after_regime_warning" {
+		out.RegimeStage, out.Group = latest.RegimeStage, edgecore.ForwardRegimeGroup(latest.RegimeStage)
+		return out
+	}
+	// The line is recorded; premium at risk at the prior statement is not
+	// computed, so the group of a buy now is not known.
+	out.PremiumBudgetActPct, out.PremiumBudgetSet = cloneAmount(latest.PremiumBudgetActPct), latest.PremiumBudgetSet
+	return out
+}
+
+func edgeNewYork() *time.Location {
+	if loc, err := time.LoadLocation("America/New_York"); err == nil {
+		return loc
+	}
+	return time.UTC
+}
+
+// edgeFifthSessionCloses returns the close of the fifth US session after a
+// decision's New York date, from the official calendar, memoised by date
+// for one count. Outside the calendar's coverage there is none, and a unit
+// waiting on it stays not final rather than being dated by a guessed day.
+func edgeFifthSessionCloses() func(time.Time) (time.Time, bool) {
+	cal := marketcal.New()
+	type answer struct {
+		at time.Time
+		ok bool
+	}
+	seen := map[string]answer{}
+	return func(executedAt time.Time) (time.Time, bool) {
+		day := nyTime(executedAt)
+		key := day.Format(time.DateOnly)
+		if a, ok := seen[key]; ok {
+			return a.at, a.ok
+		}
+		noon := time.Date(day.Year(), day.Month(), day.Day(), 12, 0, 0, 0, day.Location())
+		a, sessions := answer{}, 0
+		for ahead := 1; ahead <= 20; ahead++ {
+			session, err := cal.SessionAt(marketcal.MarketUSEquity, noon.AddDate(0, 0, ahead))
+			if err != nil || session.State == marketcal.StateUnknown {
+				break
+			}
+			if session.State != marketcal.StateRegular && session.State != marketcal.StateEarlyClose {
+				continue
+			}
+			if sessions++; sessions == 5 {
+				a = answer{at: session.Close, ok: true}
+				break
+			}
+		}
+		seen[key] = a
+		return a.at, a.ok
+	}
 }
 
 // edgeForwardSampleIDs names the rules whose sample a decision executed at

@@ -372,3 +372,24 @@ func TestOptionWithoutAKnownSessionCalendarHasNoHorizonFigure(t *testing.T) {
 		}
 	}
 }
+
+// An option change names its underlying: the trade row's, else the
+// instrument record's. The forward tests key on it and keep single names.
+func TestOptionChangeNamesItsUnderlying(t *testing.T) {
+	st := cycleTestStatement([]float64{1, -1}, []string{"O", "C"}, 0)
+	st.Instruments[0].UnderlyingSymbol = "syn"
+	result, err := Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}})
+	if err != nil || len(result.Changes) != 2 {
+		t.Fatalf("changes=%d err=%v", len(result.Changes), err)
+	}
+	for _, change := range result.Changes {
+		if change.Underlying != "SYN" {
+			t.Fatalf("underlying=%q, want the instrument's", change.Underlying)
+		}
+	}
+	st.Trades[0].UnderlyingSymbol = "SYNT"
+	result, err = Analyze(Input{AsOf: day("2026-02-10"), WindowDays: 90, BaseCurrency: "EUR", Statements: []flexstmt.Statement{st}})
+	if err != nil || result.Changes[0].Underlying != "SYNT" {
+		t.Fatalf("underlying=%q err=%v, want the trade row's", result.Changes[0].Underlying, err)
+	}
+}

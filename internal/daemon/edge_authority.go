@@ -28,7 +28,7 @@ import (
 const (
 	edgePublicationStateKind = "edge_publication"
 	edgeBarCacheStateKind    = "edge_bar_cache"
-	edgePublicationVersion   = 11
+	edgePublicationVersion   = 12
 	edgeBarCacheVersion      = 3
 	edgeDailyLookbackDays    = 35
 	edgeFullLookbackDays     = 400
@@ -1164,9 +1164,12 @@ func (s *Server) replaceEdgeStateDocument(ctx context.Context, kind string, raw 
 func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc.EdgeResult, error) {
 	// First, while the request's time is unspent (edgeForwardTestsForRequest).
 	tests, unavailable := s.edgeForwardTestsForRequest(ctx)
-	result, err := s.edgeSnapshotResult(ctx, req)
+	result, forward, err := s.edgeSnapshotResult(ctx, req)
 	if err != nil || result == nil {
 		return result, err
+	}
+	if forward != nil && unavailable == "" {
+		s.countEdgeForwardTests(ctx, tests, *forward)
 	}
 	result.ForwardTests, result.ForwardTestsUnavailable = tests, unavailable
 	if result.Change != nil {
@@ -1178,38 +1181,39 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 	return result, nil
 }
 
-// edgeSnapshotResult builds the reply without its forward tests.
-func (s *Server) edgeSnapshotResult(ctx context.Context, req *rpc.Request) (*rpc.EdgeResult, error) {
+// edgeSnapshotResult builds the reply without its forward tests, and hands
+// back the evidence they are counted from.
+func (s *Server) edgeSnapshotResult(ctx context.Context, req *rpc.Request) (*rpc.EdgeResult, *edgeForwardEvidence, error) {
 	var params rpc.EdgeSnapshotParams
 	if err := decodeFor(api.EdgeSnapshot, req.Params, &params); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	params, err := rpc.NormalizeEdgeSnapshotParams(params)
 	if err != nil {
-		return nil, errBadRequest(err.Error())
+		return nil, nil, errBadRequest(err.Error())
 	}
 	window, horizon, limit := params.Window, params.HorizonSessions, params.Limit
 	if s.cfg == nil || !s.cfg.Flex.Enabled || strings.TrimSpace(s.cfg.Flex.QueryID) == "" {
-		return edgeStateOnlyResult(rpc.EdgeStateActionRequired, "flex_configuration_required", window, horizon, params.AutomaticHorizon), nil
+		return edgeStateOnlyResult(rpc.EdgeStateActionRequired, "flex_configuration_required", window, horizon, params.AutomaticHorizon), nil, nil
 	}
 	if s.coreStore == nil {
-		return nil, fmt.Errorf("edge authority is unavailable")
+		return nil, nil, fmt.Errorf("edge authority is unavailable")
 	}
 	scope := s.currentBrokerStateScope()
 	if !brokerScopeConcrete(scope) {
-		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_unavailable", window, horizon, params.AutomaticHorizon), nil
+		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_unavailable", window, horizon, params.AutomaticHorizon), nil, nil
 	}
 	scopeFingerprint := edgeScopeFingerprint(scope)
 	publication, ok, err := s.loadEdgePublication(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if !ok {
 		state, reason := rpc.EdgeStateBackfilling, "snapshot_pending"
-		return edgeStateOnlyResult(state, reason, window, horizon, params.AutomaticHorizon), nil
+		return edgeStateOnlyResult(state, reason, window, horizon, params.AutomaticHorizon), nil, nil
 	}
 	if publication.ScopeFingerprint != scopeFingerprint {
-		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_changed", window, horizon, params.AutomaticHorizon), nil
+		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_changed", window, horizon, params.AutomaticHorizon), nil, nil
 	}
 	currentEvidence, fingerprintErr := s.edgeProjectionFingerprint(ctx, scope, scopeFingerprint)
 	if fingerprintErr != nil {
@@ -1232,7 +1236,7 @@ func (s *Server) edgeSnapshotResult(ctx context.Context, req *rpc.Request) (*rpc
 	}
 	if params.ChangeID != "" {
 		if !haveWindow {
-			return nil, errBadRequest("edge change is unavailable before a snapshot is published")
+			return nil, nil, errBadRequest("edge change is unavailable before a snapshot is published")
 		}
 		found := false
 		for _, change := range coreResult.Changes {
@@ -1244,17 +1248,17 @@ func (s *Server) edgeSnapshotResult(ctx context.Context, req *rpc.Request) (*rpc
 			}
 		}
 		if !found {
-			return nil, errBadRequest("edge change id was not found in this window")
+			return nil, nil, errBadRequest("edge change id was not found in this window")
 		}
 	}
 	if params.OptionID != "" {
 		if !haveWindow {
-			return nil, errBadRequest("edge option is unavailable before a snapshot is published")
+			return nil, nil, errBadRequest("edge option is unavailable before a snapshot is published")
 		}
 		if detail := rpcEdgeOptionDetail(coreResult.Options, params.OptionID); detail != nil {
 			result.Option = detail
 		} else {
-			return nil, errBadRequest("edge option id was not found in this window")
+			return nil, nil, errBadRequest("edge option id was not found in this window")
 		}
 	}
 	_, _, localFingerprint := s.edgeProtectionEvidence(ctx, scope)
@@ -1279,12 +1283,19 @@ func (s *Server) edgeSnapshotResult(ctx context.Context, req *rpc.Request) (*rpc
 		}
 	}
 	if !sameBrokerScope(scope, s.currentBrokerStateScope()) {
-		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_changed", window, horizon, params.AutomaticHorizon), nil
+		return edgeStateOnlyResult(rpc.EdgeStateUnavailable, "account_scope_changed", window, horizon, params.AutomaticHorizon), nil, nil
+	}
+	// The forward tests count from the full review window whatever window
+	// the reader asked for, with protection evidence only where the reply
+	// serves it.
+	var forward *edgeForwardEvidence
+	if full, ok := publication.Windows[edgeForwardWindow]; ok {
+		forward = &edgeForwardEvidence{result: full, protectionKnown: result.ProtectionState == "current"}
 	}
 	if err := rpc.ValidateEdgeResult(*result); err != nil {
-		return nil, fmt.Errorf("invalid Edge publication: %w", err)
+		return nil, nil, fmt.Errorf("invalid Edge publication: %w", err)
 	}
-	return result, nil
+	return result, forward, nil
 }
 
 func edgeStateOnlyResult(state, reason, window string, horizon int, automatic bool) *rpc.EdgeResult {

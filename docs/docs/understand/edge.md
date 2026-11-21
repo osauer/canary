@@ -256,7 +256,8 @@ therefore carries a small set of **forward tests**: rules registered before
 the results they will be read on. `forward_tests` in `canary edge --json`
 lists each rule with its full text, a `rule_hash` that identifies that exact
 text, and `registered_at`, the moment this install first registered it for
-the account. `canary edge` prints how many are registered and since when.
+the account. `canary edge` prints how many are registered and since when,
+and `canary edge tests` shows how far each one is (below).
 
 Only a decision executed after `registered_at` belongs to a rule's sample;
 one made at that moment or earlier is hindsight for the rule, whatever was
@@ -333,6 +334,59 @@ sale's own decision detail). Canary keeps every statement it has fetched
 and deletes none, and reads the ones fetched with the Flex query that is
 configured: after a change of Flex Query ID the earlier files stay on disk
 but no longer count, and what IBKR returns for the new query replaces them.
+
+### Following the rules: `canary edge tests`
+
+`canary edge tests` shows each rule as a question, for example "Do your
+entries do better than the same entry on a random nearby day?", with the
+decision it informs (buying, holding or selling) and what can be checked at
+the moment of a decision. Two rules check nothing first: every sale, or
+every entry, counts. Under the question a bar shows how far the rule's count
+is toward the number it is read at, one bar per group the rule compares, all
+bars the same width so the rules can be compared at a glance. Below the bars
+are the final decisions per month since the rule was registered and the
+month the count is expected to be full. That date is the pace since
+registration once three decisions are final; before that it is the pace of
+the same kind of decision over the year before registration, said as "at
+the past year's pace". Those earlier decisions only set the pace and never
+enter a rule's count. Name a rule (`canary edge tests entries_vs_nearby_day`)
+or add `--all` to see the registered text and what gave no reading;
+`--json` carries the same, per rule, in `forward_tests[].sample`.
+
+A rule counts what its text names: a name and week, a contract and week, or
+a position. A unit is final when the text says it is (the week is over and
+five US sessions have passed, or the position has closed); until then it is
+shown as not final. Some decisions give no reading by the rule's own words,
+such as a position closed by delivery, and are listed apart.
+
+Each rule is in one of three states. **Collecting** is the normal state,
+for months. **Due** means the count has reached the number the rule is read
+at; the reading itself, the statistics that turn a full count into an
+answer, is not built yet, so a due rule says so and no more. **Read** is
+kept for that reading: it will show the finding in one sentence and one
+interval per group on a shared axis with zero marked.
+
+In the four rules about sales, a sale sent by one of Canary's protection
+rules is counted apart from a sale you chose, with its own count, and does
+not count toward the rule's number. When the protection evidence cannot be
+served for a reply, those sales count in neither, rather than being taken as
+yours. A stop placed directly at the broker cannot be told apart yet,
+because the statements Canary reads carry no order type.
+
+What is not counted yet is said, not guessed. Two rules group their
+decisions by a fact Canary does not compute yet: premium at risk at the
+prior statement (option buys against the premium line), and the underlying's
+move in expected moves (option sales after a move against the position).
+Their decisions are counted under "group not read yet", so their count
+toward the read point cannot grow in this version and they show no expected
+date. An option buy whose prior US close has no record has no Regime group.
+For the two rules that group a buy by the last close, the output also says
+how a buy made now would be counted, from that close's record only.
+
+Decisions are counted from Edge's review of the last 365 days. They are not
+yet kept apart from that window, so a rule that needs more than a year of
+decisions cannot fill: its date is shown with that warning. Keeping counted
+decisions beyond the window is the next step.
 
 ## Completed option positions
 

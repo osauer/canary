@@ -176,23 +176,26 @@ type AccountResult struct {
 
 // Change is one deterministically classified exact-contract position change.
 type Change struct {
-	ProtectionContext     ProtectionContext `json:"protection_context"`
-	ID                    string            `json:"id"`
-	ConID                 int64             `json:"-"`
-	Symbol                string            `json:"symbol"`
-	AssetClass            string            `json:"asset_class"`
-	Currency              string            `json:"currency,omitempty"`
-	Action                string            `json:"action"`
-	Direction             string            `json:"direction"`
-	ExecutedAt            time.Time         `json:"executed_at"`
-	DeltaQuantity         float64           `json:"delta_quantity"`
-	PositionBefore        float64           `json:"position_before"`
-	PositionAfter         float64           `json:"position_after"`
-	ExecutionVWAP         *float64          `json:"execution_vwap,omitempty"`
-	Multiplier            *float64          `json:"multiplier,omitempty"`
-	ExecutionNotionalBase *float64          `json:"execution_notional_base,omitempty"`
-	DirectCostsBase       *float64          `json:"direct_costs_base,omitempty"`
-	Scores                []HorizonScore    `json:"scores"`
+	ProtectionContext ProtectionContext `json:"protection_context"`
+	ID                string            `json:"id"`
+	ConID             int64             `json:"-"`
+	Symbol            string            `json:"symbol"`
+	// Underlying is an option's underlying symbol as the statement names
+	// it; empty for a stock or ETF and when the statement names none.
+	Underlying            string         `json:"underlying,omitempty"`
+	AssetClass            string         `json:"asset_class"`
+	Currency              string         `json:"currency,omitempty"`
+	Action                string         `json:"action"`
+	Direction             string         `json:"direction"`
+	ExecutedAt            time.Time      `json:"executed_at"`
+	DeltaQuantity         float64        `json:"delta_quantity"`
+	PositionBefore        float64        `json:"position_before"`
+	PositionAfter         float64        `json:"position_after"`
+	ExecutionVWAP         *float64       `json:"execution_vwap,omitempty"`
+	Multiplier            *float64       `json:"multiplier,omitempty"`
+	ExecutionNotionalBase *float64       `json:"execution_notional_base,omitempty"`
+	DirectCostsBase       *float64       `json:"direct_costs_base,omitempty"`
+	Scores                []HorizonScore `json:"scores"`
 	// Position is set for option changes only: the outcome of the
 	// flat-to-flat position the decision belonged to.
 	Position *PositionOutcome `json:"position,omitempty"`

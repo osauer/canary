@@ -165,6 +165,14 @@ func Analyze(input Input) (Result, error) {
 			expiries[lifecycleTradeKey(event.ConID, event.TradeID)] = true
 		}
 	}
+	// An option's underlying as the statement names it: the trade row's,
+	// else the instrument record's, as the option episodes read it.
+	underlyings := map[int64]string{}
+	for _, instrument := range ev.instruments {
+		if instrument.UnderlyingSymbol != "" {
+			underlyings[instrument.ConID] = instrument.UnderlyingSymbol
+		}
+	}
 	for _, mutation := range mutations {
 		if mutation.kind != "trade" {
 			positions[mutation.conid] += mutation.delta
@@ -193,6 +201,7 @@ func Analyze(input Input) (Result, error) {
 			change := buildChange(group, part, before, input, index, ev.fxRates, pathReason)
 			if strings.EqualFold(group.assetClass, "OPT") {
 				change.Position = optionPositionOutcome(change, group, optionLedger)
+				change.Underlying = strings.ToUpper(strings.TrimSpace(firstNonEmpty(group.underlyingSymbol, underlyings[group.conid])))
 			}
 			change.Verdict = changeVerdict(change)
 			before += part.delta

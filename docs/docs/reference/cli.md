@@ -38,7 +38,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary strategy-one`](#canary-strategy-one) | Desk | Strategy one's screen: the watch list of strong names, the leading set, the names that left, the entry plans sized at the regime gate's scale and the open names' adds and exits. Holds no risk allocation yet, so its plans buy nothing. Reads only | `read-only` | yes |
 | [`canary strategy`](#canary-strategy) | Desk | A registered strategy's target by its id in the strategy register: its month's decision, target, paper position and what its rule would trade, in the core's shape; with --replay, its rule run over the month-ends FROM TO on the daemon's own history, the table the lab's `replay-compare` reads; read-only, no orders | `read-only` | yes |
 | [`canary brief`](#canary-brief) | Desk | Combined post- and pre-trade operator brief with disclosed source degradation | `read-only` | yes |
-| [`canary edge`](#canary-edge) | Desk | Review past trading decisions using broker records; replay long-option exit rules over your own option trades | `read-only` | yes |
+| [`canary edge`](#canary-edge) | Desk | Review past trading decisions using broker records; replay long-option exit rules over your own option trades; count each forward test's decisions | `read-only` | yes |
 | [`canary scorecard`](#canary-scorecard) | Desk | Score past decisions per strategy against the underlying's own history, with sequential evidence and gates | `read-only` | yes |
 | [`canary short-interest`](#canary-short-interest) | Desk | Screen FINRA short positions across US equities | `read-only` | yes |
 | [`canary lending`](#canary-lending) | Desk | Read lending income, borrowing fees and stock market context | `read-only` | yes |
@@ -634,16 +634,17 @@ canary brief [--details] [--json]
 
 ## `canary edge`
 
-Review past trading decisions using broker records; replay long-option exit rules over your own option trades.
+Review past trading decisions using broker records; replay long-option exit rules over your own option trades; count each forward test's decisions.
 
 Guard `read-only`. Also available as an MCP tool.
 
 ```text
 canary edge [--window 90d|365d] [--horizon 1|5|20] [--limit N] [--change ID] [--option ID] [--option-offset N] [--option-limit N] [--all-options] [--json]
 canary edge replay [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--rules A,B,C,D,loss_exit,...] [--json]
+canary edge tests [RULE] [--all] [--json]
 ```
 
-Subcommands: `replay`.
+Subcommands: `replay`, `tests`.
 
 **Flags**
 
@@ -660,6 +661,7 @@ Subcommands: `replay`.
 | `--from` | yes | - |
 | `--to` | yes | - |
 | `--rules` | yes | - |
+| `--all` | no | - |
 | `--json` | no | - |
 
 ## `canary scorecard`

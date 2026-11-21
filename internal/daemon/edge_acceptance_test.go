@@ -64,6 +64,8 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 		t.Fatalf("exact-linked broker-actual option result mismatch: %+v", core.Options)
 	}
 
+	core90 := core
+	core90.WindowDays, core90.Changes = 90, nil
 	port := 4001
 	srv := &Server{
 		cfg:       &config.Resolved{Gateway: config.Gateway{Account: account, Port: &port}, Flex: config.Flex{Enabled: true, QueryID: "424242"}},
@@ -72,7 +74,7 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 	scope := srv.currentBrokerStateScope()
 	publication := edgePublication{
 		ScopeFingerprint: edgeScopeFingerprint(scope), EvidenceFingerprint: evidenceFingerprint,
-		State: rpc.EdgeStateCurrent, Windows: map[string]edgecore.Result{"365d": core},
+		State: rpc.EdgeStateCurrent, Windows: map[string]edgecore.Result{"365d": core, "90d": core90},
 		LastFullRevalidation: now, UpdatedAt: now,
 	}
 	if err := srv.saveEdgePublication(t.Context(), publication); err != nil {
@@ -93,6 +95,33 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 	}
 	if len(result.Findings) != 3 || result.Findings[0].Symbol != "GAMMA" || result.Findings[0].Action != edgecore.ActionAdd || result.Findings[1].DecisionImpactBase <= 0 {
 		t.Fatalf("decision-useful finding rank mismatch: %+v", result.Findings)
+	}
+	// No rule is registered for this account yet, so none is counted: the
+	// sample is absent, not zero. Registered before every decision, each
+	// rule is counted from the published review.
+	for _, test := range result.ForwardTests {
+		if test.Sample != nil {
+			t.Fatalf("rule %s counted before it was registered", test.ID)
+		}
+	}
+	srv.now = func() time.Time { return now.AddDate(-2, 0, 0) }
+	if err := srv.registerEdgeForwardTests(t.Context(), edgeScopeFingerprint(scope)); err != nil {
+		t.Fatal(err)
+	}
+	srv.now = func() time.Time { return now }
+	// Asked for the 90-day window, the rules still count from the full
+	// review: the 90-day result here holds no decision at all.
+	counted, err := srv.handleEdgeSnapshot(t.Context(), &rpc.Request{Params: []byte(`{"window":"90d","horizon_sessions":20,"limit":3}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range counted.ForwardTests {
+		if test.Sample == nil || test.Question == "" || test.Sample.WindowDays != 365 {
+			t.Fatalf("rule %s not counted from the full review: %+v", test.ID, test)
+		}
+		if test.ID == "entries_vs_nearby_day" && test.Sample.Test.Final+test.Sample.Test.Pending == 0 {
+			t.Fatalf("the review's entries were not counted: %+v", test.Sample)
+		}
 	}
 	// The two option changes count as decisions to score; no close was
 	// retained for them, so they are in the denominator without a figure,
