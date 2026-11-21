@@ -40,10 +40,13 @@ A spread is left out of tests 2 to 7, by the sentence each of those rules
 ends with, with the reason `part_of_spread` ("part of a spread"). An option
 change is a spread leg when its order also traded another option contract on
 the same underlying (`spreadLegs`). The order is the one the statement links
-the executions to: each option `Change` carries `Order`, an opaque key of the
-account, the IBKR order id and the day (`exactOrderKey`, the key the option
-episodes group by as `exact_order`), never the broker id itself; contracts
-are told apart by symbol. Trade form (tests 2, 3, 4, 7): the decision that
+the executions to. The legs of a combination order each carry their own
+IBKR order id (`ibOrderID`) and share the broker's order id
+(`brokerageOrderID`, kept as `flexstmt.Trade.BrokerOrderID`). Each option
+`Change` carries `Order`, an opaque key of the account, the broker's order
+id and the day, or of the order id where a row has no broker order id
+(`changeOrderKey`), never the broker id itself; contracts are told apart by
+symbol. Trade form (tests 2, 3, 4, 7): the decision that
 is a leg is left out of its unit, as a decision without a result is, and a
 unit left with none gives no result (`notSpread`, and `countOptionBuys` for
 a contract-week). Position form (tests 5, 6): a position with any change
@@ -65,6 +68,10 @@ underlyings), and `TestAnalyzeOptionChangesCarryTheirOrder`.
 - The answered display, below.
 - Count a spread as one trade, with its net cost and net result; and
   recognise a spread built from separate orders.
+- Group a combination order's legs into one option episode. The episodes
+  (`exact_order`) still key on the IBKR order id, which each leg carries on
+  its own, so a real combination order shows as one episode per leg; the
+  broker's order id that the legs share is not used there yet.
 - Telling a stop placed at the broker by hand from a sale the holder chose:
   the statements Canary reads carry no order type.
 

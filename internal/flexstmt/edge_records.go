@@ -30,17 +30,21 @@ type SectionCoverage struct {
 // Trade is one execution-level Flex trade row. Broker identifiers remain
 // internal evidence and are never public API fields.
 type Trade struct {
-	RecordID           string
-	AccountID          string
-	ConID              int64
-	UnderlyingConID    int64
-	Symbol             string
-	UnderlyingSymbol   string
-	AssetClass         string
-	Currency           string
-	FXRateToBase       *float64
-	TradeID            string
-	OrderID            string
+	RecordID         string
+	AccountID        string
+	ConID            int64
+	UnderlyingConID  int64
+	Symbol           string
+	UnderlyingSymbol string
+	AssetClass       string
+	Currency         string
+	FXRateToBase     *float64
+	TradeID          string
+	OrderID          string
+	// BrokerOrderID is the broker's own order id (brokerageOrderID). The
+	// legs of one combination order each carry their own OrderID and share
+	// this one.
+	BrokerOrderID      string
 	ExecutionID        string
 	TransactionID      string
 	ExecutedAt         time.Time
@@ -182,6 +186,7 @@ type xmlTrade struct {
 	ReportDate, Side, Quantity, Price, Multiplier, Proceeds     string
 	Commission, CommissionCurrency, Taxes, OpenClose, CostBasis string
 	RealizedPNL, MTMPNL, ClosePrice, NetCash, LevelOfDetail     string
+	BrokerOrderID                                               string
 }
 
 func (v *xmlTrade) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -196,6 +201,7 @@ func (v *xmlTrade) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	v.FXRateToBase = attrs["fxRateToBase"]
 	v.TradeID = attrs["tradeID"]
 	v.OrderID = firstNonEmpty(attrs["ibOrderID"], attrs["orderID"])
+	v.BrokerOrderID = attrs["brokerageOrderID"]
 	v.ExecutionID = firstNonEmpty(attrs["ibExecID"], attrs["execID"])
 	v.TransactionID = attrs["transactionID"]
 	v.DateTime = attrs["dateTime"]
@@ -366,7 +372,7 @@ func parseTrades(raw xmlEdgeStatement, st *Statement) error {
 		trade := Trade{
 			AccountID: firstNonEmpty(v.AccountID, raw.AccountID, st.AccountID), ConID: conid, UnderlyingConID: underlying,
 			Symbol: clean(v.Symbol), UnderlyingSymbol: clean(v.UnderlyingSymbol), AssetClass: upper(v.AssetClass), Currency: upper(v.Currency),
-			TradeID: clean(v.TradeID), OrderID: clean(v.OrderID), ExecutionID: clean(v.ExecutionID), TransactionID: clean(v.TransactionID),
+			TradeID: clean(v.TradeID), OrderID: clean(v.OrderID), BrokerOrderID: clean(v.BrokerOrderID), ExecutionID: clean(v.ExecutionID), TransactionID: clean(v.TransactionID),
 			ExecutedAt: executed, ReportDate: reportDate, Side: upper(v.Side), CommissionCurrency: upper(v.CommissionCurrency),
 			OpenClose: upper(v.OpenClose), LevelOfDetail: upper(v.LevelOfDetail),
 		}

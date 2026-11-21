@@ -409,7 +409,9 @@ func TestForwardSampleServesWhatAReaderFilters(t *testing.T) {
 }
 
 // fwdLeg is one option change traded in an order: the contract is the
-// underlying and a strike, the order an opaque key as Edge sets it.
+// underlying and a strike, the order the opaque key Edge derives from the
+// broker's order id, which a combination order's legs share while each leg
+// carries its own order id (TestAnalyzeOptionChangesCarryTheirOrder).
 func fwdLeg(id, underlying, strike, direction, action string, days int, position *PositionOutcome, order string) Change {
 	c := fwdOption(id, underlying, action, days, position)
 	c.Symbol, c.Direction, c.Order = underlying+" 270115C00"+strike+"000", direction, order

@@ -73,6 +73,7 @@ type groupedTrade struct {
 	recordIDs             []string
 	executionIDs          []string
 	orderIDs              []string
+	brokerOrderID         string
 	tradeIDs              []string
 	underlyingConID       int64
 	underlyingSymbol      string
@@ -202,9 +203,7 @@ func Analyze(input Input) (Result, error) {
 			if strings.EqualFold(group.assetClass, "OPT") {
 				change.Position = optionPositionOutcome(change, group, optionLedger)
 				change.Underlying = strings.ToUpper(strings.TrimSpace(firstNonEmpty(group.underlyingSymbol, underlyings[group.conid])))
-				if len(group.orderIDs) > 0 {
-					change.Order = opaqueID("order", exactOrderKey(group.account, group.orderIDs[0], group.executedAt))
-				}
+				change.Order = changeOrderKey(group)
 			}
 			change.Verdict = changeVerdict(change)
 			before += part.delta
@@ -504,6 +503,9 @@ func groupTrades(trades []flexstmt.Trade, baseCurrency string, fxRates []flexstm
 			}
 			if row.OrderID != "" && !slices.Contains(g.orderIDs, row.OrderID) {
 				g.orderIDs = append(g.orderIDs, row.OrderID)
+			}
+			if g.brokerOrderID == "" {
+				g.brokerOrderID = row.BrokerOrderID
 			}
 			if row.TradeID != "" && !slices.Contains(g.tradeIDs, row.TradeID) {
 				g.tradeIDs = append(g.tradeIDs, row.TradeID)
@@ -1803,6 +1805,20 @@ func exactOrderKey(account, orderID string, at time.Time) string {
 		return ""
 	}
 	return strings.Join([]string{"order", account, orderID, dayKey(at)}, "\x00")
+}
+
+// changeOrderKey is the opaque key of the order a change was traded in: the
+// broker's order id when the statement carries one, which the legs of a
+// combination order share while each leg has its own order id; else the
+// order id, as the episodes group by. Empty when the row names neither.
+func changeOrderKey(group groupedTrade) string {
+	switch {
+	case group.brokerOrderID != "":
+		return opaqueID("order", "broker", exactOrderKey(group.account, group.brokerOrderID, group.executedAt))
+	case len(group.orderIDs) > 0:
+		return opaqueID("order", "order", exactOrderKey(group.account, group.orderIDs[0], group.executedAt))
+	}
+	return ""
 }
 
 func dayKey(v time.Time) string { return v.UTC().Format("2006-01-02") }

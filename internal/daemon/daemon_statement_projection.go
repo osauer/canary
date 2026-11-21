@@ -23,8 +23,8 @@ import (
 
 const (
 	statementProjectionScope   = "statements"
-	statementProjectionVersion = 8
-	statementProjectionStatus  = "parsed_v8"
+	statementProjectionVersion = 9
+	statementProjectionStatus  = "parsed_v9"
 	statementProjectionMaxRows = 10000
 )
 

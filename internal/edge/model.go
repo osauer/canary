@@ -184,10 +184,10 @@ type Change struct {
 	// it; empty for a stock or ETF and when the statement names none.
 	Underlying string `json:"underlying,omitempty"`
 	// Order is set for option changes only: an opaque key of the order the
-	// executions belong to, on its day, as the option episodes group them;
-	// empty when the statement links the executions to no order. Changes
-	// with the same key were traded in one order. It carries no broker
-	// identifier and is not served.
+	// executions belong to, on its day: the broker's order id, which the
+	// legs of a combination order share, else the order id; empty when the
+	// statement names neither. Changes with the same key were traded in one
+	// order. It carries no broker identifier and is not served.
 	Order                 string         `json:"order,omitempty"`
 	AssetClass            string         `json:"asset_class"`
 	Currency              string         `json:"currency,omitempty"`

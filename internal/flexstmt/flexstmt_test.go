@@ -10,7 +10,7 @@ import (
 func TestParseEdgeExecutionEvidenceAndCoverage(t *testing.T) {
 	t.Parallel()
 	xml := `<FlexQueryResponse><FlexStatements><FlexStatement accountId="U-PRIVATE" fromDate="20260101" toDate="20260131" whenGenerated="20260201;010203">
-<Trades><Trade accountId="U-PRIVATE" assetCategory="STK" currency="USD" fxRateToBase="0.92" symbol="ACME" conid="123" underlyingConid="0" underlyingSymbol="" multiplier="1" tradeID="t1" ibOrderID="o1" ibExecID="e1" transactionID="x1" dateTime="20260105;153045" tradeDate="20260105" buySell="BUY" quantity="10" tradePrice="100.25" proceeds="-1002.5" ibCommission="-1" ibCommissionCurrency="USD" taxes="0" openCloseIndicator="O" cost="1003.5" fifoPnlRealized="0" mtmPnl="2.5" closePrice="100.5" netCash="-1003.5" levelOfDetail="EXECUTION" /></Trades>
+<Trades><Trade accountId="U-PRIVATE" assetCategory="STK" currency="USD" fxRateToBase="0.92" symbol="ACME" conid="123" underlyingConid="0" underlyingSymbol="" multiplier="1" tradeID="t1" ibOrderID="o1" brokerageOrderID="b1" ibExecID="e1" transactionID="x1" dateTime="20260105;153045" tradeDate="20260105" buySell="BUY" quantity="10" tradePrice="100.25" proceeds="-1002.5" ibCommission="-1" ibCommissionCurrency="USD" taxes="0" openCloseIndicator="O" cost="1003.5" fifoPnlRealized="0" mtmPnl="2.5" closePrice="100.5" netCash="-1003.5" levelOfDetail="EXECUTION" /></Trades>
 <SecuritiesInfo><SecurityInfo assetCategory="STK" currency="USD" symbol="ACME" description="ACME CORP" conid="123" multiplier="1" listingExchange="NYSE" /></SecuritiesInfo>
 <OpenPositions><OpenPosition accountId="U-PRIVATE" assetCategory="STK" currency="USD" fxRateToBase="0.92" symbol="ACME" conid="123" reportDate="20260131" position="10" multiplier="1" markPrice="110" costBasisPrice="100.35" costBasisMoney="1003.5" fifoPnlUnrealized="96.5" side="Long" openDateTime="20260105;153045" levelOfDetail="SUMMARY" /></OpenPositions>
 <OptionEAE><OptionEAE accountId="U-PRIVATE" assetCategory="OPT" currency="USD" fxRateToBase="0.92" symbol="ACME  260116C00100000" conid="456" underlyingConid="123" underlyingSymbol="ACME" date="20260116" transactionType="Expiration" quantity="-1" tradePrice="0" markPrice="0" proceeds="0" commisionsAndTax="0" costBasis="-200" realizedPnl="-200" mtmPnl="0" tradeID="oe1" /></OptionEAE>
@@ -31,7 +31,7 @@ func TestParseEdgeExecutionEvidenceAndCoverage(t *testing.T) {
 	if st.ManifestVersion != ManifestVersion || len(st.Coverage) != len(CanonicalQueryManifest()) {
 		t.Fatalf("manifest coverage = %q / %d", st.ManifestVersion, len(st.Coverage))
 	}
-	if len(st.Trades) != 1 || st.Trades[0].ConID != 123 || st.Trades[0].OrderID != "o1" || st.Trades[0].Quantity == nil || *st.Trades[0].Quantity != 10 {
+	if len(st.Trades) != 1 || st.Trades[0].ConID != 123 || st.Trades[0].OrderID != "o1" || st.Trades[0].BrokerOrderID != "b1" || st.Trades[0].Quantity == nil || *st.Trades[0].Quantity != 10 {
 		t.Fatalf("trade = %+v", st.Trades)
 	}
 	if len(st.Positions) != 1 || st.Positions[0].Quantity == nil || *st.Positions[0].Quantity != 10 {
