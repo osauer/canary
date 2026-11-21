@@ -163,7 +163,7 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 		row.Name, row.Provider, row.Kind = spec.name, spec.provider, "market_events"
 		rows = append(rows, row)
 	}
-	if row := reportingDataHealth(s.handleReportingStatus); row != nil {
+	if row := reportingDataHealth(s.handleReportingStatus, now); row != nil {
 		rows = append(rows, *row)
 	}
 	// These owners expose retained snapshots rather than acquisition callbacks.
@@ -189,7 +189,7 @@ func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, strin
 // Statement health uses the reporting handler's full read budget. A short
 // inventory timeout must not turn a valid full-year projection into a storage
 // warning; actual failed reads still publish the handler's unavailable verdict.
-func reportingDataHealth(read func(context.Context) (*rpc.ReportingStatusResult, error)) *rpc.DataSourceHealth {
+func reportingDataHealth(read func(context.Context) (*rpc.ReportingStatusResult, error), now time.Time) *rpc.DataSourceHealth {
 	timing, _ := rpc.LookupMethodTiming(rpc.MethodReportingStatus)
 	ctx, cancel := context.WithTimeout(context.Background(), timing.DaemonTimeout)
 	defer cancel()
@@ -208,10 +208,27 @@ func reportingDataHealth(read func(context.Context) (*rpc.ReportingStatusResult,
 	default:
 		row.State, row.Receiving = "limited", "Coverage incomplete"
 	}
-	if row.State != "current" {
+	if row.State == "limited" && statementWaitIsScheduled(report, now) {
+		row.State, row.Receiving = "not_due", "As scheduled"
+	}
+	if row.State != "current" && row.State != "not_due" {
 		row.ProblemIDs = []string{row.ID}
 	}
 	return &row
+}
+
+// statementWaitIsScheduled reports the daily seam between New York midnight,
+// when the next statement becomes due, and Canary's own first Flex check: the
+// broker check waits for its window and every earlier statement is in, so
+// the row is on schedule. A gap older than the newly due statement is not.
+func statementWaitIsScheduled(report *rpc.ReportingStatusResult, now time.Time) bool {
+	if report.Broker.State != rpc.ReconReportStateWaiting || report.Broker.Reason != rpc.ReconReportReasonBeforeDailyWindow ||
+		report.Reason != rpc.ReconReportReasonBeforeDailyWindow || report.Evidence.CoverageTo.IsZero() {
+		return false
+	}
+	target, _ := flexDailyWindow(now)
+	previous := latestCompletedFlexDate(time.Date(target.Year(), target.Month(), target.Day(), 12, 0, 0, 0, flexReportingLocation()))
+	return !report.Evidence.CoverageTo.Before(previous)
 }
 
 func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
