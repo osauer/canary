@@ -282,12 +282,11 @@ entries against a nearby day, option buys against the Rulebook's premium
 budget, option buys after a Regime warning session, final option sales
 against the contract's close five sessions later, a floor under what is
 left after a partial sale, and option sales made after the underlying moved
-against the position. In the four tests about sales, a sale sent by
-Canary's protection is counted separately from a sale the holder chose and
-does not count toward the test. Canary knows this only for orders its own
-protection sent: a stop the holder placed at the broker directly counts
-with the sales the holder chose, because the statement fields Canary reads
-carry no order type.
+against the position. In the four tests about sales, every sale counts,
+whoever sent it. Where Canary knows it, the screen shows beside a count how
+many of those sales its own protection sent. A stop placed at the broker
+directly is not recognised as one, because the statement fields Canary
+reads carry no order type.
 
 ### What is recorded at each US close
 
@@ -368,12 +367,11 @@ result and why, and the test in plain words. `--json` carries the same per
 test in `forward_tests[]`: `state`, `needs`, `sample.can_fill` with its
 reason, and the counts.
 
-In the four tests about sales, a sale sent by Canary's protection is
-counted separately from a sale you chose, and does not count toward the
-number needed. A stop you placed at the broker yourself counts with the
-sales you chose: the statements Canary reads carry no order type, so it
-cannot recognise one. When the protection evidence cannot be served for a
-reply, those sales count in neither.
+In the four tests about sales, every sale counts, whoever sent it. Where
+Canary knows it, the screen shows beside a count how many of those sales
+its own protection sent (`sample.sent_by_protection` in the JSON). A stop
+placed at the broker directly is not recognised as one: the statements
+Canary reads carry no order type.
 
 The test about the premium budget asks whether buying within the line
 pays, not whether the line was kept: it compares the results of buys made

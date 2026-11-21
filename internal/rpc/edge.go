@@ -319,9 +319,10 @@ type EdgeForwardTest struct {
 	Groups      []EdgeForwardGroup `json:"groups,omitempty"`
 	SampleLabel string             `json:"sample_label,omitempty"`
 	Policy      string             `json:"policy,omitempty"`
-	// ProtectionApart: a sale Canary's protection sent is counted
-	// separately and not toward the number needed.
-	ProtectionApart bool `json:"protection_apart,omitempty"`
+	// AboutSales marks the tests about sales. Every sale counts, whoever
+	// sent it; the count says, as information, how many Canary's protection
+	// sent (EdgeForwardSample.SentByProtection).
+	AboutSales bool `json:"about_sales,omitempty"`
 	// NotSorted says what this version does not work out to sort the
 	// test's units (group not_sorted); CannotSort why a unit has no record
 	// to sort it by (group cannot_sort).
@@ -358,9 +359,10 @@ const (
 // Test is the sample the test is answered on, split in Groups: group all is
 // a test without groups, not_sorted holds units whose group fact this
 // version does not work out, cannot_sort units with no record to sort them
-// by. Protection, for the tests about sales, is the sample of sales Canary's
-// protection sent, counted separately; SenderUnknown counts sale units whose
-// sender could not be told for this reply, in neither sample. Excluded
+// by. Every sale counts in Test, whoever sent it. SentByProtection, for the
+// tests about sales and only while the protection evidence is current,
+// says how many of the counted units Canary's protection sent: information
+// that changes no count and no date. Excluded
 // counts units that give no result, by reason, and NotCounted and
 // WaitingUnits name them. Months counts, per month since registration, the
 // final units that count toward the number needed. Expected dates a full
@@ -373,27 +375,26 @@ const (
 // kept beyond the window yet). AnswersBuilt is false: this version counts
 // and does not answer.
 type EdgeForwardSample struct {
-	State         string                  `json:"state"`
-	AsOf          time.Time               `json:"as_of"`
-	WindowDays    int                     `json:"window_days"`
-	AnswersBuilt  bool                    `json:"answers_built"`
-	UnitsStored   bool                    `json:"units_stored"`
-	Test          EdgeForwardCount        `json:"test"`
-	Groups        []EdgeForwardGroupCount `json:"groups"`
-	Protection    *EdgeForwardCount       `json:"protection,omitempty"`
-	SenderUnknown int                     `json:"sender_unknown"`
-	Excluded      map[string]int          `json:"excluded"`
-	FirstUnit     string                  `json:"first_unit,omitempty"`
-	LastUnit      string                  `json:"last_unit,omitempty"`
-	Months        []EdgeForwardMonth      `json:"months"`
-	ToFill        int                     `json:"to_fill"`
-	Expected      *EdgeForwardExpected    `json:"expected,omitempty"`
-	NoDate        string                  `json:"no_date,omitempty"`
-	CanFill       bool                    `json:"can_fill"`
-	CannotFill    string                  `json:"cannot_fill,omitempty"`
-	WaitingUnits  []EdgeForwardUnit       `json:"waiting_units"`
-	NotCounted    []EdgeForwardUnit       `json:"not_counted"`
-	Today         *EdgeForwardToday       `json:"today,omitempty"`
+	State            string                  `json:"state"`
+	AsOf             time.Time               `json:"as_of"`
+	WindowDays       int                     `json:"window_days"`
+	AnswersBuilt     bool                    `json:"answers_built"`
+	UnitsStored      bool                    `json:"units_stored"`
+	Test             EdgeForwardCount        `json:"test"`
+	Groups           []EdgeForwardGroupCount `json:"groups"`
+	SentByProtection *EdgeForwardCount       `json:"sent_by_protection,omitempty"`
+	Excluded         map[string]int          `json:"excluded"`
+	FirstUnit        string                  `json:"first_unit,omitempty"`
+	LastUnit         string                  `json:"last_unit,omitempty"`
+	Months           []EdgeForwardMonth      `json:"months"`
+	ToFill           int                     `json:"to_fill"`
+	Expected         *EdgeForwardExpected    `json:"expected,omitempty"`
+	NoDate           string                  `json:"no_date,omitempty"`
+	CanFill          bool                    `json:"can_fill"`
+	CannotFill       string                  `json:"cannot_fill,omitempty"`
+	WaitingUnits     []EdgeForwardUnit       `json:"waiting_units"`
+	NotCounted       []EdgeForwardUnit       `json:"not_counted"`
+	Today            *EdgeForwardToday       `json:"today,omitempty"`
 }
 
 // EdgeForwardCount is final units and units waiting for a result.
@@ -471,9 +472,9 @@ func validateEdgeForwardTest(test EdgeForwardTest) error {
 	if sample == nil || sample.State != test.State || test.NotCountedReason != "" {
 		return fmt.Errorf("an Edge forward-test state without its count")
 	}
-	counts := []int{sample.Test.Final, sample.Test.Waiting, sample.SenderUnknown, sample.ToFill}
-	if sample.Protection != nil {
-		counts = append(counts, sample.Protection.Final, sample.Protection.Waiting)
+	counts := []int{sample.Test.Final, sample.Test.Waiting, sample.ToFill}
+	if p := sample.SentByProtection; p != nil {
+		counts = append(counts, p.Final, p.Waiting)
 	}
 	for _, g := range sample.Groups {
 		if g.ID == "" {

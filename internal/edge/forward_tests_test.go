@@ -12,13 +12,13 @@ import (
 // commit that its sample starts again.
 func TestForwardTestRulesAreFrozen(t *testing.T) {
 	want := map[string]string{
-		"stock_sales_vs_nearby_day":              "rule_c9e0489a0aef6a32637a2ba4b8d15d9a",
+		"stock_sales_vs_nearby_day":              "rule_0af7db65e5e3f6dc4641cf80537d503b",
 		"entries_vs_nearby_day":                  "rule_742d0cea4369ee2f041f2e71c936d15f",
 		"option_buys_below_premium_line":         "rule_e1d8f6f61998ddfa89ecabd779895cce",
 		"option_buys_after_regime_warning":       "rule_1f4b514c8ba19305e2520fd867497e48",
-		"final_option_sales_vs_close_5_sessions": "rule_ad408b7c72365e7e58be56547b8d5eb2",
-		"floor_after_partial_sale":               "rule_5c015c7e5d4dd217201b6d930845412d",
-		"option_sales_after_adverse_move":        "rule_fb553fb9554ce22692bdfaa54d850dbb",
+		"final_option_sales_vs_close_5_sessions": "rule_1680268bd2c3ccabf6c76ffa78242116",
+		"floor_after_partial_sale":               "rule_fe3b796cd18c60c6fc791bd829d3dce3",
+		"option_sales_after_adverse_move":        "rule_f82d08e64e6846534001fa0325963079",
 	}
 	tests := ForwardTests()
 	if len(tests) != len(want) {

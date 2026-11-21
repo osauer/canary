@@ -215,9 +215,10 @@ func TestEdgeForwardFifthSessionFollowsTheCalendar(t *testing.T) {
 }
 
 // A reply counts each registered rule from the published review: only
-// decisions after registration, protection sales apart while the evidence
-// is served and in neither sample while it is withheld, a buy grouped by
-// the record of the close before it, and a buy now by the latest record.
+// decisions after registration, every sale whoever sent it (which ones
+// Canary's protection sent is said only while that evidence is served), a
+// buy grouped by the record of the close before it, and a buy now by the
+// latest record.
 // A rule not registered has no sample: absent, not zero.
 func TestEdgeForwardTestsAreCountedFromTheReview(t *testing.T) {
 	ny := edgeNewYork()
@@ -265,7 +266,7 @@ func TestEdgeForwardTestsAreCountedFromTheReview(t *testing.T) {
 		t.Fatalf("a test that is not registered was counted: %+v", test)
 	}
 	sales := byID["stock_sales_vs_nearby_day"].Sample
-	if sales == nil || sales.Test.Final != 1 || sales.Protection == nil || sales.Protection.Final != 1 || sales.ToFill != 79 || sales.State != rpc.EdgeForwardCollecting || sales.AnswersBuilt || sales.UnitsStored || sales.WindowDays != 365 {
+	if sales == nil || sales.Test.Final != 2 || sales.SentByProtection == nil || sales.SentByProtection.Final != 1 || sales.ToFill != 78 || sales.State != rpc.EdgeForwardCollecting || sales.AnswersBuilt || sales.UnitsStored || sales.WindowDays != 365 {
 		t.Fatalf("stock sales sample = %+v", sales)
 	}
 	regime := byID["option_buys_after_regime_warning"].Sample
@@ -288,13 +289,13 @@ func TestEdgeForwardTestsAreCountedFromTheReview(t *testing.T) {
 		}
 	}
 
-	// Protection evidence withheld from the reply: the sales are in neither
-	// sample, never counted as the holder's.
+	// Protection evidence withheld from the reply: the sales still count,
+	// and which of them Canary's protection sent is not said.
 	for i := range tests {
 		tests[i].Sample = nil
 	}
 	s.countEdgeForwardTests(t.Context(), tests, edgeForwardEvidence{result: review, protectionKnown: false})
-	if sales := byID["stock_sales_vs_nearby_day"].Sample; sales.Test.Final != 0 || sales.Protection.Final != 0 || sales.SenderUnknown != 2 {
+	if sales := byID["stock_sales_vs_nearby_day"].Sample; sales.Test.Final != 2 || sales.SentByProtection != nil || sales.ToFill != 78 || sales.Expected == nil {
 		t.Fatalf("withheld protection: %+v", sales)
 	}
 }

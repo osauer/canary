@@ -10,7 +10,7 @@ Collecting ───────────────────────
   After you sell a stock, does it do worse than it does after a later day?
     helps with selling                                stock_sales_vs_nearby_day
     counts each stock or ETF once per week with a sale
-    sales you chose          ░░░░░░░░░░░░░░░░░░░░░░░░    0 of 80   +1 waiting
+    sales                    ░░░░░░░░░░░░░░░░░░░░░░░░    0 of 80   +1 waiting
     at last year's pace                                full about Sep 2027
 
   Do your entries do better than the same entry on a random nearby day?
@@ -74,8 +74,6 @@ Collecting ───────────────────────
   waiting: a trade whose result is not known yet
   * more than a year away, and Canary counts only the last 365 days: this count
     cannot fill in this version
-  In the tests about sales, a stop you placed at the broker yourself counts
-  with the sales you chose: Canary cannot recognise it.
 One test in full: canary edge tests <name> · all in full: --all · data: --json
 # canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour on, ESC written as \x1b
 \x1b[1mForward tests\x1b[0m  7 tests · none full · next about May 2027
@@ -89,7 +87,7 @@ One test in full: canary edge tests <name> · all in full: --all · data: --json
   \x1b[1mAfter you sell a stock, does it do worse than it does after a later day?\x1b[0m
     helps with selling                                stock_sales_vs_nearby_day
     counts each stock or ETF once per week with a sale
-    sales you chose          \x1b[2m░░░░░░░░░░░░░░░░░░░░░░░░\x1b[0m    0 of 80   +1 waiting
+    sales                    \x1b[2m░░░░░░░░░░░░░░░░░░░░░░░░\x1b[0m    0 of 80   +1 waiting
     at last year's pace                                full about Sep 2027
 
   \x1b[1mDo your entries do better than the same entry on a random nearby day?\x1b[0m
@@ -153,6 +151,4 @@ One test in full: canary edge tests <name> · all in full: --all · data: --json
   waiting: a trade whose result is not known yet
   * more than a year away, and Canary counts only the last 365 days: this count
     cannot fill in this version
-  In the tests about sales, a stop you placed at the broker yourself counts
-  with the sales you chose: Canary cannot recognise it.
 One test in full: canary edge tests <name> · all in full: --all · data: --json

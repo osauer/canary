@@ -29,7 +29,7 @@ func goldenForwardRules() []rpc.EdgeForwardTest {
 		test := rpc.EdgeForwardTest{ID: rule.ID, Title: rule.Title, Rule: rule.Rule, RuleHash: rule.RuleHash(), RegisteredAt: goldenForwardRegistered,
 			Question: facts.Question, Informs: facts.Informs, Condition: facts.Condition, Unit: facts.Unit, UnitText: facts.UnitText,
 			Needs: facts.Needs, NeedsGroup: facts.NeedsGroup, NeedsDays: facts.NeedsDays, SampleLabel: facts.SampleLabel, Policy: facts.Policy,
-			ProtectionApart: facts.ProtectionApart, NotSorted: facts.NotSorted, CannotSort: facts.CannotSort, PaceNoun: facts.PaceNoun, InShort: facts.InShort}
+			AboutSales: facts.AboutSales, NotSorted: facts.NotSorted, CannotSort: facts.CannotSort, PaceNoun: facts.PaceNoun, InShort: facts.InShort}
 		for _, g := range facts.Groups {
 			test.Groups = append(test.Groups, rpc.EdgeForwardGroup{ID: g.ID, Label: g.Label})
 		}
@@ -99,10 +99,12 @@ func goldenForwardSample(test rpc.EdgeForwardTest, c goldenForwardCount, asOf ti
 	if have >= test.Needs {
 		s.State = rpc.EdgeForwardFull
 	}
-	if test.ProtectionApart {
-		s.Protection = &rpc.EdgeForwardCount{}
+	// The protection evidence is current in these replies: a sale test says
+	// how many of its counted units Canary's protection sent.
+	if test.AboutSales {
+		s.SentByProtection = &rpc.EdgeForwardCount{}
 		if c.protection != nil {
-			s.Protection.Final, s.Protection.Waiting = c.protection[0], c.protection[1]
+			s.SentByProtection.Final, s.SentByProtection.Waiting = c.protection[0], c.protection[1]
 		}
 	}
 	month := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)

@@ -51,15 +51,6 @@ const (
 	ForwardNeedsAnyGroup = "any"
 )
 
-// Samples a unit belongs to. A sale Canary's protection sent is counted
-// separately, and a sale whose sender cannot be told this time counts in
-// neither.
-const (
-	forwardSampleTest       = "test"
-	forwardSampleProtection = "protection"
-	forwardSampleUnknown    = "sender_unknown"
-)
-
 // States of one unit: its result is known (final), not known yet
 // (waiting), or it gives none (excluded).
 const (
@@ -82,7 +73,6 @@ const (
 const (
 	ForwardNoDateNotWorkedOut = "group_not_worked_out"
 	ForwardNoDateNoPace       = "no_pace"
-	ForwardNoDateSenderUnread = "sender_not_known"
 	// ForwardNoDateNotRecorded: the trades before registration that would
 	// set the pace have no record of the fact that sorts them.
 	ForwardNoDateNotRecorded = "not_recorded_before"
@@ -137,9 +127,10 @@ type ForwardFacts struct {
 	SampleLabel string `json:"sample_label"`
 	// Policy names the written policy the test asks about, if any.
 	Policy string `json:"policy,omitempty"`
-	// ProtectionApart is set for the tests about sales: a sale Canary's
-	// protection sent is counted separately and not toward the number.
-	ProtectionApart bool `json:"protection_apart"`
+	// AboutSales is set for the tests about sales. Every sale counts,
+	// whoever sent it; the count also says how many of its units Canary's
+	// protection sent, as information.
+	AboutSales bool `json:"about_sales"`
 	// NotSorted says what this version does not work out to sort the
 	// units; empty when it can sort them.
 	NotSorted string `json:"not_sorted,omitempty"`
@@ -162,14 +153,12 @@ func ForwardTestFacts(id string) (ForwardFacts, bool) {
 	return facts, true
 }
 
-const forwardProtectionShort = " A sale sent by Canary's protection is counted separately."
-
 var forwardFacts = map[string]ForwardFacts{
 	"stock_sales_vs_nearby_day": {
 		Question: "After you sell a stock, does it do worse than it does after a later day?",
 		Informs:  []string{ForwardInformsSell}, Unit: ForwardUnitNameWeek, UnitText: "each stock or ETF once per week with a sale",
-		Needs: 80, NeedsGroup: ForwardGroupAll, SampleLabel: "sales you chose", ProtectionApart: true, PaceNoun: "stock sale",
-		InShort: "Each stock or ETF you sell counts once per week. Canary looks at how the name moved over the five sessions after your sale and compares that with the same sale placed on a random later day, 2,000 times. The test holds if the name did worse after your sales than in nine out of ten of those runs, in the earlier and in the later half of the sample. It is answered once, at 80." + forwardProtectionShort,
+		Needs: 80, NeedsGroup: ForwardGroupAll, SampleLabel: "sales", AboutSales: true, PaceNoun: "stock sale",
+		InShort: "Each stock or ETF you sell counts once per week. Canary looks at how the name moved over the five sessions after your sale and compares that with the same sale placed on a random later day, 2,000 times. The test holds if the name did worse after your sales than in nine out of ten of those runs, in the earlier and in the later half of the sample. It is answered once, at 80.",
 	},
 	"entries_vs_nearby_day": {
 		Question: "Do your entries do better than the same entry on a random nearby day?",
@@ -203,29 +192,29 @@ var forwardFacts = map[string]ForwardFacts{
 		Informs:   []string{ForwardInformsHold, ForwardInformsSell},
 		Condition: "the sale price against the position's average cost",
 		Unit:      ForwardUnitPosition, UnitText: "each closed single-name option position once",
-		Needs: 30, NeedsGroup: ForwardNeedsAnyGroup, ProtectionApart: true,
+		Needs: 30, NeedsGroup: ForwardNeedsAnyGroup, AboutSales: true,
 		Groups:     []ForwardGroup{{ID: "above_cost", Label: "sold above cost"}, {ID: "below_cost", Label: "sold below cost"}},
 		CannotSort: "the sale price or the position's average cost is missing", PaceNoun: "closing option sale",
-		InShort: "Each single-name option position you close by a sale counts once. Canary compares the contract's closing quote five sessions later with the price you took. Positions sold above their average cost and positions sold below it are looked at separately, and neither is answered before it holds 30. It counts as a finding only if a group's average move points the same way in the earlier and the later half and its 95% confidence interval leaves out zero." + forwardProtectionShort,
+		InShort: "Each single-name option position you close by a sale counts once. Canary compares the contract's closing quote five sessions later with the price you took. Positions sold above their average cost and positions sold below it are looked at separately, and neither is answered before it holds 30. It counts as a finding only if a group's average move points the same way in the earlier and the later half and its 95% confidence interval leaves out zero.",
 	},
 	"floor_after_partial_sale": {
 		Question:  "After a partial sale, would a floor at that sale's price have protected what was left?",
 		Informs:   []string{ForwardInformsSell},
 		Condition: "the remainder's statement value against the price of the last partial sale",
 		Unit:      ForwardUnitPartialPosition, UnitText: "each single-name option position with a partial sale once, when it has closed",
-		Needs: 40, NeedsGroup: ForwardGroupAll, SampleLabel: "positions", ProtectionApart: true, PaceNoun: "partial sale",
-		InShort: "Each single-name option position with a partial sale counts once, when it has closed. The price of the last partial sale is treated as a floor under what was left. The floor is wrong if the rest closed for at least that price anyway, or if selling the rest on the first day its value fell below the floor did no better than selling it on a random day. It is answered once, at 40 positions." + forwardProtectionShort,
+		Needs: 40, NeedsGroup: ForwardGroupAll, SampleLabel: "positions", AboutSales: true, PaceNoun: "partial sale",
+		InShort: "Each single-name option position with a partial sale counts once, when it has closed. The price of the last partial sale is treated as a floor under what was left. The floor is wrong if the rest closed for at least that price anyway, or if selling the rest on the first day its value fell below the floor did no better than selling it on a random day. It is answered once, at 40 positions.",
 	},
 	"option_sales_after_adverse_move": {
 		Question:  "After the underlying moved against you, is an option you sell worth more or less five sessions later?",
 		Informs:   []string{ForwardInformsHold, ForwardInformsSell},
 		Condition: "the underlying's move over the last five sessions, in expected moves",
 		Unit:      ForwardUnitNameWeek, UnitText: "each name once per week with an option sale",
-		Needs: 50, NeedsGroup: "against", ProtectionApart: true,
+		Needs: 50, NeedsGroup: "against", AboutSales: true,
 		Groups:    []ForwardGroup{{ID: "against", Label: "after a move against"}, {ID: "in_favour", Label: "after a move in favour"}},
 		PaceNoun:  "option sale",
 		NotSorted: "Canary cannot sort these sales yet: this version does not work out the underlying's five-session move in expected moves. Until it does, no count can grow.",
-		InShort:   "Each name whose option you sell counts once per week. Sales are sorted by what the underlying did over the five sessions before: against your position by half an expected move or more, in its favour by as much, or neither. Canary compares the contract's closing quote five sessions after the sale with the price you took. Selling after a move against you counts as too early only if those contracts were worth more on average in both halves, with a 95% confidence interval that leaves out zero, and by more than after a move in your favour. It is answered once, at 50." + forwardProtectionShort,
+		InShort:   "Each name whose option you sell counts once per week. Sales are sorted by what the underlying did over the five sessions before: against your position by half an expected move or more, in its favour by as much, or neither. Canary compares the contract's closing quote five sessions after the sale with the price you took. Selling after a move against you counts as too early only if those contracts were worth more on average in both halves, with a 95% confidence interval that leaves out zero, and by more than after a move in your favour. It is answered once, at 50.",
 	},
 }
 
@@ -240,7 +229,8 @@ type ForwardCountInput struct {
 	// sessions are over only by then.
 	AsOf time.Time
 	// ProtectionKnown is false when protection evidence was withheld from
-	// the reply; sales then count in neither sample.
+	// the reply. Sales count either way; only which of them Canary's
+	// protection sent is then not marked.
 	ProtectionKnown bool
 	// Zone is New York; weeks and days are its dates.
 	Zone *time.Location
@@ -254,14 +244,16 @@ type ForwardCountInput struct {
 
 // ForwardUnit is one counted unit of a test. Label names it for a reader:
 // the name of a name-week, the contract of a contract-week or position.
+// Protection marks a unit of a test about sales that Canary's protection
+// sent, when that is known; it is information and changes no count.
 type ForwardUnit struct {
-	Key    string
-	Label  string
-	Group  string
-	Sample string
-	Date   time.Time
-	State  string
-	Reason string
+	Key        string
+	Label      string
+	Group      string
+	Protection bool
+	Date       time.Time
+	State      string
+	Reason     string
 }
 
 // CountForwardUnits turns changes into the units of the rule with this id.
@@ -279,28 +271,28 @@ func CountForwardUnits(id string, in ForwardCountInput) []ForwardUnit {
 	slices.SortStableFunc(changes, func(a, b Change) int { return a.ExecutedAt.Compare(b.ExecutedAt) })
 	switch id {
 	case "stock_sales_vs_nearby_day":
-		return in.countWeeks(changes, func(c Change) bool { return stockLike(c) && longSale(c) }, true, ForwardGroupAll, in.stockSaleState)
+		return in.countWeeks(changes, func(c Change) bool { return stockLike(c) && longSale(c) }, ForwardGroupAll, in.stockSaleState)
 	case "entries_vs_nearby_day":
 		units := in.countWeeks(changes, func(c Change) bool {
 			return longEntry(c) && (stockLike(c) || isOption(c) && singleName(c))
-		}, false, ForwardGroupAll, in.entryState)
-		return append(units, in.unnamed(changes, longEntry, false)...)
+		}, ForwardGroupAll, in.entryState)
+		return append(units, in.unnamed(changes, longEntry)...)
 	case "option_buys_below_premium_line":
 		return in.countOptionBuys(changes, func(Change) bool { return true }, func(Change) string { return ForwardGroupNotSorted })
 	case "option_buys_after_regime_warning":
 		units := in.countOptionBuys(changes, singleName, in.regimeGroup)
-		return append(units, in.unnamed(changes, longEntry, false)...)
+		return append(units, in.unnamed(changes, longEntry)...)
 	case "final_option_sales_vs_close_5_sessions":
 		units := in.countFinalSales(changes)
-		return append(units, in.unnamed(changes, func(c Change) bool { return c.Direction == DirectionLong && c.Action == ActionExit }, true)...)
+		return append(units, in.unnamed(changes, func(c Change) bool { return c.Direction == DirectionLong && c.Action == ActionExit })...)
 	case "floor_after_partial_sale":
 		units := in.countPartialSales(changes)
-		return append(units, in.unnamed(changes, func(c Change) bool { return c.Direction == DirectionLong && c.Action == ActionTrim }, true)...)
+		return append(units, in.unnamed(changes, func(c Change) bool { return c.Direction == DirectionLong && c.Action == ActionTrim })...)
 	case "option_sales_after_adverse_move":
 		units := in.countWeeks(changes, func(c Change) bool {
 			return isOption(c) && longSale(c) && c.Underlying != "" && !strings.EqualFold(c.Underlying, "VIX")
-		}, true, ForwardGroupNotSorted, in.optionSaleState)
-		return append(units, in.unnamed(changes, longSale, true)...)
+		}, ForwardGroupNotSorted, in.optionSaleState)
+		return append(units, in.unnamed(changes, longSale)...)
 	}
 	return nil
 }
@@ -308,11 +300,11 @@ func CountForwardUnits(id string, in ForwardCountInput) []ForwardUnit {
 // unnamed gives one no-result unit per option decision of the test's kind
 // whose statement named no underlying: whether it is a single name, and
 // which name it is, cannot be told, so it is said rather than dropped.
-func (in ForwardCountInput) unnamed(changes []Change, kind func(Change) bool, apart bool) []ForwardUnit {
+func (in ForwardCountInput) unnamed(changes []Change, kind func(Change) bool) []ForwardUnit {
 	var out []ForwardUnit
 	for _, c := range changes {
 		if isOption(c) && strings.TrimSpace(c.Underlying) == "" && kind(c) {
-			out = append(out, ForwardUnit{Key: c.ID, Label: c.Symbol, Group: ForwardGroupCannotSort, Sample: in.sample(c, apart), Date: in.day(c.ExecutedAt), State: forwardUnitExcluded, Reason: ForwardExcludedUnderlyingUnset})
+			out = append(out, ForwardUnit{Key: c.ID, Label: c.Symbol, Group: ForwardGroupCannotSort, Date: in.day(c.ExecutedAt), State: forwardUnitExcluded, Reason: ForwardExcludedUnderlyingUnset})
 		}
 	}
 	return out
@@ -364,16 +356,10 @@ func (in ForwardCountInput) week(t time.Time) (string, time.Time) {
 	return fmt.Sprintf("%04d-W%02d", year, week), end
 }
 
-func (in ForwardCountInput) sample(c Change, apart bool) string {
-	switch {
-	case !apart:
-		return forwardSampleTest
-	case !in.ProtectionKnown:
-		return forwardSampleUnknown
-	case c.ProtectionContext.MatchedExecutions > 0:
-		return forwardSampleProtection
-	}
-	return forwardSampleTest
+// sentByProtection says whether Canary's protection sent the sale, when
+// the reply serves that evidence.
+func (in ForwardCountInput) sentByProtection(c Change) bool {
+	return in.ProtectionKnown && c.ProtectionContext.MatchedExecutions > 0
 }
 
 // fiveSessionsOver says whether the fifth US session after the decision has
@@ -427,11 +413,11 @@ func (in ForwardCountInput) optionSaleState(c Change) (string, string) {
 	return forwardUnitFinal, ""
 }
 
-// countWeeks counts name-weeks. With apart set, Canary's protection's sales
-// form their own name-weeks. A week is final once it is over and each of
+// countWeeks counts name-weeks. A week is final once it is over and each of
 // its decisions is; a decision that can give no reading is left out of the
-// week, and a week left with none gives no reading.
-func (in ForwardCountInput) countWeeks(changes []Change, include func(Change) bool, apart bool, group string, state func(Change) (string, string)) []ForwardUnit {
+// week, and a week left with none gives no reading. A week is marked as
+// Canary's protection's when it sent at least one sale the week counts.
+func (in ForwardCountInput) countWeeks(changes []Change, include func(Change) bool, group string, state func(Change) (string, string)) []ForwardUnit {
 	type acc struct {
 		unit             ForwardUnit
 		end              time.Time
@@ -445,21 +431,24 @@ func (in ForwardCountInput) countWeeks(changes []Change, include func(Change) bo
 			continue
 		}
 		week, end := in.week(c.ExecutedAt)
-		sample := in.sample(c, apart)
-		key := name(c) + ":" + week + ":" + sample
+		key := name(c) + ":" + week
 		a := units[key]
 		if a == nil {
-			a = &acc{unit: ForwardUnit{Key: key, Label: name(c), Group: group, Sample: sample, Date: in.day(c.ExecutedAt)}, end: end}
+			a = &acc{unit: ForwardUnit{Key: key, Label: name(c), Group: group, Date: in.day(c.ExecutedAt)}, end: end}
 			units[key] = a
 			order = append(order, key)
 		}
-		switch st, reason := state(c); st {
+		st, reason := state(c)
+		switch st {
 		case forwardUnitWaiting:
 			a.waiting++
 		case forwardUnitFinal:
 			a.results++
 		default:
 			a.reason = reason
+		}
+		if st != forwardUnitExcluded && longSale(c) && in.sentByProtection(c) {
+			a.unit.Protection = true
 		}
 	}
 	out := make([]ForwardUnit, 0, len(order))
@@ -517,7 +506,7 @@ func (in ForwardCountInput) countOptionBuys(changes []Change, include func(Chang
 		}
 		seen[key] = true
 		st, reason := positionState(c, true)
-		out = append(out, ForwardUnit{Key: key, Label: c.Symbol, Group: group(c), Sample: forwardSampleTest, Date: in.day(c.ExecutedAt), State: st, Reason: reason})
+		out = append(out, ForwardUnit{Key: key, Label: c.Symbol, Group: group(c), Date: in.day(c.ExecutedAt), State: st, Reason: reason})
 	}
 	return out
 }
@@ -557,7 +546,7 @@ func (in ForwardCountInput) countFinalSales(changes []Change) []ForwardUnit {
 		if !isOption(c) || c.Direction != DirectionLong || c.Action != ActionExit || !singleName(c) {
 			continue
 		}
-		unit := ForwardUnit{Key: c.ID, Label: c.Symbol, Group: ForwardGroupCannotSort, Sample: in.sample(c, true), Date: in.day(c.ExecutedAt)}
+		unit := ForwardUnit{Key: c.ID, Label: c.Symbol, Group: ForwardGroupCannotSort, Protection: in.sentByProtection(c), Date: in.day(c.ExecutedAt)}
 		if c.Position == nil || c.Position.PositionID == "" {
 			unit.State, unit.Reason = forwardUnitExcluded, ForwardExcludedNotProved
 			out = append(out, unit)
@@ -583,12 +572,12 @@ func (in ForwardCountInput) countFinalSales(changes []Change) []ForwardUnit {
 
 // countPartialSales counts single-name long option positions with a partial
 // sale in the sample. A position on which Canary's protection sent any sale,
-// in the window, is counted separately.
+// in the window, is marked as such.
 func (in ForwardCountInput) countPartialSales(sampled []Change) []ForwardUnit {
-	apart := map[string]bool{}
+	protected := map[string]bool{}
 	for _, c := range in.Changes {
-		if isOption(c) && longSale(c) && c.Position != nil && c.Position.PositionID != "" && c.ProtectionContext.MatchedExecutions > 0 {
-			apart[c.Position.PositionID] = true
+		if isOption(c) && longSale(c) && c.Position != nil && c.Position.PositionID != "" && in.sentByProtection(c) {
+			protected[c.Position.PositionID] = true
 		}
 	}
 	var out []ForwardUnit
@@ -597,7 +586,7 @@ func (in ForwardCountInput) countPartialSales(sampled []Change) []ForwardUnit {
 		if !isOption(c) || c.Direction != DirectionLong || c.Action != ActionTrim || !singleName(c) {
 			continue
 		}
-		unit := ForwardUnit{Key: c.ID, Label: c.Symbol, Group: ForwardGroupAll, Sample: forwardSampleTest, Date: in.day(c.ExecutedAt)}
+		unit := ForwardUnit{Key: c.ID, Label: c.Symbol, Group: ForwardGroupAll, Date: in.day(c.ExecutedAt)}
 		if c.Position != nil && c.Position.PositionID != "" {
 			if seen[c.Position.PositionID] {
 				continue
@@ -605,12 +594,7 @@ func (in ForwardCountInput) countPartialSales(sampled []Change) []ForwardUnit {
 			seen[c.Position.PositionID] = true
 			unit.Key = c.Position.PositionID
 		}
-		switch {
-		case !in.ProtectionKnown:
-			unit.Sample = forwardSampleUnknown
-		case apart[unit.Key]:
-			unit.Sample = forwardSampleProtection
-		}
+		unit.Protection = protected[unit.Key] || in.sentByProtection(c)
 		unit.State, unit.Reason = positionState(c, false)
 		out = append(out, unit)
 	}
@@ -664,21 +648,19 @@ type ForwardSample struct {
 	// Test is the sample the test is answered on; Groups splits it.
 	Test   ForwardCount        `json:"test"`
 	Groups []ForwardGroupCount `json:"groups"`
-	// Protection is the sample of sales Canary's protection sent, counted
-	// separately.
-	Protection *ForwardCount `json:"protection,omitempty"`
-	// SenderUnknown counts sale units whose sender could not be told this
-	// time; they are in neither sample.
-	SenderUnknown int              `json:"sender_unknown"`
-	Excluded      map[string]int   `json:"excluded"`
-	FirstUnit     time.Time        `json:"first_unit,omitzero"`
-	LastUnit      time.Time        `json:"last_unit,omitzero"`
-	Months        []ForwardMonth   `json:"months"`
-	ToFill        int              `json:"to_fill"`
-	Expected      *ForwardExpected `json:"expected,omitempty"`
-	NoDate        string           `json:"no_date,omitempty"`
-	CanFill       bool             `json:"can_fill"`
-	CannotFill    string           `json:"cannot_fill,omitempty"`
+	// Protection, for the tests about sales, is how many of the counted
+	// units Canary's protection sent. It is information: those units are in
+	// Test like any other.
+	Protection *ForwardCount    `json:"protection,omitempty"`
+	Excluded   map[string]int   `json:"excluded"`
+	FirstUnit  time.Time        `json:"first_unit,omitzero"`
+	LastUnit   time.Time        `json:"last_unit,omitzero"`
+	Months     []ForwardMonth   `json:"months"`
+	ToFill     int              `json:"to_fill"`
+	Expected   *ForwardExpected `json:"expected,omitempty"`
+	NoDate     string           `json:"no_date,omitempty"`
+	CanFill    bool             `json:"can_fill"`
+	CannotFill string           `json:"cannot_fill,omitempty"`
 	// WaitingUnits and NotCounted name the units of the test sample still
 	// waiting for a result and the units that give none.
 	WaitingUnits []ForwardUnitRef `json:"waiting_units"`
@@ -714,7 +696,7 @@ func SummarizeForward(facts ForwardFacts, units, paceUnits []ForwardUnit, regist
 	for i := range out.Groups {
 		groups[out.Groups[i].ID] = &out.Groups[i]
 	}
-	if facts.ProtectionApart {
+	if facts.AboutSales {
 		out.Protection = &ForwardCount{}
 	}
 	days := map[string]map[string]bool{}
@@ -727,17 +709,10 @@ func SummarizeForward(facts ForwardFacts, units, paceUnits []ForwardUnit, regist
 			out.NotCounted = append(out.NotCounted, ref)
 			continue
 		}
-		switch u.Sample {
-		case forwardSampleUnknown:
-			out.SenderUnknown++
-			continue
-		case forwardSampleProtection:
-			if out.Protection != nil {
-				tally(out.Protection, u)
-			}
-			continue
-		}
 		tally(&out.Test, u)
+		if u.Protection && out.Protection != nil {
+			tally(out.Protection, u)
+		}
 		if g := groups[u.Group]; g != nil {
 			if u.State == forwardUnitFinal {
 				g.Final++
@@ -830,7 +805,7 @@ func forwardExpected(facts ForwardFacts, sample ForwardSample, paceUnits []Forwa
 		basis, days = ForwardPacePastYear, registeredAt.Sub(asOf.AddDate(0, 0, -ForwardReviewDays)).Hours()/24
 		counts = map[string]int{}
 		for _, u := range paceUnits {
-			if u.State == forwardUnitFinal && u.Sample == forwardSampleTest && countsTowardNeeds(facts, u.Group) {
+			if u.State == forwardUnitFinal && countsTowardNeeds(facts, u.Group) {
 				counts[u.Group]++
 			}
 		}
@@ -850,8 +825,6 @@ func forwardExpected(facts ForwardFacts, sample ForwardSample, paceUnits []Forwa
 			return nil, ForwardNoDateNoneInGroup
 		case slices.ContainsFunc(paceUnits, func(u ForwardUnit) bool { return u.Group == ForwardGroupCannotSort && u.State == forwardUnitFinal }):
 			return nil, ForwardNoDateNotRecorded
-		case facts.ProtectionApart && sample.SenderUnknown > 0:
-			return nil, ForwardNoDateSenderUnread
 		}
 		return nil, ForwardNoDateNoPace
 	}

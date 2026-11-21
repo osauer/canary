@@ -119,9 +119,11 @@ type edgeTestsScreen struct {
 	waiting   bool
 	trackless bool
 	beyond    bool
-	sales     bool
-	spark     string
-	axis      []string
+	// protection is set when a row says how many sales Canary's protection
+	// sent.
+	protection bool
+	spark      string
+	axis       []string
 	// cause is set when one cause for no count is said for the whole screen.
 	cause bool
 }
@@ -573,16 +575,13 @@ func (s *edgeTestsScreen) rows(t rpc.EdgeForwardTest, full bool) {
 			}
 		}
 	}
-	if t.ProtectionApart {
-		s.sales = true
-		if p := sample.Protection; p != nil && p.Final+p.Waiting > 0 {
-			note := edgeTestsWaiting(p.Waiting)
-			s.waiting = s.waiting || note != ""
-			s.line(s.row("sent by Canary's protection, counted separately", "", edgeCount(p.Final), "", note))
-		}
-		if sample.SenderUnknown > 0 {
-			s.prose("    ", "  ", fmt.Sprintf("%s whose sender Canary could not tell this time %s in neither count", edgeTestsSales(sample.SenderUnknown), pluralWord(sample.SenderUnknown, "counts", "count")), nil)
-		}
+	// Every sale counts, whoever sent it. Where Canary knows which of the
+	// counted sales its protection sent, one row says how many, without a bar.
+	if p := sample.SentByProtection; p != nil && p.Final+p.Waiting > 0 {
+		note := edgeTestsWaiting(p.Waiting)
+		s.waiting = s.waiting || note != ""
+		s.protection = true
+		s.line(s.row("of these, sent by Canary's protection", "", edgeCount(p.Final), "", note))
 	}
 	if sample.State != rpc.EdgeForwardFull {
 		s.pace(t, full)
@@ -590,10 +589,6 @@ func (s *edgeTestsScreen) rows(t rpc.EdgeForwardTest, full bool) {
 	if sample.Today != nil {
 		s.prose("    ", "  ", edgeTestsToday(t, *sample.Today), nil)
 	}
-}
-
-func edgeTestsSales(n int) string {
-	return fmt.Sprintf("%s %s", edgeCount(n), pluralWord(n, "sale", "sales"))
 }
 
 // edgeTestsAxis is the complete months shared by every test on screen: from
@@ -698,8 +693,6 @@ func edgeTestsNoDate(t rpc.EdgeForwardTest) string {
 		return "no date yet: Canary kept no Regime record before " + t.RegisteredAt.Local().Format("2 Jan 2006") + ", so there is no pace"
 	case "none_in_needed_group":
 		return "no date yet: no result so far is " + edgeTestsLabel(t, t.NeedsGroup)
-	case "sender_not_known":
-		return "no date yet: Canary could not tell who sent the sales this time"
 	}
 	return "no date yet: you made no " + firstNonEmptyCLI(t.PaceNoun, "such trade") + " in the past year to set a pace"
 }
@@ -765,8 +758,8 @@ func (s *edgeTestsScreen) legend(tests []rpc.EdgeForwardTest) {
 	if s.beyond {
 		s.prose("  ", "  ", fmt.Sprintf("* more than a year away, and Canary counts only the last %d days: this count cannot fill in this version", edgeTestsWindow(tests)), nil)
 	}
-	if s.sales {
-		s.prose("  ", "", "In the tests about sales, a stop you placed at the broker yourself counts with the sales you chose: Canary cannot recognise it.", nil)
+	if s.protection {
+		s.prose("  ", "  ", "sent by Canary's protection: orders its own protection sent; a stop placed at the broker directly is not recognised", nil)
 	}
 }
 

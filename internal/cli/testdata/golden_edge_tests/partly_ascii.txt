@@ -14,14 +14,14 @@ Collecting ------------------------------- 7 tests - counting since 21 Nov 2026
     sold above cost          #######.................    9 of 30   +1 waiting
     sold below cost          ##########..............   13 of 30
       full when either group reaches 30
-    sent by Canary's protection, counted separately      2
+    of these, sent by Canary's protection                2
     at this pace             467  most 7 a month       full about Jun 2027
 
   After you sell a stock, does it do worse than it does after a later day?
     helps with selling                                stock_sales_vs_nearby_day
     counts each stock or ETF once per week with a sale
-    sales you chose          #######.................   22 of 80   +3 waiting
-    sent by Canary's protection, counted separately      4         +1 waiting
+    sales                    #######.................   22 of 80   +3 waiting
+    of these, sent by Canary's protection                4         +1 waiting
     at this pace             647  most 7 a month       full about Dec 2027
 
   Do your entries do better than the same entry on a random nearby day?
@@ -75,15 +75,15 @@ Collecting ------------------------------- 7 tests - counting since 21 Nov 2026
       Canary cannot sort these sales yet: this version does not work out the
       underlying's five-session move in expected moves. Until it does, no count
       can grow.
-    sent by Canary's protection, counted separately      3
+    of these, sent by Canary's protection                3
     no date for a full count
 
   waiting: a trade whose result is not known yet - 467 counted per complete
   month, Dec 2026-Feb 2027 - a bar without a track has no number to reach
   * more than a year away, and Canary counts only the last 365 days: this count
     cannot fill in this version
-  In the tests about sales, a stop you placed at the broker yourself counts
-  with the sales you chose: Canary cannot recognise it.
+  sent by Canary's protection: orders its own protection sent; a stop placed at
+    the broker directly is not recognised
 One test in full: canary edge tests <name> - all in full: --all - data: --json
 # canary edge tests · COLUMNS=80 · LC_ALL=C · colour on, ESC written as \x1b
 \x1b[1mForward tests\x1b[0m  7 tests - none full - next about Jun 2027
@@ -101,14 +101,14 @@ One test in full: canary edge tests <name> - all in full: --all - data: --json
     sold above cost          #######\x1b[2m.................\x1b[0m    9 of 30   +1 waiting
     sold below cost          ##########\x1b[2m..............\x1b[0m   13 of 30
       full when either group reaches 30
-    sent by Canary's protection, counted separately      2
+    of these, sent by Canary's protection                2
     at this pace             467  most 7 a month       full about Jun 2027
 
   \x1b[1mAfter you sell a stock, does it do worse than it does after a later day?\x1b[0m
     helps with selling                                stock_sales_vs_nearby_day
     counts each stock or ETF once per week with a sale
-    sales you chose          #######\x1b[2m.................\x1b[0m   22 of 80   +3 waiting
-    sent by Canary's protection, counted separately      4         +1 waiting
+    sales                    #######\x1b[2m.................\x1b[0m   22 of 80   +3 waiting
+    of these, sent by Canary's protection                4         +1 waiting
     at this pace             647  most 7 a month       full about Dec 2027
 
   \x1b[1mDo your entries do better than the same entry on a random nearby day?\x1b[0m
@@ -162,13 +162,13 @@ One test in full: canary edge tests <name> - all in full: --all - data: --json
       Canary cannot sort these sales yet: this version does not work out the
       underlying's five-session move in expected moves. Until it does, no count
       can grow.
-    sent by Canary's protection, counted separately      3
+    of these, sent by Canary's protection                3
     no date for a full count
 
   waiting: a trade whose result is not known yet - 467 counted per complete
   month, Dec 2026-Feb 2027 - a bar without a track has no number to reach
   * more than a year away, and Canary counts only the last 365 days: this count
     cannot fill in this version
-  In the tests about sales, a stop you placed at the broker yourself counts
-  with the sales you chose: Canary cannot recognise it.
+  sent by Canary's protection: orders its own protection sent; a stop placed at
+    the broker directly is not recognised
 One test in full: canary edge tests <name> - all in full: --all - data: --json

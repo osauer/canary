@@ -166,7 +166,7 @@ func (s *Server) edgeForwardTestsView(ctx context.Context, scopeFingerprint stri
 		if facts, ok := edgecore.ForwardTestFacts(rule.ID); ok {
 			test.Question, test.Informs, test.Condition, test.Unit, test.UnitText = facts.Question, facts.Informs, facts.Condition, facts.Unit, facts.UnitText
 			test.Needs, test.NeedsGroup, test.NeedsDays, test.SampleLabel, test.Policy = facts.Needs, facts.NeedsGroup, facts.NeedsDays, facts.SampleLabel, facts.Policy
-			test.ProtectionApart, test.NotSorted, test.CannotSort = facts.ProtectionApart, facts.NotSorted, facts.CannotSort
+			test.AboutSales, test.NotSorted, test.CannotSort = facts.AboutSales, facts.NotSorted, facts.CannotSort
 			test.PaceNoun, test.InShort = facts.PaceNoun, facts.InShort
 			for _, group := range facts.Groups {
 				test.Groups = append(test.Groups, rpc.EdgeForwardGroup{ID: group.ID, Label: group.Label})
@@ -182,7 +182,7 @@ const edgeForwardWindow = "365d"
 
 // edgeForwardEvidence is what one reply counts the forward tests from: the
 // published full-window result, and whether its protection evidence is
-// served (sales then count apart by sender; otherwise in neither sample).
+// served: only then does a count say which sales Canary's protection sent.
 type edgeForwardEvidence struct {
 	result          edgecore.Result
 	protectionKnown bool
@@ -241,24 +241,26 @@ func (s *Server) countEdgeForwardTests(ctx context.Context, tests []rpc.EdgeForw
 		pace := in
 		pace.After, pace.Through = asOf.AddDate(0, 0, -edgecore.ForwardReviewDays), test.RegisteredAt
 		summary := edgecore.SummarizeForward(facts, edgecore.CountForwardUnits(test.ID, sampled), edgecore.CountForwardUnits(test.ID, pace), test.RegisteredAt, asOf, zone)
-		test.Sample = rpcEdgeForwardSample(summary, asOf)
+		test.Sample = rpcEdgeForwardSample(summary, asOf, evidence.protectionKnown)
 		test.State, test.NotCountedReason = summary.State, ""
 		test.Sample.Today = edgeForwardToday(test.ID, latest, s.edgeNow())
 	}
 }
 
-func rpcEdgeForwardSample(in edgecore.ForwardSample, asOf time.Time) *rpc.EdgeForwardSample {
+// rpcEdgeForwardSample serves a count. Which units Canary's protection sent
+// is served only while that evidence is current; otherwise it is not said.
+func rpcEdgeForwardSample(in edgecore.ForwardSample, asOf time.Time, protectionKnown bool) *rpc.EdgeForwardSample {
 	out := &rpc.EdgeForwardSample{
 		State: in.State, AsOf: asOf, WindowDays: edgecore.ForwardReviewDays,
-		Test: rpc.EdgeForwardCount{Final: in.Test.Final, Waiting: in.Test.Waiting}, SenderUnknown: in.SenderUnknown,
+		Test:     rpc.EdgeForwardCount{Final: in.Test.Final, Waiting: in.Test.Waiting},
 		Excluded: maps.Clone(in.Excluded), Months: []rpc.EdgeForwardMonth{}, ToFill: in.ToFill, NoDate: in.NoDate,
 		CanFill: in.CanFill, CannotFill: in.CannotFill, WaitingUnits: rpcEdgeForwardUnits(in.WaitingUnits), NotCounted: rpcEdgeForwardUnits(in.NotCounted),
 	}
 	for _, g := range in.Groups {
 		out.Groups = append(out.Groups, rpc.EdgeForwardGroupCount{ID: g.ID, Final: g.Final, Waiting: g.Waiting, Days: g.Days})
 	}
-	if in.Protection != nil {
-		out.Protection = &rpc.EdgeForwardCount{Final: in.Protection.Final, Waiting: in.Protection.Waiting}
+	if in.Protection != nil && protectionKnown {
+		out.SentByProtection = &rpc.EdgeForwardCount{Final: in.Protection.Final, Waiting: in.Protection.Waiting}
 	}
 	if !in.FirstUnit.IsZero() {
 		out.FirstUnit, out.LastUnit = in.FirstUnit.Format(time.DateOnly), in.LastUnit.Format(time.DateOnly)
