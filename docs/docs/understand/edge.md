@@ -276,10 +276,16 @@ theirs.
 
 Canary registers the rules and keeps what a later read needs. It does not
 read the tests: no verdict, grade, warning or order depends on them. The
-rules cover stock sales and entries against a nearby day, option buys
-against the Rulebook's premium budget, option buys after a Regime warning
-session, final option sales against the contract's close five sessions
-later, and a floor under what is left after a partial sale.
+rules cover stock sales against the days after them, entries against a
+nearby day, option buys against the Rulebook's premium budget, option buys
+after a Regime warning session, final option sales against the contract's
+close five sessions later, a floor under what is left after a partial sale,
+and option sales made after the underlying moved against the position. In
+the four rules about sales, a sale sent by one of Canary's protection rules
+is read apart from a sale the holder chose, by the same reading, and does
+not count in the test. Canary knows this only for orders its own protection
+sent: a stop the holder placed directly at the broker is not told apart,
+because the statement fields Canary reads carry no order type.
 
 ### What is recorded at each US close
 

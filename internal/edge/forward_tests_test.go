@@ -12,12 +12,13 @@ import (
 // commit that its sample starts again.
 func TestForwardTestRulesAreFrozen(t *testing.T) {
 	want := map[string]string{
-		"stock_sales_vs_nearby_day":              "rule_aa374aa643009c319c0b2432fb619473",
-		"entries_vs_nearby_day":                  "rule_fb4cda132b1d30e9ec5e39015b568089",
-		"option_buys_below_premium_line":         "rule_c848ce9e69b6786268ad2a12fc9ab085",
-		"option_buys_after_regime_warning":       "rule_19ec7616288c1fe59354adfe5dbb1787",
-		"final_option_sales_vs_close_5_sessions": "rule_49f8a46538164fd14856e56487c28f0f",
-		"floor_after_partial_sale":               "rule_4a23d019199c84f0590ccc4c7076fe21",
+		"stock_sales_vs_nearby_day":              "rule_c9e0489a0aef6a32637a2ba4b8d15d9a",
+		"entries_vs_nearby_day":                  "rule_742d0cea4369ee2f041f2e71c936d15f",
+		"option_buys_below_premium_line":         "rule_e1d8f6f61998ddfa89ecabd779895cce",
+		"option_buys_after_regime_warning":       "rule_1f4b514c8ba19305e2520fd867497e48",
+		"final_option_sales_vs_close_5_sessions": "rule_ad408b7c72365e7e58be56547b8d5eb2",
+		"floor_after_partial_sale":               "rule_5c015c7e5d4dd217201b6d930845412d",
+		"option_sales_after_adverse_move":        "rule_fb553fb9554ce22692bdfaa54d850dbb",
 	}
 	tests := ForwardTests()
 	if len(tests) != len(want) {
