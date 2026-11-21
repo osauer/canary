@@ -156,6 +156,12 @@ type ConnectionConfig struct {
 	ConnectTimeout    time.Duration
 	HeartbeatInterval time.Duration
 
+	// SessionMarketDataType is the market-data mode (1-4) every broker
+	// session starts in: it goes out ahead of the session's first market-data
+	// request, so no line can open in TWS's live default before the caller's
+	// own reqMarketDataType lands. Zero leaves TWS's default.
+	SessionMarketDataType int
+
 	// TLS options
 	UseTLS                bool
 	EnableTLSFallback     bool
@@ -4246,16 +4252,29 @@ func (c *Connection) sendBoundFrames(ctx context.Context, msg []byte, reqType Re
 			frames := append([][]byte{msg}, additional...)
 			defaultMode := c.marketDataDefaultMode
 			currentEpoch := c.BrokerSessionEpoch()
-			if defaultMode == 0 || c.marketDataModeEpoch != currentEpoch {
-				defaultMode = 1
+			isMarketData := determineMessageID(c.serverVersion, msg) == reqMktData
+			// A session whose mode no explicit setter has recorded yet starts
+			// in the configured session mode: the first market-data request
+			// carries it, so no line opens in TWS's live default before the
+			// caller's own reqMarketDataType lands.
+			sessionMode := 0
+			if c.config != nil && c.config.SessionMarketDataType >= 1 && c.config.SessionMarketDataType <= 4 {
+				sessionMode = c.config.SessionMarketDataType
 			}
-			repairMode := c.marketDataModeDirty && c.marketDataModeEpoch == currentEpoch && determineMessageID(c.serverVersion, msg) == reqMktData
+			modeUnset := defaultMode == 0 || c.marketDataModeEpoch != currentEpoch
+			if modeUnset {
+				defaultMode = max(sessionMode, 1)
+			}
+			primeSession := modeUnset && sessionMode != 0 && isMarketData
+			repairMode := c.marketDataModeDirty && c.marketDataModeEpoch == currentEpoch && isMarketData
 			if dataType != 0 || repairMode {
 				requestedMode := dataType
 				if requestedMode == 0 {
 					requestedMode = defaultMode
 				}
 				frames = [][]byte{c.encodeMsg(reqMarketDataType, 1, requestedMode), msg, c.encodeMsg(reqMarketDataType, 1, defaultMode)}
+			} else if primeSession {
+				frames = append([][]byte{c.encodeMsg(reqMarketDataType, 1, sessionMode)}, frames...)
 			}
 
 			if guard != nil {
@@ -4305,6 +4324,9 @@ func (c *Connection) sendBoundFrames(ctx context.Context, msg []byte, reqType Re
 			}
 			if dataType != 0 || repairMode {
 				c.marketDataModeDirty = false
+			}
+			if primeSession {
+				c.marketDataDefaultMode, c.marketDataModeEpoch, c.marketDataModeDirty = sessionMode, currentEpoch, false
 			}
 			// Only explicit mode setters change the default, and only after a
 			// successful send. Temporary request overrides leave it untouched.
