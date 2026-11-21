@@ -10,6 +10,7 @@ import (
 
 	"github.com/osauer/canary/v3/internal/broker"
 	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/marketcal"
 	"github.com/osauer/canary/v3/internal/rpc"
 	"github.com/osauer/canary/v3/internal/rpc/api"
 	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
@@ -466,6 +467,25 @@ func (s *Server) handleDataHealth(p rpc.DataHealthParams) (rpc.DataHealthResult,
 	return fitDataHealthPage(page)
 }
 
+// usTradingHaltsWatched reports whether US equities can trade at the
+// instant: a US equity session day, New York date, between 04:00 and 20:00
+// New York time, the span of pre-market, regular and after-hours trading.
+// Outside it no halt can matter, so a stale or failing halts feed is not due
+// (owner instruction 2026-11-21 12:38 CET, after Nasdaq's feed went quiet on
+// a Saturday). A calendar that cannot vouch for the day keeps it watched.
+func usTradingHaltsWatched(at time.Time) bool {
+	ny := at.In(newYorkLocation())
+	noon := time.Date(ny.Year(), ny.Month(), ny.Day(), 12, 0, 0, 0, ny.Location())
+	session, err := marketcal.New().SessionAt(marketcal.MarketUSEquity, noon)
+	if err != nil || session.State == marketcal.StateUnknown {
+		return true
+	}
+	if session.State != marketcal.StateRegular && session.State != marketcal.StateEarlyClose {
+		return false
+	}
+	return ny.Hour() >= 4 && ny.Hour() < 20
+}
+
 func (s *Server) observeEventHealth(result rpc.MarketEventsResult, session broker.Session, binding broker.SessionBinding) {
 	for _, health := range result.SourceHealth {
 		row := projectSourceHealth("events:"+health.Source, strings.ReplaceAll(health.Source, "_", " "), "Canary market events", "market_events", health, result.AsOf, "Market-event assessment")
@@ -477,6 +497,10 @@ func (s *Server) observeEventHealth(result rpc.MarketEventsResult, session broke
 			if health.Source == "borrow_inventory" && !health.AsOf.IsZero() {
 				row.ValidUntil = health.AsOf.Add(time.Duration(health.MaxAgeSeconds) * time.Second)
 			}
+		}
+		if health.Source == "trading_halts" && (row.State == "limited" || row.State == "unavailable") && !usTradingHaltsWatched(result.AsOf) {
+			row.State, row.Receiving, row.CadenceState = "not_due", "Not needed while US markets are closed", "not_due"
+			row.ProblemIDs = nil
 		}
 		if health.Source == "borrow_inventory" {
 			if session == nil || !session.Current(binding) || session.Health().BackendDown {
