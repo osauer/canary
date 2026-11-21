@@ -1,12 +1,14 @@
 package daemon
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/broker"
 	"github.com/osauer/canary/v3/internal/rpc"
+	ibkr "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 const (
@@ -55,6 +57,9 @@ func (s *Server) recordFeedHealth(row rpc.DataSourceHealth, session broker.Sessi
 			return
 		}
 		key = "failure:" + row.Failure.Code
+		if row.Failure.Stage == feedFailureStageServiceStalled {
+			key = "failure:stalled"
+		}
 	} else if row.ID == quoteSourceID {
 		switch row.DataType {
 		case rpc.MarketDataLive, rpc.MarketDataDelayed, rpc.MarketDataFrozen, rpc.MarketDataDelayedFrozen, rpc.MarketDataPrevClose, rpc.MarketDataUnknown:
@@ -76,6 +81,9 @@ func (s *Server) recordFeedHealth(row rpc.DataSourceHealth, session broker.Sessi
 		s.dataHealth.feedObservations[row.ID] = map[string]dataHealthObservation{}
 	}
 	observations := s.dataHealth.feedObservations[row.ID]
+	if row.Failure == nil && row.ID == historySourceID {
+		delete(observations, "failure:stalled")
+	}
 	// A success in one feed segment cannot clear a different segment's
 	// restriction or failure. Each source-level category has its own expiry.
 	if !observations[key].row.CheckedAt.After(row.CheckedAt) {
@@ -102,7 +110,11 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 	row.HistoryTruncated = row.HistoryTruncated || truncated
 	row.Availability = "unknown"
 	var modes []string
-	success, failed := false, false
+	success, failed, serviceFailed := false, false, false
+	var lastSuccess, lastFailure time.Time
+	// A broken history farm makes its timeouts the service's. It is read
+	// live, once per roll-up.
+	farmOutage := id == historySourceID && s.historicalBarFarmOutage()
 	for _, observation := range observations {
 		o := observation.row
 		if !now.Before(o.ValidUntil) || observation.broker && (!observation.session.Current(observation.binding) || observation.session.Health().BackendDown) {
@@ -119,11 +131,19 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 		}
 		if o.Failure == nil {
 			success = true
+			lastSuccess = maxTime(lastSuccess, o.CheckedAt)
 			if o.DataType != "" && !slices.Contains(modes, o.DataType) {
 				modes = append(modes, o.DataType)
 			}
 		} else {
 			failed = true
+			serviceFailed = serviceFailed || feedFailureIsServiceWide(o.Failure) ||
+				farmOutage && o.Failure.Code == rpc.SourceFailureTimeout
+			if at := o.Failure.FailedAt; at.IsZero() {
+				lastFailure = maxTime(lastFailure, o.CheckedAt)
+			} else {
+				lastFailure = maxTime(lastFailure, at)
+			}
 			if row.Failure == nil || o.Failure.FailedAt.After(row.Failure.FailedAt) {
 				row.Failure = o.Failure
 			}
@@ -138,13 +158,25 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 	row.Delivery = "producer_observation"
 	row.State, row.Receiving = "current", "Receiving data"
 	row.Availability = "available"
-	if failed {
+	// One instrument's failure beside a working feed stays on the
+	// instrument: the row reads current and names it. Only a failure of the
+	// service itself, or nothing received at all, marks the source (owner
+	// instruction 2026-11-21 08:38 CET).
+	// The service vouches for itself by answering any request within the
+	// observation window around the failure, dated by when Canary checked:
+	// a shut market's tick clocks are old, and dating by them would make one
+	// failing line flap the row (Fable review 2026-11-21).
+	instrumentFailed := failed && success && !serviceFailed && !lastSuccess.Before(lastFailure.Add(-quoteHealthObservationValidity))
+	if failed && !instrumentFailed {
 		row.State, row.Receiving = "unavailable", "Service request failed"
 		row.Availability = "unavailable"
 		if success {
 			row.State, row.Receiving = "limited", "Receiving data · service errors observed"
 			row.Availability = "limited"
 		}
+	}
+	if instrumentFailed {
+		row.Receiving = "Receiving data · some instrument requests failed"
 	}
 	if len(modes) > 0 {
 		slices.Sort(modes)
@@ -159,14 +191,19 @@ func (s *Server) feedDataHealth(id string, now time.Time) rpc.DataSourceHealth {
 				label = "unverified mode"
 			}
 			labels = append(labels, label)
-			// A usable delayed quote is a feed mode, not a service failure.
-			// Instrument clocks and suitability remain in the quote evidence.
-			if mode == rpc.MarketDataUnknown {
-				row.State = "limited"
-			}
+		}
+		// A usable delayed quote is a feed mode, not a service failure, and an
+		// untyped line beside typed ones is that instrument's gap: instrument
+		// clocks and suitability remain in the quote evidence. Only a feed
+		// with no typed line at all is unverified as a source.
+		if len(modes) == 1 && modes[0] == rpc.MarketDataUnknown && row.State == "current" {
+			row.State = "limited"
 		}
 		row.Receiving = "Receiving " + strings.Join(labels, " and ") + " data"
-		if failed {
+		switch {
+		case instrumentFailed:
+			row.Receiving += " · some instrument requests failed"
+		case failed:
 			row.Receiving += " · service errors observed"
 		}
 	}
@@ -198,8 +235,35 @@ func (s *Server) observeHistorySource(received bool, err error, session broker.S
 	if row.Failure != nil {
 		row.ValidUntil = row.CheckedAt.Add(quoteHealthObservationValidity)
 		row.Failure.Stage = "history_request"
+		if errors.Is(err, ibkr.ErrHistoricalServiceStalled) {
+			row.Failure.Stage = feedFailureStageServiceStalled
+		}
 	} else {
 		row.ReceivedAt = row.CheckedAt
 	}
 	s.recordFeedHealth(row, session, binding)
+}
+
+// feedFailureIsServiceWide reports a failure of the service itself, which
+// marks the source even beside a success: the Gateway is unavailable, IBKR
+// paces the whole connection, or the connector declared the history service
+// stalled. (A broken history farm is
+// read live in feedDataHealth.) Any other failure (a timeout, a refused entitlement, a
+// malformed answer) is one instrument's while the service keeps answering.
+func feedFailureIsServiceWide(f *rpc.SourceFailure) bool {
+	return f != nil && (f.Code == rpc.SourceFailureGatewayUnavailable || f.Code == rpc.SourceFailurePacing ||
+		f.Stage == feedFailureStageServiceStalled)
+}
+
+// feedFailureStageServiceStalled marks a request the connector refused under
+// its declared history stall. It is kept under its own key, so an ordinary
+// timeout (the stall's own probe) cannot overwrite it, and a history success
+// clears it: an answer proves the stall over (Fable review 2026-11-21).
+const feedFailureStageServiceStalled = "history_service_stalled"
+
+func maxTime(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }

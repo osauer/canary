@@ -91,7 +91,9 @@ func renderDataHealth(env *Env, r rpc.DataHealthResult) {
 		if row.Detail != "" {
 			displayLine(env, "  "+row.Detail, nil)
 		}
-		if row.Action != "" && row.State != "current" && row.State != "not_due" {
+		// A restricted-access retry stays visible on a row that is current
+		// because another line answered.
+		if row.Action != "" && (row.State != "current" && row.State != "not_due" || row.Access != nil) {
 			displayLine(env, "  Next: "+row.Action, nil)
 		}
 	}
