@@ -62,7 +62,7 @@ func dataHealthStyle(env *Env, state string, expected bool) func(string) string 
 }
 
 func renderDataHealth(env *Env, r rpc.DataHealthResult) {
-	expectedOnly := r.ScopeState == "current" && r.Summary.ExpectedDelays > 0 && r.Summary.Limited == r.Summary.ExpectedDelays && r.Summary.Unavailable == 0 && r.Summary.Unverified == 0 && r.Summary.Problems == 0
+	expectedOnly := r.ExpectedDelaysOnly()
 	displayLine(env, r.Summary.Label, dataHealthStyle(env, r.Summary.State, expectedOnly))
 	displayLine(env, fmt.Sprintf("Required %d · current %d · limited %d · unavailable %d · unverified %d", r.Summary.Required, r.Summary.Current, r.Summary.Limited, r.Summary.Unavailable, r.Summary.Unverified), nil)
 	if r.Summary.ExpectedDelays > 0 {
