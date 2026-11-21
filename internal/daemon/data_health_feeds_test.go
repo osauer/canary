@@ -83,17 +83,25 @@ func TestDataHealthDelayedReceiptKeepsAccessInformational(t *testing.T) {
 	}
 }
 
-func TestDataHealthDelayedSuccessDoesNotHideFeedProblems(t *testing.T) {
+// One instrument's problem beside a working feed belongs to that instrument,
+// not to the source (owner instruction 2026-11-21 08:38 CET: "one instrument
+// failing should not mark the data sources as unhealthy"). An untyped line, a
+// request that timed out and an instrument the account is not entitled to stay
+// visible on the row, its failure and its access evidence, but the row reads
+// current. On 2026-11-21 one held option line with only TWS's model mark held
+// the required quote source limited for a whole daemon run.
+func TestDataHealthOneInstrumentProblemStaysOnTheInstrument(t *testing.T) {
 	now := time.Now()
 	for _, tc := range []struct {
-		name   string
-		quote  *rpc.Quote
-		err    error
-		access *rpc.DataAccessObservation
+		name    string
+		quote   *rpc.Quote
+		err     error
+		access  *rpc.DataAccessObservation
+		wording string
 	}{
-		{name: "unknown mode", quote: &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataUnknown, ReceivedAt: now}},
-		{name: "request timeout", err: context.DeadlineExceeded},
-		{name: "denied without fallback", quote: &rpc.Quote{}, access: &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now}},
+		{name: "unknown mode", quote: &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataUnknown, ReceivedAt: now}, wording: "unverified mode"},
+		{name: "request timeout", err: context.DeadlineExceeded, wording: "some instrument requests failed"},
+		{name: "denied without fallback", quote: &rpc.Quote{}, access: &rpc.DataAccessObservation{Code: 354, Reason: "not_subscribed", ObservedAt: now}, wording: "some instrument requests failed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Server{now: func() time.Time { return now }}
@@ -101,22 +109,111 @@ func TestDataHealthDelayedSuccessDoesNotHideFeedProblems(t *testing.T) {
 			problem := projectQuoteSource(tc.quote, tc.err, now)
 			problem.Access = tc.access
 			s.recordFeedHealth(problem, nil, broker.SessionBinding{})
-			row := s.feedDataHealth(quoteSourceID, now)
-			if row.State != "limited" || len(row.ProblemIDs) != 1 || !strings.Contains(row.Receiving, "delayed") {
-				t.Fatalf("delayed receipt hid a feed problem: %+v", row)
+			// The service then answers another instrument.
+			later := now.Add(time.Second)
+			s.now = func() time.Time { return later }
+			s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_OTHER"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataDelayed, ReceivedAt: later}, nil, nil, broker.SessionBinding{})
+			row := s.feedDataHealth(quoteSourceID, later)
+			if row.State != "current" || len(row.ProblemIDs) != 0 || !strings.Contains(row.Receiving, "delayed") || !strings.Contains(row.Receiving, tc.wording) {
+				t.Fatalf("one instrument's problem degraded the source or vanished: %+v", row)
 			}
 			if tc.err != nil && (row.Failure == nil || row.Failure.Code != rpc.SourceFailureTimeout) {
 				t.Fatalf("timeout evidence lost: %+v", row)
 			}
 			if tc.access != nil && (row.Access == nil || row.Failure == nil || row.Failure.Code != rpc.SourceFailureNotEntitled) {
-				t.Fatalf("unavailable fallback was treated as usable: %+v", row)
+				t.Fatalf("entitlement evidence lost: %+v", row)
 			}
-			report, err := finalizeDataHealth([]rpc.DataSourceHealth{row}, "current", now, rpc.DataHealthParams{})
-			if err != nil || report.Summary.State != "limited" || report.Summary.Problems != 1 || len(report.Concerns) != 1 {
-				t.Fatalf("source problem missing from aggregate: %+v, %v", report, err)
+			report, err := finalizeDataHealth([]rpc.DataSourceHealth{row}, "current", later, rpc.DataHealthParams{})
+			if err != nil || report.Summary.State != "current" || report.Summary.Problems != 0 || len(report.Concerns) != 0 {
+				t.Fatalf("one instrument's problem reached the aggregate: %+v, %v", report, err)
 			}
 		})
 	}
+}
+
+// What the service itself does still marks it: every line untyped, a
+// service-wide failure beside a success, a declared history stall beside an
+// older success, and a failure with nothing received.
+func TestDataHealthServiceProblemsStillMarkTheSource(t *testing.T) {
+	now := time.Now()
+	t.Run("every line untyped", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now }}
+		s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_A"}, &rpc.Quote{Price: new(100.0), ReceivedAt: now}, nil, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(quoteSourceID, now); row.State != "limited" || len(row.ProblemIDs) != 1 {
+			t.Fatalf("an untyped feed read healthy: %+v", row)
+		}
+	})
+	t.Run("service-wide failure beside a success", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now }}
+		s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_A"}, &rpc.Quote{Price: new(100.0), DataType: rpc.MarketDataFrozen, ReceivedAt: now}, nil, nil, broker.SessionBinding{})
+		s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_B"}, nil, ibkr.ErrIBKRUnavailable, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(quoteSourceID, now); row.State != "limited" || len(row.ProblemIDs) != 1 {
+			t.Fatalf("a gateway failure beside a success read healthy: %+v", row)
+		}
+	})
+	t.Run("declared history stall beside an older success", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now.Add(-10 * time.Minute) }}
+		s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
+		s.now = func() time.Time { return now }
+		s.observeHistorySource(false, ibkr.ErrHistoricalServiceStalled, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(historySourceID, now); row.State == "current" || len(row.ProblemIDs) != 1 {
+			t.Fatalf("a declared stall hid behind a ten-minute-old success: %+v", row)
+		}
+	})
+	t.Run("one slow history request beside a success", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now }}
+		s.observeHistorySource(false, context.DeadlineExceeded, nil, broker.SessionBinding{})
+		s.now = func() time.Time { return now.Add(time.Second) }
+		s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(historySourceID, now.Add(time.Second)); row.State != "current" || len(row.ProblemIDs) != 0 {
+			t.Fatalf("one timed-out history request degraded the source: %+v", row)
+		}
+	})
+	t.Run("stall refusal then the probe's ordinary timeout", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now.Add(-10 * time.Minute) }}
+		s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
+		s.now = func() time.Time { return now.Add(-time.Minute) }
+		s.observeHistorySource(false, ibkr.ErrHistoricalServiceStalled, nil, broker.SessionBinding{})
+		s.now = func() time.Time { return now }
+		s.observeHistorySource(false, context.DeadlineExceeded, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(historySourceID, now); row.State == "current" {
+			t.Fatalf("the probe's timeout cleared a stall: %+v", row)
+		}
+	})
+	t.Run("a history answer after a stall ends it", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now.Add(-time.Minute) }}
+		s.observeHistorySource(false, ibkr.ErrHistoricalServiceStalled, nil, broker.SessionBinding{})
+		s.now = func() time.Time { return now }
+		s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(historySourceID, now); row.State != "current" {
+			t.Fatalf("a stall outlived the answer that ended it: %+v", row)
+		}
+	})
+	t.Run("every request failing beside an old success", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now.Add(-20 * time.Minute) }}
+		s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
+		s.now = func() time.Time { return now }
+		s.observeHistorySource(false, ibkr.ErrContractDetailsTimeout, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(historySourceID, now); row.State == "current" || len(row.ProblemIDs) != 1 {
+			t.Fatalf("failures after the last success read healthy: %+v", row)
+		}
+	})
+	t.Run("timeouts while a history farm is down", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now }, historicalFarmOutage: func() bool { return true }}
+		s.observeHistorySource(false, context.DeadlineExceeded, nil, broker.SessionBinding{})
+		s.now = func() time.Time { return now.Add(time.Second) }
+		s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(historySourceID, now.Add(time.Second)); row.State == "current" {
+			t.Fatalf("a broken history farm read healthy beside another farm's answers: %+v", row)
+		}
+	})
+	t.Run("failure with nothing received", func(t *testing.T) {
+		s := &Server{now: func() time.Time { return now }}
+		s.observeQuoteHealth(rpc.ContractParams{Symbol: "SYNTHETIC_B"}, nil, context.DeadlineExceeded, nil, broker.SessionBinding{})
+		if row := s.feedDataHealth(quoteSourceID, now); row.State != "unavailable" {
+			t.Fatalf("a failing feed read available: %+v", row)
+		}
+	})
 }
 
 func TestDataHealthHistoryTracksServiceNotRequestedWindow(t *testing.T) {

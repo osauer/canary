@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,20 +53,24 @@ func TestHistoryHealthTimeoutExpiresWithoutAnotherRequest(t *testing.T) {
 	now = now.Add(time.Minute)
 	s.observeHistorySource(false, context.DeadlineExceeded, nil, broker.SessionBinding{})
 	failureAt := now
+
 	now = now.Add(time.Minute)
 	s.observeHistorySource(true, nil, nil, broker.SessionBinding{})
 	successAt := now
 	row := s.feedDataHealth(historySourceID, now)
-	if row.State != "limited" || row.Failure == nil || row.Failure.Code != rpc.SourceFailureTimeout {
-		t.Fatalf("a different successful request must preserve the recent failure concern: %+v", row)
+	// A newer success shows the service answering: the timeout was that one
+	// request's, kept on the row but not a source concern (owner instruction
+	// 2026-11-21 08:38 CET).
+	if row.State != "current" || row.Failure == nil || row.Failure.Code != rpc.SourceFailureTimeout || !strings.Contains(row.Receiving, "some instrument requests failed") {
+		t.Fatalf("a newer success must keep the timeout on the row without a source concern: %+v", row)
 	}
 	report, err := finalizeDataHealth([]rpc.DataSourceHealth{row}, "current", now, rpc.DataHealthParams{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	health := &rpc.HealthResult{Connected: true, DataHealth: &report}
-	if verdict := authoritativeHealthVerdict(health); verdict.State != "ATTENTION" {
-		t.Fatalf("a required source concern must retain the existing attention verdict: %+v", verdict)
+	if verdict := authoritativeHealthVerdict(health); verdict.State != "READY" {
+		t.Fatalf("one instrument's timeout raised the verdict: %+v", verdict)
 	}
 
 	// Expiry is evaluated on a passive status read. No new producer receipt

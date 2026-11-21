@@ -1902,6 +1902,11 @@ func sessionStartVerdict(a connectAttempter, ep discover.Endpoint) string {
 // pinned tls (true or false) → strict, no fallback (issue #3). Auto →
 // fallback enabled so the SDK retries the alternate mode if the primary
 // gets no handshake response.
+// sessionMarketDataType is the frozen-aware mode (2) every broker session
+// runs in: live ticks where entitled during market hours, the last values
+// otherwise.
+const sessionMarketDataType = 2
+
 func (s *Server) newConnector(ep discover.Endpoint) (*ibkrlib.Connector, error) {
 	if s.opend != nil {
 		return nil, errNoIBKRConnector
@@ -1919,6 +1924,9 @@ func (s *Server) newConnector(ep discover.Endpoint) (*ibkrlib.Connector, error) 
 	conn.AutoReconnect = false
 	conn.ManagedConnectionLogging = true
 	conn.FXRateToBase = s.portfolioFootingFXRate
+	// Frozen-aware mode from the first request of every session, not only
+	// once postConnectSetup's SetMarketDataType(2) lands (2026-11-21).
+	conn.SessionMarketDataType = sessionMarketDataType
 
 	cc := &ibkrlib.ConnectorConfig{
 		PreferredClientID:        ep.ClientID,
@@ -2384,7 +2392,7 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 	// otherwise. Snapshot requests reliably terminate with
 	// tickSnapshotEnd this way; pure live (type 1) can leave snapshots
 	// hanging when the market is closed.
-	if err := a.SetMarketDataType(2); err != nil {
+	if err := a.SetMarketDataType(sessionMarketDataType); err != nil {
 		s.logger.Warnf("SetMarketDataType(frozen) failed: %v", err)
 	}
 	// One bounded read of the application's settings per session, on its own

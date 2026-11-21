@@ -102,7 +102,7 @@ func (s *Server) runDataHealthCheck(ctx context.Context) rpc.DataCheckResult {
 		return result
 	}
 	result.Checked = 1
-	attempts := 0
+	attempts, answered, interrupted := 0, 0, false
 	for _, probe := range marketReferences() {
 		if attempts >= 8 || ctx.Err() != nil {
 			break
@@ -120,10 +120,13 @@ func (s *Server) runDataHealthCheck(ctx context.Context) rpc.DataCheckResult {
 		}
 		if err == nil {
 			raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: contract, TimeoutMs: 1500})
-			_, _ = s.handleQuoteSnapshot(readCtx, &rpc.Request{Params: raw})
+			if q, qerr := s.handleQuoteSnapshot(readCtx, &rpc.Request{Params: raw}); qerr == nil && q != nil && q.Price != nil {
+				answered++
+			}
 		}
 		cancel()
 		if !c.SessionCurrent(binding) {
+			interrupted = true
 			break
 		}
 	}
@@ -135,6 +138,16 @@ func (s *Server) runDataHealthCheck(ctx context.Context) rpc.DataCheckResult {
 		result.Failed = 1
 	case "unknown":
 		result.Deferred = 1
+	}
+	// The check judges its own probes as well as the rolled-up row: a feed
+	// that answered none of the reference instruments failed, whatever an
+	// older line's answer leaves on the row. A session change mid-check
+	// defers it instead.
+	switch {
+	case interrupted:
+		result.Limited, result.Failed, result.Deferred = 0, 0, 1
+	case attempts > 0 && answered == 0 && result.Deferred == 0:
+		result.Limited, result.Failed = 0, 1
 	}
 
 	result.CompletedAt = s.orderNow()
