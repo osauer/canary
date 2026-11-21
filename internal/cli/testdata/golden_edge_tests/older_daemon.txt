@@ -1,0 +1,66 @@
+# canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour off
+Forward tests  7 tests · none full
+  Questions about your own trading. Each was fixed as a written rule on a set
+  date, and only trading after that date counts. Canary is filling the counts.
+  This version does not work out the answers yet, and nothing here changes a
+  verdict, a warning or an order.
+
+  The running Canary does not count yet: restart it with canary restart.
+
+No counts yet  7 tests
+
+  Stock sales against later days
+                                                      stock_sales_vs_nearby_day
+
+  Entries against a nearby day
+                                                          entries_vs_nearby_day
+
+  Option buys below the premium line against above it
+                                                 option_buys_below_premium_line
+
+  Single-name option buys after a Regime warning session
+                                               option_buys_after_regime_warning
+
+  Final option sales against the close five sessions later
+                                         final_option_sales_vs_close_5_sessions
+
+  A floor under what is left after a partial sale
+                                                       floor_after_partial_sale
+
+  Option sales after a move against the position
+                                                option_sales_after_adverse_move
+
+One test in full: canary edge tests <name> · all in full: --all · data: --json
+# canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour on, ESC written as \x1b
+\x1b[1mForward tests\x1b[0m  7 tests · none full
+  Questions about your own trading. Each was fixed as a written rule on a set
+  date, and only trading after that date counts. Canary is filling the counts.
+  This version does not work out the answers yet, and nothing here changes a
+  verdict, a warning or an order.
+
+  \x1b[33mThe running Canary does not count yet:\x1b[0m restart it with canary restart.
+
+\x1b[1mNo counts yet\x1b[0m  7 tests
+
+  \x1b[1mStock sales against later days\x1b[0m
+                                                      stock_sales_vs_nearby_day
+
+  \x1b[1mEntries against a nearby day\x1b[0m
+                                                          entries_vs_nearby_day
+
+  \x1b[1mOption buys below the premium line against above it\x1b[0m
+                                                 option_buys_below_premium_line
+
+  \x1b[1mSingle-name option buys after a Regime warning session\x1b[0m
+                                               option_buys_after_regime_warning
+
+  \x1b[1mFinal option sales against the close five sessions later\x1b[0m
+                                         final_option_sales_vs_close_5_sessions
+
+  \x1b[1mA floor under what is left after a partial sale\x1b[0m
+                                                       floor_after_partial_sale
+
+  \x1b[1mOption sales after a move against the position\x1b[0m
+                                                option_sales_after_adverse_move
+
+One test in full: canary edge tests <name> · all in full: --all · data: --json

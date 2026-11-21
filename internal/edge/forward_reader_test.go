@@ -67,7 +67,7 @@ func checkUnits(t *testing.T, got []ForwardUnit, want []fwdWant) {
 func TestForwardFactsCoverEveryRule(t *testing.T) {
 	for _, rule := range ForwardTests() {
 		facts, ok := ForwardTestFacts(rule.ID)
-		if !ok || facts.Question == "" || len(facts.Informs) == 0 || facts.ReadAt <= 0 || facts.Unit == "" {
+		if !ok || facts.Question == "" || len(facts.Informs) == 0 || facts.Needs <= 0 || facts.Unit == "" {
 			t.Fatalf("rule %q has incomplete facts: %+v", rule.ID, facts)
 		}
 		empty := rule.ID == "stock_sales_vs_nearby_day" || rule.ID == "entries_vs_nearby_day"
@@ -103,11 +103,11 @@ func TestForwardStockSalesWalkTheRule(t *testing.T) {
 		{key: "BBB:2026-W10:protection", group: ForwardGroupAll, sample: "protection", state: "final"},
 		{key: "EEE:2026-W10:test", group: ForwardGroupAll, sample: "test", state: "final"},
 		{group: ForwardGroupAll, sample: "test", state: "excluded", reason: ForwardExcludedNoClose},
-		{group: ForwardGroupAll, sample: "test", state: "pending"},
+		{group: ForwardGroupAll, sample: "test", state: "waiting"},
 	})
 	// A week still running is not final, even when its sales are scored.
 	inWeek := CountForwardUnits("stock_sales_vs_nearby_day", fwdInput(fwdAt(4), fwdStock("a1", "AAA", ActionTrim, 1)))
-	checkUnits(t, inWeek, []fwdWant{{group: ForwardGroupAll, sample: "test", state: "pending"}})
+	checkUnits(t, inWeek, []fwdWant{{group: ForwardGroupAll, sample: "test", state: "waiting"}})
 	// Protection evidence withheld: the sender is not known, so the sale is
 	// in neither sample rather than counted as the holder's.
 	in := fwdInput(fwdAt(20), protected(fwdStock("b", "BBB", ActionExit, 1)), fwdStock("a1", "AAA", ActionTrim, 1))
@@ -119,7 +119,7 @@ func TestForwardStockSalesWalkTheRule(t *testing.T) {
 	}
 	// Counts toward the 80 only from the holder's sample.
 	sample = SummarizeForward(facts, units, nil, fwdRegistered, fwdAt(20), fwdZone)
-	if sample.Test.Final != 2 || sample.Protection.Final != 1 || sample.ToRead != 78 || sample.Excluded[ForwardExcludedNoClose] != 1 || sample.State != ForwardStateCollecting {
+	if sample.Test.Final != 2 || sample.Protection.Final != 1 || sample.ToFill != 78 || sample.Excluded[ForwardExcludedNoClose] != 1 || sample.State != ForwardStateCollecting {
 		t.Fatalf("sample = %+v", sample)
 	}
 }
@@ -147,10 +147,10 @@ func TestForwardEntriesWalkTheRule(t *testing.T) {
 		{key: "BBB:2026-W11:test", group: ForwardGroupAll, sample: "test", state: "final"},
 		// An option whose statement named no underlying cannot be told a
 		// single name: it is said, not dropped.
-		{key: "unknown", group: ForwardGroupNotRead, sample: "test", state: "excluded", reason: ForwardExcludedUnderlyingUnset},
+		{key: "unknown", group: ForwardGroupCannotSort, sample: "test", state: "excluded", reason: ForwardExcludedUnderlyingUnset},
 	})
 	facts, _ := ForwardTestFacts("entries_vs_nearby_day")
-	if s := SummarizeForward(facts, units, nil, fwdRegistered, fwdAt(20), fwdZone); s.Test.Final != 3 || s.ToRead != 164 || s.Protection != nil || s.Excluded[ForwardExcludedUnderlyingUnset] != 1 || len(s.Groups) != 1 {
+	if s := SummarizeForward(facts, units, nil, fwdRegistered, fwdAt(20), fwdZone); s.Test.Final != 3 || s.ToFill != 164 || s.Protection != nil || s.Excluded[ForwardExcludedUnderlyingUnset] != 1 || len(s.Groups) != 1 {
 		t.Fatalf("sample = %+v", s)
 	}
 }
@@ -173,15 +173,15 @@ func TestForwardPremiumLineWalksTheRule(t *testing.T) {
 	}
 	units := CountForwardUnits("option_buys_below_premium_line", fwdInput(fwdAt(20), changes...))
 	checkUnits(t, units, []fwdWant{
-		{key: "p1:2026-W10", group: ForwardGroupNotRead, sample: "test", state: "final"},
-		{key: "p2:2026-W10", group: ForwardGroupNotRead, sample: "test", state: "pending"},
-		{key: "p3:2026-W10", group: ForwardGroupNotRead, sample: "test", state: "excluded", reason: ForwardExcludedDelivered},
-		{group: ForwardGroupNotRead, sample: "test", state: "excluded", reason: ForwardExcludedNotProved},
-		{key: "p1:2026-W11", group: ForwardGroupNotRead, sample: "test", state: "final"},
+		{key: "p1:2026-W10", group: ForwardGroupNotSorted, sample: "test", state: "final"},
+		{key: "p2:2026-W10", group: ForwardGroupNotSorted, sample: "test", state: "waiting"},
+		{key: "p3:2026-W10", group: ForwardGroupNotSorted, sample: "test", state: "excluded", reason: ForwardExcludedDelivered},
+		{group: ForwardGroupNotSorted, sample: "test", state: "excluded", reason: ForwardExcludedNotProved},
+		{key: "p1:2026-W11", group: ForwardGroupNotSorted, sample: "test", state: "final"},
 	})
 	facts, _ := ForwardTestFacts("option_buys_below_premium_line")
 	s := SummarizeForward(facts, units, units, fwdRegistered, fwdAt(20), fwdZone)
-	if s.Test.Final != 2 || s.ToRead != 30 || s.Expected != nil || s.NoDate != ForwardNoDateGroupNotRead || s.Groups[2].ID != ForwardGroupNotRead || s.Groups[2].Final != 2 {
+	if s.Test.Final != 2 || s.ToFill != 30 || s.Expected != nil || s.NoDate != ForwardNoDateNotWorkedOut || s.Groups[2].ID != ForwardGroupNotSorted || s.Groups[2].Final != 2 {
 		t.Fatalf("sample = %+v", s)
 	}
 }
@@ -207,12 +207,12 @@ func TestForwardRegimeWarningWalksTheRule(t *testing.T) {
 		{key: "p1:2026-W10", group: "after_warning", sample: "test", state: "final"},
 		{key: "p2:2026-W10", group: "other", sample: "test", state: "final"},
 		{key: "p3:2026-W10", group: "after_warning", sample: "test", state: "final"},
-		{key: "p4:2026-W10", group: ForwardGroupNotRead, sample: "test", state: "final"},
+		{key: "p4:2026-W10", group: ForwardGroupCannotSort, sample: "test", state: "final"},
 	})
 	facts, _ := ForwardTestFacts("option_buys_after_regime_warning")
 	// Before registration no close was recorded: the pace of the group read
 	// cannot be measured, and that is the reason given.
-	unrecorded := []ForwardUnit{{Group: ForwardGroupNotRead, Sample: "test", State: "final", Date: fwdAt(-30)}}
+	unrecorded := []ForwardUnit{{Group: ForwardGroupCannotSort, Sample: "test", State: "final", Date: fwdAt(-30)}}
 	if s := SummarizeForward(facts, nil, unrecorded, fwdRegistered, fwdAt(1), fwdZone); s.NoDate != ForwardNoDateNotRecorded {
 		t.Fatalf("no date reason %q", s.NoDate)
 	}
@@ -223,7 +223,7 @@ func TestForwardRegimeWarningWalksTheRule(t *testing.T) {
 		t.Fatalf("no date reason %q", s.NoDate)
 	}
 	s := SummarizeForward(facts, units, nil, fwdRegistered, fwdAt(30), fwdZone)
-	if s.Groups[0].Final != 2 || s.Groups[0].Days != 2 || s.Groups[1].Final != 1 || s.Groups[2].ID != ForwardGroupNotRead || s.ToRead != 38 {
+	if s.Groups[0].Final != 2 || s.Groups[0].Days != 2 || s.Groups[1].Final != 1 || s.Groups[2].ID != ForwardGroupCannotSort || s.ToFill != 38 {
 		t.Fatalf("sample = %+v", s)
 	}
 	// 40 readings on fewer than 20 days are not due.
@@ -237,7 +237,7 @@ func TestForwardRegimeWarningWalksTheRule(t *testing.T) {
 	for i := range many {
 		many[i].Date = fwdAt(i)
 	}
-	if s := SummarizeForward(facts, many, nil, fwdRegistered, fwdAt(60), fwdZone); s.State != ForwardStateDue {
+	if s := SummarizeForward(facts, many, nil, fwdRegistered, fwdAt(60), fwdZone); s.State != ForwardStateFull {
 		t.Fatalf("40 readings on 40 days: state %s", s.State)
 	}
 }
@@ -268,15 +268,15 @@ func TestForwardFinalSalesWalkTheRule(t *testing.T) {
 	units := CountForwardUnits("final_option_sales_vs_close_5_sessions", fwdInput(fwdAt(20), changes...))
 	checkUnits(t, units, []fwdWant{
 		{key: "p1", group: "above_cost", sample: "test", state: "final"},
-		{key: "p4", group: ForwardGroupNotRead, sample: "test", state: "excluded", reason: ForwardExcludedSoldAtCost},
+		{key: "p4", group: ForwardGroupCannotSort, sample: "test", state: "excluded", reason: ForwardExcludedSoldAtCost},
 		{key: "p5", group: "above_cost", sample: "test", state: "excluded", reason: ForwardExcludedNoClosingQuote},
 		{key: "p2", group: "below_cost", sample: "test", state: "final"},
 		{key: "p3", group: "below_cost", sample: "protection", state: "final"},
-		{key: "p8", group: "above_cost", sample: "test", state: "pending"},
+		{key: "p8", group: "above_cost", sample: "test", state: "waiting"},
 	})
 	facts, _ := ForwardTestFacts("final_option_sales_vs_close_5_sessions")
 	s := SummarizeForward(facts, units, nil, fwdRegistered, fwdAt(20), fwdZone)
-	if s.Groups[0].Final != 1 || s.Groups[1].Final != 1 || s.Protection.Final != 1 || s.ToRead != 29 {
+	if s.Groups[0].Final != 1 || s.Groups[1].Final != 1 || s.Protection.Final != 1 || s.ToFill != 29 {
 		t.Fatalf("sample = %+v", s)
 	}
 }
@@ -298,7 +298,7 @@ func TestForwardPartialSalesWalkTheRule(t *testing.T) {
 	units := CountForwardUnits("floor_after_partial_sale", fwdInput(fwdAt(20), changes...))
 	checkUnits(t, units, []fwdWant{
 		{key: "p2", group: ForwardGroupAll, sample: "test", state: "final"},
-		{key: "p3", group: ForwardGroupAll, sample: "test", state: "pending"},
+		{key: "p3", group: ForwardGroupAll, sample: "test", state: "waiting"},
 		{key: "p4", group: ForwardGroupAll, sample: "protection", state: "final"},
 	})
 }
@@ -320,14 +320,14 @@ func TestForwardAdverseMoveWalksTheRule(t *testing.T) {
 	}
 	units := CountForwardUnits("option_sales_after_adverse_move", fwdInput(fwdAt(20), changes...))
 	checkUnits(t, units, []fwdWant{
-		{key: "AAA:2026-W10:test", group: ForwardGroupNotRead, sample: "test", state: "final"},
-		{key: "BBB:2026-W10:test", group: ForwardGroupNotRead, sample: "test", state: "excluded", reason: ForwardExcludedNoClosingQuote},
-		{key: "SPY:2026-W10:test", group: ForwardGroupNotRead, sample: "test", state: "final"},
-		{key: "CCC:2026-W10:protection", group: ForwardGroupNotRead, sample: "protection", state: "final"},
+		{key: "AAA:2026-W10:test", group: ForwardGroupNotSorted, sample: "test", state: "final"},
+		{key: "BBB:2026-W10:test", group: ForwardGroupNotSorted, sample: "test", state: "excluded", reason: ForwardExcludedNoClosingQuote},
+		{key: "SPY:2026-W10:test", group: ForwardGroupNotSorted, sample: "test", state: "final"},
+		{key: "CCC:2026-W10:protection", group: ForwardGroupNotSorted, sample: "protection", state: "final"},
 	})
 	facts, _ := ForwardTestFacts("option_sales_after_adverse_move")
 	s := SummarizeForward(facts, units, units, fwdRegistered, fwdAt(20), fwdZone)
-	if s.Test.Final != 2 || s.ToRead != 50 || s.Expected != nil || s.NoDate != ForwardNoDateGroupNotRead {
+	if s.Test.Final != 2 || s.ToFill != 50 || s.Expected != nil || s.NoDate != ForwardNoDateNotWorkedOut {
 		t.Fatalf("sample = %+v", s)
 	}
 }
@@ -355,7 +355,7 @@ func TestForwardExpectedDate(t *testing.T) {
 		since = append(since, ForwardUnit{Group: ForwardGroupAll, Sample: "test", State: "final", Date: fwdRegistered.AddDate(0, 0, i)})
 	}
 	small := facts
-	small.ReadAt = 10
+	small.Needs = 10
 	s = SummarizeForward(small, since, past, fwdRegistered, asOf, fwdZone)
 	if s.Expected == nil || s.Expected.Basis != ForwardPaceSinceRegistration || s.Expected.BeyondWindow {
 		t.Fatalf("expected = %+v", s.Expected)
@@ -368,5 +368,34 @@ func TestForwardExpectedDate(t *testing.T) {
 	}
 	if len(s.Months) != 1 || s.Months[0].Month != "2026-03" {
 		t.Fatalf("months = %+v", s.Months)
+	}
+}
+
+// The months count only units that count toward the number needed; a test
+// whose groups this version cannot sort says it cannot fill, as does one
+// whose date lies beyond the window; waiting and not-counted units are named.
+func TestForwardSampleServesWhatAReaderFilters(t *testing.T) {
+	facts, _ := ForwardTestFacts("option_buys_after_regime_warning")
+	units := []ForwardUnit{
+		{Key: "w", Label: "AAA C", Group: "after_warning", Sample: "test", State: "final", Date: fwdAt(1)},
+		{Key: "o", Label: "BBB C", Group: "other", Sample: "test", State: "final", Date: fwdAt(2)},
+		{Key: "x", Label: "CCC C", Group: ForwardGroupCannotSort, Sample: "test", State: "final", Date: fwdAt(3)},
+		{Key: "p", Label: "DDD C", Group: "other", Sample: "test", State: "waiting", Date: fwdAt(4)},
+		{Key: "d", Label: "EEE C", Group: "after_warning", Sample: "test", State: "excluded", Reason: ForwardExcludedDelivered, Date: fwdAt(5)},
+	}
+	s := SummarizeForward(facts, units, nil, fwdRegistered, fwdAt(10), fwdZone)
+	if len(s.Months) != 1 || s.Months[0].Final != 1 {
+		t.Fatalf("months = %+v, want only the after-warning unit", s.Months)
+	}
+	if len(s.WaitingUnits) != 1 || s.WaitingUnits[0].Label != "DDD C" || len(s.NotCounted) != 1 || s.NotCounted[0].Reason != ForwardExcludedDelivered {
+		t.Fatalf("waiting=%+v not counted=%+v", s.WaitingUnits, s.NotCounted)
+	}
+	// One buy after a warning in nine days: the other 39 lie past the window.
+	if s.CanFill || s.CannotFill != ForwardCannotFillBeyondWindow || s.Expected == nil || !s.Expected.BeyondWindow {
+		t.Fatalf("can fill=%v reason=%q expected=%+v", s.CanFill, s.CannotFill, s.Expected)
+	}
+	premium, _ := ForwardTestFacts("option_buys_below_premium_line")
+	if s := SummarizeForward(premium, nil, nil, fwdRegistered, fwdAt(10), fwdZone); s.CanFill || s.CannotFill != ForwardCannotFillNotWorkedOut {
+		t.Fatalf("premium line can fill: %+v", s)
 	}
 }

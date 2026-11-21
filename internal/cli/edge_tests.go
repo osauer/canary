@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -11,13 +12,14 @@ import (
 	"github.com/osauer/canary/v3/internal/rpc"
 )
 
-// runEdgeTests is `canary edge tests [RULE] [--all] [--json]`: the forward
-// tests told top to bottom, read rules first, then due, then collecting
-// ordered by how full they are. One rule by id, or --all, adds the rule's
-// registered text and the details behind its counts.
+// runEdgeTests is `canary edge tests [NAME] [--all] [--json]`: the forward
+// tests told top to bottom, full tests first, then collecting tests ordered
+// by how far their count is, then tests with no count. One test by name, or
+// --all, shows the test in full: its rule, what is waiting and what gave no
+// result.
 func runEdgeTests(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "edge tests")
-	all := fs.Bool("all", false, "every detail of every rule: its registered text, unit, policy and what gave no reading")
+	all := fs.Bool("all", false, "every test in full: its rule as registered, what is waiting and what gave no result")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
@@ -34,14 +36,14 @@ func runEdgeTests(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "edge tests: %v", err)
 	}
 	view := edgeTestsView{ForwardTests: result.ForwardTests, ForwardTestsUnavailable: result.ForwardTestsUnavailable}
-	if id := fs.Arg(0); id != "" {
-		i := slices.IndexFunc(result.ForwardTests, func(t rpc.EdgeForwardTest) bool { return t.ID == id })
+	if name := fs.Arg(0); name != "" {
+		i := slices.IndexFunc(result.ForwardTests, func(t rpc.EdgeForwardTest) bool { return t.ID == name })
 		if i < 0 {
-			ids := make([]string, 0, len(result.ForwardTests))
+			names := make([]string, 0, len(result.ForwardTests))
 			for _, t := range result.ForwardTests {
-				ids = append(ids, t.ID)
+				names = append(names, t.ID)
 			}
-			return fail(env, "edge tests: no rule %q; the rules are %s", id, strings.Join(ids, ", "))
+			return fail(env, "edge tests: no test %q; the tests are %s", name, strings.Join(names, ", "))
 		}
 		view.ForwardTests, *all = result.ForwardTests[i:i+1], true
 	}
@@ -52,64 +54,161 @@ func runEdgeTests(ctx context.Context, env *Env, args []string) int {
 	return 0
 }
 
-// edgeTestsView is the JSON of `canary edge tests`: the rules as the
-// daemon serves them in canary edge --json.
+// edgeTestsView is the JSON of `canary edge tests`: the tests as the daemon
+// serves them in canary edge --json.
 type edgeTestsView struct {
 	ForwardTests            []rpc.EdgeForwardTest `json:"forward_tests"`
 	ForwardTestsUnavailable string                `json:"forward_tests_unavailable,omitempty"`
 }
 
-// Layout of a rule's marks: label, bar and count columns shared by every
-// rule, so rules compare at a glance. 4 + 24 + 1 + 24 + 2 + 10 + 2 + 12 = 79.
+// The grid every row with a mark or a count sits on: label from column 4,
+// mark from 29 for 24 cells, counts right-aligned to end at 57, "of" at 59,
+// the number needed from 62, "+k waiting" from 67, dates from 55. No row
+// passes column 78; prose wraps at 79.
 const (
-	edgeTestsIndent  = "    "
-	edgeTestsLabel   = 24
-	edgeTestsBar     = 24
-	edgeTestsCount   = 10
-	edgeTestsAxis    = 40
-	edgeTestsMeasure = 80
-	edgeTestsTrack   = "░"
-	edgeTestsEighths = " ▏▎▍▌▋▊▉"
-	edgeTestsSparks  = "▁▂▃▄▅▆▇█"
-	edgeTestsNoMonth = "·"
+	edgeTestsMarkCol  = 29
+	edgeTestsBar      = 24
+	edgeTestsCountEnd = 58
+	edgeTestsNoteCol  = 67
+	edgeTestsDateCol  = 55
+	edgeTestsWidth    = 79
+	edgeTestsMonths   = 12
 )
 
+// edgeTestsGlyphs is the drawing set: block elements in a UTF-8 locale,
+// plain ASCII otherwise.
+type edgeTestsGlyphs struct {
+	ascii   bool
+	full    string
+	track   string
+	eighths []string
+	sparks  []string
+	noMonth string
+	over    string
+	unknown string
+	rule    string
+}
+
+var edgeTestsUTF8 = edgeTestsGlyphs{full: "█", track: "░", eighths: []string{"", "▏", "▎", "▍", "▌", "▋", "▊", "▉"},
+	sparks: []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}, noMonth: "·", over: "»", unknown: "–", rule: "─"}
+
+var edgeTestsASCIIGlyphs = edgeTestsGlyphs{ascii: true, full: "#", track: ".",
+	sparks: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, noMonth: "0", over: ">", unknown: "-", rule: "-"}
+
+// edgeTestsLocaleUTF8 reads the locale's charset as the C library does:
+// LC_ALL, then LC_CTYPE, then LANG, the first that is set.
+func edgeTestsLocaleUTF8() bool {
+	for _, key := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		if value := os.Getenv(key); value != "" {
+			value = strings.ToLower(value)
+			return strings.Contains(value, "utf-8") || strings.Contains(value, "utf8")
+		}
+	}
+	return false
+}
+
+// edgeTestsASCIIText replaces the few non-ASCII characters the words use.
+var edgeTestsASCIIText = strings.NewReplacer("·", "-", "–", "-", "─", "-", "»", ">", "’", "'")
+
+// edgeTestsScreen collects the lines of one screen and what its legend
+// must explain.
+type edgeTestsScreen struct {
+	env       *Env
+	g         edgeTestsGlyphs
+	b         strings.Builder
+	waiting   bool
+	trackless bool
+	beyond    bool
+	sales     bool
+	spark     string
+	axis      []string
+	// cause is set when one cause for no count is said for the whole screen.
+	cause bool
+}
+
+func newEdgeTestsScreen(env *Env) *edgeTestsScreen {
+	screen := &edgeTestsScreen{env: env, g: edgeTestsUTF8}
+	if !edgeTestsLocaleUTF8() {
+		screen.g = edgeTestsASCIIGlyphs
+	}
+	return screen
+}
+
+func (s *edgeTestsScreen) line(text string) {
+	s.b.WriteString(text)
+	s.b.WriteByte('\n')
+}
+
+// prose wraps text at 79 columns, indent on the first line and indent plus
+// hang on the rest, with a style applied to each line.
+func (s *edgeTestsScreen) prose(indent, hang, text string, style func(string) string) {
+	if style == nil {
+		style = func(v string) string { return v }
+	}
+	glued := strings.ReplaceAll(text, " · ", edgeGlue+"· ")
+	lines := wrapVisibleText(glued, edgeTestsWidth-len(indent))
+	if len(lines) > 1 && hang != "" {
+		lines = append(lines[:1], wrapVisibleText(strings.Join(lines[1:], " "), edgeTestsWidth-len(indent)-len(hang))...)
+	}
+	for i, line := range lines {
+		lead := indent
+		if i > 0 {
+			lead = indent + hang
+		}
+		s.line(lead + style(strings.ReplaceAll(line, edgeGlue, " ")))
+	}
+}
+
+func (s *edgeTestsScreen) flush() {
+	text := s.b.String()
+	if s.g.ascii {
+		text = edgeTestsASCIIText.Replace(text)
+	}
+	fmt.Fprint(s.env.Stdout, text)
+}
+
 func renderEdgeTests(env *Env, view edgeTestsView, all bool) {
-	out := env.Stdout
-	fmt.Fprintln(out, env.bold("Forward tests"))
-	if view.ForwardTestsUnavailable == "registry_unreadable" {
-		edgeTestsParagraph(env, "The registered rules could not be read this time. This does not mean none are registered; ask again.")
+	s := newEdgeTestsScreen(env)
+	defer s.flush()
+	switch view.ForwardTestsUnavailable {
+	case "registry_unreadable":
+		s.line(env.bold("Forward tests"))
+		s.prose("  ", "", "The registered tests could not be read this time. This does not mean none are registered; ask again.", nil)
+		return
+	case "account_scope_unavailable":
+		s.line(env.bold("Forward tests"))
+		s.prose("  ", "", "No account is connected, so this account's tests cannot be shown. Ask again once Canary is connected to the broker.", nil)
 		return
 	}
-	if view.ForwardTestsUnavailable == "account_scope_unavailable" {
-		edgeTestsParagraph(env, "No account is connected, so the rules of this account cannot be shown. Ask again once the daemon names its account.")
+	tests := edgeTestsOrdered(view.ForwardTests)
+	s.axis = edgeTestsAxis(tests)
+	if all {
+		for i, t := range tests {
+			if i > 0 {
+				s.line("")
+			}
+			s.fullView(t)
+		}
 		return
 	}
-	edgeTestsParagraph(env, "A forward test is a rule written down before the decisions it is read on: only decisions made after the rule was registered count. Canary counts them; the reading that turns a full count into an answer is not built yet. In the rules about sales, a sale a protection rule sent is read apart from one you chose; a stop placed directly at the broker cannot be told apart yet.")
-	tests := slices.Clone(view.ForwardTests)
-	counted := 0
-	for _, t := range tests {
-		if t.Sample != nil {
-			counted++
-		}
-	}
-	if counted == 0 && len(tests) > 0 {
-		fmt.Fprintln(out)
-		edgeTestsParagraph(env, "Nothing is counted in this reply: the daemon has no decision review yet, the rules are not registered yet, or the daemon runs a build that does not count. The rules and their read points are below.")
-	}
-	rank := func(t rpc.EdgeForwardTest) int {
-		switch {
-		case t.Sample == nil:
-			return 3
-		case t.Sample.State == rpc.EdgeForwardRead:
-			return 0
-		case t.Sample.State == rpc.EdgeForwardDue:
-			return 1
-		}
+	s.overview(tests)
+}
+
+// edgeTestsRank orders the sections: full, collecting, no count.
+func edgeTestsRank(t rpc.EdgeForwardTest) int {
+	switch {
+	case t.Sample == nil:
 		return 2
+	case t.Sample.State == rpc.EdgeForwardFull:
+		return 0
 	}
+	return 1
+}
+
+func edgeTestsOrdered(in []rpc.EdgeForwardTest) []rpc.EdgeForwardTest {
+	tests := slices.Clone(in)
 	slices.SortStableFunc(tests, func(a, b rpc.EdgeForwardTest) int {
-		if ra, rb := rank(a), rank(b); ra != rb {
+		if ra, rb := edgeTestsRank(a), edgeTestsRank(b); ra != rb {
 			return ra - rb
 		}
 		fa, fb := edgeTestsFullness(a), edgeTestsFullness(b)
@@ -121,194 +220,510 @@ func renderEdgeTests(env *Env, view edgeTestsView, all bool) {
 		}
 		return 0
 	})
-	headings := map[int]string{0: "Read", 1: "Due", 2: "Collecting", 3: "Not counted in this reply"}
-	notes := map[int]string{1: " · the count is full; the reading is not built yet"}
-	last := -1
-	for _, t := range tests {
-		if r := rank(t); r != last {
-			n := 0
-			for _, other := range tests {
-				if rank(other) == r {
-					n++
-				}
-			}
-			fmt.Fprintf(out, "\n%s  %s\n", env.bold(headings[r]), env.dim(fmt.Sprintf("%d %s", n, pluralWord(n, "rule", "rules"))+notes[r]))
-			last = r
-		}
-		renderEdgeTest(env, t, all)
-	}
-	if !all {
-		fmt.Fprintf(out, "\nDetails: canary edge tests <rule> · canary edge tests --all · --json\n")
-	}
+	return tests
 }
 
-// edgeTestsFullness is how far the read group is toward the read point.
+// edgeTestsFullness is how far the needed group is toward the number
+// needed; a test whose groups are not sorted is at zero.
 func edgeTestsFullness(t rpc.EdgeForwardTest) float64 {
-	if t.Sample == nil || t.ReadAt <= 0 {
+	if t.Sample == nil || t.Needs <= 0 || t.NotSorted != "" {
 		return 0
 	}
-	return float64(t.ReadAt-t.Sample.ToRead) / float64(t.ReadAt)
+	return float64(t.Needs-t.Sample.ToFill) / float64(t.Needs)
 }
 
-func renderEdgeTest(env *Env, t rpc.EdgeForwardTest, all bool) {
-	out := env.Stdout
-	fmt.Fprintln(out)
-	question := t.Question
-	if question == "" {
-		question = t.Title
+func (s *edgeTestsScreen) overview(tests []rpc.EdgeForwardTest) {
+	env := s.env
+	full, next := 0, ""
+	for _, t := range tests {
+		if t.Sample == nil {
+			continue
+		}
+		if t.Sample.State == rpc.EdgeForwardFull {
+			full++
+		} else if e := t.Sample.Expected; e != nil && (next == "" || e.Date < next) {
+			next = e.Date
+		}
 	}
-	edgeTestsStyled(env, "  ", "", sanitizeRunText(question), env.bold)
-	condition := "nothing to check first: every decision counts"
-	if t.Condition != "" {
-		condition = "checks " + sanitizeRunText(t.Condition)
+	top := []string{edgeTestsCount(len(tests))}
+	if full == 0 {
+		top = append(top, "none full")
+	} else {
+		top = append(top, fmt.Sprintf("%d full", full))
 	}
-	edgeTestsProse(env, edgeTestsIndent, briefJoin(edgeTestsInforms(t.Informs), condition))
-	s := t.Sample
-	if s == nil {
-		edgeTestsProse(env, edgeTestsIndent, edgeTestsNotCounted(t))
-		if all {
-			renderEdgeTestDetails(env, t)
+	if next != "" {
+		top = append(top, "next about "+edgeTestsMonth(next[:7]))
+	}
+	s.line(env.bold("Forward tests") + "  " + strings.Join(top, " · "))
+	s.prose("  ", "", "Questions about your own trading. Each was fixed as a written rule on a set date, and only trading after that date counts. Canary is filling the counts. This version does not work out the answers yet, and nothing here changes a verdict, a warning or an order.", nil)
+	if cause := edgeTestsNoCountCause(tests); cause != "" {
+		s.cause = true
+		s.line("")
+		head, rest, _ := strings.Cut(cause, ":")
+		s.prose("  ", "", env.yellow(head+":")+rest, nil)
+	}
+	last := -1
+	for _, t := range tests {
+		if r := edgeTestsRank(t); r != last {
+			s.line("")
+			s.heading(r, tests)
+			last = r
+		}
+		s.line("")
+		s.block(t, false)
+	}
+	s.legend(tests)
+	s.line("One test in full: canary edge tests <name> · all in full: --all · data: --json")
+}
+
+func edgeTestsCount(n int) string {
+	return fmt.Sprintf("%d %s", n, pluralWord(n, "test", "tests"))
+}
+
+// edgeTestsNoCountCause names the one cause when no test is counted, with
+// one action; empty when any test is counted.
+func edgeTestsNoCountCause(tests []rpc.EdgeForwardTest) string {
+	if len(tests) == 0 || slices.ContainsFunc(tests, func(t rpc.EdgeForwardTest) bool { return t.Sample != nil }) {
+		return ""
+	}
+	for _, t := range tests {
+		if t.State == "" {
+			return "The running Canary does not count yet: restart it with canary restart."
+		}
+	}
+	for _, t := range tests {
+		if t.NotCountedReason == rpc.EdgeForwardNotRegistered {
+			return "These tests are not registered yet: they register when Canary next connects to the broker."
+		}
+	}
+	return "Canary has not finished reviewing your trades yet: ask again in a few minutes."
+}
+
+// heading is a section word, a faint rule and what the section holds, 79
+// columns wide.
+func (s *edgeTestsScreen) heading(rank int, tests []rpc.EdgeForwardTest) {
+	n := 0
+	since := ""
+	shared := true
+	for _, t := range tests {
+		if edgeTestsRank(t) != rank {
+			continue
+		}
+		n++
+		date := t.RegisteredAt.Local().Format("2 Jan 2006")
+		if since == "" {
+			since = date
+		} else if since != date {
+			shared = false
+		}
+	}
+	word, text := "Collecting", edgeTestsCount(n)
+	switch rank {
+	case 0:
+		word, text = "Full", edgeTestsCount(n)+" · the count is complete; this version does not answer it yet"
+	case 2:
+		s.line(s.env.bold("No counts yet") + "  " + edgeTestsCount(n))
+		return
+	}
+	if rank == 1 && shared && since != "" {
+		text += " · counting since " + since
+	}
+	dashes := max(3, edgeTestsWidth-len(word)-2-visibleLen(text))
+	s.line(s.env.bold(word) + " " + s.env.dim(strings.Repeat(s.g.rule, dashes)) + " " + text)
+}
+
+// block draws one test: its question, what it helps with and its name, the
+// policy it asks about, what it counts, its rows and the pace.
+func (s *edgeTestsScreen) block(t rpc.EdgeForwardTest, full bool) {
+	env := s.env
+	s.prose("  ", "", sanitizeRunText(firstNonEmptyCLI(t.Question, t.Title)), env.bold)
+	if full {
+		s.line("    " + edgeTestsHelps(t.Informs) + " · " + edgeTestsPolicy(t))
+		if !t.RegisteredAt.IsZero() {
+			s.line("    registered " + t.RegisteredAt.Local().Format("2 Jan 2006 15:04 MST") + " · rule text fingerprint " + edgeTestsFingerprint(t.RuleHash))
+		}
+		s.prose("    ", "  ", edgeTestsNeeds(t), nil)
+		condition := "checks nothing first: every trade counts"
+		if t.Condition != "" {
+			condition = "checks " + sanitizeRunText(t.Condition)
+		}
+		s.prose("    ", "  ", condition, nil)
+	} else {
+		helps := "    "
+		if len(t.Informs) > 0 {
+			helps += edgeTestsHelps(t.Informs)
+		}
+		s.line(helps + strings.Repeat(" ", max(2, edgeTestsWidth-visibleLen(helps)-len(t.ID))) + t.ID)
+		if t.Policy != "" {
+			s.line("    policy: " + sanitizeRunText(t.Policy))
+		}
+	}
+	if t.UnitText != "" {
+		s.prose("    ", "  ", "counts "+sanitizeRunText(t.UnitText), nil)
+	}
+	if t.Sample == nil {
+		if text := strings.TrimPrefix(s.notCountedLine(t), " · "); text != "" {
+			s.prose("    ", "  ", text, nil)
 		}
 		return
 	}
-	labels := map[string]string{"all": firstNonEmptyCLI(t.SampleLabel, "decisions"), "not_read": "group not read yet"}
-	for _, g := range t.Groups {
-		labels[g.ID] = g.Label
-	}
-	collecting := s.State == rpc.EdgeForwardCollecting
-	for _, g := range s.Groups {
-		counts := g.ID == t.ReadGroup || t.ReadGroup == "any" || g.ID == "all"
-		renderEdgeTestRow(env, labels[g.ID], g, t.ReadAt, counts, collecting)
-	}
-	if t.ReadDays > 0 {
-		for _, g := range s.Groups {
-			if g.ID == t.ReadGroup {
-				edgeTestsProse(env, edgeTestsIndent, fmt.Sprintf("%s also needs %d separate days: %d so far", labels[g.ID], t.ReadDays, g.Days))
-			}
-		}
-	}
-	if t.GroupNotRead != "" {
-		edgeTestsProse(env, edgeTestsIndent, "the groups are not told apart yet: "+sanitizeRunText(t.GroupNotRead))
-	} else if slices.ContainsFunc(s.Groups, func(g rpc.EdgeForwardGroupCount) bool { return g.ID == "not_read" && g.Final+g.Pending > 0 }) {
-		edgeTestsProse(env, edgeTestsIndent, "group not read yet: the fact that places them was not recorded")
-	}
-	if spark := edgeTestsSparkline(env, s.Months, collecting); spark != "" {
-		edgeTestsProse(env, edgeTestsIndent, spark)
-	}
-	edgeTestsProse(env, edgeTestsIndent, edgeTestsWhen(t, s.AsOf))
-	if t.ProtectionApart {
-		edgeTestsProse(env, edgeTestsIndent, edgeTestsProtection(s))
-	}
-	if s.Today != nil {
-		edgeTestsProse(env, edgeTestsIndent, edgeTestsToday(t.ID, *s.Today, labels, s.AsOf))
-	}
-	if s.Reading != nil {
-		renderEdgeTestReading(env, *s.Reading, labels)
-	}
-	if all {
-		renderEdgeTestDetails(env, t)
-	}
+	s.rows(t, full)
 }
 
-func edgeTestsInforms(informs []string) string {
+func edgeTestsHelps(informs []string) string {
 	words := map[string]string{"buy": "buying", "hold": "holding", "sell": "selling"}
-	var parts []string
+	parts := make([]string, 0, len(informs))
 	for _, i := range informs {
 		parts = append(parts, firstNonEmptyCLI(words[i], i))
 	}
 	if len(parts) == 0 {
-		return "informs no decision named"
+		return "helps with no decision named"
 	}
-	return "informs " + strings.Join(parts, " or ")
+	return "helps with " + strings.Join(parts, " or ")
 }
 
-func edgeTestsNotCounted(t rpc.EdgeForwardTest) string {
-	text := ""
-	if t.RegisteredAt.IsZero() {
-		text = "not registered yet: it starts counting once the daemon registers it · "
+func edgeTestsPolicy(t rpc.EdgeForwardTest) string {
+	if t.Policy == "" {
+		return "tests no limit from your written policy"
 	}
-	if t.ReadAt > 0 {
-		text += fmt.Sprintf("read at %d", t.ReadAt)
-		if t.UnitText != "" {
-			text += " · counts " + sanitizeRunText(t.UnitText)
+	return "tests " + sanitizeRunText(t.Policy)
+}
+
+func edgeTestsFingerprint(hash string) string {
+	hex := strings.TrimPrefix(hash, "rule_")
+	return hex[:min(16, len(hex))]
+}
+
+// edgeTestsNeeds says the number the test needs, in which group and on how
+// many days.
+func edgeTestsNeeds(t rpc.EdgeForwardTest) string {
+	text := fmt.Sprintf("needs %d", t.Needs)
+	switch t.NeedsGroup {
+	case "", "all":
+	case "any":
+		text += " in either group"
+	default:
+		text += " " + edgeTestsLabel(t, t.NeedsGroup)
+	}
+	if t.NeedsDays > 0 {
+		text += fmt.Sprintf(", on %d separate days", t.NeedsDays)
+	}
+	return text
+}
+
+func (s *edgeTestsScreen) notCountedLine(t rpc.EdgeForwardTest) string {
+	text := edgeTestsNeeds(t)
+	if t.Needs <= 0 {
+		text = ""
+	}
+	if s.cause {
+		return text
+	}
+	switch t.NotCountedReason {
+	case rpc.EdgeForwardNotRegistered:
+		text += " · not registered yet: it registers when Canary next connects to the broker"
+	case rpc.EdgeForwardNoReview:
+		text += " · counted once Canary has reviewed your trades"
+	}
+	return text
+}
+
+func edgeTestsLabel(t rpc.EdgeForwardTest, id string) string {
+	switch id {
+	case "all":
+		return firstNonEmptyCLI(t.SampleLabel, "trades")
+	case "not_sorted":
+		return "not sorted yet"
+	case "cannot_sort":
+		return "cannot be sorted"
+	}
+	for _, g := range t.Groups {
+		if g.ID == id {
+			return g.Label
 		}
 	}
-	return strings.TrimSuffix(text, " · ")
+	return id
 }
 
-// renderEdgeTestRow prints one group: label, bar, count, and the units
-// not final yet. A group whose fact is not read has no bar: its units are
-// counted but cannot be placed.
-func renderEdgeTestRow(env *Env, label string, g rpc.EdgeForwardGroupCount, readAt int, counts, collecting bool) {
-	bar := strings.Repeat(" ", edgeTestsBar)
-	count := edgeCount(g.Final)
-	if g.ID != "not_read" {
-		bar = edgeTestsBarText(env, g.Final, readAt, collecting)
-		if counts {
-			count = fmt.Sprintf("%s of %s", edgeCount(g.Final), edgeCount(readAt))
+// edgeTestsCounts says whether a group's units count toward the number
+// needed.
+func edgeTestsCounts(t rpc.EdgeForwardTest, id string) bool {
+	if id == "not_sorted" || id == "cannot_sort" {
+		return false
+	}
+	return t.NeedsGroup == "all" || t.NeedsGroup == "any" || t.NeedsGroup == id
+}
+
+// row places a label, a mark, a count, "of N" and a note on the grid.
+func (s *edgeTestsScreen) row(label, mark, count, of, note string) string {
+	line := "    " + label
+	if mark != "" {
+		line = padRightVisible(line, edgeTestsMarkCol) + mark
+	}
+	if count != "" {
+		line = padRightVisible(line, max(visibleLen(line)+1, edgeTestsCountEnd-visibleLen(count))) + count
+	}
+	if of != "" {
+		line += " of " + of
+	}
+	if note != "" {
+		line = padRightVisible(line, max(visibleLen(line)+2, edgeTestsNoteCol)) + note
+	}
+	return line
+}
+
+// bar is a count at the test's scale: a fill in eighths of a cell, and a
+// faint track when the row has a number to reach. A fill without a track
+// that runs off the scale ends in the overflow mark.
+func (s *edgeTestsScreen) bar(n, of int, track bool) string {
+	if of <= 0 {
+		return ""
+	}
+	cells := float64(n) / float64(of) * edgeTestsBar
+	over := cells > edgeTestsBar
+	cells = math.Min(cells, edgeTestsBar)
+	var fill string
+	used := 0
+	if s.g.ascii {
+		used = int(math.Round(cells))
+		if n > 0 {
+			used = max(used, 1)
+		}
+		fill = strings.Repeat(s.g.full, used)
+	} else {
+		eighths := int(math.Round(cells * 8))
+		if n > 0 {
+			eighths = max(eighths, 1)
+		}
+		used = eighths / 8
+		fill = strings.Repeat(s.g.full, used)
+		if part := eighths % 8; part > 0 {
+			fill += s.g.eighths[part]
+			used++
 		}
 	}
-	line := edgeTestsIndent + padRightVisible(label, edgeTestsLabel) + " " + bar + "  " + padLeftVisible(count, edgeTestsCount)
-	if g.Pending > 0 {
-		line += "  " + env.dim(fmt.Sprintf("+%s not final", edgeCount(g.Pending)))
+	if track {
+		if rest := edgeTestsBar - used; rest > 0 {
+			fill += s.env.dim(strings.Repeat(s.g.track, rest))
+		}
+		return fill
 	}
-	fmt.Fprintln(env.Stdout, line)
-}
-
-// edgeTestsBarText is a bar of edgeTestsBar cells in eighths of a cell on a
-// track of a different glyph, so it reads without colour. A count above
-// zero shows at least an eighth.
-func edgeTestsBarText(env *Env, n, of int, collecting bool) string {
-	eighths := 0
-	if of > 0 && n > 0 {
-		eighths = max(1, min(edgeTestsBar*8, int(math.Round(float64(n)/float64(of)*edgeTestsBar*8))))
-	}
-	full, part := eighths/8, eighths%8
-	fill := strings.Repeat("█", full)
-	if part > 0 {
-		fill += string([]rune(edgeTestsEighths)[part])
-	}
-	cells := full
-	if part > 0 {
-		cells++
-	}
-	if collecting && fill != "" {
-		fill = env.dim(fill)
-	}
-	if track := strings.Repeat(edgeTestsTrack, edgeTestsBar-cells); track != "" {
-		fill += env.dim(track)
+	s.trackless = s.trackless || n > 0
+	if over {
+		fill += s.g.over
 	}
 	return fill
 }
 
-// edgeTestsSparkline is final units per month since registration, a dot
-// for a month with none, with the months it spans.
-func edgeTestsSparkline(env *Env, months []rpc.EdgeForwardMonth, collecting bool) string {
-	peak := 0
-	for _, m := range months {
-		peak = max(peak, m.Final)
-	}
-	if peak == 0 || len(months) == 0 {
+func edgeTestsWaiting(n int) string {
+	if n <= 0 {
 		return ""
 	}
-	sparks := []rune(edgeTestsSparks)
-	var b strings.Builder
-	for _, m := range months {
-		if m.Final == 0 {
-			b.WriteString(edgeTestsNoMonth)
-			continue
+	return fmt.Sprintf("+%s waiting", edgeCount(n))
+}
+
+// rows draws the groups, their notes, the protection sample, the pace and
+// a buy made now.
+func (s *edgeTestsScreen) rows(t rpc.EdgeForwardTest, full bool) {
+	sample := t.Sample
+	notWorkedOut := t.NotSorted != ""
+	for _, g := range sample.Groups {
+		label := edgeTestsLabel(t, g.ID)
+		counts := edgeTestsCounts(t, g.ID)
+		note := edgeTestsWaiting(g.Waiting)
+		switch {
+		case notWorkedOut && g.ID != "not_sorted":
+			// The test's own groups cannot be counted in this version.
+			mark, of := "", ""
+			if counts {
+				mark, of = s.env.dim(strings.Repeat(s.g.track, edgeTestsBar)), fmt.Sprint(t.Needs)
+			}
+			s.line(s.row(label, mark, s.g.unknown, of, ""))
+			note = ""
+		case counts:
+			s.line(s.row(label, s.bar(g.Final, t.Needs, true), edgeCount(g.Final), fmt.Sprint(t.Needs), note))
+			if t.NeedsDays > 0 && g.ID == t.NeedsGroup {
+				s.line(s.row("  on separate days", s.bar(g.Days, t.NeedsDays, true), edgeCount(g.Days), fmt.Sprint(t.NeedsDays), ""))
+			}
+		case g.Final+g.Waiting > 0:
+			s.line(s.row(label, s.bar(g.Final, t.Needs, false), edgeCount(g.Final), "", note))
+		default:
+			note = ""
 		}
-		b.WriteRune(sparks[(m.Final*len(sparks)-1)/peak])
+		s.waiting = s.waiting || note != ""
+		switch {
+		case g.ID == "not_sorted":
+			s.prose("      ", "", sanitizeRunText(t.NotSorted), nil)
+		case g.ID == "cannot_sort" && g.Final+g.Waiting > 0 && t.CannotSort != "":
+			s.prose("      ", "", sanitizeRunText(t.CannotSort), nil)
+		}
 	}
-	line := b.String()
-	if collecting {
-		line = env.dim(line)
+	if t.NeedsGroup == "any" && len(t.Groups) > 1 && sample.State != rpc.EdgeForwardFull {
+		s.line(fmt.Sprintf("      full when either group reaches %d", t.Needs))
 	}
-	span := edgeTestsMonth(months[0].Month)
-	if len(months) > 1 {
-		span += "–" + edgeTestsMonth(months[len(months)-1].Month)
+	if sample.State == rpc.EdgeForwardFull {
+		for _, g := range sample.Groups {
+			if edgeTestsCounts(t, g.ID) && g.Final >= t.Needs && g.Days >= t.NeedsDays {
+				text := fmt.Sprintf("      full: %s reached %d", edgeTestsLabel(t, g.ID), t.Needs)
+				if t.NeedsDays > 0 {
+					text += fmt.Sprintf(" on %d separate days", g.Days)
+				}
+				s.line(text)
+				break
+			}
+		}
 	}
-	return fmt.Sprintf("final per month  %s  %s, at most %d", line, span, peak)
+	if t.ProtectionApart {
+		s.sales = true
+		if p := sample.Protection; p != nil && p.Final+p.Waiting > 0 {
+			note := edgeTestsWaiting(p.Waiting)
+			s.waiting = s.waiting || note != ""
+			s.line(s.row("sent by Canary's protection, counted separately", "", edgeCount(p.Final), "", note))
+		}
+		if sample.SenderUnknown > 0 {
+			s.prose("    ", "  ", fmt.Sprintf("%s whose sender Canary could not tell this time %s in neither count", edgeTestsSales(sample.SenderUnknown), pluralWord(sample.SenderUnknown, "counts", "count")), nil)
+		}
+	}
+	if sample.State != rpc.EdgeForwardFull {
+		s.pace(t, full)
+	}
+	if sample.Today != nil {
+		s.prose("    ", "  ", edgeTestsToday(t, *sample.Today), nil)
+	}
+}
+
+func edgeTestsSales(n int) string {
+	return fmt.Sprintf("%s %s", edgeCount(n), pluralWord(n, "sale", "sales"))
+}
+
+// edgeTestsAxis is the complete months shared by every test on screen: from
+// the first month that starts after a registration to the month before the
+// count, the last twelve at most.
+func edgeTestsAxis(tests []rpc.EdgeForwardTest) []string {
+	seen := map[string]bool{}
+	var months []string
+	for _, t := range tests {
+		for _, m := range edgeTestsComplete(t) {
+			if !seen[m.Month] {
+				seen[m.Month] = true
+				months = append(months, m.Month)
+			}
+		}
+	}
+	slices.Sort(months)
+	if len(months) > edgeTestsMonths {
+		months = months[len(months)-edgeTestsMonths:]
+	}
+	return months
+}
+
+// edgeTestsComplete is a test's complete months: each starts after the
+// test was registered and ends before the count.
+func edgeTestsComplete(t rpc.EdgeForwardTest) []rpc.EdgeForwardMonth {
+	if t.Sample == nil || t.RegisteredAt.IsZero() {
+		return nil
+	}
+	registered := t.RegisteredAt.Local().Format("2006-01")
+	current := t.Sample.AsOf.Local().Format("2006-01")
+	var out []rpc.EdgeForwardMonth
+	for _, m := range t.Sample.Months {
+		if m.Month > registered && m.Month < current {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// pace draws the pace row: the complete months on the shared axis once
+// three exist, the most in a month, and the month the count is expected to
+// be full; or why there is no date.
+func (s *edgeTestsScreen) pace(t rpc.EdgeForwardTest, full bool) {
+	sample := t.Sample
+	expected := sample.Expected
+	if expected == nil {
+		s.prose("    ", "  ", edgeTestsNoDate(t), nil)
+		return
+	}
+	label := "at last year's pace"
+	if expected.Basis == "since_registration" {
+		label = "at this pace"
+	}
+	line := padRightVisible("    "+label, edgeTestsMarkCol)
+	if months := edgeTestsComplete(t); len(months) >= 3 {
+		finals := map[string]int{}
+		peak := 0
+		for _, m := range months {
+			finals[m.Month] = m.Final
+			peak = max(peak, m.Final)
+		}
+		if peak > 0 {
+			var b strings.Builder
+			for _, month := range s.axis {
+				n, ok := finals[month]
+				switch {
+				case !ok:
+					b.WriteString(" ")
+				case n == 0:
+					b.WriteString(s.g.noMonth)
+				case s.g.ascii && peak <= 9:
+					// A month's own count where it fits one digit.
+					b.WriteString(fmt.Sprint(n))
+				default:
+					b.WriteString(s.g.sparks[(n*len(s.g.sparks)-1)/peak])
+				}
+			}
+			if s.spark == "" {
+				s.spark = strings.TrimSpace(b.String())
+			}
+			line += b.String() + fmt.Sprintf("  most %d a month", peak)
+		}
+	}
+	date := "full about " + edgeTestsMonth(expected.Date[:7])
+	if expected.BeyondWindow && !full {
+		date += " *"
+		s.beyond = true
+	}
+	s.line(padRightVisible(line, max(visibleLen(line)+2, edgeTestsDateCol)) + date)
+	if expected.BeyondWindow && full {
+		s.prose("      ", "", fmt.Sprintf("more than a year away, and Canary counts only the last %d days: this count cannot fill in this version", sample.WindowDays), nil)
+	}
+}
+
+// edgeTestsNoDate names what is missing for a date.
+func edgeTestsNoDate(t rpc.EdgeForwardTest) string {
+	switch t.Sample.NoDate {
+	case "group_not_worked_out":
+		return "no date for a full count"
+	case "not_recorded_before":
+		return "no date yet: Canary kept no Regime record before " + t.RegisteredAt.Local().Format("2 Jan 2006") + ", so there is no pace"
+	case "none_in_needed_group":
+		return "no date yet: no result so far is " + edgeTestsLabel(t, t.NeedsGroup)
+	case "sender_not_known":
+		return "no date yet: Canary could not tell who sent the sales this time"
+	}
+	return "no date yet: you made no " + firstNonEmptyCLI(t.PaceNoun, "such trade") + " in the past year to set a pace"
+}
+
+// edgeTestsToday says how a buy made now would be counted, from the record
+// of the last US close only.
+func edgeTestsToday(t rpc.EdgeForwardTest, today rpc.EdgeForwardToday) string {
+	day := edgeTestsDay(today.Session)
+	if today.Missing != "" {
+		return fmt.Sprintf("a buy now cannot be sorted: Canary has no record of the %s close", day)
+	}
+	if today.PremiumBudgetActPct == nil {
+		stage := strings.ReplaceAll(sanitizeRunText(today.RegimeStage), "_", " ")
+		if today.Group != "not_sorted" && today.Group != "cannot_sort" {
+			return fmt.Sprintf("a buy now counts as %s: Regime was at %s at the %s close", edgeTestsLabel(t, today.Group), stage, day)
+		}
+		return fmt.Sprintf("a buy now cannot be sorted: Regime was at %s at the %s close", stage, day)
+	}
+	pct := strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.2f", *today.PremiumBudgetActPct), "0"), ".0") + "%"
+	text := fmt.Sprintf("a buy now: the premium budget line was %s of net liquidation value at the %s close", pct, day)
+	if today.PremiumBudgetSet != "" {
+		text += ", the Rulebook's line for " + strings.ReplaceAll(sanitizeRunText(today.PremiumBudgetSet), "_", " ") + " markets"
+	}
+	return text
 }
 
 func edgeTestsMonth(month string) string {
@@ -319,218 +734,99 @@ func edgeTestsMonth(month string) string {
 	return at.Format("Jan 2006")
 }
 
-// edgeTestsDay is a date as "21 Nov", with the year when it is not the
-// year of the count.
-func edgeTestsDay(value string, asOf time.Time) string {
+func edgeTestsDay(value string) string {
 	at, err := time.Parse(time.DateOnly, value)
 	if err != nil {
 		return value
 	}
-	if at.Year() == asOf.Year() {
-		return at.Format("2 Jan")
-	}
 	return at.Format("2 Jan 2006")
 }
 
-// edgeTestsWhen says since when the rule counts, when its read point is
-// expected and on what pace, or why no date can be given.
-func edgeTestsWhen(t rpc.EdgeForwardTest, asOf time.Time) string {
-	s := t.Sample
-	parts := []string{"counting from " + edgeTestsDay(t.RegisteredAt.Local().Format(time.DateOnly), asOf)}
-	switch {
-	case s.State == rpc.EdgeForwardRead && s.Reading != nil:
-		parts = append(parts, "read "+edgeTestsDay(s.Reading.ReadAt.Local().Format(time.DateOnly), asOf))
-	case s.State == rpc.EdgeForwardDue:
-		parts = append(parts, "the read point is met")
-	case s.Expected != nil:
-		pace := "at this pace"
-		if s.Expected.Basis == "past_year" {
-			pace = "at the past year's pace"
-		}
-		when := pace + " about " + edgeTestsMonth(s.Expected.Date[:7])
-		parts = append(parts, when)
-		if s.Expected.BeyondWindow {
-			when += fmt.Sprintf(", more than %d days out: it cannot fill until counted decisions are kept, which is not built yet", s.WindowDays)
-		}
-		parts[len(parts)-1] = when
-	case s.NoDate == "group_not_read":
-		parts = append(parts, "no date until the group is read")
-	case s.NoDate == "sender_not_known":
-		parts = append(parts, "no date: who sent the sales could not be told this time")
-	case s.NoDate == "not_recorded_before":
-		parts = append(parts, "no date yet: the closes before registration have no record to set a pace")
-	case s.NoDate == "none_in_read_group":
-		parts = append(parts, "no date yet: none of the final decisions is in the group it is read on")
-	default:
-		parts = append(parts, "no date: no such decision in the past year to set a pace")
+// legend explains only what the screen above it shows.
+func (s *edgeTestsScreen) legend(tests []rpc.EdgeForwardTest) {
+	var items []string
+	if s.waiting {
+		items = append(items, "waiting: a trade whose result is not known yet")
 	}
-	return briefJoin(parts...)
+	if s.spark != "" && len(s.axis) > 0 {
+		span := edgeTestsMonth(s.axis[0])
+		if len(s.axis) > 1 {
+			span += "–" + edgeTestsMonth(s.axis[len(s.axis)-1])
+		}
+		items = append(items, s.spark+" counted per complete month, "+span)
+	}
+	if s.trackless {
+		items = append(items, "a bar without a track has no number to reach")
+	}
+	s.line("")
+	if len(items) > 0 {
+		s.prose("  ", "", strings.Join(items, " · "), nil)
+	}
+	if s.beyond {
+		s.prose("  ", "  ", fmt.Sprintf("* more than a year away, and Canary counts only the last %d days: this count cannot fill in this version", edgeTestsWindow(tests)), nil)
+	}
+	if s.sales {
+		s.prose("  ", "", "In the tests about sales, a stop you placed at the broker yourself counts with the sales you chose: Canary cannot recognise it.", nil)
+	}
 }
 
-func edgeTestsProtection(s *rpc.EdgeForwardSample) string {
-	text := "sales a protection rule sent are read apart and count neither here nor toward the read point"
-	if s.Protection != nil {
-		text = fmt.Sprintf("sent by a protection rule, read apart: %s final", edgeCount(s.Protection.Final))
-		if s.Protection.Pending > 0 {
-			text += fmt.Sprintf(", %s not final", edgeCount(s.Protection.Pending))
+func edgeTestsWindow(tests []rpc.EdgeForwardTest) int {
+	for _, t := range tests {
+		if t.Sample != nil && t.Sample.WindowDays > 0 {
+			return t.Sample.WindowDays
 		}
 	}
-	if s.SenderUnknown > 0 {
-		text += fmt.Sprintf(" · %s whose sender could not be told this time %s in neither", edgeTestsUnits(s.SenderUnknown), pluralWord(s.SenderUnknown, "counts", "count"))
-	}
-	return text
+	return 365
 }
 
-func edgeTestsUnits(n int) string {
-	return fmt.Sprintf("%s %s", edgeCount(n), pluralWord(n, "unit", "units"))
-}
-
-// edgeTestsToday says how a buy made now would be counted, from the record
-// of the last US close only.
-func edgeTestsToday(id string, today rpc.EdgeForwardToday, labels map[string]string, asOf time.Time) string {
-	day := edgeTestsDay(today.Session, asOf)
-	if today.Missing != "" {
-		return fmt.Sprintf("a buy now cannot be grouped: Canary has no record of the %s close", day)
+// fullView is one test in full: its state, the block with its registration
+// and needs, what is waiting and what gave no result, the test in short and
+// its rule as registered.
+func (s *edgeTestsScreen) fullView(t rpc.EdgeForwardTest) {
+	state := firstNonEmptyCLI(t.State, "no count yet")
+	if state == rpc.EdgeForwardNotCounted {
+		state = "no count yet"
 	}
-	if id == "option_buys_after_regime_warning" {
-		stage := strings.ReplaceAll(sanitizeRunText(today.RegimeStage), "_", " ")
-		if label := labels[today.Group]; today.Group != "not_read" && label != "" {
-			return fmt.Sprintf("a buy now counts as %s: Regime was at %s at the %s close", label, stage, day)
-		}
-		return fmt.Sprintf("a buy now cannot be grouped: Regime was at %s at the %s close", stage, day)
-	}
-	line := "the line at the " + day + " close is not recorded"
-	if today.PremiumBudgetActPct != nil {
-		line = fmt.Sprintf("the line was %s of net liquidation at the %s close", strings.TrimSuffix(strings.TrimSuffix(fmt.Sprintf("%.2f", *today.PremiumBudgetActPct), "0"), ".0")+"%", day)
-		if today.PremiumBudgetSet != "" {
-			line += " (" + sanitizeRunText(today.PremiumBudgetSet) + " set)"
-		}
-	}
-	return "a buy now: " + line + "; its group is not known until premium at risk is read"
-}
-
-func renderEdgeTestDetails(env *Env, t rpc.EdgeForwardTest) {
-	if t.UnitText != "" {
-		edgeTestsProse(env, edgeTestsIndent, briefJoin("counts "+sanitizeRunText(t.UnitText), fmt.Sprintf("read at %d", t.ReadAt)))
-	}
-	policy := "touches no written policy"
-	if t.Policy != "" {
-		policy = "policy: " + sanitizeRunText(t.Policy)
-	}
-	edgeTestsProse(env, edgeTestsIndent, policy)
-	if s := t.Sample; s != nil && len(s.Excluded) > 0 {
-		words := map[string]string{
-			"closed_by_delivery": "closed by delivery", "position_not_proved": "position not proved from the statements",
-			"no_close_stored": "no close stored", "no_closing_quote": "no closing quote stored",
-			"sold_at_cost": "sold at exactly cost, in neither group", "underlying_not_known": "underlying not named",
-		}
-		keys := make([]string, 0, len(s.Excluded))
-		for k := range s.Excluded {
-			keys = append(keys, k)
-		}
-		slices.Sort(keys)
-		parts := []string{"no reading"}
-		for _, k := range keys {
-			parts = append(parts, fmt.Sprintf("%d %s", s.Excluded[k], firstNonEmptyCLI(words[k], strings.ReplaceAll(k, "_", " "))))
-		}
-		edgeTestsProse(env, edgeTestsIndent, briefJoin(parts...))
-	}
-	if !t.RegisteredAt.IsZero() {
-		edgeTestsProse(env, edgeTestsIndent, "registered "+t.RegisteredAt.Local().Format("2006-01-02 15:04 MST")+" as "+t.RuleHash)
-	}
-	edgeTestsStyled(env, edgeTestsIndent, "  ", "Rule: "+sanitizeRunText(t.Rule), env.dim)
-}
-
-// renderEdgeTestReading draws a read rule: the finding in one sentence,
-// then one interval per group on a shared axis with the zero marked, and
-// the axis labelled once underneath. Colour carries the finding's tone;
-// the sentence carries it in words.
-func renderEdgeTestReading(env *Env, reading rpc.EdgeForwardReading, labels map[string]string) {
-	tone := func(line string) string { return line }
-	switch reading.Tone {
-	case "favourable":
-		tone = env.green
-	case "unfavourable":
-		tone = env.red
-	}
-	edgeTestsStyled(env, edgeTestsIndent, "  ", sanitizeRunText(reading.Finding), tone)
-	lo, hi := 0.0, 0.0
-	for _, iv := range reading.Intervals {
-		lo, hi = min(lo, iv.Low), max(hi, iv.High)
-	}
-	if hi-lo <= 0 {
-		hi = lo + 1
-	}
-	pos := func(v float64) int {
-		return int(math.Round((v - lo) / (hi - lo) * (edgeTestsAxis - 1)))
-	}
-	zero := pos(0)
-	for _, iv := range reading.Intervals {
-		cells := []rune(strings.Repeat(" ", edgeTestsAxis))
-		a, b, m := pos(iv.Low), pos(iv.High), pos(iv.Estimate)
-		for i := a; i <= b; i++ {
-			cells[i] = '─'
-		}
-		cells[zero] = '┼'
-		cells[a], cells[b] = '├', '┤'
-		cells[m] = '●'
-		fmt.Fprintln(env.Stdout, edgeTestsIndent+padRightVisible(firstNonEmptyCLI(labels[iv.Group], iv.Group), edgeTestsLabel)+" "+strings.TrimRight(string(cells), " "))
-	}
-	axis := []rune(strings.Repeat(" ", edgeTestsAxis))
-	// place writes a label where it fits with a space either side, and
-	// drops it where it would touch another.
-	place := func(text string, at int) {
-		r := []rune(text)
-		start := max(0, min(at-len(r)/2, edgeTestsAxis-len(r)))
-		for i := start - 1; i <= start+len(r); i++ {
-			if i >= 0 && i < edgeTestsAxis && axis[i] != ' ' {
-				return
+	s.line(s.env.bold("Forward tests") + " · " + t.ID + " · " + state)
+	s.line("")
+	s.block(t, true)
+	if sample := t.Sample; sample != nil {
+		if n := len(sample.WaitingUnits); n > 0 {
+			shown := sample.WaitingUnits[:min(n, 8)]
+			parts := make([]string, 0, len(shown))
+			for _, u := range shown {
+				parts = append(parts, sanitizeRunText(u.Label)+" "+edgeTestsDay(u.Date))
 			}
+			text := "waiting: " + strings.Join(parts, ", ")
+			if n > len(shown) {
+				text += fmt.Sprintf(" and %d more", n-len(shown))
+			}
+			s.prose("    ", "  ", text, nil)
 		}
-		copy(axis[start:], r)
-	}
-	place(edgeTestsTick(lo), 0)
-	place(edgeTestsTick(hi), edgeTestsAxis)
-	place("0", zero)
-	fmt.Fprintln(env.Stdout, edgeTestsIndent+strings.Repeat(" ", edgeTestsLabel+1)+strings.TrimRight(string(axis), " "))
-	edgeTestsStyled(env, edgeTestsIndent+strings.Repeat(" ", edgeTestsLabel+1), "", sanitizeRunText(reading.Measure), env.dim)
-}
-
-func edgeTestsTick(v float64) string {
-	if v == 0 {
-		return "0"
-	}
-	return fmt.Sprintf("%+.0f%%", v)
-}
-
-// edgeTestsStyled is edgeTestsProse with a style applied to each line, so
-// a wrapped line never carries an open escape into the next.
-func edgeTestsStyled(env *Env, indent, hang, text string, style func(string) string) {
-	width := min(briefProseWidth(env.Stdout), edgeTestsMeasure) - len(indent) - len(hang)
-	for i, line := range wrapVisibleText(text, width) {
-		lead := indent
-		if i > 0 {
-			lead = indent + hang
+		if len(sample.Excluded) > 0 {
+			words := map[string]string{
+				"closed_by_delivery": "closed by delivery", "position_not_proved": "with a position the statements do not prove",
+				"no_close_stored": "without a stored close", "no_closing_quote": "without a stored closing quote",
+				"sold_at_cost": "sold at exactly cost, in neither group", "underlying_not_known": "whose statement names no underlying",
+			}
+			keys := make([]string, 0, len(sample.Excluded))
+			for k := range sample.Excluded {
+				keys = append(keys, k)
+			}
+			slices.Sort(keys)
+			parts := make([]string, 0, len(keys))
+			for _, k := range keys {
+				parts = append(parts, fmt.Sprintf("%d %s", sample.Excluded[k], firstNonEmptyCLI(words[k], strings.ReplaceAll(k, "_", " "))))
+			}
+			s.prose("    ", "  ", "not counted: "+strings.Join(parts, ", "), nil)
 		}
-		fmt.Fprintln(env.Stdout, lead+style(line))
 	}
-}
-
-// edgeTestsParagraph is a paragraph at two cells, without a hanging indent.
-func edgeTestsParagraph(env *Env, text string) {
-	edgeTestsStyled(env, "  ", "", text, func(s string) string { return s })
-}
-
-// edgeTestsProse wraps prose at the 80-column measure with indent on the
-// first line and two more cells on the rest. Marks never pass through it.
-func edgeTestsProse(env *Env, indent, text string) {
-	width := min(briefProseWidth(env.Stdout), edgeTestsMeasure) - len(indent) - 2
-	glued := strings.ReplaceAll(text, " · ", edgeGlue+"· ")
-	for i, line := range wrapVisibleText(glued, width) {
-		lead := indent
-		if i > 0 {
-			lead = indent + "  "
-		}
-		fmt.Fprintln(env.Stdout, lead+strings.ReplaceAll(line, edgeGlue, " "))
+	if t.InShort != "" {
+		s.line("")
+		s.line("  " + s.env.bold("In short"))
+		s.prose("    ", "", sanitizeRunText(t.InShort), nil)
 	}
+	s.line("")
+	s.line("  " + s.env.bold("The rule as registered"))
+	s.prose("    ", "", sanitizeRunText(t.Rule), nil)
 }

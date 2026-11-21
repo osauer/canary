@@ -278,22 +278,26 @@ type EdgeChangePosition struct {
 	ResultPct       *float64 `json:"result_pct,omitempty"`
 }
 
-// EdgeForwardTest is one rule registered before the results it will be read
-// on. RegisteredAt is when this install first registered this exact text for
-// the account (RuleHash identifies the text); it is absent until then. Only
-// decisions executed after RegisteredAt belong to the rule's sample. Canary
-// registers the rules and keeps what a later read needs; it does not read
-// the tests, and no verdict, grade or order behaviour depends on them.
+// EdgeForwardTest is one test registered before the trading it is answered
+// on. Rule is its written text; RegisteredAt is when this install first
+// registered that exact text for the account (RuleHash identifies the
+// text); it is absent until then. Only trades executed after RegisteredAt
+// count toward the test. Canary counts the tests and keeps what a later
+// answer needs; it does not answer them, and no verdict, grade or order
+// behaviour depends on them.
 //
-// The fields after RegisteredAt say in plain words what the rule is for:
-// its question, the decisions it informs (buy, hold, sell), the fact that
-// can be checked at the moment of a decision (empty when every decision
+// The fields after RegisteredAt say in plain words what the test is for:
+// its question, the decisions it helps with (buy, hold, sell), the fact
+// that can be checked at the moment of a trade (empty when every trade
 // counts, so an automation has nothing to condition on), the unit it
-// counts, its read point and groups, and the written policy it touches.
-// They sit outside the rule's hash. Sample is the rule's count; it is
-// absent when nothing could be counted for this reply (no review yet, the
-// rule not registered yet, or a daemon that does not count), which is not
-// a count of zero.
+// counts, the number it needs and in which group, its groups, and the
+// written policy it asks about. They sit outside the rule's hash. State is
+// collecting or full while a count is served (answered is reserved for the
+// answers this version does not work out), or not_counted with
+// NotCountedReason: not_registered (the test has no registration instant
+// yet) or no_review (the daemon has no published decision review to count
+// from). Sample is the count; it is absent exactly when State is
+// not_counted, which is not a count of zero.
 type EdgeForwardTest struct {
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`
@@ -306,59 +310,73 @@ type EdgeForwardTest struct {
 	Condition string   `json:"condition"`
 	Unit      string   `json:"unit,omitempty"`
 	UnitText  string   `json:"unit_text,omitempty"`
-	ReadAt    int      `json:"read_at,omitempty"`
-	// ReadGroup is the group the read point counts: all (a rule without
+	Needs     int      `json:"needs,omitempty"`
+	// NeedsGroup is the group the number needed counts: all (a test without
 	// groups), one group's id, or any (either group on its own).
-	ReadGroup string `json:"read_group,omitempty"`
-	// ReadDays is the number of separate days the read group must span.
-	ReadDays    int                `json:"read_days,omitempty"`
+	NeedsGroup string `json:"needs_group,omitempty"`
+	// NeedsDays is the number of separate days the needed group must span.
+	NeedsDays   int                `json:"needs_days,omitempty"`
 	Groups      []EdgeForwardGroup `json:"groups,omitempty"`
 	SampleLabel string             `json:"sample_label,omitempty"`
 	Policy      string             `json:"policy,omitempty"`
-	// ProtectionApart: a sale a protection rule sent is read apart and
-	// counts neither in the test nor toward the read point.
+	// ProtectionApart: a sale Canary's protection sent is counted
+	// separately and not toward the number needed.
 	ProtectionApart bool `json:"protection_apart,omitempty"`
-	// GroupNotRead says why this build cannot tell the groups apart.
-	GroupNotRead string             `json:"group_not_read,omitempty"`
-	Sample       *EdgeForwardSample `json:"sample,omitempty"`
+	// NotSorted says what this version does not work out to sort the
+	// test's units (group not_sorted); CannotSort why a unit has no record
+	// to sort it by (group cannot_sort).
+	NotSorted  string `json:"not_sorted,omitempty"`
+	CannotSort string `json:"cannot_sort,omitempty"`
+	// PaceNoun names one trade of the kind that sets the pace; InShort is
+	// the test in plain words.
+	PaceNoun         string             `json:"pace_noun,omitempty"`
+	InShort          string             `json:"in_short,omitempty"`
+	State            string             `json:"state,omitempty"`
+	NotCountedReason string             `json:"not_counted_reason,omitempty"`
+	Sample           *EdgeForwardSample `json:"sample,omitempty"`
 }
 
-// EdgeForwardGroup is one group a rule compares.
+// EdgeForwardGroup is one group a test compares.
 type EdgeForwardGroup struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 }
 
-// Forward-test sample states. Read is reserved: this build counts, it does
-// not compute the reading, so a full sample is due.
+// Forward-test states.
 const (
 	EdgeForwardCollecting = "collecting"
-	EdgeForwardDue        = "due"
-	EdgeForwardRead       = "read"
+	EdgeForwardFull       = "full"
+	EdgeForwardNotCounted = "not_counted"
+
+	EdgeForwardNotRegistered = "not_registered"
+	EdgeForwardNoReview      = "no_review"
 )
 
-// EdgeForwardSample counts one rule's units from Edge's 365-day review
-// window: only decisions executed after the rule was registered, each unit
-// final as the rule's text defines it. Test is the sample the rule is read
-// on, split in Groups (group not_read holds units whose group fact is not
-// computed; group all is a rule without groups). Protection, for the rules
-// about sales, is the sample of sales a protection rule sent, read apart;
-// SenderUnknown counts sale units whose sender could not be told for this
-// reply (protection evidence withheld), in neither sample. Excluded counts
-// units that give no reading, by reason. Months counts final units per
-// month since registration. Expected dates the read point at the pace of
-// the read group's final units, since registration (basis
-// since_registration) once three are final, otherwise over the review
-// window before registration (past_year, units used for pace only);
-// NoDate says why there is none. ReadingBuilt and UnitsStored are false in
-// this build: no reading is computed, and units are not stored apart from
-// the review window, so a rule that needs longer than WindowDays cannot
-// fill (Expected.BeyondWindow).
+// EdgeForwardSample counts one test's units from Edge's 365-day review:
+// only trades executed after the test was registered, each unit's result
+// known (final) or not known yet (waiting) as the test's rule defines it.
+// Test is the sample the test is answered on, split in Groups: group all is
+// a test without groups, not_sorted holds units whose group fact this
+// version does not work out, cannot_sort units with no record to sort them
+// by. Protection, for the tests about sales, is the sample of sales Canary's
+// protection sent, counted separately; SenderUnknown counts sale units whose
+// sender could not be told for this reply, in neither sample. Excluded
+// counts units that give no result, by reason, and NotCounted and
+// WaitingUnits name them. Months counts, per month since registration, the
+// final units that count toward the number needed. Expected dates a full
+// count at that pace since registration (basis since_registration) once
+// three units are final, otherwise over the review window before
+// registration (past_year; those units set the pace only); NoDate says why
+// there is none. CanFill is false with CannotFill group_not_worked_out (the
+// test's groups are not sorted in this version) or beyond_window (the date
+// lies more than WindowDays after registration, and counted units are not
+// kept beyond the window yet). AnswersBuilt is false: this version counts
+// and does not answer.
 type EdgeForwardSample struct {
 	State         string                  `json:"state"`
 	AsOf          time.Time               `json:"as_of"`
 	WindowDays    int                     `json:"window_days"`
-	ReadingBuilt  bool                    `json:"reading_built"`
+	AnswersBuilt  bool                    `json:"answers_built"`
 	UnitsStored   bool                    `json:"units_stored"`
 	Test          EdgeForwardCount        `json:"test"`
 	Groups        []EdgeForwardGroupCount `json:"groups"`
@@ -368,17 +386,20 @@ type EdgeForwardSample struct {
 	FirstUnit     string                  `json:"first_unit,omitempty"`
 	LastUnit      string                  `json:"last_unit,omitempty"`
 	Months        []EdgeForwardMonth      `json:"months"`
-	ToRead        int                     `json:"to_read"`
+	ToFill        int                     `json:"to_fill"`
 	Expected      *EdgeForwardExpected    `json:"expected,omitempty"`
 	NoDate        string                  `json:"no_date,omitempty"`
+	CanFill       bool                    `json:"can_fill"`
+	CannotFill    string                  `json:"cannot_fill,omitempty"`
+	WaitingUnits  []EdgeForwardUnit       `json:"waiting_units"`
+	NotCounted    []EdgeForwardUnit       `json:"not_counted"`
 	Today         *EdgeForwardToday       `json:"today,omitempty"`
-	Reading       *EdgeForwardReading     `json:"reading,omitempty"`
 }
 
-// EdgeForwardCount is final units and units not final yet.
+// EdgeForwardCount is final units and units waiting for a result.
 type EdgeForwardCount struct {
 	Final   int `json:"final"`
-	Pending int `json:"pending"`
+	Waiting int `json:"waiting"`
 }
 
 // EdgeForwardGroupCount is one group's count in the test sample; Days is
@@ -386,28 +407,40 @@ type EdgeForwardCount struct {
 type EdgeForwardGroupCount struct {
 	ID      string `json:"id"`
 	Final   int    `json:"final"`
-	Pending int    `json:"pending"`
+	Waiting int    `json:"waiting"`
 	Days    int    `json:"days"`
 }
 
-// EdgeForwardMonth is one month's final units (month YYYY-MM).
+// EdgeForwardMonth is one month's final units that count toward the number
+// needed (month YYYY-MM).
 type EdgeForwardMonth struct {
 	Month string `json:"month"`
 	Final int    `json:"final"`
 }
 
-// EdgeForwardExpected is the date the read point is expected (YYYY-MM-DD).
+// EdgeForwardExpected is the date a full count is expected (YYYY-MM-DD).
 type EdgeForwardExpected struct {
 	Date         string `json:"date"`
 	Basis        string `json:"basis"`
 	BeyondWindow bool   `json:"beyond_window"`
 }
 
-// EdgeForwardToday says how a decision made now would be counted, from
-// what Canary recorded at the last US close only: Regime's stage for
+// EdgeForwardUnit names one unit: its key, a label for a reader (the name
+// of a name-week, the contract of a contract-week or position), its date,
+// its group and, for a unit that gives no result, the reason.
+type EdgeForwardUnit struct {
+	Key    string `json:"key"`
+	Label  string `json:"label"`
+	Date   string `json:"date"`
+	Group  string `json:"group,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// EdgeForwardToday says how a buy made now would be counted, from what
+// Canary recorded at the last US close only: Regime's stage for
 // option_buys_after_regime_warning, the premium budget line for
-// option_buys_below_premium_line. Group is the group a decision now would
-// join, not_read when the fact is not known.
+// option_buys_below_premium_line. Group is the group a buy now would join;
+// not_sorted or cannot_sort when it is not known.
 type EdgeForwardToday struct {
 	Session             string   `json:"session"`
 	Missing             string   `json:"missing,omitempty"`
@@ -417,45 +450,36 @@ type EdgeForwardToday struct {
 	Group               string   `json:"group"`
 }
 
-// EdgeForwardReading is reserved for a read rule: the finding in one
-// sentence, its tone (favourable, unfavourable or neutral to the
-// decisions read), the measure the intervals are in, and one interval per
-// group. This build never serves one.
-type EdgeForwardReading struct {
-	ReadAt    time.Time             `json:"read_at"`
-	Finding   string                `json:"finding"`
-	Tone      string                `json:"tone"`
-	Measure   string                `json:"measure"`
-	Intervals []EdgeForwardInterval `json:"intervals"`
-}
-
-// EdgeForwardInterval is one group's estimate with its interval.
-type EdgeForwardInterval struct {
-	Group    string  `json:"group"`
-	Low      float64 `json:"low"`
-	Estimate float64 `json:"estimate"`
-	High     float64 `json:"high"`
-}
-
-func validateEdgeForwardSample(sample *EdgeForwardSample) error {
-	if sample == nil {
+func validateEdgeForwardTest(test EdgeForwardTest) error {
+	switch test.State {
+	case "":
+		// A daemon that does not count serves no state.
+		if test.Sample != nil {
+			return fmt.Errorf("an Edge forward-test count without its state")
+		}
 		return nil
-	}
-	if !slices.Contains([]string{EdgeForwardCollecting, EdgeForwardDue, EdgeForwardRead}, sample.State) {
+	case EdgeForwardNotCounted:
+		if test.Sample != nil || !slices.Contains([]string{EdgeForwardNotRegistered, EdgeForwardNoReview}, test.NotCountedReason) {
+			return fmt.Errorf("invalid Edge forward test not counted")
+		}
+		return nil
+	case EdgeForwardCollecting, EdgeForwardFull:
+	default:
 		return fmt.Errorf("invalid Edge forward-test state")
 	}
-	if (sample.State == EdgeForwardRead) != (sample.Reading != nil) {
-		return fmt.Errorf("an Edge forward-test reading belongs to a read rule only")
+	sample := test.Sample
+	if sample == nil || sample.State != test.State || test.NotCountedReason != "" {
+		return fmt.Errorf("an Edge forward-test state without its count")
 	}
-	counts := []int{sample.Test.Final, sample.Test.Pending, sample.SenderUnknown, sample.ToRead}
+	counts := []int{sample.Test.Final, sample.Test.Waiting, sample.SenderUnknown, sample.ToFill}
 	if sample.Protection != nil {
-		counts = append(counts, sample.Protection.Final, sample.Protection.Pending)
+		counts = append(counts, sample.Protection.Final, sample.Protection.Waiting)
 	}
 	for _, g := range sample.Groups {
 		if g.ID == "" {
 			return fmt.Errorf("invalid Edge forward-test group")
 		}
-		counts = append(counts, g.Final, g.Pending, g.Days)
+		counts = append(counts, g.Final, g.Waiting, g.Days)
 	}
 	for _, n := range counts {
 		if n < 0 {
@@ -465,12 +489,8 @@ func validateEdgeForwardSample(sample *EdgeForwardSample) error {
 	if sample.Expected != nil && !validEdgeDate(sample.Expected.Date) {
 		return fmt.Errorf("invalid Edge forward-test expected date")
 	}
-	if sample.Reading != nil {
-		for _, iv := range sample.Reading.Intervals {
-			if !finite(iv.Low) || !finite(iv.Estimate) || !finite(iv.High) || iv.Low > iv.Estimate || iv.Estimate > iv.High {
-				return fmt.Errorf("invalid Edge forward-test interval")
-			}
-		}
+	if sample.CanFill != (sample.CannotFill == "") {
+		return fmt.Errorf("invalid Edge forward-test fill reason")
 	}
 	return nil
 }
@@ -927,7 +947,7 @@ func ValidateEdgeResult(result EdgeResult) error {
 			return fmt.Errorf("invalid Edge forward test")
 		}
 		seenForwardTests[test.ID] = true
-		if err := validateEdgeForwardSample(test.Sample); err != nil {
+		if err := validateEdgeForwardTest(test); err != nil {
 			return err
 		}
 	}

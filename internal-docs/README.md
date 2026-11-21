@@ -32,6 +32,7 @@ and this index needs the fix.
 | [design/fill-quotes.md](design/fill-quotes.md) | Fill quotes: the quote retained at every order event and fill, the reqExecutions poll for fills Canary did not place, `reporting.costs` (half-spread paid) and its coverage verdict |
 | [design/regime-input-currency.md](design/regime-input-currency.md) | Regime input currency model (`regime-currency-v1`) |
 | [design/documentation-ia.md](design/documentation-ia.md) | Public handbook information architecture |
+| [design/forward-test-reader.md](design/forward-test-reader.md) | Forward-test counting and `canary edge tests`: what each test counts, what is not built, and the answered display for the next build |
 | [guides/trading-harness-development.md](guides/trading-harness-development.md) | Risk-harness development guide |
 | [guides/canary-spa-dev.md](guides/canary-spa-dev.md) | SPA development guide |
 

@@ -100,8 +100,8 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 	// sample is absent, not zero. Registered before every decision, each
 	// rule is counted from the published review.
 	for _, test := range result.ForwardTests {
-		if test.Sample != nil {
-			t.Fatalf("rule %s counted before it was registered", test.ID)
+		if test.Sample != nil || test.State != rpc.EdgeForwardNotCounted || test.NotCountedReason != rpc.EdgeForwardNotRegistered {
+			t.Fatalf("test %s counted before it was registered: %+v", test.ID, test)
 		}
 	}
 	srv.now = func() time.Time { return now.AddDate(-2, 0, 0) }
@@ -116,10 +116,10 @@ func TestEdgeAcceptanceBrokerFixtureThroughSQLiteAndRPC(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, test := range counted.ForwardTests {
-		if test.Sample == nil || test.Question == "" || test.Sample.WindowDays != 365 {
+		if test.Sample == nil || test.State != test.Sample.State || test.Question == "" || test.Sample.WindowDays != 365 {
 			t.Fatalf("rule %s not counted from the full review: %+v", test.ID, test)
 		}
-		if test.ID == "entries_vs_nearby_day" && test.Sample.Test.Final+test.Sample.Test.Pending == 0 {
+		if test.ID == "entries_vs_nearby_day" && test.Sample.Test.Final+test.Sample.Test.Waiting == 0 {
 			t.Fatalf("the review's entries were not counted: %+v", test.Sample)
 		}
 	}

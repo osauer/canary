@@ -1,0 +1,110 @@
+# canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour off
+Forward tests  7 tests · none full
+  Questions about your own trading. Each was fixed as a written rule on a set
+  date, and only trading after that date counts. Canary is filling the counts.
+  This version does not work out the answers yet, and nothing here changes a
+  verdict, a warning or an order.
+
+  These tests are not registered yet: they register when Canary next connects
+  to the broker.
+
+No counts yet  7 tests
+
+  After you sell a stock, does it do worse than it does after a later day?
+    helps with selling                                stock_sales_vs_nearby_day
+    counts each stock or ETF once per week with a sale
+    needs 80
+
+  Do your entries do better than the same entry on a random nearby day?
+    helps with buying                                     entries_vs_nearby_day
+    counts each name once per week with an entry
+    needs 167
+
+  Do option buys made while premium at risk was at or below the budget line pay
+  better than buys made above it?
+    helps with buying                            option_buys_below_premium_line
+    policy: the Rulebook's premium budget
+    counts each contract once per week with a buy, when its position has closed
+    needs 30 at or below the line
+
+  Do single-name option buys made the session after a Regime warning do better
+  or worse than the rest?
+    helps with buying                          option_buys_after_regime_warning
+    counts each contract once per week with a buy, when its position has closed
+    needs 40 after a warning, on 20 separate days
+
+  After you close an option position, is the contract worth more or less five
+  sessions later?
+    helps with holding or selling        final_option_sales_vs_close_5_sessions
+    counts each closed single-name option position once
+    needs 30 in either group
+
+  After a partial sale, would a floor at that sale's price have protected what
+  was left?
+    helps with selling                                 floor_after_partial_sale
+    counts each single-name option position with a partial sale once, when it
+      has closed
+    needs 40
+
+  After the underlying moved against you, is an option you sell worth more or
+  less five sessions later?
+    helps with holding or selling               option_sales_after_adverse_move
+    counts each name once per week with an option sale
+    needs 50 after a move against
+
+One test in full: canary edge tests <name> · all in full: --all · data: --json
+# canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour on, ESC written as \x1b
+\x1b[1mForward tests\x1b[0m  7 tests · none full
+  Questions about your own trading. Each was fixed as a written rule on a set
+  date, and only trading after that date counts. Canary is filling the counts.
+  This version does not work out the answers yet, and nothing here changes a
+  verdict, a warning or an order.
+
+  \x1b[33mThese tests are not registered yet:\x1b[0m they register when Canary next connects
+  to the broker.
+
+\x1b[1mNo counts yet\x1b[0m  7 tests
+
+  \x1b[1mAfter you sell a stock, does it do worse than it does after a later day?\x1b[0m
+    helps with selling                                stock_sales_vs_nearby_day
+    counts each stock or ETF once per week with a sale
+    needs 80
+
+  \x1b[1mDo your entries do better than the same entry on a random nearby day?\x1b[0m
+    helps with buying                                     entries_vs_nearby_day
+    counts each name once per week with an entry
+    needs 167
+
+  \x1b[1mDo option buys made while premium at risk was at or below the budget line pay\x1b[0m
+  \x1b[1mbetter than buys made above it?\x1b[0m
+    helps with buying                            option_buys_below_premium_line
+    policy: the Rulebook's premium budget
+    counts each contract once per week with a buy, when its position has closed
+    needs 30 at or below the line
+
+  \x1b[1mDo single-name option buys made the session after a Regime warning do better\x1b[0m
+  \x1b[1mor worse than the rest?\x1b[0m
+    helps with buying                          option_buys_after_regime_warning
+    counts each contract once per week with a buy, when its position has closed
+    needs 40 after a warning, on 20 separate days
+
+  \x1b[1mAfter you close an option position, is the contract worth more or less five\x1b[0m
+  \x1b[1msessions later?\x1b[0m
+    helps with holding or selling        final_option_sales_vs_close_5_sessions
+    counts each closed single-name option position once
+    needs 30 in either group
+
+  \x1b[1mAfter a partial sale, would a floor at that sale's price have protected what\x1b[0m
+  \x1b[1mwas left?\x1b[0m
+    helps with selling                                 floor_after_partial_sale
+    counts each single-name option position with a partial sale once, when it
+      has closed
+    needs 40
+
+  \x1b[1mAfter the underlying moved against you, is an option you sell worth more or\x1b[0m
+  \x1b[1mless five sessions later?\x1b[0m
+    helps with holding or selling               option_sales_after_adverse_move
+    counts each name once per week with an option sale
+    needs 50 after a move against
+
+One test in full: canary edge tests <name> · all in full: --all · data: --json

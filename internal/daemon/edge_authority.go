@@ -1170,6 +1170,8 @@ func (s *Server) handleEdgeSnapshot(ctx context.Context, req *rpc.Request) (*rpc
 	}
 	if forward != nil && unavailable == "" {
 		s.countEdgeForwardTests(ctx, tests, *forward)
+	} else {
+		markEdgeForwardTestsNotCounted(tests)
 	}
 	result.ForwardTests, result.ForwardTestsUnavailable = tests, unavailable
 	if result.Change != nil {

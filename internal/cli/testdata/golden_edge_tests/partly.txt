@@ -1,0 +1,174 @@
+# canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour off
+Forward tests  7 tests · none full · next about Jun 2027
+  Questions about your own trading. Each was fixed as a written rule on a set
+  date, and only trading after that date counts. Canary is filling the counts.
+  This version does not work out the answers yet, and nothing here changes a
+  verdict, a warning or an order.
+
+Collecting ─────────────────────────────── 7 tests · counting since 21 Nov 2026
+
+  After you close an option position, is the contract worth more or less five
+  sessions later?
+    helps with holding or selling        final_option_sales_vs_close_5_sessions
+    counts each closed single-name option position once
+    sold above cost          ███████▎░░░░░░░░░░░░░░░░    9 of 30   +1 waiting
+    sold below cost          ██████████▍░░░░░░░░░░░░░   13 of 30
+      full when either group reaches 30
+    sent by Canary's protection, counted separately      2
+    at this pace             ▅▇█  most 7 a month       full about Jun 2027
+
+  After you sell a stock, does it do worse than it does after a later day?
+    helps with selling                                stock_sales_vs_nearby_day
+    counts each stock or ETF once per week with a sale
+    sales you chose          ██████▋░░░░░░░░░░░░░░░░░   22 of 80   +3 waiting
+    sent by Canary's protection, counted separately      4         +1 waiting
+    at this pace             ▇▅█  most 7 a month       full about Dec 2027
+
+  Do your entries do better than the same entry on a random nearby day?
+    helps with buying                                     entries_vs_nearby_day
+    counts each name once per week with an entry
+    entries                  █████▉░░░░░░░░░░░░░░░░░░   41 of 167  +2 waiting
+    at this pace             █▆█  most 12 a month      full about Feb 2028 *
+
+  After a partial sale, would a floor at that sale's price have protected what
+  was left?
+    helps with selling                                 floor_after_partial_sale
+    counts each single-name option position with a partial sale once, when it
+      has closed
+    positions                ████▎░░░░░░░░░░░░░░░░░░░    7 of 40   +5 waiting
+    at this pace             ▄██  most 2 a month       full about Mar 2028 *
+
+  Do single-name option buys made the session after a Regime warning do better
+  or worse than the rest?
+    helps with buying                          option_buys_after_regime_warning
+    counts each contract once per week with a buy, when its position has closed
+    after a warning          ███▋░░░░░░░░░░░░░░░░░░░░    6 of 40   +2 waiting
+      on separate days       ██████░░░░░░░░░░░░░░░░░░    5 of 20
+    after any other session  ████████▍                  14         +3 waiting
+    cannot be sorted         █▎                          2
+      Canary has no Regime record for the close before them
+    at this pace             █▄█  most 2 a month       full about Apr 2028 *
+    a buy now counts as after a warning: Regime was at early warning at the 19
+      Mar 2027 close
+
+  Do option buys made while premium at risk was at or below the budget line pay
+  better than buys made above it?
+    helps with buying                            option_buys_below_premium_line
+    policy: the Rulebook's premium budget
+    counts each contract once per week with a buy, when its position has closed
+    at or below the line     ░░░░░░░░░░░░░░░░░░░░░░░░    – of 30
+    above the line                                       –
+    not sorted yet           ███████▎                    9         +4 waiting
+      Canary cannot sort these buys yet: this version does not work out premium
+      at risk at the last statement. Until it does, no count can grow.
+    no date for a full count
+    a buy now: the premium budget line was 2.5% of net liquidation value at the
+      19 Mar 2027 close, the Rulebook's line for calm markets
+
+  After the underlying moved against you, is an option you sell worth more or
+  less five sessions later?
+    helps with holding or selling               option_sales_after_adverse_move
+    counts each name once per week with an option sale
+    after a move against     ░░░░░░░░░░░░░░░░░░░░░░░░    – of 50
+    after a move in favour                               –
+    not sorted yet           ████████▋                  18         +2 waiting
+      Canary cannot sort these sales yet: this version does not work out the
+      underlying's five-session move in expected moves. Until it does, no count
+      can grow.
+    sent by Canary's protection, counted separately      3
+    no date for a full count
+
+  waiting: a trade whose result is not known yet · ▅▇█ counted per complete
+  month, Dec 2026–Feb 2027 · a bar without a track has no number to reach
+  * more than a year away, and Canary counts only the last 365 days: this count
+    cannot fill in this version
+  In the tests about sales, a stop you placed at the broker yourself counts
+  with the sales you chose: Canary cannot recognise it.
+One test in full: canary edge tests <name> · all in full: --all · data: --json
+# canary edge tests · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour on, ESC written as \x1b
+\x1b[1mForward tests\x1b[0m  7 tests · none full · next about Jun 2027
+  Questions about your own trading. Each was fixed as a written rule on a set
+  date, and only trading after that date counts. Canary is filling the counts.
+  This version does not work out the answers yet, and nothing here changes a
+  verdict, a warning or an order.
+
+\x1b[1mCollecting\x1b[0m \x1b[2m───────────────────────────────\x1b[0m 7 tests · counting since 21 Nov 2026
+
+  \x1b[1mAfter you close an option position, is the contract worth more or less five\x1b[0m
+  \x1b[1msessions later?\x1b[0m
+    helps with holding or selling        final_option_sales_vs_close_5_sessions
+    counts each closed single-name option position once
+    sold above cost          ███████▎\x1b[2m░░░░░░░░░░░░░░░░\x1b[0m    9 of 30   +1 waiting
+    sold below cost          ██████████▍\x1b[2m░░░░░░░░░░░░░\x1b[0m   13 of 30
+      full when either group reaches 30
+    sent by Canary's protection, counted separately      2
+    at this pace             ▅▇█  most 7 a month       full about Jun 2027
+
+  \x1b[1mAfter you sell a stock, does it do worse than it does after a later day?\x1b[0m
+    helps with selling                                stock_sales_vs_nearby_day
+    counts each stock or ETF once per week with a sale
+    sales you chose          ██████▋\x1b[2m░░░░░░░░░░░░░░░░░\x1b[0m   22 of 80   +3 waiting
+    sent by Canary's protection, counted separately      4         +1 waiting
+    at this pace             ▇▅█  most 7 a month       full about Dec 2027
+
+  \x1b[1mDo your entries do better than the same entry on a random nearby day?\x1b[0m
+    helps with buying                                     entries_vs_nearby_day
+    counts each name once per week with an entry
+    entries                  █████▉\x1b[2m░░░░░░░░░░░░░░░░░░\x1b[0m   41 of 167  +2 waiting
+    at this pace             █▆█  most 12 a month      full about Feb 2028 *
+
+  \x1b[1mAfter a partial sale, would a floor at that sale's price have protected what\x1b[0m
+  \x1b[1mwas left?\x1b[0m
+    helps with selling                                 floor_after_partial_sale
+    counts each single-name option position with a partial sale once, when it
+      has closed
+    positions                ████▎\x1b[2m░░░░░░░░░░░░░░░░░░░\x1b[0m    7 of 40   +5 waiting
+    at this pace             ▄██  most 2 a month       full about Mar 2028 *
+
+  \x1b[1mDo single-name option buys made the session after a Regime warning do better\x1b[0m
+  \x1b[1mor worse than the rest?\x1b[0m
+    helps with buying                          option_buys_after_regime_warning
+    counts each contract once per week with a buy, when its position has closed
+    after a warning          ███▋\x1b[2m░░░░░░░░░░░░░░░░░░░░\x1b[0m    6 of 40   +2 waiting
+      on separate days       ██████\x1b[2m░░░░░░░░░░░░░░░░░░\x1b[0m    5 of 20
+    after any other session  ████████▍                  14         +3 waiting
+    cannot be sorted         █▎                          2
+      Canary has no Regime record for the close before them
+    at this pace             █▄█  most 2 a month       full about Apr 2028 *
+    a buy now counts as after a warning: Regime was at early warning at the 19
+      Mar 2027 close
+
+  \x1b[1mDo option buys made while premium at risk was at or below the budget line pay\x1b[0m
+  \x1b[1mbetter than buys made above it?\x1b[0m
+    helps with buying                            option_buys_below_premium_line
+    policy: the Rulebook's premium budget
+    counts each contract once per week with a buy, when its position has closed
+    at or below the line     \x1b[2m░░░░░░░░░░░░░░░░░░░░░░░░\x1b[0m    – of 30
+    above the line                                       –
+    not sorted yet           ███████▎                    9         +4 waiting
+      Canary cannot sort these buys yet: this version does not work out premium
+      at risk at the last statement. Until it does, no count can grow.
+    no date for a full count
+    a buy now: the premium budget line was 2.5% of net liquidation value at the
+      19 Mar 2027 close, the Rulebook's line for calm markets
+
+  \x1b[1mAfter the underlying moved against you, is an option you sell worth more or\x1b[0m
+  \x1b[1mless five sessions later?\x1b[0m
+    helps with holding or selling               option_sales_after_adverse_move
+    counts each name once per week with an option sale
+    after a move against     \x1b[2m░░░░░░░░░░░░░░░░░░░░░░░░\x1b[0m    – of 50
+    after a move in favour                               –
+    not sorted yet           ████████▋                  18         +2 waiting
+      Canary cannot sort these sales yet: this version does not work out the
+      underlying's five-session move in expected moves. Until it does, no count
+      can grow.
+    sent by Canary's protection, counted separately      3
+    no date for a full count
+
+  waiting: a trade whose result is not known yet · ▅▇█ counted per complete
+  month, Dec 2026–Feb 2027 · a bar without a track has no number to reach
+  * more than a year away, and Canary counts only the last 365 days: this count
+    cannot fill in this version
+  In the tests about sales, a stop you placed at the broker yourself counts
+  with the sales you chose: Canary cannot recognise it.
+One test in full: canary edge tests <name> · all in full: --all · data: --json

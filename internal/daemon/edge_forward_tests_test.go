@@ -261,11 +261,11 @@ func TestEdgeForwardTestsAreCountedFromTheReview(t *testing.T) {
 		byID[tests[i].ID] = &tests[i]
 	}
 	s.countEdgeForwardTests(t.Context(), tests, edgeForwardEvidence{result: review, protectionKnown: true})
-	if byID["entries_vs_nearby_day"].Sample != nil {
-		t.Fatal("a rule that is not registered was counted")
+	if test := byID["entries_vs_nearby_day"]; test.Sample != nil || test.State != rpc.EdgeForwardNotCounted || test.NotCountedReason != rpc.EdgeForwardNotRegistered {
+		t.Fatalf("a test that is not registered was counted: %+v", test)
 	}
 	sales := byID["stock_sales_vs_nearby_day"].Sample
-	if sales == nil || sales.Test.Final != 1 || sales.Protection == nil || sales.Protection.Final != 1 || sales.ToRead != 79 || sales.State != rpc.EdgeForwardCollecting || sales.ReadingBuilt || sales.UnitsStored || sales.WindowDays != 365 {
+	if sales == nil || sales.Test.Final != 1 || sales.Protection == nil || sales.Protection.Final != 1 || sales.ToFill != 79 || sales.State != rpc.EdgeForwardCollecting || sales.AnswersBuilt || sales.UnitsStored || sales.WindowDays != 365 {
 		t.Fatalf("stock sales sample = %+v", sales)
 	}
 	regime := byID["option_buys_after_regime_warning"].Sample
@@ -273,13 +273,13 @@ func TestEdgeForwardTestsAreCountedFromTheReview(t *testing.T) {
 	for _, g := range regime.Groups {
 		groups[g.ID] = g.Final
 	}
-	if groups["after_warning"] != 1 || groups["other"] != 1 || groups[edgecore.ForwardGroupNotRead] != 1 {
+	if groups["after_warning"] != 1 || groups["other"] != 1 || groups[edgecore.ForwardGroupCannotSort] != 1 {
 		t.Fatalf("regime groups = %+v", regime.Groups)
 	}
 	if today := regime.Today; today == nil || today.Session != "2026-12-18" || today.RegimeStage != "confirmed_stress" || today.Group != "after_warning" {
 		t.Fatalf("regime today = %+v", regime.Today)
 	}
-	if today := byID["option_buys_below_premium_line"].Sample.Today; today == nil || today.PremiumBudgetActPct == nil || *today.PremiumBudgetActPct != 2.5 || today.Group != edgecore.ForwardGroupNotRead {
+	if today := byID["option_buys_below_premium_line"].Sample.Today; today == nil || today.PremiumBudgetActPct == nil || *today.PremiumBudgetActPct != 2.5 || today.Group != edgecore.ForwardGroupNotSorted {
 		t.Fatalf("premium line today = %+v", today)
 	}
 	for _, test := range tests {

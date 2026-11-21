@@ -1,0 +1,92 @@
+# canary edge tests option_buys_after_regime_warning · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour off
+Forward tests · option_buys_after_regime_warning · collecting
+
+  Do single-name option buys made the session after a Regime warning do better
+  or worse than the rest?
+    helps with buying · tests no limit from your written policy
+    registered 21 Nov 2026 07:00 TZ · rule text fingerprint 1f4b514c8ba19305
+    needs 40 after a warning, on 20 separate days
+    checks Regime's stage at the last close
+    counts each contract once per week with a buy, when its position has closed
+    after a warning          ███▋░░░░░░░░░░░░░░░░░░░░    6 of 40   +2 waiting
+      on separate days       ██████░░░░░░░░░░░░░░░░░░    5 of 20
+    after any other session  ████████▍                  14         +3 waiting
+    cannot be sorted         █▎                          2
+      Canary has no Regime record for the close before them
+    at this pace             █▄█  most 2 a month       full about Apr 2028
+      more than a year away, and Canary counts only the last 365 days: this
+      count cannot fill in this version
+    a buy now counts as after a warning: Regime was at early warning at the 19
+      Mar 2027 close
+    waiting: SYNA 270115C00050000 15 Mar 2027, SYNB 270219C00030000 16 Mar 2027
+
+  In short
+    Each single-name option contract you buy counts once per week, once its
+    position has closed. Its result is the average price you later sold at
+    (zero if it expired), less the price you paid, after the buy's costs. Buys
+    made the session after a Regime warning (early warning, confirmed stress or
+    panic) are compared with all other such buys. No pass mark is set: the
+    answer is a direction, looked at in the earlier and the later half of the
+    buys. It is answered once, at 40 buys after a warning that fall on at least
+    20 separate days.
+
+  The rule as registered
+    Single-name option buys that open or add to a long position, made in the
+    session after a Regime warning, against all other such buys. A single name
+    is any underlying but SPY and VIX. One reading per contract and week, final
+    when its position has closed: the average price of the position's sales
+    after the buy, zero at expiry, less the price paid, on the contracts
+    bought, after the buy's costs. A position closed by delivery gives no
+    reading. The figure for each group is the sum of its readings divided by
+    the premium paid for them. The label is Regime's stage of the session
+    before the buy: warning is early warning, confirmed stress or panic; the
+    rest is quiet, stabilization or opportunity. No pass threshold is set for
+    this test; it is read by direction in both the earlier and the later half
+    of the readings by date. Read once, at 40 final readings after a warning
+    session that fall on at least 20 separate days.
+# canary edge tests option_buys_after_regime_warning · COLUMNS=80 · LC_ALL=en_US.UTF-8 · colour on, ESC written as \x1b
+\x1b[1mForward tests\x1b[0m · option_buys_after_regime_warning · collecting
+
+  \x1b[1mDo single-name option buys made the session after a Regime warning do better\x1b[0m
+  \x1b[1mor worse than the rest?\x1b[0m
+    helps with buying · tests no limit from your written policy
+    registered 21 Nov 2026 07:00 TZ · rule text fingerprint 1f4b514c8ba19305
+    needs 40 after a warning, on 20 separate days
+    checks Regime's stage at the last close
+    counts each contract once per week with a buy, when its position has closed
+    after a warning          ███▋\x1b[2m░░░░░░░░░░░░░░░░░░░░\x1b[0m    6 of 40   +2 waiting
+      on separate days       ██████\x1b[2m░░░░░░░░░░░░░░░░░░\x1b[0m    5 of 20
+    after any other session  ████████▍                  14         +3 waiting
+    cannot be sorted         █▎                          2
+      Canary has no Regime record for the close before them
+    at this pace             █▄█  most 2 a month       full about Apr 2028
+      more than a year away, and Canary counts only the last 365 days: this
+      count cannot fill in this version
+    a buy now counts as after a warning: Regime was at early warning at the 19
+      Mar 2027 close
+    waiting: SYNA 270115C00050000 15 Mar 2027, SYNB 270219C00030000 16 Mar 2027
+
+  \x1b[1mIn short\x1b[0m
+    Each single-name option contract you buy counts once per week, once its
+    position has closed. Its result is the average price you later sold at
+    (zero if it expired), less the price you paid, after the buy's costs. Buys
+    made the session after a Regime warning (early warning, confirmed stress or
+    panic) are compared with all other such buys. No pass mark is set: the
+    answer is a direction, looked at in the earlier and the later half of the
+    buys. It is answered once, at 40 buys after a warning that fall on at least
+    20 separate days.
+
+  \x1b[1mThe rule as registered\x1b[0m
+    Single-name option buys that open or add to a long position, made in the
+    session after a Regime warning, against all other such buys. A single name
+    is any underlying but SPY and VIX. One reading per contract and week, final
+    when its position has closed: the average price of the position's sales
+    after the buy, zero at expiry, less the price paid, on the contracts
+    bought, after the buy's costs. A position closed by delivery gives no
+    reading. The figure for each group is the sum of its readings divided by
+    the premium paid for them. The label is Regime's stage of the session
+    before the buy: warning is early warning, confirmed stress or panic; the
+    rest is quiet, stabilization or opportunity. No pass threshold is set for
+    this test; it is read by direction in both the earlier and the later half
+    of the readings by date. Read once, at 40 final readings after a warning
+    session that fall on at least 20 separate days.

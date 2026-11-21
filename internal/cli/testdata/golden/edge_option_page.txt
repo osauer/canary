@@ -81,7 +81,7 @@ Option rows  this page of each list; the counts and totals above cover every row
 Forward tests  rules written down before the results they will be read on
   Registered · 2 of 2 rules · registered 2026-08-20 14:00 TZ · only
     decisions made afterwards count
-  Each rule · its question, count and expected date: canary edge tests
+  Each test · its question, count and expected date: canary edge tests
 
 Details: canary edge --change <id> · canary edge --option <id> · canary edge --json
 # canary edge --option-offset 3 --option-limit 3 · COLUMNS=80 · colour on, ESC written as \x1b
@@ -167,6 +167,6 @@ Option rows  \x1b[2mthis page of each list; the counts and totals above cover ev
 Forward tests  \x1b[2mrules written down before the results they will be read on\x1b[0m
   Registered · 2 of 2 rules · registered 2026-08-20 14:00 TZ · only
     decisions made afterwards count
-  Each rule · its question, count and expected date: canary edge tests
+  Each test · its question, count and expected date: canary edge tests
 
 Details: canary edge --change <id> · canary edge --option <id> · canary edge --json

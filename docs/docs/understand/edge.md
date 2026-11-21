@@ -275,18 +275,19 @@ dates. If a later release changes a rule's text, that rule is registered
 again with a new date beside the old record, and the other rules keep
 theirs.
 
-Canary registers the rules and keeps what a later read needs. It does not
-read the tests: no verdict, grade, warning or order depends on them. The
-rules cover stock sales against the days after them, entries against a
-nearby day, option buys against the Rulebook's premium budget, option buys
-after a Regime warning session, final option sales against the contract's
-close five sessions later, a floor under what is left after a partial sale,
-and option sales made after the underlying moved against the position. In
-the four rules about sales, a sale sent by one of Canary's protection rules
-is read apart from a sale the holder chose, by the same reading, and does
-not count in the test. Canary knows this only for orders its own protection
-sent: a stop the holder placed directly at the broker is not told apart,
-because the statement fields Canary reads carry no order type.
+Canary registers the tests, counts them and keeps what a later answer
+needs. It does not answer them yet: no verdict, grade, warning or order
+depends on them. The tests cover stock sales against the days after them,
+entries against a nearby day, option buys against the Rulebook's premium
+budget, option buys after a Regime warning session, final option sales
+against the contract's close five sessions later, a floor under what is
+left after a partial sale, and option sales made after the underlying moved
+against the position. In the four tests about sales, a sale sent by
+Canary's protection is counted separately from a sale the holder chose and
+does not count toward the test. Canary knows this only for orders its own
+protection sent: a stop the holder placed at the broker directly counts
+with the sales the holder chose, because the statement fields Canary reads
+carry no order type.
 
 ### What is recorded at each US close
 
@@ -335,58 +336,65 @@ and deletes none, and reads the ones fetched with the Flex query that is
 configured: after a change of Flex Query ID the earlier files stay on disk
 but no longer count, and what IBKR returns for the new query replaces them.
 
-### Following the rules: `canary edge tests`
+### Watching the tests fill: `canary edge tests`
 
-`canary edge tests` shows each rule as a question, for example "Do your
-entries do better than the same entry on a random nearby day?", with the
-decision it informs (buying, holding or selling) and what can be checked at
-the moment of a decision. Two rules check nothing first: every sale, or
-every entry, counts. Under the question a bar shows how far the rule's count
-is toward the number it is read at, one bar per group the rule compares, all
-bars the same width so the rules can be compared at a glance. Below the bars
-are the final decisions per month since the rule was registered and the
-month the count is expected to be full. That date is the pace since
-registration once three decisions are final; before that it is the pace of
-the same kind of decision over the year before registration, said as "at
-the past year's pace". Those earlier decisions only set the pace and never
-enter a rule's count. Name a rule (`canary edge tests entries_vs_nearby_day`)
-or add `--all` to see the registered text and what gave no reading;
-`--json` carries the same, per rule, in `forward_tests[].sample`.
+`canary edge tests` shows each forward test as a question about your own
+trading, for example "Do your entries do better than the same entry on a
+random nearby day?", with the decision it helps with (buying, selling, or
+holding or selling) and the name to type for that test alone. Under the
+question it says what the test counts: each test counts one thing per
+trade, as its rule says, such as each name once per week with an entry, or
+each closed option position once. Then a bar per group shows how far the
+count is toward the number the test needs, written `22 of 80`. All bars
+share one width and one scale per test, so the tests compare at a glance. A
+bar with a faint track has a number to reach; a group that is only there to
+compare against has a bar without a track. A trade whose result is not
+known yet, because its five sessions have not passed or its position is
+still open, is shown as waiting beside the count.
 
-A rule counts what its text names: a name and week, a contract and week, or
-a position. A unit is final when the text says it is (the week is over and
-five US sessions have passed, or the position has closed); until then it is
-shown as not final. Some decisions give no reading by the rule's own words,
-such as a position closed by delivery, and are listed apart.
+A test is in one of two states. **Collecting** is the normal state, for
+months. **Full** means the count has reached the number the test needs;
+working out the answer from a full count is not built yet, so a full test
+says so and no more. An answered state comes with the answers.
 
-Each rule is in one of three states. **Collecting** is the normal state,
-for months. **Due** means the count has reached the number the rule is read
-at; the reading itself, the statistics that turn a full count into an
-answer, is not built yet, so a due rule says so and no more. **Read** is
-kept for that reading: it will show the finding in one sentence and one
-interval per group on a shared axis with zero marked.
+The date is worked out from the pace of the count: since the test was
+registered once three trades have a result, and before that from the same
+kind of trade over the year before registration, said as "at last year's
+pace". Those earlier trades only set the pace and never enter a count. Once
+three complete months have passed, the row also shows each month's count.
+Name a test (`canary edge tests entries_vs_nearby_day`) or add `--all` to
+see it in full: its rule as registered, what is waiting, what gave no
+result and why, and the test in plain words. `--json` carries the same per
+test in `forward_tests[]`: `state`, `needs`, `sample.can_fill` with its
+reason, and the counts.
 
-In the four rules about sales, a sale sent by one of Canary's protection
-rules is counted apart from a sale you chose, with its own count, and does
-not count toward the rule's number. When the protection evidence cannot be
-served for a reply, those sales count in neither, rather than being taken as
-yours. A stop placed directly at the broker cannot be told apart yet,
-because the statements Canary reads carry no order type.
+In the four tests about sales, a sale sent by Canary's protection is
+counted separately from a sale you chose, and does not count toward the
+number needed. A stop you placed at the broker yourself counts with the
+sales you chose: the statements Canary reads carry no order type, so it
+cannot recognise one. When the protection evidence cannot be served for a
+reply, those sales count in neither.
 
-What is not counted yet is said, not guessed. Two rules group their
-decisions by a fact Canary does not compute yet: premium at risk at the
-prior statement (option buys against the premium line), and the underlying's
-move in expected moves (option sales after a move against the position).
-Their decisions are counted under "group not read yet", so their count
-toward the read point cannot grow in this version and they show no expected
-date. An option buy whose prior US close has no record has no Regime group.
-For the two rules that group a buy by the last close, the output also says
-how a buy made now would be counted, from that close's record only.
+The test about the premium budget asks whether buying within the line
+pays, not whether the line was kept: it compares the results of buys made
+at or below the line with buys made above it, and changes no limit.
 
-Decisions are counted from Edge's review of the last 365 days. They are not
-yet kept apart from that window, so a rule that needs more than a year of
-decisions cannot fill: its date is shown with that warning. Keeping counted
-decisions beyond the window is the next step.
+Some things are not worked out yet, and the screen says so instead of
+guessing. Two tests sort their trades by a fact this version does not work
+out: premium at risk at the last statement (option buys against the premium
+line), and the underlying's five-session move in expected moves (option
+sales after a move against you). Their trades are counted as "not sorted
+yet", the count toward the number needed cannot grow, and there is no date.
+A buy whose previous US close has no Regime record cannot be sorted, and
+never will be. For the two tests that sort a buy by the last close, the
+screen also says how a buy made now would be counted, from that close's
+record only.
+
+Trades are counted from Edge's review of the last 365 days, and counted
+trades are not kept beyond that window yet, so a test that needs more than a
+year of trades cannot fill: its date carries a mark that says so. The next
+build sorts the trades of those two tests, keeps counted trades beyond the
+window, and works out the answers.
 
 ## Completed option positions
 

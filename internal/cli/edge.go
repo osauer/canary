@@ -990,28 +990,27 @@ func renderEdgeForwardTests(env *Env, result rpc.EdgeResult) {
 	if counted := edgeForwardCounted(result.ForwardTests); counted != "" {
 		edgeRow(env, "Counted", counted)
 	}
-	edgeRow(env, "Each rule", "its question, count and expected date: canary edge tests")
+	edgeRow(env, "Each test", "its question, count and expected date: canary edge tests")
 }
 
-// edgeForwardCounted says in one line how many rules are due and how many
+// edgeForwardCounted says in one line how many tests are full and how many
 // are still collecting; empty when nothing was counted.
 func edgeForwardCounted(tests []rpc.EdgeForwardTest) string {
-	due, collecting := 0, 0
+	full, collecting := 0, 0
 	for _, test := range tests {
-		switch {
-		case test.Sample == nil:
-		case test.Sample.State == rpc.EdgeForwardCollecting:
+		switch test.State {
+		case rpc.EdgeForwardCollecting:
 			collecting++
-		default:
-			due++
+		case rpc.EdgeForwardFull:
+			full++
 		}
 	}
-	if due+collecting == 0 {
+	if full+collecting == 0 {
 		return ""
 	}
 	parts := []string{fmt.Sprintf("%d collecting", collecting)}
-	if due > 0 {
-		parts = append([]string{fmt.Sprintf("%d due, the reading is not built yet", due)}, parts...)
+	if full > 0 {
+		parts = append([]string{fmt.Sprintf("%d full, not answered in this version", full)}, parts...)
 	}
 	return briefJoin(parts...)
 }

@@ -165,8 +165,9 @@ func (s *Server) edgeForwardTestsView(ctx context.Context, scopeFingerprint stri
 		test := rpc.EdgeForwardTest{ID: rule.ID, Title: rule.Title, Rule: rule.Rule, RuleHash: hash, RegisteredAt: registered[rule.ID+"\x00"+hash]}
 		if facts, ok := edgecore.ForwardTestFacts(rule.ID); ok {
 			test.Question, test.Informs, test.Condition, test.Unit, test.UnitText = facts.Question, facts.Informs, facts.Condition, facts.Unit, facts.UnitText
-			test.ReadAt, test.ReadGroup, test.ReadDays, test.SampleLabel, test.Policy = facts.ReadAt, facts.ReadGroup, facts.ReadDays, facts.SampleLabel, facts.Policy
-			test.ProtectionApart, test.GroupNotRead = facts.ProtectionApart, facts.GroupNotRead
+			test.Needs, test.NeedsGroup, test.NeedsDays, test.SampleLabel, test.Policy = facts.Needs, facts.NeedsGroup, facts.NeedsDays, facts.SampleLabel, facts.Policy
+			test.ProtectionApart, test.NotSorted, test.CannotSort = facts.ProtectionApart, facts.NotSorted, facts.CannotSort
+			test.PaceNoun, test.InShort = facts.PaceNoun, facts.InShort
 			for _, group := range facts.Groups {
 				test.Groups = append(test.Groups, rpc.EdgeForwardGroup{ID: group.ID, Label: group.Label})
 			}
@@ -187,11 +188,26 @@ type edgeForwardEvidence struct {
 	protectionKnown bool
 }
 
-// countEdgeForwardTests counts each registered rule's sample from the
-// published review and attaches it to the served rule. A rule not yet
-// registered, or one whose facts this build does not know, gets no sample:
-// absent, never zero. Nothing is stored; the count is the review's.
+// markEdgeForwardTestsNotCounted states, for every test, that this reply
+// counts nothing and why: the test is not registered yet, or there is no
+// published review to count from.
+func markEdgeForwardTestsNotCounted(tests []rpc.EdgeForwardTest) {
+	for i := range tests {
+		reason := rpc.EdgeForwardNoReview
+		if tests[i].RegisteredAt.IsZero() {
+			reason = rpc.EdgeForwardNotRegistered
+		}
+		tests[i].State, tests[i].NotCountedReason, tests[i].Sample = rpc.EdgeForwardNotCounted, reason, nil
+	}
+}
+
+// countEdgeForwardTests counts each registered test from the published
+// review and attaches the count to the served test. A test not yet
+// registered, or one whose facts this build does not know, gets no count
+// and says why: absent, never zero. Nothing is stored; the count is the
+// review's.
 func (s *Server) countEdgeForwardTests(ctx context.Context, tests []rpc.EdgeForwardTest, evidence edgeForwardEvidence) {
+	markEdgeForwardTestsNotCounted(tests)
 	zone := edgeNewYork()
 	asOf := evidence.result.AsOf
 	stamps := map[string]edgeSessionStamp{}
@@ -226,6 +242,7 @@ func (s *Server) countEdgeForwardTests(ctx context.Context, tests []rpc.EdgeForw
 		pace.After, pace.Through = asOf.AddDate(0, 0, -edgecore.ForwardReviewDays), test.RegisteredAt
 		summary := edgecore.SummarizeForward(facts, edgecore.CountForwardUnits(test.ID, sampled), edgecore.CountForwardUnits(test.ID, pace), test.RegisteredAt, asOf, zone)
 		test.Sample = rpcEdgeForwardSample(summary, asOf)
+		test.State, test.NotCountedReason = summary.State, ""
 		test.Sample.Today = edgeForwardToday(test.ID, latest, s.edgeNow())
 	}
 }
@@ -233,14 +250,15 @@ func (s *Server) countEdgeForwardTests(ctx context.Context, tests []rpc.EdgeForw
 func rpcEdgeForwardSample(in edgecore.ForwardSample, asOf time.Time) *rpc.EdgeForwardSample {
 	out := &rpc.EdgeForwardSample{
 		State: in.State, AsOf: asOf, WindowDays: edgecore.ForwardReviewDays,
-		Test: rpc.EdgeForwardCount{Final: in.Test.Final, Pending: in.Test.Pending}, SenderUnknown: in.SenderUnknown,
-		Excluded: maps.Clone(in.Excluded), Months: []rpc.EdgeForwardMonth{}, ToRead: in.ToRead, NoDate: in.NoDate,
+		Test: rpc.EdgeForwardCount{Final: in.Test.Final, Waiting: in.Test.Waiting}, SenderUnknown: in.SenderUnknown,
+		Excluded: maps.Clone(in.Excluded), Months: []rpc.EdgeForwardMonth{}, ToFill: in.ToFill, NoDate: in.NoDate,
+		CanFill: in.CanFill, CannotFill: in.CannotFill, WaitingUnits: rpcEdgeForwardUnits(in.WaitingUnits), NotCounted: rpcEdgeForwardUnits(in.NotCounted),
 	}
 	for _, g := range in.Groups {
-		out.Groups = append(out.Groups, rpc.EdgeForwardGroupCount{ID: g.ID, Final: g.Final, Pending: g.Pending, Days: g.Days})
+		out.Groups = append(out.Groups, rpc.EdgeForwardGroupCount{ID: g.ID, Final: g.Final, Waiting: g.Waiting, Days: g.Days})
 	}
 	if in.Protection != nil {
-		out.Protection = &rpc.EdgeForwardCount{Final: in.Protection.Final, Pending: in.Protection.Pending}
+		out.Protection = &rpc.EdgeForwardCount{Final: in.Protection.Final, Waiting: in.Protection.Waiting}
 	}
 	if !in.FirstUnit.IsZero() {
 		out.FirstUnit, out.LastUnit = in.FirstUnit.Format(time.DateOnly), in.LastUnit.Format(time.DateOnly)
@@ -250,6 +268,14 @@ func rpcEdgeForwardSample(in edgecore.ForwardSample, asOf time.Time) *rpc.EdgeFo
 	}
 	if in.Expected != nil {
 		out.Expected = &rpc.EdgeForwardExpected{Date: in.Expected.Date.In(edgeNewYork()).Format(time.DateOnly), Basis: in.Expected.Basis, BeyondWindow: in.Expected.BeyondWindow}
+	}
+	return out
+}
+
+func rpcEdgeForwardUnits(in []edgecore.ForwardUnitRef) []rpc.EdgeForwardUnit {
+	out := make([]rpc.EdgeForwardUnit, 0, len(in))
+	for _, u := range in {
+		out = append(out, rpc.EdgeForwardUnit{Key: u.Key, Label: u.Label, Date: u.Date.Format(time.DateOnly), Group: u.Group, Reason: u.Reason})
 	}
 	return out
 }
@@ -269,7 +295,7 @@ func edgeForwardToday(id string, latest *edgeSessionStamp, now time.Time) *rpc.E
 	if prior == "" {
 		return nil
 	}
-	out := &rpc.EdgeForwardToday{Session: prior, Group: edgecore.ForwardGroupNotRead}
+	out := &rpc.EdgeForwardToday{Session: prior, Group: edgecore.ForwardGroupCannotSort}
 	if latest == nil || latest.Session != prior {
 		out.Missing = rpc.EdgeSessionStampNotRecorded
 		return out
@@ -278,8 +304,9 @@ func edgeForwardToday(id string, latest *edgeSessionStamp, now time.Time) *rpc.E
 		out.RegimeStage, out.Group = latest.RegimeStage, edgecore.ForwardRegimeGroup(latest.RegimeStage)
 		return out
 	}
-	// The line is recorded; premium at risk at the prior statement is not
-	// computed, so the group of a buy now is not known.
+	// The line is recorded; premium at risk at the last statement is not
+	// worked out, so a buy now is not sorted.
+	out.Group = edgecore.ForwardGroupNotSorted
 	out.PremiumBudgetActPct, out.PremiumBudgetSet = cloneAmount(latest.PremiumBudgetActPct), latest.PremiumBudgetSet
 	return out
 }
