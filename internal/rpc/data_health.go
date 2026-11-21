@@ -118,8 +118,13 @@ const DataHealthCauseUpstreamPublicationPending = "upstream_publication_pending"
 // not_due row is on schedule, not delayed, and needs no cause. Any other
 // established cause is a fault.
 func DataHealthCauseExpected(cause string) bool {
-	return cause == DataHealthCauseUpstreamPublicationPending
+	return cause == DataHealthCauseUpstreamPublicationPending || cause == DataHealthCauseUpstreamMaintenance
 }
+
+// DataHealthCauseUpstreamMaintenance is the provider's scheduled maintenance
+// window (IBKR Flex on Saturday nights, New York time): an expected delay
+// the producer retries by itself, not a fault.
+const DataHealthCauseUpstreamMaintenance = "upstream_maintenance"
 
 // DataHealthTransition is historical diagnostic evidence, never restored access
 // authority. Observation gaps and session changes cannot establish continuity.

@@ -37,12 +37,15 @@ const (
 
 	ReportingReasonTokenPermissions           = "token_permissions"
 	ReportingReasonBrokerResponseUndocumented = "broker_response_undocumented"
-	ReportingReasonFlexQueryIncomplete        = "flex_query_incomplete"
-	ReportingReasonReportNotReceived          = "report_not_received"
-	ReportingReasonEmptySectionsUnproved      = "empty_sections_unproved"
-	ReportingReasonAbsentSectionsUnproved     = "absent_sections_unproved"
-	ReportingReasonAccountScopeInvalid        = "report_account_scope_invalid"
-	ReportingReasonAccountScopeMismatch       = "report_account_scope_mismatch"
+	// ReportingReasonBrokerMaintenance is IBKR's scheduled Saturday Flex
+	// maintenance: code 1025 inside that window, retried automatically.
+	ReportingReasonBrokerMaintenance      = "broker_maintenance"
+	ReportingReasonFlexQueryIncomplete    = "flex_query_incomplete"
+	ReportingReasonReportNotReceived      = "report_not_received"
+	ReportingReasonEmptySectionsUnproved  = "empty_sections_unproved"
+	ReportingReasonAbsentSectionsUnproved = "absent_sections_unproved"
+	ReportingReasonAccountScopeInvalid    = "report_account_scope_invalid"
+	ReportingReasonAccountScopeMismatch   = "report_account_scope_mismatch"
 )
 
 // ReportingValidateParams references candidate credentials without carrying
@@ -448,7 +451,7 @@ func validReportingReason(reason string) bool {
 		return true
 	}
 	switch reason {
-	case ReportingReasonTokenPermissions, ReportingReasonBrokerResponseUndocumented,
+	case ReportingReasonTokenPermissions, ReportingReasonBrokerResponseUndocumented, ReportingReasonBrokerMaintenance,
 		ReportingReasonFlexQueryIncomplete, ReportingReasonReportNotReceived,
 		ReportingReasonEmptySectionsUnproved, ReportingReasonAbsentSectionsUnproved,
 		ReportingReasonAccountScopeInvalid,

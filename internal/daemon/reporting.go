@@ -420,6 +420,10 @@ func setReportingOverallStatus(result *rpc.ReportingStatusResult, evidenceLoadFa
 		result.State, result.Reason = rpc.ReportingStateUnavailable, rpc.ReconReportReasonAuthorityUnavailable
 		result.Action = "Canary could not inspect retained broker evidence; check local reporting storage."
 		return
+	case result.Broker.BrokerCode == "1025" && flexSaturdayMaintenance(result.Broker.LastAttempt):
+		result.State, result.Reason = rpc.ReportingStateBackfilling, rpc.ReportingReasonBrokerMaintenance
+		result.Action = "IBKR's Flex service is in its Saturday maintenance (midnight to about 02:00 New York time); Canary retries automatically."
+		return
 	case result.Broker.BrokerCode == "1025":
 		result.State, result.Reason = rpc.ReportingStateActionRequired, rpc.ReportingReasonBrokerResponseUndocumented
 		result.Action = "IBKR returned an undocumented Flex response; review Flex Web Service/query configuration or contact IBKR."
