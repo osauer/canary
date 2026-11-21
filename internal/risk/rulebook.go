@@ -1054,6 +1054,27 @@ func (c *ruleContext) expiryRunway() RuleRow {
 	return row
 }
 
+// Earnings window verdicts: whether a held name's usable earnings date falls
+// inside the pre-earnings window (zero through EarningsFreezeSessions US
+// sessions, inclusive). An unknown, stale or uncomputable date has no verdict.
+const (
+	EarningsWindowInside  = "inside"
+	EarningsWindowOutside = "outside"
+)
+
+// EarningsWindow is the one window test rules 8 and 20 and the per-name
+// earnings row share, so the row and the rules cannot disagree. It returns
+// "" when the date is unknown, stale or its session distance uncomputable.
+func EarningsWindow(e EarningsInput, freezeSessions int) string {
+	if !e.Known || e.Stale || e.SessionsUntil == nil {
+		return ""
+	}
+	if *e.SessionsUntil >= 0 && *e.SessionsUntil <= freezeSessions {
+		return EarningsWindowInside
+	}
+	return EarningsWindowOutside
+}
+
 // earningsFor resolves usable earnings context for a name; ok=false means
 // unknown/stale and the caller must degrade, not pass.
 func (c *ruleContext) earningsFor(sym string) (EarningsInput, bool) {
@@ -1472,8 +1493,7 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 		if !found || issuer.status == RuleStatusUnknown {
 			// Size not assessable — the freeze cannot be ruled out unless the
 			// earnings date is provably outside the window.
-			if e, ok := c.earningsFor(n.Symbol); ok && e.SessionsUntil != nil &&
-				(*e.SessionsUntil < 0 || *e.SessionsUntil > freeze) {
+			if e, _ := c.earningsFor(n.Symbol); EarningsWindow(e, freeze) == EarningsWindowOutside {
 				continue
 			}
 			unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol,
@@ -1494,7 +1514,7 @@ func (c *ruleContext) earningsSizeFreeze() RuleRow {
 			unknowns = append(unknowns, RuleOffender{Symbol: n.Symbol, Observed: round1(p), Note: "session distance uncomputable"})
 			continue
 		}
-		if *e.SessionsUntil >= 0 && *e.SessionsUntil <= freeze {
+		if EarningsWindow(e, freeze) == EarningsWindowInside {
 			offenders = append(offenders, RuleOffender{Symbol: n.Symbol, Observed: float64(*e.SessionsUntil),
 				ImpactBase: issuer.exposure.WorstCaseLossBase,
 				Note: fmt.Sprintf("issuer %s can lose %.1f%% of NLV at worst, earnings %s%s in %d session(s)",
@@ -1600,7 +1620,7 @@ func (c *ruleContext) earningsPremiumFreeze() RuleRow {
 			continue
 		}
 		assessed++
-		if *e.SessionsUntil < 0 || *e.SessionsUntil > freeze {
+		if EarningsWindow(e, freeze) != EarningsWindowInside {
 			continue
 		}
 		size := fmt.Sprintf("%.1f%% of NLV", round1(pct(premium, c.nlv)))

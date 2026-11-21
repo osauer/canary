@@ -1992,11 +1992,20 @@ type EarningsInfo struct {
 	OverrideElapsed string `json:"override_elapsed,omitempty"`
 	// ObservedAt is when the fetched value was last confirmed from the
 	// provider; zero for overrides and unknowns.
-	ObservedAt time.Time              `json:"observed_at,omitzero"`
-	Stale      bool                   `json:"stale,omitempty"`
-	Providers  []EarningsProviderInfo `json:"providers,omitempty"`
-	Identity   *EarningsIdentityInfo  `json:"identity,omitempty"`
-	Terminal   *EarningsTerminalInfo  `json:"terminal,omitempty"`
+	ObservedAt time.Time `json:"observed_at,omitzero"`
+	Stale      bool      `json:"stale,omitempty"`
+	// SessionsUntil counts US equity sessions from today (ET) to Date,
+	// inclusive, as the earnings rules read it; absent when Date is empty,
+	// behind us or its sessions cannot be counted.
+	SessionsUntil *int `json:"sessions_until,omitempty"`
+	// Window is the rulebook's own verdict on this date against the
+	// pre-earnings window (policy earnings_freeze_sessions): inside or
+	// outside. Absent when the date is unknown or stale: no verdict, never
+	// outside. Rules 8 and 20 apply the same test.
+	Window    string                 `json:"window,omitempty"`
+	Providers []EarningsProviderInfo `json:"providers,omitempty"`
+	Identity  *EarningsIdentityInfo  `json:"identity,omitempty"`
+	Terminal  *EarningsTerminalInfo  `json:"terminal,omitempty"`
 }
 
 // Earnings statuses are the closed aggregate/provider outcome vocabulary.

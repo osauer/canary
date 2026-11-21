@@ -242,6 +242,9 @@ func cloneRulesResult(in *rpc.RulesResult) *rpc.RulesResult {
 				provider.LastFailure = &value
 			}
 		}
+		if in.Earnings[i].SessionsUntil != nil {
+			out.Earnings[i].SessionsUntil = new(*in.Earnings[i].SessionsUntil)
+		}
 		if in.Earnings[i].Terminal != nil {
 			terminal := *in.Earnings[i].Terminal
 			terminal.Evidence = append([]rpc.EarningsEvidenceReference(nil), in.Earnings[i].Terminal.Evidence...)
@@ -1303,6 +1306,14 @@ func (s *Server) assembleEarnings(ctx context.Context, names []risk.NameInput, p
 		// Aggregate freshness and provider retry readiness are different
 		toFetch = append(toFetch, earningsRefreshTarget{Symbol: sym, ConID: n.StockConID, SecType: n.StockSecType})
 		infos = append(infos, info)
+	}
+	// Each row carries the rules' own window verdict on its date.
+	for i := range infos {
+		e := earnings[infos[i].Symbol]
+		if infos[i].Date != "" && e.SessionsUntil != nil {
+			infos[i].SessionsUntil = new(*e.SessionsUntil)
+		}
+		infos[i].Window = risk.EarningsWindow(e, pol.EarningsFreezeSessions)
 	}
 	// Async, bounded, off the snapshot path — this call returns immediately.
 	if allowRefresh && s.earnings != nil {
