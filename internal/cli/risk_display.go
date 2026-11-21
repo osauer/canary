@@ -87,7 +87,7 @@ func regimeDisplayValues(r rpc.RegimeSnapshotResult) map[string]regimeDisplayVal
 func renderRegimeIndicator(env *Env, row rpc.RegimeMonitorIndicator, display regimeDisplayValue, current, explain bool) {
 	band := row.Band
 	reading := nonEmpty(display.reading, nonEmpty(row.Reading, "unavailable"))
-	usable := current && rpc.RegimeRowCurrent(row.Status, row.FreshnessClass)
+	usable := current && row.Current
 	label := "—"
 	switch band {
 	case "green", "red":

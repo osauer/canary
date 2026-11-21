@@ -123,6 +123,11 @@ type RegimeMonitorIndicator struct {
 	// stability).
 	Eligibility    *RegimeEligibility `json:"eligibility,omitempty"`
 	FreshnessClass string             `json:"freshness_class,omitempty"`
+	// Current is the one verdict on whether the row's band is a current
+	// rating (RegimeRowCurrent): a live row, or a frozen one its own schedule
+	// says is not due. Every surface shows it rather than deciding from the
+	// status alone.
+	Current bool `json:"current"`
 	// Role, Red and Note are the row's served standing
 	// (RegimeSnapshotResult.RowStandings), passed through verbatim: the role
 	// (witness or co_sign), what a red is worth (counts, waiting, context)
@@ -253,6 +258,7 @@ func CompactRegimeMonitor(r *RegimeSnapshotResult) RegimeMonitorResult {
 	// The monitor's indicators are in the order of the served rows.
 	rows := regimeRows(r)
 	for i := range out.Indicators {
+		out.Indicators[i].Current = RegimeRowCurrent(out.Indicators[i].Status, out.Indicators[i].FreshnessClass)
 		for _, standing := range r.RowStandings {
 			if i < len(rows) && standing.Indicator == rows[i].indicator {
 				out.Indicators[i].Role, out.Indicators[i].Red, out.Indicators[i].Note = standing.Role, standing.Red, standing.Note
