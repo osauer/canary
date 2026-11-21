@@ -52,6 +52,40 @@ func TestRiskDisplayPreservesAuthorityAndFitsTerminal(t *testing.T) {
 	}
 }
 
+// A frozen reading that is the newest its schedule allows (a Friday close on
+// a Saturday, cadence not_due) renders as a current rating. The same reading
+// overdue inside its window renders as recorded, not current.
+func TestRegimeRendersNotDueCloseAsCurrentRating(t *testing.T) {
+	render := func(class string) string {
+		var out bytes.Buffer
+		env := &Env{Stdout: &out}
+		res := rpc.RegimeSnapshotResult{
+			AuthorityHealth:  &rpc.RegimeAuthorityHealth{Status: rpc.RegimeAuthorityFresh},
+			VIXTermStructure: rpc.RegimeVIXTerm{Status: rpc.RegimeStatusStale, Ratio: new(1.16), RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "red", BandReason: ">=1.00 backwardation", Freshness: &rpc.RegimeFreshness{Class: class}}},
+			USDJPY:           rpc.RegimeUSDJPY{Status: rpc.RegimeStatusStale, Last: new(158.55), WeeklyChange: new(-0.78), RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green", BandReason: "yen steady", Freshness: &rpc.RegimeFreshness{Class: class}}},
+		}
+		renderRegime(env, res, true)
+		return out.String()
+	}
+	got := render(rpc.RegimeFreshnessNotDue)
+	for _, want := range []string{"RED    VIX/VIX3M       1.16", "GREEN  USD/JPY         158.55", ">=1.00 backwardation", "yen steady"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q:\n%s", want, got)
+		}
+	}
+	for _, unwanted := range []string{"stale", "recorded: 1.16", "recorded: 158.55", "Recorded band"} {
+		if strings.Contains(got, unwanted) {
+			t.Fatalf("not-due close shows %q:\n%s", unwanted, got)
+		}
+	}
+	got = render(rpc.RegimeFreshnessOverdue)
+	for _, want := range []string{"recorded: 1.16", "recorded: 158.55", "stale · not a current rating"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("overdue frozen reading lost %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestStressDisplayRanksFindingsWithoutChangingAssessment(t *testing.T) {
 	var out bytes.Buffer
 	res := rpc.StressResult{Action: "watch", Severity: risk.SeverityWatch, Rows: []rpc.StressRow{

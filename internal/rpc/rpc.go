@@ -1195,6 +1195,23 @@ const (
 	RegimeFreshnessOverdue = "overdue"
 )
 
+// RegimeRowCurrent reports whether a row's band is a current rating. A live
+// row is. A row stale only because its data type is frozen is current when
+// its cadence class is not_due: the venue is shut or the next publication is
+// not due, so the reading is the newest its own schedule allows (Friday's
+// close on a Saturday). Inside the row's window a frozen reading is a failed
+// refresh and stays not current. Every surface asks this one question.
+func RegimeRowCurrent(status, freshnessClass string) bool {
+	switch status {
+	case RegimeStatusOK:
+		return true
+	case RegimeStatusStale:
+		return freshnessClass == RegimeFreshnessNotDue
+	default:
+		return false
+	}
+}
+
 // RegimeEligibility is the confirmation-eligibility verdict for a red row.
 // inside the minimum depth. Reasons name the failed gates when not eligible:
 type RegimeEligibility struct {

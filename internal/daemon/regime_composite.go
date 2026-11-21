@@ -99,6 +99,9 @@ type regimeEvidenceRow struct {
 	status  string
 	band    string
 	message string
+	// current marks a band that is a current rating (rpc.RegimeRowCurrent):
+	// live, or frozen and not due on the row's own schedule.
+	current bool
 	// context marks a co-sign row that is red while no stress witness
 	// stands: shown, but not a stress reading on its own.
 	context bool
@@ -126,8 +129,13 @@ func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 		if computed != "" && meta.Band != "" {
 			band = meta.Band
 		}
+		freshness := ""
+		if meta.Freshness != nil {
+			freshness = meta.Freshness.Class
+		}
 		return regimeEvidenceRow{
 			scope: scope, name: rpc.RegimeRowName(indicator), status: status, band: band, message: message,
+			current: rpc.RegimeRowCurrent(status, freshness),
 			// A co-sign red with no stress witness standing, decided per row.
 			context: band == "red" && cb.RowRed(indicator) == rpc.RegimeRedContext,
 			weak:    darkWitness && rpc.RegimeIndicatorRole(indicator) == rpc.RegimeRoleCoSign && (band == "yellow" || band == "red"),
@@ -284,7 +292,7 @@ func regimePunchLine(rows []regimeEvidenceRow) string {
 func staleRegimeEvidenceNames(rows []regimeEvidenceRow) []string {
 	var names []string
 	for _, row := range rows {
-		if row.status == rpc.RegimeStatusStale && row.band != "" {
+		if row.status == rpc.RegimeStatusStale && row.band != "" && !row.current {
 			names = append(names, row.name)
 		}
 	}
@@ -331,7 +339,7 @@ func buildRegimeWarnings(r *rpc.RegimeSnapshotResult) []rpc.RegimeWarning {
 		if cluster := regimeWarningCluster(row.scope); cluster != "" && regimeClusterScheduled(*r, cluster) {
 			continue
 		}
-		if row.status == rpc.RegimeStatusOK {
+		if row.current {
 			continue
 		}
 		w, ok := warningForRegimeRow(row)
