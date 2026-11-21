@@ -298,7 +298,11 @@ func (r Report) dataLine() string {
 	s := fmt.Sprintf("%s; %d required sources: %d current, %d limited, %d unavailable, %d unverified",
 		nonEmpty(d.Label, d.State), d.Required, d.Current, d.Limited, d.Unavailable, d.Unverified)
 	if d.Expected > 0 {
-		s += fmt.Sprintf(" (%d awaiting the publisher)", d.Expected)
+		noun := "delay"
+		if d.Expected > 1 {
+			noun = "delays"
+		}
+		s += fmt.Sprintf(" (%d expected %s)", d.Expected, noun)
 	}
 	if len(d.Concerns) > 0 {
 		s += "; concerns: " + strings.Join(d.Concerns, ", ")

@@ -722,7 +722,8 @@ Additive only; raw measurements untouched:
 
 - `RegimeIndicatorMeta` += `freshness {class, max_age_seconds}`,
   `eligibility {eligible, latched, reasons[]}` (reasons name the failed gate:
-  `depth_below_min`, `streak_1_of_2`, `data_not_due`, `data_overdue`).
+  `depth_below_min`, `streak_1_of_2`, `data_not_due`, `data_overdue`,
+  `input_unavailable`).
 - `LifecycleState` += `governors []GovernorAction`.
 - `RegimeComposite` += eligible-red tallies.
 - Lifecycle builder: revised triggers (all branches kept), governor ordering,
@@ -1292,15 +1293,22 @@ before it.
   an evening or weekend holds as `confirmed_stress` (the latched witness is
   scheduled evidence), where d5ec61b2 read `early_warning`; and a crash-day
   evening (SPY frozen after the close, dated today) reads panic at urgent.
-  What remains is one loosening: when a confirmed stress rests on a term
-  inversion and the term row itself goes overdue (off the window when Cboe's
-  close does not vouch for the leg, or from 09:36 when VIX3M has not ticked),
-  the latched red drops and is no longer a standing witness, so the stage
-  picked is `early_warning` from the start (a provisional witness red, and
-  the dark term row beside red co-signs): the rulebook moves from its
-  confirmed thresholds to its early-warning ones until the row returns. At
-  994c9be6 the read was `data_quality` and the latch held confirmed.
-  `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow` pins it,
+  The one loosening this pass left is closed (owner instruction 2026-11-21
+  06:54 CET, after a TWS outage at 06:30 read `early_warning` beside a
+  confirmed stress): when an input outage hides a red that had confirmed
+  (its latch rides on the row's eligibility, reason `input_unavailable` for a
+  held band or the currency reason for a frozen one) and a re-read of the
+  snapshot with those reds counted under the same witness and co-sign rules
+  is confirmed stress, the stage blanks to `data_quality` (governor
+  `stage_blanked`, reason `outage_hides_confirmation`) and the rulebook latch
+  holds confirmed. That covers the term row going overdue under a confirmed
+  stress, as at 994c9be6. The blank only tightens: the rulebook latches the
+  worse of its held bucket and the bucket of the stage the blank replaced
+  (`rulesRegimeProjectedBucket`), so a confirmation that arrives during the
+  outage cannot leave a calm latch in place. A latched co-sign with no standing witness hides
+  nothing and the ruling's early warning stands.
+  `TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow` and
+  `TestRegimeOutageCounterfactualKeepsTheWitnessRules` pin it,
   `TestRegimeLatchedTermInversionHoldsBesideAnUnrelatedError` and
   `TestOvernightStressKeepsItsBucket` the fixes.
   `TestRegimeDarkWitnessBesideAWeakCoSignIsAnEarlyWarning`,

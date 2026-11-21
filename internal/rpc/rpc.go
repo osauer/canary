@@ -1212,6 +1212,19 @@ func RegimeRowCurrent(status, freshnessClass string) bool {
 	}
 }
 
+// RegimeEligibilityInputUnavailable is the reason on a held red band whose
+// banding input went dark after it had confirmed. Latched records that it
+// had; Eligible stays false, because a held band never confirms.
+const RegimeEligibilityInputUnavailable = "input_unavailable"
+
+// The governor record of a stage blanked to data_quality because an input
+// outage hid a confirmation. Its From is the stage the blank replaced, which
+// the rulebook still honours as a floor: the blank only ever tightens.
+const (
+	RegimeGovernorStageBlanked            = "stage_blanked"
+	RegimeGovernorOutageHidesConfirmation = "outage_hides_confirmation"
+)
+
 // RegimeEligibility is the confirmation-eligibility verdict for a red row.
 // inside the minimum depth. Reasons name the failed gates when not eligible:
 type RegimeEligibility struct {

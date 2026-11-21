@@ -211,6 +211,9 @@ func reportingDataHealth(read func(context.Context) (*rpc.ReportingStatusResult,
 	if row.State == "limited" && statementWaitIsScheduled(report, now) {
 		row.State, row.Receiving = "not_due", "As scheduled"
 	}
+	if row.State == "limited" && report.Reason == rpc.ReportingReasonBrokerMaintenance {
+		row.Receiving, row.Cause = "IBKR scheduled maintenance", rpc.DataHealthCauseUpstreamMaintenance
+	}
 	if row.State != "current" && row.State != "not_due" {
 		row.ProblemIDs = []string{row.ID}
 	}
@@ -527,7 +530,7 @@ func authoritativeHealthVerdict(h *rpc.HealthResult) rpc.HealthVerdict {
 	if h.DataHealth == nil {
 		return rpc.HealthVerdict{State: "ATTENTION", Reason: "Data health is unverified"}
 	}
-	if h.DataHealth.Summary.State != "current" {
+	if h.DataHealth.Summary.State != "current" && !h.DataHealth.ExpectedDelaysOnly() {
 		reason := h.DataHealth.Summary.Label
 		if len(h.DataHealth.Concerns) > 0 {
 			reason = h.DataHealth.Concerns[0].Label + " · " + reason

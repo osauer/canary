@@ -1,7 +1,7 @@
 # canary data health · COLUMNS=80 · colour off
 Some sources need attention
 Required 5 · current 4 · limited 2 · unavailable 1 · unverified 0
-1 limited source(s) awaiting the publisher; not counted as source problems.
+1 limited source(s) on the provider's schedule; not counted as source problems.
 Report 2026-09-05 14:00:00 TZ · valid until 2026-09-05 14:05:00 TZ
 Needs attention
   Option quotes are not arriving [unavailable]
@@ -23,7 +23,7 @@ canary data health --offset 3 --revision rev-synthetic-0905
 # canary data health · COLUMNS=80 · colour on, ESC written as \x1b
 \x1b[33mSome sources need attention\x1b[0m
 Required 5 · current 4 · limited 2 · unavailable 1 · unverified 0
-1 limited source(s) awaiting the publisher; not counted as source problems.
+1 limited source(s) on the provider's schedule; not counted as source problems.
 Report 2026-09-05 14:00:00 TZ · valid until 2026-09-05 14:05:00 TZ
 \x1b[1mNeeds attention\x1b[0m
   \x1b[31mOption quotes are not arriving [unavailable]\x1b[0m

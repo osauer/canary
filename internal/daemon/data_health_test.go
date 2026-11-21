@@ -102,6 +102,27 @@ func TestDataHealthVerdictPreservesOperationalConcerns(t *testing.T) {
 	}
 }
 
+// A data-health summary limited only by expected delays (a publisher not out
+// yet, IBKR's Saturday Flex maintenance) is not a reason for ATTENTION: the
+// contract counts those rows as expected delays, never as source concerns.
+// One real concern beside them still is. Seen 2026-11-21 07:55 CET: status
+// read ATTENTION with "0 source concerns · 1 expected delay".
+func TestDataHealthVerdictIgnoresExpectedDelaysAlone(t *testing.T) {
+	expected := rpc.HealthResult{Connected: true, DataHealth: &rpc.DataHealthResult{ScopeState: "current", Summary: rpc.DataHealthSummary{
+		State: "limited", Label: "0 source concerns · 1 expected delay · 0 unknown coverage", Required: 32, Current: 31, Limited: 1, ExpectedDelays: 1,
+	}}}
+	if got := authoritativeHealthVerdict(&expected); got.State != "READY" {
+		t.Fatalf("expected delay alone raised %+v", got)
+	}
+	concern := expected
+	concern.DataHealth = &rpc.DataHealthResult{ScopeState: "current", Summary: rpc.DataHealthSummary{
+		State: "limited", Required: 32, Current: 30, Limited: 2, ExpectedDelays: 1, Problems: 1,
+	}}
+	if got := authoritativeHealthVerdict(&concern); got.State != "ATTENTION" {
+		t.Fatalf("a real concern beside an expected delay was hidden: %+v", got)
+	}
+}
+
 func TestDataHealthDelayedQuoteRetainsOnlyActualClocks(t *testing.T) {
 	now := time.Date(2026, 9, 15, 6, 0, 0, 0, time.UTC)
 	q := &rpc.Quote{Price: new(100.0), PriceSource: "mark", DataType: rpc.MarketDataDelayedFrozen, PriceAt: now, AsOf: now, ReceivedAt: now.Add(-time.Second)}

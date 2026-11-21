@@ -499,8 +499,14 @@ run: Cboe publishes closes, not intraday values.
 Eligibility latches for the life of the red streak (a depth wobble back inside
 the floor does not flip it); freshness is never latched: any currency other
 than `fresh` drops eligibility immediately, disclosed as `data_not_due`,
-`data_refresh_pending`, `data_stale`, or `data_overdue`. Streaks count NY trading days; a weekend or holiday
-poll keys to the most recent trading day.
+`data_refresh_pending`, `data_stale`, or `data_overdue`, with the latch still
+shown. A red held from memory while its input is unavailable carries
+`input_unavailable` and the latch it had. When an outage hides a red that had
+confirmed, and counting it would read confirmed stress, the stage reads
+`data_quality` (governor `stage_blanked`, reason `outage_hides_confirmation`)
+rather than a calmer stage, so the Rulebook keeps its last bucket. Streaks
+count NY trading days; a weekend or holiday poll keys to the most recent
+trading day.
 
 ### Severity governance
 

@@ -274,6 +274,11 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 			if elig != nil && elig.Eligible && streaks != nil && band == "red" {
 				streaks.Latch(key)
 			}
+		} else if display == "red" && streaks != nil && streaks.Latched(key) {
+			// A held band never confirms, but a red that had confirmed before
+			// its input went dark says so, so the lifecycle cannot read the
+			// outage as a calmer market.
+			elig = &rpc.RegimeEligibility{Latched: true, Reasons: []string{rpc.RegimeEligibilityInputUnavailable}}
 		}
 		policies[key] = regimeRowPolicy{band: display, eligibility: elig, freshness: freshness, heldAt: heldAt, held: bandHeld}
 	}

@@ -437,3 +437,54 @@ func reportingFlexFixture(from, to string) []byte {
 <EquitySummaryInBase><EquitySummaryByReportDateInBase reportDate="20260824" total="100"/></EquitySummaryInBase>
 </FlexStatement></FlexStatements></FlexQueryResponse>`)
 }
+
+// IBKR's Flex service answers code 1025 every Saturday from 00:10 to about
+// 02:10 New York time (17 Oct, 7 Nov, 14 Nov and 21 Nov 2026 in the daemon
+// log, across the DST change). Inside that window it is scheduled
+// maintenance Canary retries by itself, not an action for the owner, and data
+// health counts it as an expected delay. The same code at 12:00 on a Monday
+// stays action required (TestReportingStatusPublishesOnlyTypedBrokerAndManifestDiagnostics).
+// Owner instruction 2026-11-21 07:39 CET.
+func TestReportingStatusReadsSaturdayFlex1025AsMaintenance(t *testing.T) {
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	tokenPath := writeReportingTestToken(t)
+	dir, err := flexStatementsDirPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fixtureName := "flex-" + flexQueryFingerprint("123") + "-fixture.xml"
+	if err := os.WriteFile(filepath.Join(dir, fixtureName), reportingFlexFixture("20261101", "20261119"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 21, 5, 40, 0, 0, time.UTC) // 00:40 New York, Saturday
+	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	srv := &Server{cfg: &config.Resolved{Flex: config.Flex{Enabled: true, QueryID: "123", TokenPath: tokenPath}}, coreStore: store, now: func() time.Time { return now }}
+	if err := srv.refreshStatementProjection(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	srv.flexFetch.state = flexFetchStateV2{
+		Version: flexFetchStateVersion, QueryFingerprint: flexQueryFingerprint("123"), Stage: rpc.ReconReportStateRetryScheduled,
+		LastAttempt: now.Add(-time.Minute), TargetDate: dateOnlyUTC(now),
+		LastReason: rpc.ReconReportReasonResponseInvalid, LastBrokerCode: "1025", LastRetryable: true,
+		NextAttempt: now.Add(flexRetryAfterFail),
+	}
+	result, err := srv.handleReportingStatus(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.State == rpc.ReportingStateActionRequired || result.Reason != rpc.ReportingReasonBrokerMaintenance {
+		t.Fatalf("Saturday 1025 reads %s (%s), want IBKR maintenance", result.State, result.Reason)
+	}
+	row := reportingDataHealth(func(context.Context) (*rpc.ReportingStatusResult, error) { return result, nil }, now)
+	if row == nil || !dataHealthExpectedDelay(*row) {
+		t.Fatalf("Saturday 1025 is a source concern in data health: %+v", row)
+	}
+}

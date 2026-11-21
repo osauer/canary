@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/osauer/canary/v3/internal/risk"
 	"github.com/osauer/canary/v3/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
@@ -15,8 +14,10 @@ import (
 // close and return at the open. The term row is eligible in its window; after
 // the window, on its typed not-due schedule, it keeps standing, so the
 // co-signs beside it keep counting: the same evening, the next morning before
-// VIX3M's first tick at 09:31, and over the weekend. With the row overdue it
-// does not.
+// VIX3M's first tick at 09:31, and over the weekend. With the row overdue the
+// stage cannot prove itself either way: it reads data_quality and the
+// rulebook holds its confirmed bucket, never early_warning (owner instruction
+// 2026-11-21 06:54 CET, after a TWS outage read early_warning).
 func TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow(t *testing.T) {
 	days := calmRegimeSessions(t, 16)
 	const i = 12
@@ -91,7 +92,7 @@ func TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow(t *testing.T) {
 		{"17:30 on the same trading date", at[i].Add(5*time.Hour + 30*time.Minute), false, rpc.LifecycleConfirmedStress},
 		{"08:30 the next morning, before VIX3M's window", nextMorning.Add(8*time.Hour + 30*time.Minute), false, rpc.LifecycleConfirmedStress},
 		{"09:32 the next morning, before VIX3M's first tick", nextMorning.Add(9*time.Hour + 32*time.Minute), true, rpc.LifecycleConfirmedStress},
-		{"09:40 the next morning, still no VIX3M tick", nextMorning.Add(9*time.Hour + 40*time.Minute), true, rpc.LifecycleEarlyWarning},
+		{"09:40 the next morning, still no VIX3M tick", nextMorning.Add(9*time.Hour + 40*time.Minute), true, rpc.LifecycleDataQuality},
 		{"noon on the Saturday after", session.AddDate(0, 0, 2).Add(12 * time.Hour), false, rpc.LifecycleConfirmedStress},
 	} {
 		if tc.at.Weekday() == time.Saturday != (tc.name == "noon on the Saturday after") {
@@ -111,12 +112,13 @@ func TestConfirmedStressHoldsThroughTheTermRowsNotDueWindow(t *testing.T) {
 			t.Errorf("%s: stage %s, term eligibility %+v, unconfirmed %v; want %s",
 				tc.name, after.Lifecycle.Stage, after.VIXTermStructure.Eligibility, after.Lifecycle.Unconfirmed, tc.want)
 		}
-		// With the row overdue the latched red drops, and the dark term row
-		// beside the red co-signs is the early warning: the rulebook moves from
-		// its confirmed bucket to the early-warning one.
-		if overdue := offWindow(tc.at, ""); overdue.Lifecycle.Stage != rpc.LifecycleEarlyWarning ||
-			bucketRegimeStage(overdue.Lifecycle.Stage) != risk.RegimeBucketEarlyWarning {
-			t.Errorf("%s with the term row overdue: stage %s, bucket %q; want early_warning in the early-warning bucket",
+		// With the row overdue the latched red cannot confirm, and the outage
+		// hides the confirmation it gave: the stage blanks to data_quality and
+		// the rulebook holds its confirmed bucket instead of relaxing to the
+		// early-warning one.
+		if overdue := offWindow(tc.at, ""); overdue.Lifecycle.Stage != rpc.LifecycleDataQuality ||
+			bucketRegimeStage(overdue.Lifecycle.Stage) != "" {
+			t.Errorf("%s with the term row overdue: stage %s, bucket %q; want data_quality holding the rulebook's bucket",
 				tc.name, overdue.Lifecycle.Stage, bucketRegimeStage(overdue.Lifecycle.Stage))
 		}
 	}

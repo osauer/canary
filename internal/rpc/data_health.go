@@ -106,6 +106,15 @@ type DataSourceHealth struct {
 	PendingSince time.Time `json:"pending_since,omitzero"`
 }
 
+// ExpectedDelaysOnly reports a current-scope report whose only non-current
+// required rows are expected delays: nothing to act on, so no surface raises
+// attention for it.
+func (r DataHealthResult) ExpectedDelaysOnly() bool {
+	s := r.Summary
+	return r.ScopeState == "current" && s.ExpectedDelays > 0 && s.Limited == s.ExpectedDelays &&
+		s.Unavailable == 0 && s.Unverified == 0 && s.Problems == 0
+}
+
 // DataHealthCauseUpstreamPublicationPending is an expected delay at the
 // data's publisher, not a fault in Canary, the broker or the network: Canary
 // read the publisher's file, which has not yet released the observation the
@@ -118,8 +127,13 @@ const DataHealthCauseUpstreamPublicationPending = "upstream_publication_pending"
 // not_due row is on schedule, not delayed, and needs no cause. Any other
 // established cause is a fault.
 func DataHealthCauseExpected(cause string) bool {
-	return cause == DataHealthCauseUpstreamPublicationPending
+	return cause == DataHealthCauseUpstreamPublicationPending || cause == DataHealthCauseUpstreamMaintenance
 }
+
+// DataHealthCauseUpstreamMaintenance is the provider's scheduled maintenance
+// window (IBKR Flex on Saturday nights, New York time): an expected delay
+// the producer retries by itself, not a fault.
+const DataHealthCauseUpstreamMaintenance = "upstream_maintenance"
 
 // DataHealthTransition is historical diagnostic evidence, never restored access
 // authority. Observation gaps and session changes cannot establish continuity.

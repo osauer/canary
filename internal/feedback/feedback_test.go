@@ -89,7 +89,7 @@ func TestReportAndURLCarryNoPlantedSecret(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"[account]", "[holding]", "order [ref]", "[amount]", "[host]", "~/.config/ibkr/config.toml", "[user]", "IB Gateway connected, API server 203", "live account", "market data delayed", "Needs attention; 20 required sources: 17 current, 2 limited, 1 unavailable, 0 unverified (1 awaiting the publisher)", "Holdings   masked"} {
+	for _, want := range []string{"[account]", "[holding]", "order [ref]", "[amount]", "[host]", "~/.config/ibkr/config.toml", "[user]", "IB Gateway connected, API server 203", "live account", "market data delayed", "Needs attention; 20 required sources: 17 current, 2 limited, 1 unavailable, 0 unverified (1 expected delay)", "Holdings   masked"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("report lacks %q:\n%s", want, text)
 		}

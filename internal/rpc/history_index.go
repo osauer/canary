@@ -970,6 +970,9 @@ func EvaluateRegimeEligibility(in RegimeEligibilityInput) *RegimeEligibility {
 			out.Eligible, out.Latched = true, true
 			return out
 		}
+		// The latch rides along so a reader can tell a confirmation the
+		// currency gap blocked from a red that never confirmed.
+		out.Latched = in.Latched
 		out.Reasons = append(out.Reasons, regimeEligibilityCurrencyReason(in.FreshnessClass))
 		return out
 	}
@@ -1163,6 +1166,9 @@ type regimeRow struct {
 	// fieldsMissing is the row's own list of required fields it could not
 	// fill (RegimeVIXTerm.FieldsMissing and its siblings).
 	fieldsMissing []string
+	// latchedBlocked marks a red whose streak had earned eligibility and may
+	// not confirm now: its input is dark or not current.
+	latchedBlocked bool
 }
 
 // regimeRows lists the eight rows in indicator order with their served
@@ -1172,6 +1178,7 @@ func regimeRows(r *RegimeSnapshotResult) []regimeRow {
 		return regimeRow{
 			indicator: indicator, cluster: cluster, band: meta.Band, eligible: redEligible(meta), status: status,
 			freshness: meta.Freshness, asOf: metaAsOf(meta).Time, fieldsMissing: fieldsMissing,
+			latchedBlocked: meta.Band == "red" && meta.Eligibility != nil && meta.Eligibility.Latched && !meta.Eligibility.Eligible,
 		}
 	}
 	gamma := row(RegimeIndicatorGammaZero, RegimeClusterGamma, r.GammaZero.RegimeIndicatorMeta, r.GammaZero.Status, r.GammaZero.FieldsMissing)
@@ -1276,7 +1283,10 @@ func (b RegimeClusterBands) provisionalWitnessCount() int {
 // stress input is dark and weak readings are yellow or red, what should
 // Regime say?", the owner answered "Early warning". It keeps the operator
 // decision of 2026-08-11 that unknown cash evidence never softens a live
-// warning: what cannot be read is assumed to be the worst.
+// warning: what cannot be read is assumed to be the worst. One exception,
+// in the same direction: when the dark rows hid a confirmation, the stage
+// blanks to data_quality and the rulebook keeps the stricter latch
+// (regimeLifecycleOutageHidesConfirmation, owner instruction 2026-11-21).
 func (b RegimeClusterBands) darkWitnessWarns() bool {
 	return b.darkWarns
 }
