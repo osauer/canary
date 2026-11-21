@@ -309,11 +309,21 @@ func BuildRegimeLifecycle(r *RegimeSnapshotResult) LifecycleState {
 		// floor, as the severity governor already exempts it: the tape is
 		// its own evidence.
 		crash := state.Stage == LifecyclePanic && regimeLifecycleSPYTapeCurrent(*r) && pctAtMost(r.HYGSPYDivergence.SPYChangePct, -7.0)
-		floor := !crash && (inputs.global || regimeLifecycleFloorCount(cb, inputs) >= RegimeCurrencyBlankFloor)
+		var hidden []string
+		if !crash {
+			hidden = regimeLifecycleOutageHidesConfirmation(state, *r, inputs)
+		}
+		floor := !crash && (inputs.global || regimeLifecycleFloorCount(cb, inputs) >= RegimeCurrencyBlankFloor || len(hidden) > 0)
 		if !floor {
 			regimeLifecycleFallBack(&state, *r, cb)
 		}
 		if floor || !regimeLifecycleStageEvidenceCurrent(state, *r, cb, inputs) {
+			if len(hidden) > 0 {
+				state.Governors = append(state.Governors, GovernorAction{
+					Action: RegimeGovernorStageBlanked, From: state.Stage, To: LifecycleDataQuality,
+					Reason: RegimeGovernorOutageHidesConfirmation, Clusters: hidden,
+				})
+			}
 			state.Stage = LifecycleDataQuality
 			state.Severity = "watch"
 			state.Readiness = "blocked"
@@ -365,6 +375,51 @@ func regimeLifecycleFloorCount(cb RegimeClusterBands, inputs regimeLifecycleInpu
 		}
 	}
 	return n
+}
+
+// regimeLifecycleOutageHidesConfirmation reports a stage below confirmed
+// stress that reads calmer only because an input outage hid a confirmation.
+// It re-reads a copy of the snapshot with every latched red in a defective or
+// impaired cluster counted eligible, under the same witness and co-sign rules;
+// when that copy reads confirmed stress, the stage cannot prove itself, so
+// the required-input gate blanks it to data_quality and the rulebook's latch
+// holds what it held. It returns the clusters whose latched reds it counted.
+// On 2026-11-21 06:30 CET a TWS outage otherwise read early_warning beside a
+// confirmed stress (owner instruction 06:54 CET to fix it).
+func regimeLifecycleOutageHidesConfirmation(state LifecycleState, r RegimeSnapshotResult, inputs regimeLifecycleInputs) []string {
+	switch state.Stage {
+	case LifecyclePanic, LifecycleConfirmedStress, LifecycleDataQuality:
+		return nil
+	}
+	c := r
+	rows := []struct {
+		cluster int
+		meta    *RegimeIndicatorMeta
+	}{
+		{RegimeClusterEquityVol, &c.VIXTermStructure.RegimeIndicatorMeta}, {RegimeClusterEquityVol, &c.VolOfVol.RegimeIndicatorMeta},
+		{RegimeClusterCredit, &c.HYGSPYDivergence.RegimeIndicatorMeta}, {RegimeClusterCredit, &c.CreditSpreads.RegimeIndicatorMeta},
+		{RegimeClusterFunding, &c.FundingStress.RegimeIndicatorMeta}, {RegimeClusterFX, &c.USDJPY.RegimeIndicatorMeta},
+		{RegimeClusterGamma, &c.GammaZero.RegimeIndicatorMeta}, {RegimeClusterBreadth, &c.Breadth.RegimeIndicatorMeta},
+	}
+	var hidden []string
+	for _, row := range rows {
+		e := row.meta.Eligibility
+		if row.meta.Band != "red" || e == nil || e.Eligible || !e.Latched || row.cluster >= len(RegimeClusterNames) {
+			continue
+		}
+		name := RegimeClusterNames[row.cluster]
+		if !sourceInDataQualityClusters(inputs.defects, name) && !sourceInDataQualityClusters(inputs.impaired, name) {
+			continue
+		}
+		row.meta.Eligibility = &RegimeEligibility{Eligible: true, Latched: true}
+		if !slices.Contains(hidden, name) {
+			hidden = append(hidden, name)
+		}
+	}
+	if len(hidden) == 0 || !regimeLifecycleConfirmedStress(c, tallyRegimeClusters(BuildRegimeClusterBands(&c))) {
+		return nil
+	}
+	return hidden
 }
 
 // regimeLifecycleFallBack moves a panic that cannot survive an input defect

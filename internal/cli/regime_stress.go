@@ -91,7 +91,7 @@ func renderRegime(env *Env, res rpc.RegimeSnapshotResult, explain bool) {
 		if explain && (!current || !rpc.RegimeRowCurrent(row.Status, row.FreshnessClass)) && row.Band != "" {
 			riskReadLine(env, "    Recorded band", row.Band, "not a current rating")
 		}
-		if row.Eligibility != nil && !row.Eligibility.Eligible {
+		if row.Eligibility != nil && !row.Eligibility.Eligible && !slices.Contains(row.Eligibility.Reasons, rpc.RegimeEligibilityInputUnavailable) {
 			riskReadLine(env, "    Confirmation", "not eligible", strings.Join(row.Eligibility.Reasons, "; "))
 		}
 		if explain {

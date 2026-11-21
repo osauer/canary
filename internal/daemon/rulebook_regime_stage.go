@@ -270,6 +270,39 @@ func bucketRegimeStage(stage string) string {
 	}
 }
 
+// rulesRegimeProjectedBucket is the bucket a lifecycle latches, with the
+// stage it latches under; "" holds the previous latch. A stage blanked
+// because an outage hid a confirmation holds too, but never below the bucket
+// of the stage the blank replaced: a confirmation that arrived during the
+// outage must not leave a calm latch in place (Fable review 2026-11-21).
+func rulesRegimeProjectedBucket(lc rpc.LifecycleState, held string) (bucket, stage string) {
+	if bucket = bucketRegimeStage(lc.Stage); bucket != "" {
+		return bucket, lc.Stage
+	}
+	for _, g := range lc.Governors {
+		if g.Action != rpc.RegimeGovernorStageBlanked || g.Reason != rpc.RegimeGovernorOutageHidesConfirmation {
+			continue
+		}
+		if floor := bucketRegimeStage(g.From); regimeBucketRank(floor) > regimeBucketRank(held) {
+			return floor, g.From
+		}
+	}
+	return "", ""
+}
+
+func regimeBucketRank(bucket string) int {
+	switch bucket {
+	case risk.RegimeBucketCalm:
+		return 1
+	case risk.RegimeBucketEarlyWarning:
+		return 2
+	case risk.RegimeBucketConfirmed:
+		return 3
+	default:
+		return 0
+	}
+}
+
 func (s *Server) projectRulesRegimeStageAt(ctx context.Context, res *rpc.RegimeSnapshotResult, projectedAt time.Time) error {
 	if res == nil {
 		return nil
@@ -285,11 +318,11 @@ func (s *Server) projectRulesRegimeStageAt(ctx context.Context, res *rpc.RegimeS
 		// at the next open re-latches fresh.
 		return nil
 	}
-	bucket := bucketRegimeStage(res.Lifecycle.Stage)
+	bucket, stage := rulesRegimeProjectedBucket(res.Lifecycle, s.rulesRegimeStageSnapshot().Bucket)
 	if bucket == "" {
 		return nil // hold the previous latch
 	}
-	st := rulesRegimeStageState{Version: rulesRegimeStageStateVer, Bucket: bucket, Stage: res.Lifecycle.Stage, AsOf: projectedAt.UTC()}
+	st := rulesRegimeStageState{Version: rulesRegimeStageStateVer, Bucket: bucket, Stage: stage, AsOf: projectedAt.UTC()}
 	s.rulesRegimeStageMu.Lock()
 	if s.rulesRegimeStage == st {
 		s.rulesRegimeStageMu.Unlock()

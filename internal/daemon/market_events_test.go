@@ -264,6 +264,29 @@ func hygSpyBlindSnapshot(at time.Time) *rpc.RegimeSnapshotResult {
 	}
 }
 
+// A held red that had confirmed before its input went dark keeps that fact
+// on the row: never eligible, latched, reason input_unavailable. The
+// lifecycle reads it to tell a confirmation the outage hid from a calmer
+// market (rpc.regimeLifecycleOutageHidesConfirmation, 2026-11-21).
+func TestRegimeHeldRedKeepsItsConfirmationLatch(t *testing.T) {
+	ny := newYorkLocation()
+	store := NewStreakStore(t.TempDir())
+	measured := time.Date(2026, 8, 4, 2, 24, 0, 0, ny)
+	(&Server{}).populateStreaksWithStore(hygSpyRedSnapshot(measured), store)
+	store.Latch(StreakKeyHYGSPY)
+	if !store.Latched(StreakKeyHYGSPY) {
+		t.Fatal("fixture: the red streak did not latch")
+	}
+	policy := (&Server{}).populateStreaksWithStore(hygSpyBlindSnapshot(measured.Add(4*time.Minute)), store)[rpc.RegimeIndicatorHYGSPY]
+	e := policy.eligibility
+	if !policy.held || e == nil || e.Eligible || !e.Latched || !slices.Equal(e.Reasons, []string{rpc.RegimeEligibilityInputUnavailable}) {
+		t.Fatalf("held confirmed red: held=%v eligibility=%+v, want not eligible, latched, input_unavailable", policy.held, e)
+	}
+	if !store.Latched(StreakKeyHYGSPY) {
+		t.Fatal("the hold cleared the latch")
+	}
+}
+
 func TestRegimeBandHeldWhenInputsUnavailable(t *testing.T) {
 	ny := newYorkLocation()
 	store := NewStreakStore(t.TempDir())
@@ -291,8 +314,11 @@ func TestRegimeBandHeldWhenInputsUnavailable(t *testing.T) {
 		t.Errorf("heldAt=%v, want the time of the last live measurement %v", policy.heldAt, measured)
 	}
 
-	if policy.eligibility != nil {
-		t.Errorf("held band carried eligibility %+v, want nil — memory must never confirm", policy.eligibility)
+	if policy.eligibility != nil && policy.eligibility.Eligible {
+		t.Errorf("held band carried eligibility %+v — memory must never confirm", policy.eligibility)
+	}
+	if policy.eligibility != nil && !latchedBefore {
+		t.Errorf("held band that never confirmed carried eligibility %+v", policy.eligibility)
 	}
 	if store.Latched(StreakKeyHYGSPY) != latchedBefore {
 		t.Errorf("hold changed the eligibility latch (%v -> %v); memory must not advance confirmation state",

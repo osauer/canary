@@ -1116,7 +1116,7 @@ func stressIndicatorComment(row regimerows.Row, reading string, contextOnly bool
 }
 
 func stressEligibilityComment(indicator string, eligibility *rpc.RegimeEligibility) string {
-	if eligibility == nil || eligibility.Eligible {
+	if eligibility == nil || eligibility.Eligible || slices.Contains(eligibility.Reasons, rpc.RegimeEligibilityInputUnavailable) {
 		return ""
 	}
 	if indicator == rpc.RegimeIndicatorHYGSPY {
