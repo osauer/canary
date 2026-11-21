@@ -66,7 +66,7 @@ func renderDataHealth(env *Env, r rpc.DataHealthResult) {
 	displayLine(env, r.Summary.Label, dataHealthStyle(env, r.Summary.State, expectedOnly))
 	displayLine(env, fmt.Sprintf("Required %d · current %d · limited %d · unavailable %d · unverified %d", r.Summary.Required, r.Summary.Current, r.Summary.Limited, r.Summary.Unavailable, r.Summary.Unverified), nil)
 	if r.Summary.ExpectedDelays > 0 {
-		displayLine(env, fmt.Sprintf("%d limited source(s) awaiting the publisher; not counted as source problems.", r.Summary.ExpectedDelays), nil)
+		displayLine(env, fmt.Sprintf("%d limited source(s) on the provider's schedule; not counted as source problems.", r.Summary.ExpectedDelays), nil)
 	}
 	displayLine(env, "Report "+r.AsOf.Format("2006-01-02 15:04:05 MST")+" · valid until "+r.ValidUntil.Format("2006-01-02 15:04:05 MST"), nil)
 	if len(r.Concerns) > 0 {
