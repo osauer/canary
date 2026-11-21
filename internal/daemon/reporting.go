@@ -422,7 +422,7 @@ func setReportingOverallStatus(result *rpc.ReportingStatusResult, evidenceLoadFa
 		return
 	case result.Broker.BrokerCode == "1025" && flexSaturdayMaintenance(result.Broker.LastAttempt):
 		result.State, result.Reason = rpc.ReportingStateBackfilling, rpc.ReportingReasonBrokerMaintenance
-		result.Action = "IBKR's Flex service is in its Saturday maintenance (midnight to about 02:00 New York time); Canary retries automatically."
+		result.Action = "IBKR's Flex service is in its Saturday maintenance; Canary retries automatically."
 		return
 	case result.Broker.BrokerCode == "1025":
 		result.State, result.Reason = rpc.ReportingStateActionRequired, rpc.ReportingReasonBrokerResponseUndocumented

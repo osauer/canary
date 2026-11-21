@@ -123,18 +123,17 @@ func flexScheduleLocation() *time.Location {
 	return time.FixedZone("CET", 60*60)
 }
 
-// flexSaturdayMaintenance reports an instant inside IBKR's Saturday Flex
-// maintenance: midnight to 03:00 New York time. The Flex service answered
-// code 1025 from 00:10 to about 02:10 New York time on 17 Oct, 7 Nov, 14 Nov
-// and 21 Nov 2026, on both sides of the DST change; the hour after is margin.
-// It is IBKR's schedule, not owner policy (owner instruction 2026-11-21 07:39
-// CET to read it as scheduled maintenance).
+// flexSaturdayMaintenance reports an instant on a Saturday, New York date,
+// when IBKR's Flex service answers code 1025 for its weekend maintenance. It
+// did so from 00:10 to about 02:10 New York time on 17 Oct, 7 Nov and 14 Nov
+// 2026, and past 03:30 on 21 Nov, so the whole Saturday counts. It is IBKR's
+// schedule, not owner policy (owner instruction 2026-11-21 07:39 CET: read
+// Flex 1025 on a Saturday as scheduled maintenance).
 func flexSaturdayMaintenance(at time.Time) bool {
 	if at.IsZero() {
 		return false
 	}
-	ny := at.In(flexReportingLocation())
-	return ny.Weekday() == time.Saturday && ny.Hour() < 3
+	return at.In(flexReportingLocation()).Weekday() == time.Saturday
 }
 
 func flexReportingLocation() *time.Location {

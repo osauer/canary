@@ -438,9 +438,9 @@ func reportingFlexFixture(from, to string) []byte {
 </FlexStatement></FlexStatements></FlexQueryResponse>`)
 }
 
-// IBKR's Flex service answers code 1025 every Saturday from 00:10 to about
-// 02:10 New York time (17 Oct, 7 Nov, 14 Nov and 21 Nov 2026 in the daemon
-// log, across the DST change). Inside that window it is scheduled
+// IBKR's Flex service answers code 1025 on Saturdays, New York date: from
+// 00:10 to about 02:10 on 17 Oct, 7 Nov and 14 Nov 2026, past 03:30 on
+// 21 Nov (daemon log, across the DST change). On a Saturday it is scheduled
 // maintenance Canary retries by itself, not an action for the owner, and data
 // health counts it as an expected delay. The same code at 12:00 on a Monday
 // stays action required (TestReportingStatusPublishesOnlyTypedBrokerAndManifestDiagnostics).
@@ -460,7 +460,7 @@ func TestReportingStatusReadsSaturdayFlex1025AsMaintenance(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, fixtureName), reportingFlexFixture("20261101", "20261119"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 11, 21, 5, 40, 0, 0, time.UTC) // 00:40 New York, Saturday
+	now := time.Date(2026, 11, 21, 8, 32, 0, 0, time.UTC) // 03:32 New York, Saturday: past the earlier Saturdays' window
 	store, err := corestore.Open(t.Context(), corestore.Options{Path: filepath.Join(privateTestDir(t), "daemon.db")})
 	if err != nil {
 		t.Fatal(err)
