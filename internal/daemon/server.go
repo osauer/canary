@@ -419,6 +419,9 @@ type Server struct {
 	// orderJournal is the durable audit log for order intents and broker
 	orderJournal *orderJournalStore
 	orderReads   orderReadCache
+	// edgeProtection keeps the records the Edge protection link reads
+	// (edge_protection_context.go).
+	edgeProtection edgeProtectionJournal
 	// strategyLineage is a read-through cache of durable submitted group
 	// drafts. Position polling uses it to detect broken leg ratios without
 	// rereading the complete order journal on every refresh.

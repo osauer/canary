@@ -49,6 +49,115 @@ func TestEdgeProtectionRequiresUniquePriorSubmittedEvidence(t *testing.T) {
 	}
 }
 
+// A long-running install journals one event per order status change, so the
+// order journal passes ten thousand events inside the lookback within weeks.
+// Those events never carry an execution id and the link never uses them; they
+// must not withhold the link of the one execution that Canary's protection
+// sent.
+func TestEdgeProtectionLinkSurvivesALargeOrderJournal(t *testing.T) {
+	const account = "UEDGEFIXTURE"
+	now := time.Date(2026, 8, 24, 23, 0, 0, 0, time.UTC)
+	store, statements, evidence := projectEdgeAcceptanceFixture(t, "edge-acceptance-365.xml", account, now)
+	port := 4001
+	srv := &Server{cfg: &config.Resolved{Gateway: config.Gateway{Account: account, Port: &port}, Flex: config.Flex{Enabled: true, QueryID: "424242"}}, coreStore: store, now: func() time.Time { return now }}
+	scope := srv.currentBrokerStateScope()
+	journal := &orderJournalStore{}
+	if err := journal.UseCoreStore(store); err != nil {
+		t.Fatal(err)
+	}
+	route := orderJournalEvent{Endpoint: "127.0.0.1:4001", ClientID: 7, Account: account, Mode: scope.Mode}
+	const statusChanges = 10_500
+	batch := make([]orderJournalEvent, 0, 1_500)
+	for i := range statusChanges {
+		ev := route
+		ev.Type, ev.Status = orderJournalEventStatusUpdated, "Submitted"
+		ev.OrderRef, ev.ReservedOrderID = "synthetic-churn", 100+i%50
+		ev.At = now.AddDate(0, 0, -300).Add(time.Duration(i) * time.Minute)
+		batch = append(batch, ev)
+		if len(batch) == cap(batch) || i == statusChanges-1 {
+			if err := journal.AppendAll(batch); err != nil {
+				t.Fatal(err)
+			}
+			batch = batch[:0]
+		}
+	}
+	sale := statementTradeByExecution(t, statements, "e-apex-exit")
+	exec := route
+	exec.Type, exec.Status = orderJournalEventStatusUpdated, "Filled"
+	exec.OrderRef, exec.PreviewTokenID, exec.ReservedOrderID = "synthetic-protect", "synthetic-token", 900
+	exec.ConID, exec.ExecID, exec.At = int(sale.ConID), sale.ExecutionID, sale.ExecutedAt
+	if err := journal.Append(exec); err != nil {
+		t.Fatal(err)
+	}
+	proposals := &proposalStore{core: store}
+	if err := proposals.appendEvent(t.Context(), proposalEvent{Version: proposalEventFileVersion, Type: "submitted", At: sale.ExecutedAt.Add(-time.Hour), AccountID: account, AccountMode: scope.Mode, Bucket: rpc.TradeProposalBucketRiskReduction, Key: "synthetic-proposal", Revision: "r1", PolicyID: "policy", PolicyVersion: 1, PolicyFingerprint: rpc.Fingerprint{Version: "1", Key: "fingerprint"}, OrderRef: exec.OrderRef, PreviewTokenID: exec.PreviewTokenID}); err != nil {
+		t.Fatal(err)
+	}
+
+	events, linkedProposals, fp := srv.edgeProtectionEvidence(t.Context(), scope)
+	if fp == "" {
+		t.Fatal("protection evidence withheld: ordinary status changes filled the read")
+	}
+	records := matchEdgeProtectionRecords(scope, statements, events, linkedProposals)
+	if got, ok := records[sale.RecordID]; !ok || got.Bucket != rpc.TradeProposalBucketRiskReduction {
+		t.Fatalf("protection link not named: %+v", records)
+	}
+	core, err := edgecore.Analyze(edgecore.Input{AsOf: now, WindowDays: 365, BaseCurrency: "USD", Statements: statements, Bars: edgeAcceptanceBars(), ProtectionRecords: records})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub := edgePublication{ScopeFingerprint: edgeScopeFingerprint(scope), EvidenceFingerprint: evidence, State: rpc.EdgeStateCurrent, Windows: map[string]edgecore.Result{"365d": core}, LocalContextFingerprint: fp, LocalContextAsOf: now, UpdatedAt: now}
+	if err := srv.saveEdgePublication(t.Context(), pub); err != nil {
+		t.Fatal(err)
+	}
+	exit := acceptanceChange(t, core.Changes, "APEX", edgecore.ActionExit)
+	read := func() *rpc.EdgeResult {
+		t.Helper()
+		got, err := srv.handleEdgeSnapshot(t.Context(), &rpc.Request{Params: []byte(`{"window":"365d","horizon_sessions":20,"change_id":"` + exit.ID + `"}`)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	if got := read(); got.ProtectionState != "current" || got.Change.ProtectionContext.Status != "linked" {
+		t.Fatalf("protection state=%s link=%s want current and linked", got.ProtectionState, got.Change.ProtectionContext.Status)
+	}
+
+	// More status changes move the journal head without touching what the
+	// link uses: the reused evidence stays current.
+	more := route
+	more.Type, more.Status, more.OrderRef, more.ReservedOrderID, more.At = orderJournalEventStatusUpdated, "Cancelled", "synthetic-churn", 101, now.Add(-time.Hour)
+	if err := journal.Append(more); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got.ProtectionState != "current" {
+		t.Fatalf("after a status change protection state=%s want current", got.ProtectionState)
+	}
+	// A new execution is evidence the link uses: the stored review no longer
+	// matches it.
+	fill := exec
+	fill.ExecID, fill.At = "synthetic-new-exec", now.Add(-time.Minute)
+	if err := journal.Append(fill); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(); got.ProtectionState != "changed" {
+		t.Fatalf("after a new execution protection state=%s want changed", got.ProtectionState)
+	}
+}
+
+func statementTradeByExecution(t *testing.T, statements []flexstmt.Statement, execID string) flexstmt.Trade {
+	t.Helper()
+	for _, st := range statements {
+		for _, tr := range st.Trades {
+			if tr.ExecutionID == execID {
+				return tr
+			}
+		}
+	}
+	t.Fatalf("fixture has no execution %s", execID)
+	return flexstmt.Trade{}
+}
+
 func TestEdgePublicationWithholdsChangedProtectionWithoutChangingPrices(t *testing.T) {
 	const account = "UEDGEFIXTURE"
 	now := time.Date(2026, 8, 24, 23, 0, 0, 0, time.UTC)
