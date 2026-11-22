@@ -2,7 +2,9 @@ package twssim
 
 import (
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -123,7 +125,9 @@ func decodeOfficial(message string, body []byte, path string, ignored *[]string)
 	return out, nil
 }
 
-func decodePlaceOrder(body []byte) (PlaceOrder, error) {
+// DecodePlaceOrder reads a placeOrder request body (the bytes after the
+// four-byte message id) as the broker does, by the official field table.
+func DecodePlaceOrder(body []byte) (PlaceOrder, error) {
 	var o PlaceOrder
 	req, err := decodeOfficial("PlaceOrderRequest", body, "placeOrder", &o.IgnoredByBroker)
 	if err != nil {
@@ -178,11 +182,14 @@ type Frame struct {
 	// IgnoredByBroker names the protocol-buffer fields the broker's parser
 	// drops (see PlaceOrder.IgnoredByBroker).
 	IgnoredByBroker []string
-	Raw             []byte
+	Raw             []byte `json:"-"`
 }
 
 // Recorder keeps every message the client sent, decoded, in arrival order.
 type Recorder struct {
+	// Sink, when set, receives each frame as one JSON line as it arrives.
+	Sink io.Writer
+
 	mu     sync.Mutex
 	frames []Frame
 }
@@ -191,6 +198,9 @@ func (r *Recorder) add(f Frame) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.frames = append(r.frames, f)
+	if r.Sink != nil {
+		_ = json.NewEncoder(r.Sink).Encode(f)
+	}
 }
 
 // Frames returns everything recorded so far.
@@ -233,7 +243,7 @@ func decodeFrame(body []byte, session, clientID int, at time.Time) Frame {
 		f.MsgID, f.Proto = id-protoOffset, true
 		switch f.MsgID {
 		case placeOrder:
-			if o, err := decodePlaceOrder(payload); err == nil {
+			if o, err := DecodePlaceOrder(payload); err == nil {
 				f.Order, f.IgnoredByBroker = &o, o.IgnoredByBroker
 			} else {
 				f.IgnoredByBroker = []string{"placeOrder: " + err.Error()}
