@@ -39,6 +39,11 @@
 //	parent rejected: child cancelled with it (error 202)    assumed
 //	DAY parent ending partly filled: child cancelled, or    assumed (option)
 //	  resized to the filled quantity (ChildOnPartialExpiry)
+//	option prices and greeks: Black-Scholes, 30% vol, 4%    assumed
+//	  rate; open interest 500
+//	BAG: quoted from its legs; fills whole at the net ask,  assumed
+//	  one execution per leg under the BAG's order id
+//	10123 for a combination leg with openClose 1 or 2       assumed (option)
 //	every scripted Fault (reject 201/442, reject after ack, assumed
 //	  PreSubmitted, partial, silent, drop, error 110/103/200/354/10089)
 //	market data type 1 (live) at every hour                 assumed

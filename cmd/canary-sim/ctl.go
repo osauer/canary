@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -39,7 +40,10 @@ Commands (against a running canary-sim in DIR):
   frames [SINCE]                  recorded client frames from index SINCE (JSON), and the next mark
   orders                          the broker's orders (JSON)
   drop                            end every broker connection, as a TWS restart does
-  account CODE                    log the broker in to another account (ends every connection)`
+  account CODE                    log the broker in to another account (ends every connection)
+  position SYM|CONID QTY [AVGCOST] set a holding (QTY 0 removes it; an option by its con id)
+  options SYM [STRIKE...]         list a stock's option chain (Fridays near 5-120 days; default
+                                  strikes 80-120% of the price in 5% steps)`
 
 type ctlRequest struct {
 	Args []string `json:"args"`
@@ -170,6 +174,51 @@ func control(sim *twssim.Server, args []string, now time.Time) (any, error) {
 	case "drop":
 		sim.DropSessions()
 		return nil, nil
+	case "position":
+		if err := need(3); err != nil {
+			return nil, err
+		}
+		qty, err := strconv.ParseFloat(args[2], 64)
+		if err != nil {
+			return nil, err
+		}
+		avg, _ := number(args, 3)
+		conID, err := strconv.Atoi(args[1])
+		if err != nil {
+			var ok bool
+			if conID, ok = sim.Book().StockConID(args[1]); !ok {
+				return nil, fmt.Errorf("%s is not a listed stock", args[1])
+			}
+		}
+		if _, listed := sim.Book().Contract(conID); !listed {
+			return nil, fmt.Errorf("contract %d is not listed", conID)
+		}
+		sim.Book().SetPosition(conID, qty, avg)
+		sim.PushAccount()
+		return nil, nil
+	case "options":
+		if err := need(2); err != nil {
+			return nil, err
+		}
+		conID, ok := sim.Book().StockConID(args[1])
+		if !ok {
+			return nil, fmt.Errorf("%s is not a listed stock", args[1])
+		}
+		in, _ := sim.Book().Contract(conID)
+		var strikes []float64
+		for _, a := range args[2:] {
+			k, err := strconv.ParseFloat(a, 64)
+			if err != nil {
+				return nil, err
+			}
+			strikes = append(strikes, k)
+		}
+		if len(strikes) == 0 {
+			for pct := 80; pct <= 120; pct += 5 {
+				strikes = append(strikes, math.Round(in.Price*float64(pct)/100))
+			}
+		}
+		return nil, sim.Book().ListOptions(conID, twssim.OptionExpiries(now), strikes)
 	case "account":
 		if err := need(2); err != nil {
 			return nil, err

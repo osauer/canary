@@ -60,39 +60,41 @@ const (
 
 // Message ids the simulator sends (EWrapper's incoming message ids).
 const (
-	msgTickPrice          = 1
-	msgTickSize           = 2
-	msgOrderStatus        = 3
-	msgError              = 4
-	msgOpenOrder          = 5
-	msgAccountValue       = 6
-	msgPortfolioValue     = 7
-	msgAccountTime        = 8
-	msgNextValidID        = 9
-	msgContractDetails    = 10
-	msgExecDetails        = 11
-	msgManagedAccounts    = 15
-	msgHistoricalData     = 17
-	msgCurrentTime        = 49
-	msgContractDetailsEnd = 52
-	msgOpenOrderEnd       = 53
-	msgAccountDownloadEnd = 54
-	msgExecDetailsEnd     = 55
-	msgTickSnapshotEnd    = 57
-	msgMarketDataType     = 58
-	msgCommissionReport   = 59
-	msgPosition           = 61
-	msgPositionEnd        = 62
-	msgAccountSummary     = 63
-	msgAccountSummaryEnd  = 64
-	msgSecDefOptEnd       = 76
-	msgSymbolSamples      = 79
-	msgHeadTimestamp      = 88
-	msgMarketRule         = 93
-	msgPnL                = 94
-	msgPnLSingle          = 95
-	msgCompletedOrdersEnd = 102
-	msgHistoricalDataEnd  = 108
+	msgTickPrice             = 1
+	msgTickSize              = 2
+	msgOrderStatus           = 3
+	msgError                 = 4
+	msgOpenOrder             = 5
+	msgAccountValue          = 6
+	msgPortfolioValue        = 7
+	msgAccountTime           = 8
+	msgNextValidID           = 9
+	msgContractDetails       = 10
+	msgExecDetails           = 11
+	msgManagedAccounts       = 15
+	msgHistoricalData        = 17
+	msgCurrentTime           = 49
+	msgContractDetailsEnd    = 52
+	msgOpenOrderEnd          = 53
+	msgAccountDownloadEnd    = 54
+	msgExecDetailsEnd        = 55
+	msgTickSnapshotEnd       = 57
+	msgMarketDataType        = 58
+	msgCommissionReport      = 59
+	msgPosition              = 61
+	msgPositionEnd           = 62
+	msgAccountSummary        = 63
+	msgAccountSummaryEnd     = 64
+	msgSecDefOpt             = 75
+	msgSecDefOptEnd          = 76
+	msgTickOptionComputation = 21
+	msgSymbolSamples         = 79
+	msgHeadTimestamp         = 88
+	msgMarketRule            = 93
+	msgPnL                   = 94
+	msgPnLSingle             = 95
+	msgCompletedOrdersEnd    = 102
+	msgHistoricalDataEnd     = 108
 )
 
 func readFrame(r *bufio.Reader) ([]byte, error) {

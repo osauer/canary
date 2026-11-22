@@ -141,6 +141,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	dirFlag := flags.String("dir", "", "the stack's directory (created; default a new one under /tmp); keep it short, a Unix socket path is limited to about 100 bytes")
 	listen := flags.String("listen", "127.0.0.1:0", "the simulator's loopback address; port 0 picks a free one")
+	bookPath := flags.String("book", "", "a book file (JSON, see internal-docs/guides/tws-simulator.md); empty is the default synthetic book")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -167,7 +168,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer frames.Close()
-	sim, err := twssim.Listen(twssim.Options{Listen: *listen, Recorder: &twssim.Recorder{Sink: frames}})
+	book := twssim.Default()
+	if *bookPath != "" {
+		if book, err = twssim.LoadBook(*bookPath); err != nil {
+			fmt.Fprintln(stderr, "canary-sim:", err)
+			return 2
+		}
+	}
+	sim, err := twssim.Listen(twssim.Options{Listen: *listen, Book: book, Recorder: &twssim.Recorder{Sink: frames}})
 	if err != nil {
 		fmt.Fprintln(stderr, "canary-sim:", err)
 		return 2
@@ -203,7 +211,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 		}
 	}
-	book := sim.Book()
 	cfgText := fmt.Sprintf("# canary-sim: the simulated broker. A CLI that autospawns a daemon from this\n# file reaches only this port.\n[gateway]\nhost = \"127.0.0.1\"\nport = %d\nclient_id = 15\naccount = %q\ntls = false\n\n[trading]\nmode = \"live\"\n\n[cash_ledger]\nurl = \"http://127.0.0.1:1/v1/api\"\n", sim.Port(), book.Account())
 	if err := os.WriteFile(s.config, []byte(cfgText), 0o600); err != nil {
 		fmt.Fprintln(stderr, "canary-sim:", err)

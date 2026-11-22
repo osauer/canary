@@ -5485,6 +5485,8 @@ func rawIBKROrder(contract *Contract, order *RawOrder) *IBKROrder {
 		Currency:         contract.Currency,
 		LocalSymbol:      contract.LocalSymbol,
 		TradingClass:     contract.TradingClass,
+		SecIDType:        contract.SecIDType,
+		SecID:            contract.SecID,
 		ComboLegs:        append([]ComboLeg(nil), contract.ComboLegs...),
 		BondRules:        cloneBondOrderRules(contract.BondRules),
 		Action:           order.Action,

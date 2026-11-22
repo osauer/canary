@@ -65,16 +65,16 @@ func TestStockOrderPreviewIsRefusedOnTheListingsHoursNotNewYorks(t *testing.T) {
 	}
 }
 
-// IBKR's Adaptive algorithm needs SMART, so an order on a listing's own exchange
-// goes as a plain limit: a queued owner order must not demand the algorithm the
-// broker layer then refuses.
+// IBKR's Adaptive algorithm goes only on a SMART-routed US stock or ETF, so an
+// option or an order on a listing's own exchange goes as a plain limit: a
+// queued owner order must not demand the algorithm the broker layer refuses.
 func TestQueuedOwnerOrderCarriesAdaptiveOnlyOnSMART(t *testing.T) {
 	for _, tc := range []struct {
 		contract rpc.ContractParams
 		want     string
 	}{
 		{rpc.ContractParams{SecType: "STK", Exchange: "SMART", Currency: "USD"}, "Normal"},
-		{rpc.ContractParams{SecType: "OPT", Exchange: "SMART", Currency: "USD"}, "Normal"},
+		{rpc.ContractParams{SecType: "OPT", Exchange: "SMART", Currency: "USD"}, ""},
 		{rpc.ContractParams{SecType: "STK", Exchange: "SEHK", PrimaryExch: "SEHK", Currency: "HKD"}, ""},
 		{rpc.ContractParams{SecType: "STK", Exchange: "SGX", PrimaryExch: "SGX", Currency: "SGD"}, ""},
 	} {

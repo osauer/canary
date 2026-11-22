@@ -412,3 +412,32 @@ func TestFullPositionStopResizesThroughBrokerPath(t *testing.T) {
 		})
 	}
 }
+
+// A queued owner order on an option carries no Adaptive: the broker layer
+// sends the algorithm only on a stock or ETF, so the terms the owner signs and
+// the order sent at the window are a plain limit at the same bounded price.
+func TestOwnerQueueOptionOrderIsAPlainLimit(t *testing.T) {
+	rig, broker := newQueueTradingRig(t)
+	rig.server.orderPreviewPositionImpact = func(_ context.Context, _ rpc.ContractParams, _ string, qty int) (rpc.OrderPositionImpact, error) {
+		return rpc.OrderPositionImpact{Before: 5, After: 5 - float64(qty), Effect: rpc.OrderPositionEffectReduce}, nil
+	}
+	p := rig.reductionRow(rpc.TradeProposalBucketRiskReduction, queueTestOptionRow(), 1)
+	rev := rig.install(p)
+	scope := rig.engine.currentScope()
+	q, err := rig.engine.QueuePrepare(t.Context(), rpc.TradeProposalQueuePrepareParams{OwnerOrder: true, Key: p.Key, Revision: rev, AccountID: scope.Account, AccountMode: scope.Mode, Quantity: 1, WorstPrice: 2.4})
+	if err != nil || !q.Accepted {
+		t.Fatalf("owner prepare: %+v %v", q, err)
+	}
+	if o := q.Queue.Terms.OwnerOrder; o == nil || o.AdaptivePriority != "" {
+		t.Fatalf("option terms carry Adaptive: %+v", o)
+	}
+	rig.queueArm(q)
+	rig.now = q.Queue.Terms.NotBefore // the options window
+	rig.queueCycle()
+	if broker.count() != 1 {
+		t.Fatalf("send: %+v", rig.queued(q.Queue.Terms.QueueID))
+	}
+	if order := broker.orders[0]; order.AdaptivePriority != "" || order.OrderType != "LMT" {
+		t.Fatalf("option order sent %+v, want a plain limit", order)
+	}
+}

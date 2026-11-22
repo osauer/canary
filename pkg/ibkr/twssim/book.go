@@ -14,7 +14,7 @@ import (
 type Instrument struct {
 	ConID        int
 	Symbol       string
-	SecType      string // STK, IND or CASH
+	SecType      string // STK, IND, CASH or OPT
 	Exchange     string // the routing exchange the broker quotes, SMART for stock
 	PrimaryExch  string
 	Currency     string
@@ -28,6 +28,20 @@ type Instrument struct {
 	Spread float64
 	// Bid and Ask, when set, are quoted as they are instead of from Spread.
 	Bid, Ask float64
+	// An option's expiry (YYYYMMDD), strike, right (C or P), multiplier and
+	// underlying; zero for other contracts (a zero multiplier counts as 1).
+	Expiry     string
+	Strike     float64
+	Right      string
+	Multiplier float64
+	UnderConID int
+	// Defunct is a dead line the account still holds: its row streams with
+	// value 0, and every contract or quote request for it is answered "No
+	// security definition", as IBKR answers for a delisted name (assumed).
+	Defunct bool
+	// PriceMagnifier is TWS's quote scale (100 for an LSE line quoted in
+	// pence); zero counts as 1.
+	PriceMagnifier int
 }
 
 // Position is one holding of the book's account.
@@ -95,6 +109,9 @@ type Book struct {
 	permID  int
 	execSeq int
 
+	// now is the clock options are priced at; nil is the wall clock (a
+	// server sets its own).
+	now func() time.Time
 	// feePerShare and feeMin price the commission (IBKR fixed-style tiers are
 	// not modelled).
 	feePerShare, feeMin float64
@@ -136,6 +153,22 @@ func Default() *Book {
 		b.AddInstrument(in)
 	}
 	b.SetPosition(900001, 100, 48)
+	return b
+}
+
+// EuropeanBook is [Default] with a EUR line on Xetra (SYNE, IBIS) and a GBP
+// line on the LSE (SYNG, quoted in pence: price magnifier 100), native cash
+// in both and their USD rates, with the IDEALPRO pairs listed.
+func EuropeanBook() *Book {
+	b := Default()
+	b.SetCash("EUR", 20_000)
+	b.SetFX("EUR", 1.08)
+	b.SetCash("GBP", 15_000)
+	b.SetFX("GBP", 1.27)
+	b.AddInstrument(Instrument{ConID: 900401, Symbol: "SYNE", SecType: "STK", Exchange: "SMART", PrimaryExch: "IBIS", Currency: "EUR", TradingClass: "XETR", LongName: "SYNTHETIC E AG", MinTick: 0.01, Price: 40, Spread: 0.02})
+	b.AddInstrument(Instrument{ConID: 900402, Symbol: "SYNG", SecType: "STK", Exchange: "SMART", PrimaryExch: "LSE", Currency: "GBP", TradingClass: "SYNG", LongName: "SYNTHETIC G PLC", MinTick: 0.1, Price: 250, Spread: 0.5, PriceMagnifier: 100})
+	b.AddInstrument(Instrument{ConID: 900501, Symbol: "EUR", SecType: "CASH", Exchange: "IDEALPRO", Currency: "USD", LocalSymbol: "EUR.USD", TradingClass: "EUR.USD", MinTick: 0.00005, Price: 1.08, Spread: 0.0001})
+	b.AddInstrument(Instrument{ConID: 900502, Symbol: "GBP", SecType: "CASH", Exchange: "IDEALPRO", Currency: "USD", LocalSymbol: "GBP.USD", TradingClass: "GBP.USD", MinTick: 0.00005, Price: 1.27, Spread: 0.0001})
 	return b
 }
 
@@ -208,6 +241,7 @@ func (b *Book) SetPrice(conID int, price float64) {
 	defer b.mu.Unlock()
 	if in := b.instr[conID]; in != nil {
 		in.Price = price
+		b.repriceLocked(conID)
 	}
 }
 
@@ -222,11 +256,27 @@ func (b *Book) SetQuote(symbol string, bid, ask, last float64) error {
 				in.Price = last
 			}
 			in.Bid, in.Ask = bid, ask
+			b.repriceLocked(in.ConID)
 			return nil
 		}
 	}
 	return fmt.Errorf("twssim: %s is not listed", symbol)
 }
+
+// StockConID finds a listed stock by symbol.
+func (b *Book) StockConID(symbol string) (int, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, in := range b.instr {
+		if in.SecType == "STK" && strings.EqualFold(in.Symbol, symbol) {
+			return in.ConID, true
+		}
+	}
+	return 0, false
+}
+
+// Contract returns a listed contract.
+func (b *Book) Contract(conID int) (Instrument, bool) { return b.instrument(conID) }
 
 // Position returns a holding and whether the book holds it.
 func (b *Book) Position(conID int) (Position, bool) {
@@ -278,20 +328,45 @@ func (b *Book) instrument(conID int) (Instrument, bool) {
 // lookup finds the contracts a request names: by contract id when it gives
 // one, else by symbol, security type and, when given, currency.
 func (b *Book) lookup(conID int, symbol, secType, currency string) []Instrument {
+	return b.lookupContract(contractQuery{conID: conID, symbol: symbol, secType: secType, currency: currency})
+}
+
+// contractQuery is what a contract request names: a contract id, or a symbol,
+// security type and currency, and for an option any of expiry (a YYYYMM or
+// YYYYMMDD prefix), strike and right.
+type contractQuery struct {
+	conID                     int
+	symbol, secType, currency string
+	expiry, right             string
+	strike                    float64
+}
+
+func (b *Book) lookupContract(q contractQuery) []Instrument {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var out []Instrument
 	for _, in := range b.instr {
+		if in.Defunct {
+			continue
+		}
 		switch {
-		case conID > 0:
-			if in.ConID != conID {
+		case q.conID > 0:
+			if in.ConID != q.conID {
 				continue
 			}
-		case !strings.EqualFold(in.Symbol, symbol):
+		case !strings.EqualFold(in.Symbol, q.symbol):
 			continue
-		case secType != "" && !strings.EqualFold(in.SecType, secType):
+		case q.secType != "" && !strings.EqualFold(in.SecType, q.secType):
 			continue
-		case currency != "" && !strings.EqualFold(in.Currency, currency):
+		case q.secType == "" && in.SecType == "OPT":
+			continue
+		case q.currency != "" && !strings.EqualFold(in.Currency, q.currency):
+			continue
+		case q.expiry != "" && !strings.HasPrefix(in.Expiry, q.expiry):
+			continue
+		case q.strike > 0 && in.Strike != q.strike:
+			continue
+		case q.right != "" && !strings.EqualFold(in.Right[:min(1, len(in.Right))], q.right[:1]):
 			continue
 		}
 		out = append(out, *in)
@@ -325,13 +400,14 @@ func roundTo(v, tick float64) float64 {
 
 // accountFigures are the account's measured values in the base currency.
 type accountFigures struct {
-	stockValue map[string]float64 // native market value per currency
-	gross      float64            // base
-	cashBase   float64
-	nlv        float64
-	unrealized float64
-	initMargin float64
-	maintMargn float64
+	stockValue  map[string]float64 // native stock market value per currency
+	optionValue map[string]float64 // native option market value per currency
+	gross       float64            // base
+	cashBase    float64
+	nlv         float64
+	unrealized  float64
+	initMargin  float64
+	maintMargn  float64
 }
 
 // The simulated account is a Reg T margin account: 25 percent maintenance
@@ -340,7 +416,7 @@ type accountFigures struct {
 const marginRate = 0.25
 
 func (b *Book) figuresLocked() accountFigures {
-	f := accountFigures{stockValue: map[string]float64{}}
+	f := accountFigures{stockValue: map[string]float64{}, optionValue: map[string]float64{}}
 	for ccy, amount := range b.cash {
 		f.cashBase += amount * b.fx[ccy]
 	}
@@ -349,10 +425,14 @@ func (b *Book) figuresLocked() accountFigures {
 		if in == nil {
 			continue
 		}
-		value := p.Quantity * in.Price
-		f.stockValue[in.Currency] += value
+		value := p.Quantity * in.Price * multiplier(*in)
+		if in.SecType == "OPT" {
+			f.optionValue[in.Currency] += value
+		} else {
+			f.stockValue[in.Currency] += value
+		}
 		f.gross += math.Abs(value) * b.fx[in.Currency]
-		f.unrealized += (in.Price - p.AvgCost) * p.Quantity * b.fx[in.Currency]
+		f.unrealized += (value - p.AvgCost*p.Quantity) * b.fx[in.Currency]
 	}
 	f.nlv = f.cashBase + f.gross
 	f.initMargin = f.gross * marginRate
@@ -395,7 +475,8 @@ func (b *Book) accountValuesLocked() []accountValue {
 			accountValue{"CashBalance", num2(b.cash[ccy]), ccy},
 			accountValue{"ExchangeRate", num(b.fx[ccy]), ccy},
 			accountValue{"StockMarketValue", num2(f.stockValue[ccy]), ccy},
-			accountValue{"NetLiquidationByCurrency", num2(b.cash[ccy] + f.stockValue[ccy]), ccy},
+			accountValue{"OptionMarketValue", num2(f.optionValue[ccy]), ccy},
+			accountValue{"NetLiquidationByCurrency", num2(b.cash[ccy] + f.stockValue[ccy] + f.optionValue[ccy]), ccy},
 		)
 	}
 	rows = append(rows,
@@ -434,7 +515,8 @@ func (b *Book) summaryRowsLocked(tags []string) []accountValue {
 				accountValue{"$LEDGER-SettledCash", num2(b.cash[ccy]), ccy},
 				accountValue{"$LEDGER-ExchangeRate", num(b.fx[ccy]), ccy},
 				accountValue{"$LEDGER-StockMarketValue", num2(f.stockValue[ccy]), ccy},
-				accountValue{"$LEDGER-NetLiquidationByCurrency", num2(b.cash[ccy] + f.stockValue[ccy]), ccy},
+				accountValue{"$LEDGER-OptionMarketValue", num2(f.optionValue[ccy]), ccy},
+				accountValue{"$LEDGER-NetLiquidationByCurrency", num2(b.cash[ccy] + f.stockValue[ccy] + f.optionValue[ccy]), ccy},
 			)
 		}
 	}
@@ -484,9 +566,16 @@ type whatIf struct {
 	initAfter, maintAfter, equityAfter    float64
 	commission                            float64
 	commissionCcy, marginCcy              string
+	// noFee leaves the commission figures out of the answer.
+	noFee bool
 }
 
-func (b *Book) fee(shares, price float64) float64 {
+// fee is the commission of a fill: per share for stock (capped at one
+// percent of value), 0.65 per contract for options, at least feeMin.
+func (b *Book) fee(in Instrument, shares, price float64) float64 {
+	if in.SecType == "OPT" || in.SecType == "BAG" {
+		return math.Round(max(b.feeMin, shares*0.65)*100) / 100
+	}
 	return math.Round(min(max(b.feeMin, shares*b.feePerShare), shares*price*0.01)*100) / 100
 }
 
@@ -496,8 +585,8 @@ func (b *Book) whatIfLocked(o PlaceOrder, in Instrument) whatIf {
 	if price <= 0 {
 		price = in.Price
 	}
-	notionalBase := o.Quantity * price * b.fx[in.Currency]
-	fee := b.fee(o.Quantity, price)
+	notionalBase := o.Quantity * price * multiplier(in) * b.fx[in.Currency]
+	fee := b.fee(in, o.Quantity, price)
 	sign := 1.0
 	if o.Action == "SELL" {
 		sign = -1
@@ -526,15 +615,15 @@ func (b *Book) fillLocked(order *Order, in Instrument, shares, price float64, no
 	if order.Action == "SELL" {
 		signed, side = -shares, "SLD"
 	}
-	fee := b.fee(shares, price)
-	b.cash[in.Currency] -= signed*price + fee
+	fee := b.fee(in, shares, price)
+	b.cash[in.Currency] -= signed*price*multiplier(in) + fee
 	p := b.pos[in.ConID]
 	if p == nil {
 		p = &Position{ConID: in.ConID}
 		b.pos[in.ConID] = p
 	}
 	if (p.Quantity >= 0) == (signed > 0) && p.Quantity+signed != 0 {
-		p.AvgCost = (p.AvgCost*math.Abs(p.Quantity) + price*shares) / (math.Abs(p.Quantity) + shares)
+		p.AvgCost = (p.AvgCost*math.Abs(p.Quantity) + price*multiplier(in)*shares) / (math.Abs(p.Quantity) + shares)
 	}
 	p.Quantity += signed
 	if p.Quantity == 0 {
