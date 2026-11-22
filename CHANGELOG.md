@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.44.1 — 2026-11-22 18:30 CET
+
+### What's new
+
+**A spread pairs only options of one class.** Some indexes list two option classes that can expire on the same day and settle on different prices. On the third Friday, monthly SPX options settle on a value computed from each stock's opening trade that morning; SPXW options expiring the same day settle on the closing price. A bought SPXW put against a sold SPX put of that day can therefore lose more than the premium paid: if the index opens low and rallies by the close, the sold put pays out and the bought one expires worthless.
+
+Until this release, Canary treated such a pair as a spread. It counted the premium at risk as the net premium, and for a put on an index you use as protection it counted less protection than the bought put gives on its own. In premium at risk and in the size of your index protection, a sold option of another class no longer offsets a bought one: the bought option counts in full. Since v3.44.0, adding units to a strategy counts as a covered combination only when its legs share one class.
+
+What this means for you: if you hold such a mixed pair, its premium at risk reads higher than in v3.44.0, and for a put pair on a protection index the protection size does too. A pair within one class reads as before.
+
+### Fixed
+
+- Premium at risk and the index protection size paired a bought option with a sold option of another class on the same symbol and expiry.
+
 ## v3.44.0 — 2026-11-22 17:20 CET
 
 ### What's new
