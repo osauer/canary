@@ -1,6 +1,6 @@
 # The TWS Simulator
 
-Updated: 2026-11-22 23:33 CET
+Updated: 2026-11-23 00:11 CET
 
 ## What it is
 
@@ -95,8 +95,10 @@ The loader is strict and refuses unknown fields. It refuses any account but
 - `positions[]`: `con_id`, `symbol`, `sec_type` (STK|OPT), `currency`,
   `exchange`, `primary_exchange`, `trading_class`, `quantity`, `avg_cost`,
   `last`, `bid`, `ask`.
-  - Options add `underlying_con_id`, `right`, `strike`, `expiry` (YYYYMMDD)
-    and `multiplier`.
+  - Options add `underlying_con_id`, `right`, `strike`, `expiry` and
+    `multiplier`. The expiry is a date (YYYYMMDD), or `+Nw`: the Friday N
+    weeks after the first Friday after today (UTC). The committed example
+    uses `+Nw` so it never expires.
   - Quantity 0 lists a contract without holding it.
 
 The example `pkg/ibkr/twssim/testdata/owner-mix-book.json` has the owner's
@@ -125,7 +127,14 @@ and a regime.
 - Assert the broker's book and `d.realPlaces()` (the transmitted frames).
 
 A scenario blocked by a known product defect skips and names the branch
-that fixes it.
+that fixes it. Nothing in a scenario may depend on the weekday, the date
+or the real exchange calendar:
+
+- option expiries come from `twssim.OptionExpiries`, which keeps each
+  expiry in its horizon on every day;
+- sessions are set with `marketcal.SimulateSession` and `SetSession`
+  (`ctl session` in canary-sim);
+- a DAY order ends only when the scenario calls `EndDay`.
 
 ## Test tiers
 

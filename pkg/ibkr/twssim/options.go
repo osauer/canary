@@ -168,19 +168,22 @@ func (b *Book) optionChain(underConID int, symbol string) (tradingClass string, 
 	return tradingClass, expiries, strikes
 }
 
-// OptionExpiries are the Fridays nearest to 5, 14, 30, 60 and 120 days
-// after now: one inside the seven days an option entry refuses, and one in
-// each horizon `add market` offers.
+// OptionExpiries are five Friday expiries relative to now's UTC date: the
+// first Friday strictly after it (one to seven days out, so always inside
+// the seven days an option entry refuses: add_call_plan.go reads the expiry
+// as midnight UTC and refuses it unless it is after now plus seven days),
+// then that Friday plus 2, 4, 8 and 16 weeks (15-21, 29-35, 57-63 and
+// 113-119 days out), one in each horizon `add market` offers. No weekday,
+// month end or exchange holiday moves which horizon an expiry falls in.
 func OptionExpiries(now time.Time) []string {
-	var out []string
-	for _, days := range []int{5, 14, 30, 60, 120} {
-		d := now.AddDate(0, 0, days)
-		for d.Weekday() != time.Friday {
-			d = d.AddDate(0, 0, 1)
-		}
-		if s := d.Format("20060102"); !slices.Contains(out, s) {
-			out = append(out, s)
-		}
+	day := now.UTC().Truncate(24 * time.Hour)
+	short := day.AddDate(0, 0, 1)
+	for short.Weekday() != time.Friday {
+		short = short.AddDate(0, 0, 1)
+	}
+	out := []string{short.Format("20060102")}
+	for _, weeks := range []int{2, 4, 8, 16} {
+		out = append(out, short.AddDate(0, 0, 7*weeks).Format("20060102"))
 	}
 	return out
 }

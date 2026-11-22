@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // BookFile is a book as JSON, for canary-sim -book: the account's cash by
@@ -23,7 +25,9 @@ type BookFile struct {
 	Positions []BookPosition     `json:"positions"`
 }
 
-// BookPosition is one holding and its contract; quantity 0 lists the
+// BookPosition is one holding and its contract. An option's expiry is a
+// date (YYYYMMDD) or "+Nw": the Friday N weeks after the first Friday after
+// today (UTC), so a committed example never expires; quantity 0 lists the
 // contract without holding it (an option's underlying, say). Options name their
 // underlying's contract id, right, strike, expiry (YYYYMMDD), multiplier and
 // trading class; a stock leaves them empty.
@@ -87,6 +91,14 @@ func ParseBook(raw []byte) (*Book, error) {
 		b.SetCash(strings.ToUpper(ccy), amount)
 	}
 	for i, p := range f.Positions {
+		if rest, ok := strings.CutPrefix(p.Expiry, "+"); ok {
+			weeks, err := strconv.Atoi(strings.TrimSuffix(rest, "w"))
+			if err != nil || !strings.HasSuffix(rest, "w") || weeks < 0 {
+				return nil, fmt.Errorf("twssim: book: position %d: expiry %q (YYYYMMDD or +Nw)", i, p.Expiry)
+			}
+			short, _ := time.Parse("20060102", OptionExpiries(time.Now())[0])
+			p.Expiry = short.AddDate(0, 0, 7*weeks).Format("20060102")
+		}
 		in := Instrument{ConID: p.ConID, Symbol: strings.ToUpper(p.Symbol), SecType: strings.ToUpper(p.SecType), Exchange: p.Exchange, PrimaryExch: p.PrimaryExchange,
 			Currency: strings.ToUpper(p.Currency), TradingClass: p.TradingClass, LongName: "SYNTHETIC " + strings.ToUpper(p.Symbol), Price: p.Last, Bid: p.Bid, Ask: p.Ask,
 			UnderConID: p.UnderConID, Right: strings.ToUpper(p.Right), Strike: p.Strike, Expiry: p.Expiry, Multiplier: p.Multiplier, Spread: 0.02}
