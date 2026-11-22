@@ -102,7 +102,7 @@ func ParseBook(raw []byte) (*Book, error) {
 			in.LocalSymbol = fmt.Sprintf("%-6s%s%s%08d", in.Symbol, in.Expiry[2:], in.Right, int(in.Strike*1000+0.5))
 		}
 		if p.Defunct {
-			in.Spread = 0
+			in.Spread, in.Defunct = 0, true
 		}
 		b.AddInstrument(in)
 		b.SetPosition(in.ConID, p.Quantity, p.AvgCost)

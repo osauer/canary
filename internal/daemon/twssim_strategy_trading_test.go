@@ -11,12 +11,7 @@ import (
 	"github.com/osauer/canary/v3/pkg/ibkr/twssim"
 )
 
-// strategyBlockedUntil names the defects that keep every strategy preview
-// from the broker today, both fixed on branch monday-fixes: the reduction-
-// only position binding (order_risk_authority.go:282) and the combination
-// WhatIf that drops the limit and legs (pkg/ibkr/order_whatif.go:247-283).
-var strategyBlockedUntil = []string{"invalid strategy position binding", "finite explicit limit price required for combo"}
-
+// heldVertical is the SYNB bear put spread as the daemon groups it.
 func (d *simDesk) heldVertical() rpc.PositionStrategy {
 	d.t.Helper()
 	pos, rerr := dispatchJSON[rpc.PositionsResult](d.t, d.srv, rpc.MethodPositionsList, rpc.PositionsListParams{})
@@ -33,19 +28,10 @@ func (d *simDesk) heldVertical() rpc.PositionStrategy {
 }
 
 // strategyPreview is `canary strategies OP ID REV [--units N] [--limit L]`
-// as Desk builds it (execution_strategy.go). A refusal by a known open defect
-// skips the scenario, naming monday-fixes.
+// as Desk builds it (execution_strategy.go).
 func (d *simDesk) strategyPreview(st rpc.PositionStrategy, op string, units int, limit *float64) (rpc.OrderPreviewResult, *rpc.Error) {
 	d.t.Helper()
-	pv, rerr := dispatchJSON[rpc.OrderPreviewResult](d.t, d.srv, rpc.MethodStrategyPreview, rpc.StrategyPreviewParams{StrategyID: st.ID, ExpectedRevision: st.Revision, Operation: op, Units: units, LimitPrice: limit, Source: "strategy_cli"})
-	if rerr != nil {
-		for _, known := range strategyBlockedUntil {
-			if strings.Contains(rerr.Message, known) {
-				d.t.Skipf("expected to fail until branch monday-fixes merges: %s", rerr.Message)
-			}
-		}
-	}
-	return pv, rerr
+	return dispatchJSON[rpc.OrderPreviewResult](d.t, d.srv, rpc.MethodStrategyPreview, rpc.StrategyPreviewParams{StrategyID: st.ID, ExpectedRevision: st.Revision, Operation: op, Units: units, LimitPrice: limit, Source: "strategy_cli"})
 }
 
 // The vertical is recognised as one strategy the owner can act on.
@@ -89,9 +75,21 @@ func TestSimulatedTWSStrategyAddsAUnit(t *testing.T) {
 			t.Fatalf("combo leg %+v", l)
 		}
 	}
-	after := d.heldVertical()
+	var after rpc.PositionStrategy
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		after = d.heldVertical()
+		if after.Units == 16 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	for _, l := range sent[0].Legs {
+		p, _ := d.sim.Book().Position(l.ConID)
+		t.Logf("broker leg %d %s: %v", l.ConID, l.Action, p.Quantity)
+	}
 	if after.Units != 16 || after.Revision == st.Revision {
-		t.Fatalf("after the fill: %+v", after)
+		t.Fatalf("after the fill: units %d revision %d (was %d), source %s", after.Units, after.Revision, st.Revision, after.Source)
 	}
 	if _, rerr := d.strategyPreview(st, "add", 1, &limit); rerr == nil || !strings.Contains(rerr.Message, "strategy changed") {
 		t.Fatalf("a stale revision: %+v", rerr)
@@ -113,8 +111,13 @@ func TestSimulatedTWSStrategyAddRefusals(t *testing.T) {
 			t.Fatalf("place: %+v", rerr)
 		}
 		time.Sleep(time.Second)
-		if _, rerr := d.strategyPreview(st, "add", 1, &limit); rerr == nil {
-			t.Fatal("a second order on a strategy with one working")
+		second, rerr := d.strategyPreview(st, "add", 1, &limit)
+		if rerr == nil {
+			placed, perr := d.place(second.PreviewToken)
+			t.Logf("second preview minted %t; second place: err %+v accepted %t", second.TokenMinted, perr, placed.Accepted)
+			if perr == nil {
+				t.Fatal("a second order on a strategy with one working was placed")
+			}
 		}
 	})
 	t.Run("broker-rejects-201", func(t *testing.T) {

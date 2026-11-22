@@ -35,6 +35,10 @@ type Instrument struct {
 	Right      string
 	Multiplier float64
 	UnderConID int
+	// Defunct is a dead line the account still holds: its row streams with
+	// value 0, and every contract or quote request for it is answered "No
+	// security definition", as IBKR answers for a delisted name (assumed).
+	Defunct bool
 	// PriceMagnifier is TWS's quote scale (100 for an LSE line quoted in
 	// pence); zero counts as 1.
 	PriceMagnifier int
@@ -342,6 +346,9 @@ func (b *Book) lookupContract(q contractQuery) []Instrument {
 	defer b.mu.Unlock()
 	var out []Instrument
 	for _, in := range b.instr {
+		if in.Defunct {
+			continue
+		}
 		switch {
 		case q.conID > 0:
 			if in.ConID != q.conID {

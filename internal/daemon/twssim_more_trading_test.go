@@ -63,8 +63,8 @@ func TestSimulatedTWSEuropeanAdds(t *testing.T) {
 }
 
 // The example book (owner's asset mix, with a defunct zero-value line on
-// DOLLR4LOT and option rows reporting AMEX): the vertical is still grouped
-// at 15 units, and a stock add is still sized.
+// DOLLR4LOT and option rows reporting AMEX): the vertical is grouped at 15
+// units and a unit is previewed.
 func TestSimulatedTWSOwnerMixBook(t *testing.T) {
 	book, err := twssim.LoadBook("../../pkg/ibkr/twssim/testdata/owner-mix-book.json")
 	if err != nil {
@@ -79,9 +79,30 @@ func TestSimulatedTWSOwnerMixBook(t *testing.T) {
 	for _, l := range st.Legs {
 		t.Logf("leg %s %s %v exchange %q", l.Contract.Right, l.Contract.Expiry, l.Contract.Strike, l.Contract.Exchange)
 	}
+	// The defunct line is answered "No security definition" on every probe.
+	// The connector marks a symbol inactive only after two such answers in
+	// ten minutes (pkg/ibkr/connector.go:1327-1328), and a fresh session
+	// probes it once, so here it is not yet classified terminal
+	// (handlers.go:813) and the add is held on it; the live book's row is
+	// classified. The answer is recorded for the report.
 	plan := d.plan(synaAdd)
 	t.Logf("stock add on the owner mix: quantity %d, blockers %+v", plan.Quantity, plan.Blockers)
-	if _, rerr := d.strategyPreview(st, "add", 1, new(8.0)); rerr != nil {
-		t.Logf("strategy add: %s", rerr.Message)
+	pv, rerr := d.strategyPreview(st, "add", 1, new(8.0))
+	if rerr != nil || !pv.TokenMinted {
+		t.Fatalf("strategy add on the owner mix: %+v", rerr)
+	}
+}
+
+// A held stock that lost its quote without the broker calling it dead holds
+// every stock add with the sentence the owner reads.
+func TestSimulatedTWSUnquotedHoldingHoldsAStockAdd(t *testing.T) {
+	book := twssim.Default()
+	book.AddInstrument(twssim.Instrument{ConID: 940002, Symbol: "SYNY", SecType: "STK", Exchange: "SMART", PrimaryExch: "NYSE", Currency: "USD", MinTick: 0.01})
+	book.SetPosition(940002, 50, 10)
+	d := startSimDesk(t, twssim.Options{Book: book}, true)
+	plan := d.plan(synaAdd)
+	const want = "held SYNY has no current price or currency conversion, so the book's stock exposure cannot be measured; refresh, or reconcile that holding"
+	if len(plan.Blockers) == 0 || plan.Blockers[0].Message != want {
+		t.Fatalf("plan beside an unquoted holding: %+v", plan.Blockers)
 	}
 }

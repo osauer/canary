@@ -74,11 +74,6 @@ func (d *simDesk) optionPreview(c rpc.ContractParams, qty int, limit float64, ad
 	return dispatchJSON[rpc.OrderPreviewResult](d.t, d.srv, rpc.MethodOrderPreview, rpc.OrderPreviewParams{Action: "BUY", Contract: c, Quantity: qty, OrderType: "LMT", LimitPrice: &limit, Strategy: "explicit-limit", TIF: "DAY", AdaptivePriority: adaptive})
 }
 
-// adaptiveRefusal is Canary's refusal of Adaptive on any option
-// (pkg/ibkr/orders.go:253); add call-plan previews with it
-// (add_call_plan.go:98), and so does Desk's option preview.
-const adaptiveRefusal = "the Adaptive algorithm requires a SMART stock LMT DAY order"
-
 // The normal gate's option smoke: add market discovers an eligible call from
 // the simulated chain with a two-sided quote and model greeks.
 func TestSimulatedTWSOptionCallEntrySmoke(t *testing.T) {
@@ -142,15 +137,13 @@ func TestSimulatedTWSOptionCallEntry(t *testing.T) {
 	}
 }
 
-// Adaptive on an option is refused before the wire (pkg/ibkr/orders.go:253;
-// monday-fixes makes it a clear bad request).
+// Adaptive on an option is refused before the wire, as a bad request that
+// says to leave it off (internal/daemon/adaptive.go).
 func TestSimulatedTWSOptionAdaptiveRefused(t *testing.T) {
 	d, _ := optionDesk(t, nil, true)
 	call := d.call60()
-	if _, rerr := d.optionPreview(*call.Contract, 1, *call.Quote.Ask, "Normal"); rerr == nil {
-		t.Fatal("an option preview with Adaptive was accepted")
-	} else {
-		t.Logf("Adaptive on an option: %s: %s", rerr.Code, rerr.Message)
+	if _, rerr := d.optionPreview(*call.Contract, 1, *call.Quote.Ask, "Normal"); rerr == nil || rerr.Code != rpc.CodeBadRequest || !strings.Contains(rerr.Message, "leave Adaptive off") {
+		t.Fatalf("Adaptive on an option: %+v", rerr)
 	}
 	if len(d.allPlaces()) != 0 {
 		t.Fatal("a frame reached the wire")
@@ -164,9 +157,6 @@ func TestSimulatedTWSOptionCallPlanSizes(t *testing.T) {
 	call := d.call60()
 	limit, budget := *call.Quote.Ask, 1500.0
 	plan, rerr := d.callPlan(*call.Contract, limit, budget)
-	if rerr != nil && strings.Contains(rerr.Message, adaptiveRefusal) {
-		t.Skip("expected to fail until branch monday-fixes merges: add call-plan previews with Adaptive (add_call_plan.go:98), which options refuse")
-	}
 	if rerr != nil {
 		t.Fatalf("add call-plan: %+v", rerr)
 	}
@@ -194,7 +184,7 @@ func TestSimulatedTWSOptionPutEntry(t *testing.T) {
 		d, exps := optionDesk(t, nil, true)
 		c := d.optionContract(exps[2], 45, "P")
 		if _, rerr := d.callPlan(c, 1.5, 1500); rerr != nil {
-			if !strings.Contains(rerr.Message, putCoverUnread) && !strings.Contains(rerr.Message, adaptiveRefusal) {
+			if !strings.Contains(rerr.Message, putCoverUnread) {
 				t.Fatalf("add call-plan for a covered put: %+v", rerr)
 			}
 			t.Logf("add call-plan for a covered put: %s", rerr.Message)

@@ -16,14 +16,14 @@ import (
 	"github.com/osauer/canary/v3/pkg/ibkr/twssim"
 )
 
-// simSmoke are the simulator scenarios the normal gate runs; every other
-// scenario runs under `make test-sim` (CANARY_TEST_SIM=1), because together
-// they take minutes and the daemon's trading leg is in every `make check`.
+// simSmoke are the simulator scenarios the normal gate runs (about 27 s);
+// every other scenario runs under `make test-sim` (CANARY_TEST_SIM=1),
+// because together they take minutes and the daemon's trading leg is in
+// every `make check`. The full leg's plan covers the plan scenario.
 var simSmoke = map[string]bool{
-	"TestSimulatedTWSPlansAnAdditionFromBrokerEvidence": true,
-	"TestSimulatedTWSAddsToAPositionEndToEnd":           true,
-	"TestSimulatedTWSRefusesAnotherAccount":             true,
-	"TestSimulatedTWSOptionCallEntrySmoke":              true,
+	"TestSimulatedTWSAddsToAPositionEndToEnd": true,
+	"TestSimulatedTWSRefusesAnotherAccount":   true,
+	"TestSimulatedTWSOptionCallEntrySmoke":    true,
 }
 
 // requireSimTier skips a simulator scenario outside `make test-sim` unless it
