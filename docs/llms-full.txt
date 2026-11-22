@@ -1,7 +1,27 @@
 # Canary full context
 
-Updated: 2026-11-22 11:00 CET
+Updated: 2026-11-22 17:20 CET
 
+Version 3.44 adds `canary strategies add ID REVISION --units N`, which buys
+whole units of a held option strategy as one combination order, every leg in
+the held ratio, at a day limit, from the command line only (a preview
+unless `--submit` is given); no proposal and no app route sends one. The order is judged
+once: a covered combination (every sold contract capped by a bought one of
+the same kind, expiry, size and trading class nearer the money) is held to
+the order cap on its net premium and needs no `allow_option_sell_to_open`; a
+covered put combination on a hedge symbol, or one covering no more shares
+than are held, is a hedge entry the brake and the mandate leave open; any
+other combination is held to the gross premium, the permission, the brake,
+the mandate and the premium limits. A held strategy trades as whole units:
+a proposal for one leg is blocked with `strategy_workflow_required`, the
+protection trim proposes whole units, `canary proposals reduce` leaves out a
+long option held against a sold one, and an exercise of such an option is
+listed blocked. Strategies carry a name beside their kind, and a butterfly,
+an iron condor, an iron butterfly, a covered call and a collar are
+recognised. Premium at risk counts a spread at what the pair can lose; index
+protection is sized by the pair's short delta; protection premium is not
+counted in the premium budget, the per-name limit or the option buy check;
+the premium budget shows it in a note.
 Version 3.43 starts the daemon through launchd on macOS, so it no longer
 belongs to the app that started it. macOS ends the processes an app started when that app quits or updates
 itself and may not leave background processes behind; a daemon started from

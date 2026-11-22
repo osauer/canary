@@ -2,6 +2,56 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.44.0 — 2026-11-22 17:20 CET
+
+### What's new
+
+**A held option strategy trades as whole units, and you can add units to one.** Canary groups option positions that belong together and now names them as a trader would: bear put spread, short strangle, long call butterfly. `canary strategies add ID REVISION --units N` buys more units of a strategy you hold as one combination order, every leg in the held ratio, at a day limit. It sits beside `close` and `reduce`. Without `--submit` the command only previews; with it, the order is sent once the broker's preview accepts it. An add is sent only from the command line. No proposal sends one, and the paired phone app closes and reduces only.
+
+An add is judged once, as that order, never leg by leg:
+
+- A covered combination is one where every sold contract is capped by a bought contract of the same kind, expiry, size and trading class nearer the money. It can lose the premium paid and no more. The order cap reads that net premium and its sold legs need no `allow_option_sell_to_open`. Unless it is a hedge entry, the drawdown brake, the premium limits and the mandate's loss limits can still refuse it.
+- A covered put combination on a hedge symbol, or one whose bought puts cover no more shares than you hold, is a hedge entry. The drawdown brake and the mandate leave it open, as they leave a single protective put open. Such an order meets the order cap and the option contract cap, each per order. Nothing adds up the premium of repeated hedge entries when an order is checked.
+- Any other combination adds risk like any addition: the order cap reads the gross premium of its legs, its sold legs need `allow_option_sell_to_open`, the brake applies, the mandate measures the book with every leg added, and its bought contracts meet the premium limits. A leg Canary cannot price refuses the order.
+
+An add has not yet been sent to a live broker. Check the legs and the limit on the first preview before you send.
+
+**No proposal trades one leg of a strategy, and no reduction or exercise takes a long option away from a sold one.** Selling the long put of a put spread by itself leaves the short put uncovered. The protection trim could propose exactly that. Now every proposal for one contract that is a leg of a strategy, or that sits on an underlying whose option legs Canary cannot group, is blocked with `strategy_workflow_required` and names the strategy's close or reduction, and the protection trim proposes whole units of the strategy. The exception is a pair of long options you declared separate exits for. The reductions you start yourself follow the same rule: `canary proposals reduce`, with or without `--portfolio`, leaves out a long option that is held against a sold one, and an exercise opportunity for such an option is listed blocked.
+
+**Spreads and protection are measured by the pair.** Until now a bought option counted at its whole price even with a sold option against it, and a bought index put was sized alone. Two things change:
+
+- Premium at risk counts a spread at what the pair can lose: the premium paid less the premium received, or the pair's value today when that is higher. This is the figure the premium budget, the per-line and per-name limits and the option buy check read.
+- Index protection is sized by the pair. A put spread's short delta is the bought put's less what the sold put gives back, so a spread no longer reads larger than the book it protects.
+
+Protection premium is no longer counted in the premium budget, the per-name premium limit or the option buy check; the premium budget shows it in a note. What still reports on the size of your protection: the hedge tier of the per-line premium rule, and the protection-size rule with its over-hedge line. Neither refuses an order. The mandate's loss measure is unchanged and still counts a bought option whole.
+
+What this means for you: on the same positions the premium figures can read lower than before, so an option buy that was refused can now pass. A put spread that read as a directional short can now read as protection.
+
+### Added
+
+- `canary strategies add ID REVISION --units N [--limit PRICE] [--submit]`: buys whole units of a held strategy as one combination order.
+- Strategies carry a name (`name` in JSON) beside `kind`: for example bear put spread, short strangle, long call butterfly.
+- Grouping of a butterfly, an iron condor and an iron butterfly, on an exact match only. A short call written against the shares is listed as a covered call, and a long put with a short call beside the shares as a collar. The shares are named and join no order.
+
+### Changed
+
+- `canary strategies list` shows the name of the position where it showed its shape: a row that read "vertical" now reads, for example, "bull call spread", "bear put spread" or "put ratio spread", and a "risk reversal" reads "bullish risk reversal", "bearish risk reversal", at equal strikes "synthetic long" or "synthetic short", or beside covering shares "collar". In JSON a long put with a short call beside covering shares has `kind` `collar` where it had `risk_reversal`.
+- The strategy preview row "Ready to submit true" reads "Can submit yes". The `--limit` help says "least received" and "most paid" where it said credit and debit.
+- Premium at risk counts a bought option with a sold option of the same kind, expiry and size further out of the money at what the pair can lose. A sold option nearer the money, of another expiry or without a known premium offsets nothing.
+- Protection premium is no longer counted in the premium budget, the per-name premium limit or the option buy check. A put with no long position to protect, and index puts past the over-hedge line, still count.
+- `canary rules`: the premium budget no longer lists protection puts line by line; it shows their total in a note.
+- The rule on premium at risk near earnings reads the same pair figure.
+- A covered add passes without `allow_option_sell_to_open` for its sold legs and is held to the order cap on its net premium. What still bounds it: it can lose that premium and no more, and each leg stays inside `max_option_contracts`.
+- A working combination order whose bought legs only buy back sold options no longer holds back other option buys at the premium check.
+- `canary proposals reduce` refuses a long option held against a sold one with `strategy_workflow_required`. `canary proposals reduce --portfolio` leaves such an option out and lists it among the untouched positions.
+
+### Fixed
+
+- The protection trim could propose a sale of the long puts of a put spread alone, leaving the short puts uncovered.
+- `canary proposals reduce --portfolio` could select the long leg of a spread on its own, and an exercise opportunity could be raised for a long option held against a sold one.
+- While a strategy close or reduction with a sold leg was working, a protective put on shares you hold was treated as an ordinary addition and could be refused by the brake or the mandate.
+- The safety hook for AI assistants recognised a strategy order only with the verb directly after `strategies`. `canary strategies --units 1 reduce ...` runs too and is now recognised.
+
 ## v3.43.0 — 2026-11-22 11:00 CET
 
 ### What's new
