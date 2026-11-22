@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.42.1 — 2026-11-22 08:15 CET
+
+### What's new
+
+**Confirmed stress no longer drops on a schedule.** Regime is Canary's reading of market stress. It reads confirmed stress when indicators from two different groups, such as volatility and credit, are red and have held long enough to count. Some indicators have hours in which no new reading can exist. USD/JPY pauses for a quarter of an hour at 17:00 New York and over the weekend. Dealer gamma has no new reading from the options close until the next open. In those hours a confirmed stress that rested on one of them fell back to "Stress signal present", and on a trading day that relaxed the Rulebook's limits until the reading returned. An indicator that had confirmed now keeps its confirmation through those hours. A reading that is late or stale still loses it, and so does one older than a few days: over a long holiday weekend the kept confirmation ends before the market reopens.
+
+One gap remains. From the open until gamma's first calculation of the day, a confirmation that rests on gamma can still fall back to "Stress signal present".
+
+One consequence to know: an indicator that confirmed at its last reading can confirm a new stress signal before its next one, for example Friday's gamma on Monday before the open. That reads stricter, never calmer, and ends when the new reading arrives. It can also change the headline while markets are shut: with three groups confirming where two did before, "Confirmed stress regime" reads "Broad stress regime".
+
+### Changed
+
+- A Regime row is shown as a current rating only while its reading is no older than a few days (three to seven, by indicator group). Before, a reading from a closed market counted as current however old it was.
+- A Cboe volatility file (VVIX or VIX3M) that has been overdue for more than four days counts as a concern on `canary status`, with the advice to check the publisher's file. A shorter wait stays an expected delay.
+
+### Fixed
+
+- `canary edge tests`: a test that needs its decisions on separate days showed today as the date its count would be complete when it had enough decisions on too few days. It now waits for the missing days.
+
 ## v3.42.0 — 2026-11-22 06:50 CET
 
 ### What's new
