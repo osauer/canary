@@ -1366,11 +1366,19 @@ before it.
   `TestRegimeCrashPanicIsExemptFromTheBlankFloor`,
   `TestStressTapeRowNeedsACurrentSPYPrint`, `TestStressAndVoteReadOneTape`,
   `TestStressAgreesWithTheVoteOvernight`.
-- **A witness keeps standing through its own not-due window.** A witness red
-  that was eligible in its window stays eligible while its own row is typed
-  `not_due` and still red (exit hysteresis included); the eligibility latch
-  of the red streak carries it. Overdue, stale, pending or failed evidence
-  still drops it, and a co-sign's prior-date reading stays context. The hold
+- **A red keeps the eligibility it earned through its own not-due window.**
+  A red that was eligible in its window stays eligible while its own row is
+  typed `not_due` and still red (exit hysteresis included); the eligibility
+  latch of the red streak carries it. Overdue, stale, pending or failed
+  evidence still drops it. Until 2026-11-22 this held for witnesses only and
+  a co-sign's prior-date reading stayed context: a confirmed stress resting
+  on a co-sign (USD/JPY in its daily pause from 17:00 New York and over
+  the weekend, gamma from the options close to the next day's first compute) then fell to `early_warning`
+  on the schedule alone and relaxed the Rulebook. The owner left the
+  scheduled case to be decided (2026-11-22 07:34 CET); it follows the outage
+  ruling of 2026-11-21. The cost, accepted: a co-sign red from the prior
+  date can confirm a witness red that is new today, until the co-sign's next
+  reading. A co-sign still confirms only beside a standing witness. The hold
   keeps a confirmed stress only while the vol cluster's own not-due contract
   holds (VVIX current, or on its dated not-due schedule): with VVIX dark at
   the same time the latched term red is not a current reading, the stress

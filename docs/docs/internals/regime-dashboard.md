@@ -497,10 +497,12 @@ thresholds. In session the gateway remains the source and the check does not
 run: Cboe publishes closes, not intraday values.
 
 Eligibility latches for the life of the red streak (a depth wobble back inside
-the floor does not flip it); freshness is never latched: any currency other
-than `fresh` drops eligibility immediately, disclosed as `data_not_due`,
+the floor does not flip it); freshness is never latched: a currency of
+`pending`, `stale` or `overdue` drops eligibility immediately, disclosed as
 `data_refresh_pending`, `data_stale`, or `data_overdue`, with the latch still
-shown. A red held from memory while its input is unavailable carries
+shown. A row that is `not_due` keeps the eligibility it had earned, because no
+newer reading can exist until its next publication; a red that had not
+confirmed stays unconfirmed and is disclosed as `data_not_due`. A red held from memory while its input is unavailable carries
 `input_unavailable` and the latch it had. When an outage hides a red that had
 confirmed, and counting it would read confirmed stress, the stage reads
 `data_quality` (governor `stage_blanked`, reason `outage_hides_confirmation`)

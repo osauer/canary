@@ -78,6 +78,17 @@ func TestRegimeHealthNamesCboePublicationGap(t *testing.T) {
 			}
 		})
 	}
+	// A file that stopped months ago is not a late publication. Past the
+	// volatility inputs' age bound the row keeps its facts and counts as a
+	// concern, so status does not read READY on it.
+	later := saturday.AddDate(0, 0, 60)
+	for _, id := range []string{"regime:vix_term", "regime:vvix"} {
+		row := regimeHealthRows(t, cboePendingSnapshot(later, "2026-09-22"), later, later)[id]
+		if row.State != "limited" || row.Cause != "" || row.OfficialDate != "2026-09-22" || len(row.ProblemIDs) != 1 {
+			t.Fatalf("%s: a file two months behind still reads as an expected delay: %+v", id, row)
+		}
+	}
+
 	// Friday 06:00 New York holding Wednesday's close: Thursday's close is not
 	// due until 09:30, so there is no gap to name.
 	onSchedule := cboePendingSnapshot(friday, "2026-09-22")

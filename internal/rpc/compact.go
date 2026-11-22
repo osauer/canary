@@ -258,7 +258,8 @@ func CompactRegimeMonitor(r *RegimeSnapshotResult) RegimeMonitorResult {
 	// The monitor's indicators are in the order of the served rows.
 	rows := regimeRows(r)
 	for i := range out.Indicators {
-		out.Indicators[i].Current = RegimeRowCurrent(out.Indicators[i].Status, out.Indicators[i].FreshnessClass)
+		out.Indicators[i].Current = RegimeRowCurrent(out.Indicators[i].Status, out.Indicators[i].FreshnessClass) &&
+			(i >= len(rows) || regimeRowWithinMaxAge(*r, rows[i]))
 		for _, standing := range r.RowStandings {
 			if i < len(rows) && standing.Indicator == rows[i].indicator {
 				out.Indicators[i].Role, out.Indicators[i].Red, out.Indicators[i].Note = standing.Role, standing.Red, standing.Note

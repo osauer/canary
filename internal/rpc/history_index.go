@@ -960,13 +960,18 @@ func EvaluateRegimeEligibility(in RegimeEligibilityInput) *RegimeEligibility {
 	// Currency is an allowlist on fresh, never a denylist of known-bad classes:
 	// a class added later must fail closed until its authority is decided
 	if !in.Fresh || !RegimeCurrencyMayConfirm(in.FreshnessClass) {
-		// A stress witness that earned eligibility in its window keeps it
-		// through its own not-due window: no newer observation can exist, so
-		// the close of the window is not evidence that the stress ended.
-		// Overdue, stale or pending evidence still drops it, and a co-sign's
-		// prior-date reading stays context.
-		if in.Latched && regimeCurrencyClass(in.FreshnessClass) == RegimeFreshnessNotDue &&
-			RegimeIndicatorRole(in.Indicator) == RegimeRoleWitness {
+		// A row that earned eligibility in its window keeps it through its
+		// own not-due window: no newer observation can exist, so the close
+		// of the window is not evidence that the stress ended. Overdue,
+		// stale or pending evidence still drops it. This held for witnesses
+		// only until 2026-11-22: a confirmed stress resting on a co-sign
+		// (USD/JPY in its daily pause, gamma from the options close to the
+		// next open) fell to early warning on the schedule alone and
+		// relaxed the Rulebook. The owner left the scheduled case to be
+		// decided (2026-11-22 07:34 CET); it follows the outage ruling of
+		// 2026-11-21, that a gap never reads calmer than the confirmation
+		// it hid. A co-sign still confirms only beside a standing witness.
+		if in.Latched && regimeCurrencyClass(in.FreshnessClass) == RegimeFreshnessNotDue {
 			out.Eligible, out.Latched = true, true
 			return out
 		}

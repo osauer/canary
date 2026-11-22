@@ -167,11 +167,13 @@ more than 60 minutes old during RTH, or a closed-session cache no more than 24
 hours old.
 
 Regime treats that closed-session result differently. The latest
-completed-options-session value is typed `not_due` context before the next open
-and cannot confirm. At the open it becomes `pending` while the session's first
-compute is actually in flight, for a bounded 30 minutes measured from the open,
-and `overdue` after that or as soon as no compute is running. Neither state can
-confirm. No last-good result, a missed completed session, or a due refresh gap
+completed-options-session value is typed `not_due` before the next open. A red
+that had already confirmed keeps its confirmation through that window; a red
+that had not cannot gain one there. At the open it becomes `pending` while the
+session's first compute is actually in flight, for a bounded 30 minutes
+measured from the open, and `overdue` after that or as soon as no compute is
+running. During the session a prior-session result is not ranked, so from the
+open until that first compute gamma does not confirm. No last-good result, a missed completed session, or a due refresh gap
 is a data-quality condition.
 
 ### Safe check

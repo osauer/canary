@@ -33,6 +33,7 @@ and this index needs the fix.
 | [design/regime-input-currency.md](design/regime-input-currency.md) | Regime input currency model (`regime-currency-v1`) |
 | [design/documentation-ia.md](design/documentation-ia.md) | Public handbook information architecture |
 | [design/forward-test-reader.md](design/forward-test-reader.md) | Forward-test counting and `canary edge tests`: what each test counts, what is not built, and the answered display for the next build |
+| [design/daemon-lifetime.md](design/daemon-lifetime.md) | Why a daemon dies with the app that started it on macOS, and the launchd agent design that ends it (not built) |
 | [guides/trading-harness-development.md](guides/trading-harness-development.md) | Risk-harness development guide |
 | [guides/canary-spa-dev.md](guides/canary-spa-dev.md) | SPA development guide |
 

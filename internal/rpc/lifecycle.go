@@ -656,11 +656,25 @@ func regimePendingBacktestClusters(r *RegimeSnapshotResult, confirmedBy []string
 // regimeImpairedConfirmingClusters returns confirming clusters whose source
 // must not mute a fresh multi-cluster confirmation.
 func regimeImpairedConfirmingClusters(r *RegimeSnapshotResult, confirmedBy []string) []string {
-	var out []string
+	var out, notDue []string
+	current := 0
 	for _, name := range confirmedBy {
-		if regimeClusterKnown(name) && !regimeLifecycleClusterCurrent(*r, name) {
+		switch {
+		case !regimeClusterKnown(name):
+		case regimeLifecycleClusterCurrent(*r, name):
+			current++
+		case regimeCurrencyClass(RegimeClusterCurrency(*r, name)) == RegimeFreshnessNotDue:
+			notDue = append(notDue, name)
+		default:
 			out = append(out, name)
 		}
+	}
+	// A cluster that keeps its confirmation through its not-due window
+	// adds to a confirmation; it must not take severity away from one that
+	// two current clusters carry without it. It caps only where the
+	// confirmation leans on it.
+	if current < 2 {
+		out = append(out, notDue...)
 	}
 	return out
 }

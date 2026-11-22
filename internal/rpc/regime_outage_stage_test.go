@@ -1,6 +1,9 @@
 package rpc
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // heldRed is a row whose banding input went dark: status error, cadence
 // overdue, its last red band held from memory. confirmed marks a red that
@@ -110,5 +113,62 @@ func TestRegimeEligibilityCarriesTheLatchThroughACurrencyGap(t *testing.T) {
 	got := EvaluateRegimeEligibility(RegimeEligibilityInput{Indicator: RegimeIndicatorHYGSPY, Band: "red", StreakSessions: 3, FreshnessClass: RegimeFreshnessOverdue, Latched: true})
 	if got == nil || got.Eligible || !got.Latched {
 		t.Fatalf("overdue latched red: %+v, want not eligible and latched", got)
+	}
+}
+
+// A confirming row between two publications keeps its confirmation.
+// Confirmed stress on VVIX and USD/JPY: at 17:00 New York USD/JPY goes not
+// due for its daily pause and keeps its red band. Until 2026-11-22 only a
+// witness kept its eligibility through its not-due window, so the stage fell
+// to early_warning on the schedule alone and on a trading date relaxed the
+// Rulebook until the next reading. A not-due red that never confirmed
+// confirms nothing.
+func TestRegimeScheduleNeverReadsCalmerThanTheConfirmationItHid(t *testing.T) {
+	paused := func(latched bool) *RegimeSnapshotResult {
+		r := calmRegime()
+		red(&r.VolOfVol.RegimeIndicatorMeta, true)
+		r.USDJPY.Status = RegimeStatusStale
+		r.USDJPY.Band = "red"
+		r.USDJPY.Freshness = &RegimeFreshness{Class: RegimeFreshnessNotDue}
+		r.USDJPY.Eligibility = EvaluateRegimeEligibility(RegimeEligibilityInput{
+			Indicator: RegimeIndicatorUSDJPY, Band: "red", FreshnessClass: RegimeFreshnessNotDue, Latched: latched,
+		})
+		return r
+	}
+	if got := regimeVote(paused(true)); got.Stage != LifecycleConfirmedStress {
+		t.Fatalf("a confirmation that is only not due reads %s, want confirmed_stress", got.Stage)
+	}
+	if got := regimeVote(paused(false)); got.Stage != LifecycleEarlyWarning {
+		t.Fatalf("a not-due red that never confirmed reads %s, want early_warning", got.Stage)
+	}
+}
+
+// A confirmation kept through a not-due window adds to a stress and never
+// takes severity from it. VVIX and funding confirm on current readings; with
+// USD/JPY also counted, the severity cap for a confirming cluster that is
+// not strictly current muted act to watch, and only act pages.
+func TestRegimeHeldConfirmationDoesNotLowerSeverity(t *testing.T) {
+	shape := func(withFX bool) *RegimeSnapshotResult {
+		r := calmRegime()
+		red(&r.VolOfVol.RegimeIndicatorMeta, true)
+		red(&r.FundingStress.RegimeIndicatorMeta, true)
+		if withFX {
+			r.USDJPY.Status = RegimeStatusStale
+			r.USDJPY.Band = "red"
+			r.USDJPY.Last = new(150.0)
+			r.USDJPY.Freshness = &RegimeFreshness{Class: RegimeFreshnessNotDue}
+			r.USDJPY.AsOf = &RegimeAsOfSummary{Time: r.AsOf.Add(-time.Hour)}
+			r.USDJPY.Eligibility = EvaluateRegimeEligibility(RegimeEligibilityInput{
+				Indicator: RegimeIndicatorUSDJPY, Band: "red", FreshnessClass: RegimeFreshnessNotDue, Latched: true,
+			})
+		}
+		return r
+	}
+	without, with := regimeVote(shape(false)), regimeVote(shape(true))
+	if without.Stage != LifecycleConfirmedStress || with.Stage != LifecycleConfirmedStress {
+		t.Fatalf("fixture: stages %s and %s, want confirmed_stress", without.Stage, with.Stage)
+	}
+	if severityRank(with.Severity) < severityRank(without.Severity) {
+		t.Fatalf("a held USD/JPY confirmation lowered severity from %s to %s (governors %+v)", without.Severity, with.Severity, with.Governors)
 	}
 }

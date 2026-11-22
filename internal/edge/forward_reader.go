@@ -571,6 +571,10 @@ func (in ForwardCountInput) countOptionBuys(changes []Change, include func(Chang
 		if c.Position != nil {
 			position = c.Position.PositionID
 		}
+		// The unit is the position and the week. Buying a contract again
+		// after it was closed out opens a new position and is a new
+		// decision, so it is counted again in the same week (owner ruling
+		// 2026-11-22 07:34 CET).
 		key := position + ":" + week
 		if position == "" {
 			key = c.ID
@@ -893,10 +897,10 @@ func forwardExpected(facts ForwardFacts, sample ForwardSample, paceUnits []Forwa
 	if registeredAt.IsZero() {
 		return nil, ForwardNoDateNoPace
 	}
-	have := map[string]int{}
+	have, haveDays := map[string]int{}, map[string]int{}
 	for _, g := range sample.Groups {
 		if countsTowardNeeds(facts, g.ID) {
-			have[g.ID] = g.Final
+			have[g.ID], haveDays[g.ID] = g.Final, g.Days
 		}
 	}
 	basis, counts, days := ForwardPaceSinceRegistration, maps.Clone(have), asOf.Sub(registeredAt).Hours()/24
@@ -914,7 +918,18 @@ func forwardExpected(facts ForwardFacts, sample ForwardSample, paceUnits []Forwa
 		if n <= 0 || days <= 0 {
 			continue
 		}
-		best = min(best, float64(max(facts.Needs-have[id], 0))/(float64(n)/days))
+		wait := float64(max(facts.Needs-have[id], 0)) / (float64(n) / days)
+		// A test that also needs its units on separate days is not full
+		// until those days exist. Each missing day takes at least one
+		// calendar day, more at the pace days have come so far.
+		if short := facts.NeedsDays - haveDays[id]; short > 0 {
+			dayPace := 1.0
+			if basis == ForwardPaceSinceRegistration && haveDays[id] > 0 {
+				dayPace = min(1, float64(haveDays[id])/days)
+			}
+			wait = max(wait, float64(short)/dayPace)
+		}
+		best = min(best, wait)
 	}
 	if math.IsInf(best, 1) {
 		switch {

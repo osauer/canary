@@ -568,3 +568,24 @@ func TestForwardAdverseMoveLeavesOutASpread(t *testing.T) {
 			{key: "AAA:2026-W10", group: ForwardGroupNotSorted, state: "final"}}},
 	})
 }
+
+// A test that needs its readings on separate days is not full on the count
+// alone. Forty readings on nineteen days dated the full count today while
+// the test was still collecting; it now waits for the missing day.
+func TestForwardExpectedWaitsForTheSeparateDays(t *testing.T) {
+	asOf := time.Date(2027, 3, 1, 0, 0, 0, 0, time.UTC)
+	facts := ForwardFacts{Needs: 40, NeedsGroup: "after_warning", NeedsDays: 20}
+	sample := ForwardSample{Test: ForwardCount{Final: 40}, Groups: []ForwardGroupCount{{ID: "after_warning", Final: 40, Days: 19}}}
+	expected, why := forwardExpected(facts, sample, nil, asOf.AddDate(0, 0, -100), asOf)
+	if expected == nil {
+		t.Fatalf("no date: %s", why)
+	}
+	if !expected.Date.After(asOf) {
+		t.Fatalf("a test one day short of its separate days is dated full on %s, the day of the count", expected.Date.Format(time.DateOnly))
+	}
+	// With the days in, the count alone decides, as before.
+	sample.Groups[0].Days = 20
+	if expected, _ := forwardExpected(facts, sample, nil, asOf.AddDate(0, 0, -100), asOf); expected == nil || expected.Date.After(asOf) {
+		t.Fatalf("a full test is dated in the future: %+v", expected)
+	}
+}

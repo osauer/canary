@@ -1201,6 +1201,10 @@ const (
 // not due, so the reading is the newest its own schedule allows (Friday's
 // close on a Saturday). Inside the row's window a frozen reading is a failed
 // refresh and stays not current. Every surface asks this one question.
+//
+// RegimeIndicatorCurrent is the question surfaces ask: it adds the age bound
+// of the row's cluster, so a reading older than Canary serves is never a
+// current rating, whatever its schedule says.
 func RegimeRowCurrent(status, freshnessClass string) bool {
 	switch status {
 	case RegimeStatusOK:
@@ -1210,6 +1214,27 @@ func RegimeRowCurrent(status, freshnessClass string) bool {
 	default:
 		return false
 	}
+}
+
+// RegimeIndicatorCurrent reports whether one indicator's band in r is a
+// current rating: RegimeRowCurrent, and the reading inside its cluster's age
+// bound. Without the bound a shut venue's last bar read as current however
+// old it was, while its own cluster was already overdue.
+func RegimeIndicatorCurrent(r *RegimeSnapshotResult, indicator string) bool {
+	if r == nil {
+		return false
+	}
+	for _, row := range regimeRows(r) {
+		if row.indicator != indicator {
+			continue
+		}
+		class := ""
+		if row.freshness != nil {
+			class = row.freshness.Class
+		}
+		return RegimeRowCurrent(row.status, class) && regimeRowWithinMaxAge(*r, row)
+	}
+	return false
 }
 
 // RegimeEligibilityInputUnavailable is the reason on a held red band whose

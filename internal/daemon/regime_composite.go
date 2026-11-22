@@ -135,7 +135,7 @@ func regimeEvidenceRows(r *rpc.RegimeSnapshotResult) []regimeEvidenceRow {
 		}
 		return regimeEvidenceRow{
 			scope: scope, name: rpc.RegimeRowName(indicator), status: status, band: band, message: message,
-			current: rpc.RegimeRowCurrent(status, freshness),
+			current: rpc.RegimeRowCurrent(status, freshness) && rpc.RegimeIndicatorCurrent(r, indicator),
 			// A co-sign red with no stress witness standing, decided per row.
 			context: band == "red" && cb.RowRed(indicator) == rpc.RegimeRedContext,
 			weak:    darkWitness && rpc.RegimeIndicatorRole(indicator) == rpc.RegimeRoleCoSign && (band == "yellow" || band == "red"),

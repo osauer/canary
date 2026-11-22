@@ -416,9 +416,18 @@ func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
 		}
 		row.Action = "Managed by the existing analytics producer"
 		if p := spec.pending; p != nil && row.State == "limited" {
-			row.Cause, row.OfficialDate, row.PendingSince = rpc.DataHealthCauseUpstreamPublicationPending, p.OfficialDate, p.Since
+			row.OfficialDate, row.PendingSince = p.OfficialDate, p.Since
 			row.Receiving = p.receiving()
-			row.Action = "Nothing to fix locally: Canary re-reads " + p.Publisher + "'s file on every regime refresh and the row recovers once " + p.Publisher + " publishes"
+			// A late publication is an expected delay for as long as the
+			// volatility inputs may be served at all (the cluster's age
+			// bound). Past that the file has simply stopped: the row keeps
+			// its facts and counts as a concern.
+			if maxAge := time.Duration(rpc.RegimeSourceMaxAgeSeconds("vol")) * time.Second; now.Sub(p.Since) < maxAge {
+				row.Cause = rpc.DataHealthCauseUpstreamPublicationPending
+				row.Action = "Nothing to fix locally: Canary re-reads " + p.Publisher + "'s file on every regime refresh and the row recovers once " + p.Publisher + " publishes"
+			} else {
+				row.Action = p.Publisher + " has not published " + p.Series + " for longer than Canary serves it; check the publisher's file and Canary's access to it"
+			}
 		}
 		rows = append(rows, row)
 	}

@@ -111,7 +111,7 @@ func TestRegimeTwoDarkClustersStillBlankTheRead(t *testing.T) {
 // A witness row that was eligible in its window keeps standing through its
 // own not-due window: a confirmed stress resting on a term inversion does not
 // drop at the close and come back at the open. Overdue, stale or failed
-// evidence still drops it, and a co-sign's prior-date reading stays context.
+// evidence still drops it.
 func TestRegimeWitnessStaysEligibleThroughItsNotDueWindow(t *testing.T) {
 	eligible := func(indicator, class string, latched bool) bool {
 		got := EvaluateRegimeEligibility(RegimeEligibilityInput{
@@ -131,8 +131,15 @@ func TestRegimeWitnessStaysEligibleThroughItsNotDueWindow(t *testing.T) {
 			t.Errorf("a latched term inversion stayed eligible while %s", class)
 		}
 	}
-	if eligible(RegimeIndicatorGammaZero, RegimeFreshnessNotDue, true) {
-		t.Error("a latched gamma red stayed eligible on a prior-date reading")
+	// A co-sign keeps its latch the same way since 2026-11-22: gamma before
+	// the day's first compute is not due, and that gap must not drop a
+	// confirmed stress. Whether it confirms still depends on a standing
+	// witness beside it.
+	if !eligible(RegimeIndicatorGammaZero, RegimeFreshnessNotDue, true) {
+		t.Error("a latched gamma red on its not-due schedule lost its eligibility")
+	}
+	if eligible(RegimeIndicatorGammaZero, RegimeFreshnessNotDue, false) || eligible(RegimeIndicatorGammaZero, RegimeFreshnessOverdue, true) || eligible(RegimeIndicatorGammaZero, RegimeFreshnessPending, true) {
+		t.Error("a gamma red that was never eligible, or is overdue or pending, became eligible")
 	}
 }
 
