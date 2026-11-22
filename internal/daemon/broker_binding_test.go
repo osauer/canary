@@ -102,13 +102,27 @@ func TestSubscriptionLineFollowsTheSessionAcrossARebuild(t *testing.T) {
 
 	f.drop()
 	waitSessionLost(t, s.gatewayConnectorForTest())
-	select {
-	case fr, ok := <-frames:
-		if !ok || fr.Error == nil || fr.Error.Code != rpc.FrameErrGatewayLost {
-			t.Fatalf("after the session loss: %+v %v, want the gateway_lost frame", fr, ok)
+	// The stream ends with the gateway_lost frame. Quote frames sent before
+	// it (the line's first, coalesced snapshot can land late on a loaded
+	// machine) are not the terminal frame and are read past.
+	deadline := time.After(5 * time.Second)
+terminal:
+	for {
+		select {
+		case fr, ok := <-frames:
+			if !ok {
+				t.Fatal("the stream closed without the gateway_lost frame")
+			}
+			if fr.Error == nil {
+				continue
+			}
+			if fr.Error.Code != rpc.FrameErrGatewayLost {
+				t.Fatalf("after the session loss: %+v, want the gateway_lost frame", fr)
+			}
+			break terminal
+		case <-deadline:
+			t.Fatal("no terminal frame after the session loss")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("no terminal frame after the session loss")
 	}
 	if s.subs.activeCount() != 0 {
 		t.Fatal("the lost line is still held")
