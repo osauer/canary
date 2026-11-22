@@ -279,7 +279,13 @@ func (s *Server) captureBoundOrderPositionAuthority(ctx context.Context, connect
 }
 
 func (s *Server) captureBoundStrategyPositionAuthority(ctx context.Context, connector *ibkrlib.Connector, session ibkrlib.ConnectorSessionBinding, status rpc.TradingStatus, draft rpc.StrategyOrderDraft) (orderPositionAuthority, error) {
-	if len(draft.Legs) < 2 || draft.Units <= 0 || draft.UnitsBefore <= 0 || draft.UnitsAfter != draft.UnitsBefore-draft.Units {
+	// An add raises the held units by the units bought; a close or reduction
+	// lowers them by the units sold.
+	wantAfter := draft.UnitsBefore - draft.Units
+	if draft.Operation == rpc.StrategyOperationAdd {
+		wantAfter = draft.UnitsBefore + draft.Units
+	}
+	if len(draft.Legs) < 2 || draft.Units <= 0 || draft.UnitsBefore <= 0 || draft.UnitsAfter != wantAfter {
 		return orderPositionAuthority{}, fmt.Errorf("%w: invalid strategy position binding", ErrTradingDisabled)
 	}
 	first := draft.Legs[0]
