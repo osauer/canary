@@ -113,6 +113,10 @@ func TestDaemonAgentIsUsedOnlyForItsOwnBinaryAndScope(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The agent can hold a proxy password: nobody else may read it.
+	if info, err := os.Stat(agentPlistPath(home)); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("agent file mode %v, want 0600 (err %v)", info.Mode().Perm(), err)
+	}
 	for _, want := range []string{"<string>/opt/canary &amp; co/bin/canary</string>", "<string>daemon</string>", "<key>SuccessfulExit</key>\n\t\t<false/>", "<key>XDG_STATE_HOME</key>", daemonAgentEnv, "<key>HTTPS_PROXY</key>"} {
 		if !strings.Contains(string(plist), want) {
 			t.Fatalf("agent plist lacks %q:\n%s", want, plist)

@@ -330,7 +330,13 @@ func installDaemonAgent(ctx context.Context, home, bin string) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, renderDaemonAgent(bin, logPath, agentScope(home), pass), 0o644); err != nil {
+	// Owner-only: a proxy variable copied into the agent can carry a
+	// password. launchd reads a 0600 agent of its own user.
+	if err := os.WriteFile(tmp, renderDaemonAgent(bin, logPath, agentScope(home), pass), 0o600); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp, 0o600); err != nil {
+		_ = os.Remove(tmp)
 		return err
 	}
 	if err := os.Rename(tmp, path); err != nil {
