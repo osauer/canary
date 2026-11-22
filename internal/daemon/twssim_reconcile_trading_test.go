@@ -20,7 +20,6 @@ import (
 // reconcile grace without waiting it out.
 func startSimDeskSkewed(t *testing.T, opts twssim.Options) (*simDesk, *atomic.Int64) {
 	t.Helper()
-	requireSimTier(t)
 	skew := &atomic.Int64{}
 	sim := twssim.Start(t, opts)
 	dir := shortTempDir(t)

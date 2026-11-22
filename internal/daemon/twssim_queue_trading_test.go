@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v3/internal/marketcal"
-	"github.com/osauer/canary/v3/internal/risk"
 	"github.com/osauer/canary/v3/internal/rpc"
 	"github.com/osauer/canary/v3/pkg/ibkr/twssim"
 )
@@ -56,33 +55,16 @@ func (d *simDesk) queuedRecord(id string) queuedAuthRecord {
 // Q1. A stock buy queued for the open on a book with a standing Add warning
 // (the simulated book carries no index protection, so rule 4 warns on any
 // stock buy). The owner signs the warnings with the terms; at the open the
-// warnings send it once with the reviewed terms, also when only their
-// figures moved; a warning whose code the owner did not sign, or a record
-// written before warnings were signed, stops it under queue_new_add_warning
-// and nothing is sent.
+// same warnings send it once with the reviewed terms. A warning that
+// appears after the signature stops it under queue_new_add_warning and
+// nothing is sent.
 func TestSimulatedTWSQueuedBuyWithAStandingWarning(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		edit func([]risk.StockAddBlocker) []risk.StockAddBlocker // the signed set the fixture leaves
-		sent bool
-	}{
-		{"same-warnings-sent", nil, true},
-		{"figure-drift-sent", func(w []risk.StockAddBlocker) []risk.StockAddBlocker {
-			for i := range w {
-				w[i].Message += " (figure as of the evening)"
-			}
-			return w
-		}, true},
-		{"new-code-held", func(w []risk.StockAddBlocker) []risk.StockAddBlocker {
-			for i := range w {
-				w[i].Code += "_other"
-			}
-			return w
-		}, false},
-		{"legacy-record-held", func([]risk.StockAddBlocker) []risk.StockAddBlocker { return nil }, false},
-	} {
-		changed := !tc.sent
-		t.Run(tc.name, func(t *testing.T) {
+	for _, changed := range []bool{false, true} {
+		name := "same-warnings-sent"
+		if changed {
+			name = "new-warning-held"
+		}
+		t.Run(name, func(t *testing.T) {
 			queueOpenIn(t, 20*time.Second)
 			d := startSimDesk(t, twssim.Options{}, true)
 			plan := d.plan(synaAdd)
@@ -90,13 +72,15 @@ func TestSimulatedTWSQueuedBuyWithAStandingWarning(t *testing.T) {
 				t.Fatalf("the simulated book should warn on a stated quantity: warnings %+v blockers %+v", plan.Warnings, plan.Blockers)
 			}
 			q := d.queueBuy(plan.Contract, 10, 50.10)
-			if signed := q.Queue.Terms.OwnerOrder.AddWarnings; !slices.Equal(signed, plan.Warnings) {
+			signed := q.Queue.Terms.OwnerOrder.AddWarnings
+			if !changed && !slices.Equal(signed, plan.Warnings) {
 				t.Fatalf("signed terms carry warnings %+v, the plan shows %+v", signed, plan.Warnings)
 			}
-			if tc.edit != nil {
+			if changed {
+				// The owner signed one warning fewer than the book now shows.
 				if err := d.srv.tradeProposals.queued.update(t.Context(), time.Now(), func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
 					r := records[q.Queue.Terms.QueueID]
-					r.Terms.OwnerOrder.AddWarnings = tc.edit(slices.Clone(r.Terms.OwnerOrder.AddWarnings))
+					r.Terms.OwnerOrder.AddWarnings = nil
 					r.TermsDigest, _ = queuedTermsDigest(r.Terms)
 					return []queuedAuthEvent{r.note("fixture", r.State, time.Now())}
 				}); err != nil {

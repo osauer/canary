@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/osauer/canary/v3/internal/risk"
 	"github.com/osauer/canary/v3/internal/rpc"
 )
 
@@ -353,16 +352,13 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 		out.Blockers = preparedBlocker("preview_not_submit_eligible", "The broker preview is not eligible.")
 		return out, nil
 	}
-	// The owner signed these warnings with the terms. The send compares each
-	// warning's identity (kind and code), not its figure: the owner signs in
-	// the evening and the figure moves by the open. A warning whose identity
-	// the owner did not sign is new risk and holds the send; fewer warnings
-	// proceed. Hard blockers (plan blockers, cash, margin, order limits, the
-	// price bound) are recomputed by the preview and still refuse. Decision
-	// by the coordinator 2026-11-23, recorded for the owner as a build choice.
+	// The owner confirmed these exact warning facts with the terms, compared
+	// as the immediate path compares them (validateStockAddDraft). Changed
+	// warnings need another confirmation; a previous acknowledgement cannot
+	// cover new risk.
 	accept := false
 	if preview.Draft.Add != nil && len(preview.Draft.Add.Plan.Warnings) > 0 {
-		if !addWarningsSigned(o.AddWarnings, preview.Draft.Add.Plan.Warnings) {
+		if !slices.Equal(o.AddWarnings, preview.Draft.Add.Plan.Warnings) {
 			out.Blockers = preparedBlocker("queue_new_add_warning", "New addition warnings require a fresh owner confirmation.")
 			return out, nil
 		}
@@ -378,18 +374,6 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 	}
 	out.Accepted, out.Place, out.OrderRef, out.PreviewTokenID = placed.Accepted, placed, placed.OrderRef, placed.PreviewTokenID
 	return out, nil
-}
-
-// addWarningsSigned reports whether every fresh Add warning names a warning
-// (kind and code) the owner signed. A record without signed warnings covers
-// none.
-func addWarningsSigned(signed, fresh []risk.StockAddBlocker) bool {
-	for _, w := range fresh {
-		if !slices.ContainsFunc(signed, func(s risk.StockAddBlocker) bool { return s.Kind == w.Kind && s.Code == w.Code }) {
-			return false
-		}
-	}
-	return true
 }
 
 // queuedOwnerAdaptivePriority is the algorithm a queued midpoint order carries:

@@ -115,10 +115,9 @@ type QueuedOwnerOrder struct {
 	Add              bool            `json:"add,omitempty"`
 	// AddWarnings are the stock Add plan's warnings at prepare, as the
 	// immediate plan review carries them, so the owner signs them with the
-	// order, figures as of signing. The send proceeds while every warning it
-	// finds names one signed here by kind and code; absent (a record written
-	// before 2026-11-22, or a plan that could not be computed) means none were
-	// signed, and any warning at the send stops it.
+	// order. The send proceeds only on the same warnings; absent (a record
+	// written before 2026-11-22, or a plan that could not be computed) means
+	// none were signed, and any warning at the send stops it.
 	AddWarnings []risk.StockAddBlocker `json:"add_warnings,omitempty"`
 }
 
