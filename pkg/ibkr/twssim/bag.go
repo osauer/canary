@@ -103,7 +103,11 @@ func (b *Book) fillBagLocked(order *Order, units float64) []Execution {
 			price = l.Price
 		}
 		qty := units * float64(max(leg.Ratio, 1))
-		legOrder := &Order{PlaceOrder: PlaceOrder{OrderID: order.OrderID, ClientID: order.ClientID, ConID: leg.ConID, Action: map[bool]string{true: "BUY", false: "SELL"}[sign > 0], Quantity: qty, OrderRef: order.OrderRef}, PermID: order.PermID}
+		action := "SELL"
+		if sign > 0 {
+			action = "BUY"
+		}
+		legOrder := &Order{OrderID: order.OrderID, ClientID: order.ClientID, ConID: leg.ConID, Action: action, Quantity: qty, OrderRef: order.OrderRef, PermID: order.PermID}
 		ex := b.fillLocked(legOrder, l, qty, price, b.clock())
 		net += sign * price * float64(max(leg.Ratio, 1))
 		out = append(out, *ex)
