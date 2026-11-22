@@ -51,7 +51,7 @@ function strategyRow(strategy) {
   head.className = "strategy-row__head";
   const identity = document.createElement("span");
   identity.className = "pd-tile__legend";
-  identity.textContent = [strategy.underlying || "--", strategyKind(strategy.kind)].filter(Boolean).join(" · ");
+  identity.textContent = [strategy.underlying || "--", strategyKind(strategy.kind, strategy.name)].filter(Boolean).join(" · ");
   const units = document.createElement("b");
   units.className = "strategy-row__units";
   units.textContent = `${strategy.units || 0} ${strategy.units === 1 ? "unit" : "units"}`;
@@ -302,7 +302,10 @@ function numberText(value) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-function strategyKind(value = "") {
+// The daemon names the held position ("bear put spread"); the shape's label
+// stands in where it gives none.
+function strategyKind(value = "", name = "") {
+  if (name) return name.charAt(0).toUpperCase() + name.slice(1);
   const labels = {
     vertical: "Vertical spread",
     calendar: "Calendar spread",

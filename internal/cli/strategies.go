@@ -160,13 +160,22 @@ func renderStrategies(env *Env, view rpc.PositionStrategiesView) {
 		}
 	}
 	for _, group := range view.Strategies {
-		fmt.Fprintf(env.Stdout, "  %s  %s  %d unit(s)  %s  revision %d\n", group.ID, group.Underlying, group.Units, strings.ReplaceAll(group.Kind, "_", " "), group.Revision)
+		// The daemon's name for the held position leads; the shape stands in
+		// where it gives none.
+		name := nonEmpty(group.Name, strings.ReplaceAll(group.Kind, "_", " "))
+		fmt.Fprintf(env.Stdout, "  %s  %s  %d unit(s)  %s  revision %d\n", group.ID, group.Underlying, group.Units, name, group.Revision)
 		for _, leg := range group.Legs {
 			direction := "long"
 			if leg.Ratio < 0 {
 				direction = "short"
 			}
 			fmt.Fprintf(env.Stdout, "    %s %d × %s %s %.2f %s  conID %d\n", direction, absCLIInt(leg.Ratio), leg.Contract.Expiry, leg.Contract.Right, leg.Contract.Strike, leg.Contract.TradingClass, leg.Contract.ConID)
+		}
+		if stock := group.Stock; stock != nil {
+			fmt.Fprintf(env.Stdout, "    against %.0f shares of %s  conID %d\n", stock.Quantity, stock.Contract.Symbol, stock.Contract.ConID)
+		}
+		if !group.Actionable && group.Reason != "" {
+			fmt.Fprintf(env.Stdout, "    %s\n", group.Reason)
 		}
 	}
 	for _, issue := range view.Issues {

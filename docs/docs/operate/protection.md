@@ -128,6 +128,9 @@ policy carries a `[mandate]` table:
   pre-authorised: no sale of a put on a hedge-listed index is sent without
   your confirmation, whichever bucket proposes it. A regime reading that is
   stale or missing applies the higher band, which keeps more protection.
+  A put held as one leg of a strategy is trimmed in whole units of that
+  strategy, each selling the put together with the legs it is held against;
+  the row is a unit row and names `canary strategies reduce` as its route.
 - **Budget reduction** (`budget_reduction`) brings long option premium back inside a declared share
   of the risk constitution's declared risk capital while the constitution's
   drawdown brake is engaged. Its caps are your numbers: the file Canary
@@ -149,6 +152,25 @@ policy carries a `[mandate]` table:
   order at the broker when Canary has no strategy record. `canary proposals
   preview` and `submit` refuse a unit with `strategy_workflow_required`; nothing
   about a unit row places an order.
+
+A held strategy trades as whole units. Whichever bucket raises it, a row for
+one contract that is a leg of a strategy, or that sits on an underlying whose
+legs have no single decomposition, is blocked with
+`strategy_workflow_required` and names the strategy's close or reduction
+instead: selling a spread's long put alone would leave its short put
+uncovered. The exception is a pair of long options you declared independent
+exits for, contract by contract.
+
+`canary strategies list` shows the groups Canary reconstructs from the
+positions, each with the name of the held position (`bear put spread`,
+`short strangle`, `long call butterfly`). Two option legs of one underlying
+always form one group. Three legs group only as a butterfly and four only as
+an iron condor or iron butterfly, matched exactly; any other set stays
+ungrouped and is listed with the reason. A short call written against at
+least as many shares is listed as a covered call, and a long put with a short
+call beside the shares as a collar. The shares name the position and join no
+order: a collar's two options close as one combo, and a covered call's call
+trades on its own.
 
 The option-exit policy uses an absolute `0.05` quote-currency `TRAIL LIMIT`
 offset. An inherited or omitted offset fails activation. Standing defaults apply

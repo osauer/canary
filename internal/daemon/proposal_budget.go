@@ -760,7 +760,7 @@ func (e *proposalEngine) budgetReductionProposals(policy protectionPolicy, statu
 			budgetBlock(&p, rpc.TradingBlocker{Code: "fresh_option_quote_required", Message: "the position mark is stale, so the measured line value cannot price an order", Action: "Refresh during the options session (09:30-16:00 ET) so the mark is current before acting."})
 		}
 		if line.unit {
-			budgetBlock(&p, rpc.TradingBlocker{Code: "strategy_workflow_required", Message: "this leg belongs to a multi-leg unit; a budget reduction cannot trim one leg of it as a single-leg order", Action: "Reduce the unit through the strategy workflow (canary strategies close ID REVISION) or a combo order at the broker."})
+			budgetBlock(&p, strategyLegBlocker(pos, line.row.ConID))
 		}
 		enrichProposalPositionContext(&p, line.row, acct)
 		applyMarketEventFlagsToProposal(&p, marketEvents)

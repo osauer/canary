@@ -959,6 +959,9 @@ func (e *proposalEngine) generateBookWithStrategies(ctx context.Context, policy 
 			out = append(out, e.unitExitProposals(ctx, policy, status, pos, sources, marketEvents, scope, now, economicEvidence, rulebookPolicy, units, rulebookPolicy.ExitActLossPct)...)
 		}
 	}
+	// No row is a single-contract order for a leg of a held strategy,
+	// whichever rule raised it (proposal_strategy_legs.go).
+	holdStrategyLegs(out, pos, policy, now)
 	// Theta hygiene, issuer trims and budget reductions net against working
 	// broker orders like the exits and stops above. A shadow row never
 	// previews, so it reads no order evidence.
@@ -1787,6 +1790,8 @@ func optionExitBookQuantitiesValid(pos *rpc.PositionsResult) bool {
 // optionExitStrategyScope preserves confirmed or unresolved strategy membership.
 // An inferred pair of long options may be managed independently only when both
 // exact contracts have current operator declarations. Group exposure is unchanged.
+// A strategy of one option leg (a call written against shares) is a name for
+// the position, not a unit: its call stays a contract of its own here.
 func optionExitStrategyScope(pos *rpc.PositionsResult, intents map[int]protectionOptionDirectionalIntent, now time.Time) (map[int]bool, map[string]bool) {
 	legs := make(map[int]bool)
 	ambiguous := make(map[string]bool)
@@ -1795,11 +1800,17 @@ func optionExitStrategyScope(pos *rpc.PositionsResult, intents map[int]protectio
 	}
 	memberships := make(map[int]int)
 	for _, strategy := range pos.Strategies {
+		if len(strategy.Legs) < 2 && strategy.Stock != nil {
+			continue
+		}
 		for _, leg := range strategy.Legs {
 			memberships[leg.Contract.ConID]++
 		}
 	}
 	for _, strategy := range pos.Strategies {
+		if len(strategy.Legs) < 2 && strategy.Stock != nil {
+			continue
+		}
 		independent := optionExitIndependentInferredPair(strategy, intents, now)
 		for _, leg := range strategy.Legs {
 			if memberships[leg.Contract.ConID] != 1 {

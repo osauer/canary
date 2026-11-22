@@ -38,6 +38,7 @@ type optionExitUnit struct {
 	revision   int64
 	underlying string
 	kind       string
+	name       string
 	source     string
 	units      int
 	comboRoute bool
@@ -65,7 +66,7 @@ func optionExitUnitsFromBook(pos *rpc.PositionsResult, grouped map[int]bool, amb
 		if strategy.Status != rpc.PositionStrategyStatusCurrent || len(strategy.Legs) < 2 {
 			continue
 		}
-		unit := optionExitUnit{id: strategy.ID, revision: strategy.Revision, underlying: normSym(strategy.Underlying), kind: strategy.Kind, source: strategy.Source, units: strategy.Units, comboRoute: true}
+		unit := optionExitUnit{id: strategy.ID, revision: strategy.Revision, underlying: normSym(strategy.Underlying), kind: strategy.Kind, name: strategy.Name, source: strategy.Source, units: strategy.Units, comboRoute: true}
 		ok, inScope := true, false
 		for _, leg := range strategy.Legs {
 			row, found := rows[leg.Contract.ConID]
@@ -392,7 +393,7 @@ func (e *proposalEngine) unitExitProposals(ctx context.Context, policy protectio
 		if costPerShare > 0 {
 			p.OptionExit.CostBasisPremium = cloneFloat64Ptr(&costPerShare)
 		}
-		p.Unit = &rpc.TradeProposalUnit{StrategyID: unit.id, StrategyRevision: unit.revision, Underlying: unit.underlying, Kind: unit.kind, Source: unit.source, Units: unit.units, Legs: legs, NetDebitPerUnit: netDebit, CostPerShare: costPerShare, HighWaterPerShare: highWater, ProfitTrailStop: trailStop, ComboRoute: unit.comboRoute, Route: optionExitUnitRoute(unit)}
+		p.Unit = &rpc.TradeProposalUnit{StrategyID: unit.id, StrategyRevision: unit.revision, Underlying: unit.underlying, Kind: unit.kind, Name: unit.name, Source: unit.source, Units: unit.units, Legs: legs, NetDebitPerUnit: netDebit, CostPerShare: costPerShare, HighWaterPerShare: highWater, ProfitTrailStop: trailStop, ComboRoute: unit.comboRoute, Route: optionExitUnitRoute(unit)}
 		if !unit.comboRoute {
 			p.Unit.StrategyID, p.Unit.StrategyRevision = "", 0
 		}

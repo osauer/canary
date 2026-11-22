@@ -1371,6 +1371,7 @@ type TradeProposalUnit struct {
 	StrategyRevision   int64                  `json:"strategy_revision,omitempty"`
 	Underlying         string                 `json:"underlying"`
 	Kind               string                 `json:"kind,omitempty"`
+	Name               string                 `json:"name,omitempty"`
 	Source             string                 `json:"source"`
 	Units              int                    `json:"units"`
 	Legs               []TradeProposalUnitLeg `json:"legs"`
