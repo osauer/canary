@@ -54,10 +54,14 @@ type riskCapitalStateFileV1 struct {
 	// SQLite gives every account/mode its own document; the legacy file helper
 	// A non-live observation can never write a live peak
 	// state dir ratcheted the live peak with the paper account's equity).
-	AccountID             string                               `json:"account_id,omitempty"`
-	AccountMode           string                               `json:"account_mode,omitempty"`
-	AdjustedPeakBase      float64                              `json:"adjusted_peak_base"`
-	PeakAsOf              time.Time                            `json:"peak_as_of,omitzero"`
+	AccountID        string    `json:"account_id,omitempty"`
+	AccountMode      string    `json:"account_mode,omitempty"`
+	AdjustedPeakBase float64   `json:"adjusted_peak_base"`
+	PeakAsOf         time.Time `json:"peak_as_of,omitzero"`
+	// BrakePeakFromMandate records that the brake last measured from the
+	// mandate's confirmed high (brakePeakLocked), so a change of source is
+	// journaled once.
+	BrakePeakFromMandate  bool                                 `json:"brake_peak_from_mandate,omitempty"`
 	LastEquityBase        float64                              `json:"last_equity_base"`
 	LastEquityAsOf        time.Time                            `json:"last_equity_as_of,omitzero"`
 	DailyEquity           map[string]float64                   `json:"daily_equity,omitempty"`
@@ -699,9 +703,38 @@ func (st *riskCapitalStore) persistLocked(force bool) error {
 	return nil
 }
 
+// mandateBrakeMarkLocked is the mandate's confirmed high-water mark in the
+// brake's own series (equity − flows; the mandate's series counts flows from
+// its start), and when it was set. ok is false without a [mandate] whose
+// series has started, the condition MandateCapitalForScope reads the mark on.
+func (st *riskCapitalStore) mandateBrakeMarkLocked(c *risk.Constitution) (mark float64, asOf time.Time, ok bool) {
+	m := st.state.Mandate
+	if c == nil || c.Mandate == nil || m == nil || m.StartedAt != c.Mandate.StartedAt || !m.Seeded {
+		return 0, time.Time{}, false
+	}
+	return m.HWMAdjustedEquity - m.FlowsAtStart, m.HWMAsOf, true
+}
+
+// brakePeakLocked is the adjusted peak the drawdown brake measures the fall
+// from. While a [mandate] is active that is the mandate's confirmed
+// high-water mark, so the brake and the mandate read one drawdown and the
+// rule that confirms a high has one owner (observeMandateLocked). The stored
+// peak, which every single print ratchets, still bounds it from above: a
+// journaled reset, a peak correction or a statement deposit correction that
+// lowered the stored peak under the mark keeps its effect, and the mandate
+// never moves the block earlier than the brake's own peak puts it. Without
+// an active mandate it is the stored peak, as before.
+func (st *riskCapitalStore) brakePeakLocked(c *risk.Constitution) (peak float64, asOf time.Time, fromMandate bool) {
+	if mark, at, ok := st.mandateBrakeMarkLocked(c); ok && st.state.Seeded && mark <= st.state.AdjustedPeakBase {
+		return mark, at, true
+	}
+	return st.state.AdjustedPeakBase, st.state.PeakAsOf, false
+}
+
 // runtimeLocked builds the evaluator's view of the state.
 func (st *riskCapitalStore) runtimeLocked(c *risk.Constitution, now time.Time) risk.CapitalRuntime {
 	flows, _, _ := st.effectiveFlowsLocked(c)
+	peak, peakAsOf, _ := st.brakePeakLocked(c)
 	var overrideUntil time.Time
 	for _, o := range st.state.Overrides {
 		if o.Active && o.Control == "capital.max_unreconciled_days" && !now.After(o.ExpiresAt) && o.ExpiresAt.After(overrideUntil) {
@@ -709,8 +742,8 @@ func (st *riskCapitalStore) runtimeLocked(c *risk.Constitution, now time.Time) r
 		}
 	}
 	return risk.CapitalRuntime{
-		AdjustedPeakBase:          st.state.AdjustedPeakBase,
-		PeakAsOf:                  st.state.PeakAsOf,
+		AdjustedPeakBase:          peak,
+		PeakAsOf:                  peakAsOf,
 		CumExternalFlowsBase:      flows,
 		Seeded:                    st.state.Seeded,
 		BlockLatched:              st.state.BlockLatched,
@@ -852,6 +885,26 @@ func (st *riskCapitalStore) observeWithValuation(equityBase float64, pnl mandate
 		st.state.PeakAsOf = asOf
 		force = true
 	}
+	// The stored peak above is the brake's own; which peak the brake measures
+	// from (brakePeakLocked) is journaled whenever it changes, with both
+	// figures, so the block point never moves without a line saying so.
+	if brakePeak, _, fromMandate := st.brakePeakLocked(c); fromMandate != st.state.BrakePeakFromMandate {
+		entry := map[string]any{
+			"version": 1, "at": now.UTC(), "kind": "brake_peak_source_changed",
+			"source": "stored", "brake_peak_base": brakePeak, "stored_peak_base": st.state.AdjustedPeakBase,
+			"equity_base": equityBase, "equity_as_of": asOf.UTC(),
+			"policy_fingerprint": constitutionFingerprint(c),
+		}
+		if fromMandate {
+			entry["source"] = "mandate"
+		}
+		if mark, _, ok := st.mandateBrakeMarkLocked(c); ok {
+			entry["mandate_peak_base"] = mark
+		}
+		st.appendRiskPolicyJournal(entry)
+		st.state.BrakePeakFromMandate = fromMandate
+		force = true
+	}
 
 	obs := risk.CapitalObservation{EquityBase: equityBase, AsOf: asOf}
 	runtime := st.runtimeLocked(c, now)
@@ -869,7 +922,7 @@ func (st *riskCapitalStore) observeWithValuation(equityBase float64, pnl mandate
 				"latched_at": st.state.LatchedAt, "episode_seq": st.state.LatchEpisodeSeq,
 				"was_provisional": st.state.LatchProvisional, "latch_consumed_pct": st.state.LatchConsumedPct,
 				"consumed_pct": recovery.ConsumedPct, "block_consumed_pct": c.Drawdown.BlockConsumedPct,
-				"equity_as_of": asOf.UTC(), "adjusted_peak_base": st.state.AdjustedPeakBase,
+				"equity_as_of": asOf.UTC(), "adjusted_peak_base": runtime.AdjustedPeakBase,
 				"policy_fingerprint": constitutionFingerprint(c),
 			})
 			st.state.BlockLatched, st.state.LatchProvisional = false, false
@@ -1227,7 +1280,8 @@ func (st *riskCapitalStore) resolveProvisionalLatchLocked(snap statementCapitalS
 				lineIDs = append(lineIDs, flow.id)
 			}
 		}
-		dd := max(st.state.AdjustedPeakBase-(st.state.LatchEquityBase-flows), 0)
+		peak, _, _ := st.brakePeakLocked(c)
+		dd := max(peak-(st.state.LatchEquityBase-flows), 0)
 		pct := dd / *c.Capital.DeclaredRiskCapital * 100
 		entry["statement_flows_to_latch_base"] = flows
 		entry["statement_consumed_pct"] = pct
@@ -1291,7 +1345,8 @@ func (st *riskCapitalStore) resolveLegacyLatchLocked(snap statementCapitalSnapsh
 			lineIDs = append(lineIDs, flow.id)
 		}
 	}
-	dd := max(st.state.AdjustedPeakBase-(equity-flows), 0)
+	peak, _, _ := st.brakePeakLocked(c)
+	dd := max(peak-(equity-flows), 0)
 	pct := dd / *c.Capital.DeclaredRiskCapital * 100
 	if pct >= *c.Drawdown.BlockConsumedPct {
 		return // not explained: the latch stays durable, human path unchanged
@@ -1670,11 +1725,12 @@ func (st *riskCapitalStore) reportLocked(c *risk.Constitution, obs *risk.Capital
 		rep.EquityAsOf = obs.AsOf
 	}
 	if st.state.Seeded {
-		peak := st.state.AdjustedPeakBase
+		// The peak the drawdown above was measured from (brakePeakLocked).
+		peak, peakAsOf, _ := st.brakePeakLocked(c)
 		// Preserve the existing wire field's declared-ledger meaning. The
 		flows := declared
 		rep.AdjustedPeakBase = &peak
-		rep.PeakAsOf = st.state.PeakAsOf
+		rep.PeakAsOf = peakAsOf
 		rep.CumExternalFlowsBase = &flows
 	}
 	return rep

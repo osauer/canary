@@ -30,7 +30,18 @@ must not duplicate numbers.
 3. **No auto-increase:** deposits, profits, and live events never raise
    declared risk capital; only a fingerprinted policy revision does.
 4. **Drawdown ladder:** two tiers, both % of declared risk capital consumed
-   from the cash-flow-adjusted equity peak. Warn = advisory, self-clearing.
+   from the cash-flow-adjusted equity peak. While a `[mandate]` is active
+   that peak is the mandate's confirmed high-water mark (a high counts once
+   a second reading at least five minutes later confirms it, at the lower of
+   the two; mandate-risk-budget.md), so the brake and the mandate read one
+   drawdown. The brake's own stored peak, which every single reading raises,
+   still bounds it from above: a reset, a peak correction or a statement
+   deposit correction that lowered it under the mark keeps its effect. A
+   change of the peak in use is journaled (`brake_peak_source_changed`, both
+   figures). Without a mandate the stored peak is the peak (owner,
+   2026-11-22 09:48 CET: "align the canary brake"). Consumed is still a
+   share of the hand-written `declared_risk_capital`, which the code never
+   derives from the mandate. Warn = advisory, self-clearing.
    Block targets risk-increasing orders only; reductions, closes, cancels,
    and rulebook-hedge-classified entries stay exempt. Block shipped
    shadow-first; since the owner's decision of 2026-10-09 18:46 CEST ("an

@@ -495,7 +495,10 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
 - **A glitchy equity reading.** A new high-water mark counts once a second
   reading at least five minutes later confirms it, at the lower of the two
   (`mandate_capital.go`): one spike never raises the mark, which would read
-  as a drawdown from then on. A single low print that collapses the room
+  as a drawdown from then on. The drawdown brake measures from the same
+  mark while the mandate is active (`brakePeakLocked`; risk-policy.md
+  decision 4), so one spike cannot make the brake block before the maximum
+  loss is reached. A single low print that collapses the room
   breaches every gap cap but is one reading: it only watches.
 - **Undeclared cash flows.** The owner withdraws regularly, and a flow not
   yet declared moves equity: a withdrawal would read as a drawdown (less
@@ -1535,7 +1538,9 @@ risk", provided the impact is measured.
   (above, 2026-10-23), which lifts the additions gate alone and expires.
 - Required reason, scope, expiry, and audit record: the file edit and its
   fingerprint; the high-water mark advances and starts are journaled
-  (`mandate_hwm_advanced`, `mandate_started`) with the fingerprint.
+  (`mandate_hwm_advanced`, `mandate_started`) with the fingerprint, and so
+  is a change of the peak the drawdown brake measures from
+  (`brake_peak_source_changed`).
 - Whether exceptions can increase risk: a revision can raise the budget; no
   exception can admit an order the standing verdict refuses.
 - Rollback trigger and operator action: remove `[mandate]` and raise
