@@ -444,11 +444,11 @@ func (s *Server) previewOrder(ctx context.Context, p rpc.OrderPreviewParams) (*r
 	if !previewSupportedOrderType(orderType) && !fixedChild {
 		return nil, errBadRequest("order preview supports LMT, TRAIL, and TRAIL LIMIT orders only")
 	}
-	if p.AdaptivePriority != "" && (orderType != rpc.OrderTypeLMT || !slices.Contains([]string{"STK", "OPT"}, contract.SecType) || !slices.Contains([]string{"Normal", "Patient", "Urgent"}, p.AdaptivePriority)) {
-		return nil, errBadRequest("Adaptive requires a stock or option limit and Normal, Patient, or Urgent priority")
+	if p.AdaptivePriority != "" && (orderType != rpc.OrderTypeLMT || !slices.Contains([]string{"Normal", "Patient", "Urgent"}, p.AdaptivePriority)) {
+		return nil, errBadRequest("Adaptive requires a limit order and Normal, Patient, or Urgent priority")
 	}
-	if p.AdaptivePriority != "" && !strings.EqualFold(contract.Exchange, "SMART") {
-		return nil, errBadRequest(fmt.Sprintf("IBKR's Adaptive algorithm runs only on SMART, and this order goes to %s; leave Adaptive off to send a plain limit", contract.Exchange))
+	if refusal := adaptiveRefusal(contract); p.AdaptivePriority != "" && refusal != "" {
+		return nil, errBadRequest(refusal)
 	}
 	tif := strings.ToUpper(strings.TrimSpace(p.TIF))
 	if tif == "" && scope == rpc.OrderTokenScopeModify {

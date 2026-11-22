@@ -83,7 +83,8 @@ func (s *Server) addOptionCap() int {
 }
 
 // Every candidate, including a rounded-up lot, receives its own exact broker
-// preview. Rounding is an explicit draft preference, never spending authority.
+// preview, a plain limit: an option carries no Adaptive (adaptiveSupported).
+// Rounding is an explicit draft preference, never spending authority.
 // A known option cap holds the size, rounding included: a plan never sizes
 // into a refusal (owner review 2026-10-23 16:50 CEST).
 func planCallQuantity(ctx context.Context, p rpc.AddCallPlanParams, maxContracts int, previewOrder func(context.Context, rpc.OrderPreviewParams) (*rpc.OrderPreviewResult, error)) (*rpc.AddCallPlanResult, error) {
@@ -95,7 +96,7 @@ func planCallQuantity(ctx context.Context, p rpc.AddCallPlanParams, maxContracts
 	}
 	rounded := false
 	for attempt := 0; attempt < 4 && n > 0; attempt++ {
-		preview, err := previewOrder(ctx, rpc.OrderPreviewParams{Action: rpc.OrderActionBuy, Contract: c, Quantity: n, OrderType: "LMT", LimitPrice: new(p.LimitPrice), Strategy: "explicit-limit", TIF: "DAY", AdaptivePriority: "Normal"})
+		preview, err := previewOrder(ctx, rpc.OrderPreviewParams{Action: rpc.OrderActionBuy, Contract: c, Quantity: n, OrderType: "LMT", LimitPrice: new(p.LimitPrice), Strategy: "explicit-limit", TIF: "DAY"})
 		if err != nil {
 			return nil, err
 		}
