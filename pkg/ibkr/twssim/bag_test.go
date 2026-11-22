@@ -52,14 +52,11 @@ func TestServerWorksABagOrder(t *testing.T) {
 	for slices.Index(seen, msgExecDetails+protoOffset) < 0 {
 		seen, _ = cl.until(msgOrderStatus + protoOffset)
 	}
-	if p, _ := book.Position(long); p.Quantity != 2 {
+	if p, _ := book.Position(long); p.Quantity != 16 {
 		t.Fatalf("long leg position: %+v", p)
 	}
-	if _, held := book.Position(short); held {
-		p, _ := book.Position(short)
-		if p.Quantity != -2 {
-			t.Fatalf("short leg position: %+v", p)
-		}
+	if p, _ := book.Position(short); p.Quantity != -16 {
+		t.Fatalf("short leg position: %+v", p)
 	}
 	if ex := book.Executions(); len(ex) != 2 || ex[0].OrderID != 2 || ex[1].OrderID != 2 {
 		t.Fatalf("executions: %+v", ex)

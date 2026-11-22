@@ -188,7 +188,7 @@ func OptionExpiries(now time.Time) []string {
 // OptionsBook is [Default] with option chains on SYNA and SYNB and an
 // owner-like option book beside the 100 SYNA shares: three long SYNA calls
 // over two expiries, a long SYNA put the shares cover, and a bear put spread
-// on SYNB (long the 120 put, short the 110 put, one expiry) that the daemon
+// on SYNB, 15 units (long the 120 put, short the 110 put, one expiry) that the daemon
 // groups as a strategy. Every figure is invented.
 func OptionsBook(now time.Time) *Book {
 	b := Default()
@@ -205,7 +205,7 @@ func OptionsBook(now time.Time) *Book {
 		qty, avgPrice float64
 	}{
 		{900001, 3, 55, "C", 2, 2.10}, {900001, 2, 60, "C", 1, 0.80}, {900001, 2, 45, "P", 1, 1.30},
-		{900002, 3, 120, "P", 1, 7.40}, {900002, 3, 110, "P", -1, 3.60},
+		{900002, 3, 120, "P", 15, 7.40}, {900002, 3, 110, "P", -15, 3.60},
 	}
 	for _, h := range held {
 		if id, ok := b.OptionConIDFor(h.under, exps[h.exp], h.strike, h.right); ok {

@@ -45,6 +45,9 @@ type BookPosition struct {
 	Strike          float64 `json:"strike,omitempty"`
 	Expiry          string  `json:"expiry,omitempty"`
 	Multiplier      float64 `json:"multiplier,omitempty"`
+	// Defunct marks a dead line (a delisted name on a grey-market venue):
+	// last 0, no quotes.
+	Defunct bool `json:"defunct,omitempty"`
 }
 
 // LoadBook reads a book file (see [BookFile]).
@@ -88,8 +91,8 @@ func ParseBook(raw []byte) (*Book, error) {
 			Currency: strings.ToUpper(p.Currency), TradingClass: p.TradingClass, LongName: "SYNTHETIC " + strings.ToUpper(p.Symbol), Price: p.Last, Bid: p.Bid, Ask: p.Ask,
 			UnderConID: p.UnderConID, Right: strings.ToUpper(p.Right), Strike: p.Strike, Expiry: p.Expiry, Multiplier: p.Multiplier, Spread: 0.02}
 		switch {
-		case in.ConID <= 0 || in.Symbol == "" || in.Currency == "" || in.Exchange == "" || in.Price <= 0:
-			return nil, fmt.Errorf("twssim: book: position %d needs con_id, symbol, currency, exchange and last", i)
+		case in.ConID <= 0 || in.Symbol == "" || in.Currency == "" || in.Exchange == "" || (in.Price <= 0 && !p.Defunct) || (p.Defunct && (in.Price != 0 || in.SecType != "STK")):
+			return nil, fmt.Errorf("twssim: book: position %d needs con_id, symbol, currency, exchange and last (0 only for a defunct stock)", i)
 		case in.SecType == "OPT" && (in.UnderConID <= 0 || (in.Right != "C" && in.Right != "P") || in.Strike <= 0 || len(in.Expiry) != 8 || in.Multiplier <= 0 || in.TradingClass == ""):
 			return nil, fmt.Errorf("twssim: book: option position %d needs underlying_con_id, right, strike, expiry, multiplier and trading_class", i)
 		case in.SecType != "STK" && in.SecType != "OPT":
@@ -97,6 +100,9 @@ func ParseBook(raw []byte) (*Book, error) {
 		}
 		if in.SecType == "OPT" {
 			in.LocalSymbol = fmt.Sprintf("%-6s%s%s%08d", in.Symbol, in.Expiry[2:], in.Right, int(in.Strike*1000+0.5))
+		}
+		if p.Defunct {
+			in.Spread = 0
 		}
 		b.AddInstrument(in)
 		b.SetPosition(in.ConID, p.Quantity, p.AvgCost)

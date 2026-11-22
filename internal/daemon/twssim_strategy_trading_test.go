@@ -52,7 +52,7 @@ func (d *simDesk) strategyPreview(st rpc.PositionStrategy, op string, units int,
 func TestSimulatedTWSStrategyIsRecognised(t *testing.T) {
 	d, _ := optionDesk(t, nil, true)
 	st := d.heldVertical()
-	if st.Name != "bear put spread" || st.Units != 1 || !st.Actionable || len(st.Legs) != 2 || st.Revision <= 0 {
+	if st.Name != "bear put spread" || st.Units != 15 || !st.Actionable || len(st.Legs) != 2 || st.Revision <= 0 {
 		t.Fatalf("strategy %+v", st)
 	}
 }
@@ -90,7 +90,7 @@ func TestSimulatedTWSStrategyAddsAUnit(t *testing.T) {
 		}
 	}
 	after := d.heldVertical()
-	if after.Units != 2 || after.Revision == st.Revision {
+	if after.Units != 16 || after.Revision == st.Revision {
 		t.Fatalf("after the fill: %+v", after)
 	}
 	if _, rerr := d.strategyPreview(st, "add", 1, &limit); rerr == nil || !strings.Contains(rerr.Message, "strategy changed") {
@@ -132,7 +132,7 @@ func TestSimulatedTWSStrategyAddRefusals(t *testing.T) {
 		}
 		v := d.waitStatus(placed.OrderRef, func(v rpc.OrderView) bool { return !v.Open })
 		t.Logf("rejected combination: %s", orderLine(v))
-		if len(d.realPlaces()) != 1 || d.heldVertical().Units != 1 {
+		if len(d.realPlaces()) != 1 || d.heldVertical().Units != 15 {
 			t.Fatal("a rejected combination moved the book or was resent")
 		}
 	})
@@ -151,14 +151,7 @@ func TestSimulatedTWSStrategyAddRefusals(t *testing.T) {
 func TestSimulatedTWSStrategyReduceAndClose(t *testing.T) {
 	for _, op := range []string{"reduce", "close"} {
 		t.Run(op, func(t *testing.T) {
-			// Two units held, so a reduce of one leaves one.
-			now := time.Now()
-			book, exps := twssim.OptionsBook(now), twssim.OptionExpiries(now)
-			long, _ := book.OptionConIDFor(900002, exps[3], 120, "P")
-			short, _ := book.OptionConIDFor(900002, exps[3], 110, "P")
-			book.SetPosition(long, 2, 740)
-			book.SetPosition(short, -2, 360)
-			d, _ := optionDesk(t, book, true)
+			d, _ := optionDesk(t, nil, true)
 			st := d.heldVertical()
 			units := 0
 			if op == "reduce" {

@@ -441,11 +441,12 @@ func (s *Server) accountFrames() [][]byte {
 		in, p := r.in, r.pos
 		value := p.Quantity * in.Price * multiplier(in)
 		unreal := value - p.AvgCost*p.Quantity
-		strike, mult := "0", ""
+		strike, mult, exch := "0", "", in.PrimaryExch
 		if in.SecType == "OPT" {
-			strike, mult = num(in.Strike), num(multiplier(in))
+			// TWS reports a held option on a concrete exchange; its route is SMART.
+			strike, mult, exch = num(in.Strike), num(multiplier(in)), optionPositionExchange
 		}
-		out = append(out, textMessage(msgPortfolioValue, "8", itoa(in.ConID), in.Symbol, in.SecType, in.Expiry, strike, in.Right, mult, in.PrimaryExch, in.Currency, in.LocalSymbol, in.TradingClass,
+		out = append(out, textMessage(msgPortfolioValue, "8", itoa(in.ConID), in.Symbol, in.SecType, in.Expiry, strike, in.Right, mult, exch, in.Currency, in.LocalSymbol, in.TradingClass,
 			num(p.Quantity), num(in.Price), num2(value), num(p.AvgCost), num2(unreal), "0", b.Account()))
 	}
 	out = append(out, textMessage(msgAccountTime, "1", s.now().Format("15:04")))
@@ -528,7 +529,11 @@ func (ss *session) contractDetails(reqID int, q contractQuery) {
 func contractDetailsFields(reqID int, in Instrument) []string {
 	orderTypes := "LMT,MKT,STP,STPLMT,TRAIL,TRAILLIMIT,REL"
 	valid := "SMART," + in.PrimaryExch
-	if in.SecType != "STK" {
+	switch in.SecType {
+	case "OPT":
+		valid = "SMART,AMEX,CBOE,ISE"
+	case "STK":
+	default:
 		valid = in.Exchange
 	}
 	// One market rule per valid exchange, in the same order, as TWS lists them.
@@ -544,6 +549,10 @@ func contractDetailsFields(reqID int, in Instrument) []string {
 	}
 	return []string{itoa(reqID), in.Symbol, in.SecType, in.Expiry, in.Expiry, strike, in.Right, in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), mult, orderTypes, valid, itoa(max(in.PriceMagnifier, 1)), under, in.LongName, in.PrimaryExch, month, "", "", "", "US/Eastern", "", "", "", "0", "0", "1", underSym, underType, rules, in.Expiry, stockType, "1", "1", "1", "0"}
 }
+
+// optionPositionExchange is the exchange a held option's portfolio row
+// names, as real TWS does (the owner's rows read AMEX); orders route SMART.
+const optionPositionExchange = "AMEX"
 
 // optionParams answers reqSecDefOptParams: one row of the underlying's
 // chain on SMART (its trading class, multiplier, expiries and strikes), then

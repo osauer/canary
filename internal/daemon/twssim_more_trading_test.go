@@ -61,3 +61,27 @@ func TestSimulatedTWSEuropeanAdds(t *testing.T) {
 		})
 	}
 }
+
+// The example book (owner's asset mix, with a defunct zero-value line on
+// DOLLR4LOT and option rows reporting AMEX): the vertical is still grouped
+// at 15 units, and a stock add is still sized.
+func TestSimulatedTWSOwnerMixBook(t *testing.T) {
+	book, err := twssim.LoadBook("../../pkg/ibkr/twssim/testdata/owner-mix-book.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setSessions(t, true)
+	d := startSimDesk(t, twssim.Options{Book: book}, true)
+	st := d.heldVertical()
+	if st.Units != 15 || !st.Actionable {
+		t.Fatalf("vertical %+v", st)
+	}
+	for _, l := range st.Legs {
+		t.Logf("leg %s %s %v exchange %q", l.Contract.Right, l.Contract.Expiry, l.Contract.Strike, l.Contract.Exchange)
+	}
+	plan := d.plan(synaAdd)
+	t.Logf("stock add on the owner mix: quantity %d, blockers %+v", plan.Quantity, plan.Blockers)
+	if _, rerr := d.strategyPreview(st, "add", 1, new(8.0)); rerr != nil {
+		t.Logf("strategy add: %s", rerr.Message)
+	}
+}
