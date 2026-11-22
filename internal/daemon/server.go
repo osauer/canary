@@ -828,7 +828,7 @@ func New(opts Options) *Server {
 		configIssuesAt:      time.Now().UTC(),
 		ensurePolicyFiles:   opts.EnsurePolicyFiles,
 		shutdownStarted:     opts.ShutdownStarted,
-		disableMacroSources: opts.DisableMacroSources,
+		disableMacroSources: opts.DisableMacroSources || opts.Simulator,
 		simulator:           opts.Simulator,
 		cfg:                 disableIBKRHosts(opts.Config),
 		opend:               newOpenDBroker(opts.Config, opts.Version),
@@ -921,6 +921,11 @@ func (s *Server) installEarningsCache() {
 	}
 	if err := cache.setIdentityFetcher(s.fetchEarningsIdentity); err != nil {
 		s.logger.Warnf("earnings cache: install broker identity reader: %v", err)
+	}
+	if s.simulator {
+		// A simulated daemon asks no public earnings site; the loopback
+		// discard port refuses at once.
+		cache.fetchURL = simulatorOfflineURL + "/%s"
 	}
 	s.earnings = cache
 }
@@ -1147,8 +1152,8 @@ func (s *Server) resolveBreadthMembers() []string {
 // installMembersRefresher stands up the runtime SPX-members refresher.
 //   - breadth engine missing (cache-dir failure) → no refresher.
 func (s *Server) installMembersRefresher() {
-	if s.breadth == nil {
-		return
+	if s.breadth == nil || s.simulator {
+		return // a simulated daemon reads the embedded members list only
 	}
 	cachePath, err := spx.MembersDefaultPath()
 	if err != nil {

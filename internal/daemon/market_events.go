@@ -123,7 +123,10 @@ var ibkrBorrowFeeFTP = borrowFeeFTPSource{
 
 type marketEventCache struct {
 	// noIBKRHosts keeps the IBKR borrow-fee FTP dial off under another broker.
-	noIBKRHosts               bool
+	noIBKRHosts bool
+	// offline keeps every public source off (Nasdaq Trader's Reg SHO list and
+	// halts, the borrow-fee FTP) in a simulated daemon; broker reads stay on.
+	offline                   bool
 	mu                        sync.Mutex
 	borrowFeesRefreshGate     chan struct{}
 	borrowInventoryGate       chan struct{}
@@ -329,6 +332,7 @@ func (s *Server) installMarketEventCache() {
 	s.marketEvents = newMarketEventCache(s.now)
 	s.marketEvents.logger = s.logger
 	s.marketEvents.noIBKRHosts = s.opend != nil
+	s.marketEvents.offline = s.simulator
 }
 
 func (s *Server) handleMarketEventsSnapshot(ctx context.Context, req *rpc.Request) (*rpc.MarketEventsResult, error) {
@@ -487,6 +491,9 @@ func (c *marketEventCache) snapshot(ctx context.Context, symbols []string, subs 
 }
 
 func (c *marketEventCache) loadRegSHO(ctx context.Context, now time.Time) (marketEventRegSHOEntry, rpc.SourceHealth, error) {
+	if c.offline {
+		return marketEventRegSHOEntry{}, marketEventSourceHealth("reg_sho", rpc.SourceStatusNotApplicable, time.Time{}, now, c.regSHOFreshFor, "none", []string{"simulated broker"}), nil
+	}
 	c.mu.Lock()
 	if !c.regSHO.FetchedAt.IsZero() && now.Sub(c.regSHO.FetchedAt) <= c.regSHOFreshFor {
 		entry := cloneRegSHOEntry(c.regSHO)
@@ -537,6 +544,9 @@ func regSHOFallback(cached marketEventRegSHOEntry, now time.Time, cause error) (
 }
 
 func (c *marketEventCache) loadHalts(ctx context.Context, now time.Time) (marketEventHaltsEntry, rpc.SourceHealth, error) {
+	if c.offline {
+		return marketEventHaltsEntry{}, marketEventSourceHealth("trading_halts", rpc.SourceStatusNotApplicable, time.Time{}, now, c.haltsFreshFor, "none", []string{"simulated broker"}), nil
+	}
 	c.mu.Lock()
 	if !c.halts.FetchedAt.IsZero() && now.Sub(c.halts.FetchedAt) <= c.haltsFreshFor {
 		entry := cloneHaltsEntry(c.halts)
@@ -593,7 +603,7 @@ func haltsFallback(cached marketEventHaltsEntry, now time.Time, freshFor time.Du
 }
 
 func (c *marketEventCache) loadBorrowFees(ctx context.Context) (marketEventBorrowFeeEntry, rpc.SourceHealth, error) {
-	if c.noIBKRHosts {
+	if c.noIBKRHosts || c.offline {
 		// Off for this broker, not stale: there is nothing to retry.
 		return marketEventBorrowFeeEntry{}, marketEventSourceHealth("borrow_fee", rpc.SourceStatusNotApplicable, time.Time{}, c.now().UTC(), marketEventsBorrowFeeMaxAge, "none", []string{"IBKR only"}), nil
 	}

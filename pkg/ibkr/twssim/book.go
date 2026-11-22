@@ -26,6 +26,8 @@ type Instrument struct {
 	// Spread is the bid/ask width around Price; zero quotes the last only, as
 	// an index does.
 	Spread float64
+	// Bid and Ask, when set, are quoted as they are instead of from Spread.
+	Bid, Ask float64
 }
 
 // Position is one holding of the book's account.
@@ -209,6 +211,23 @@ func (b *Book) SetPrice(conID int, price float64) {
 	}
 }
 
+// SetQuote sets a listed symbol's quote: last, and bid and ask when given
+// (zero keeps the spread around last).
+func (b *Book) SetQuote(symbol string, bid, ask, last float64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, in := range b.instr {
+		if strings.EqualFold(in.Symbol, symbol) && in.SecType == "STK" {
+			if last > 0 {
+				in.Price = last
+			}
+			in.Bid, in.Ask = bid, ask
+			return nil
+		}
+	}
+	return fmt.Errorf("twssim: %s is not listed", symbol)
+}
+
 // Position returns a holding and whether the book holds it.
 func (b *Book) Position(conID int) (Position, bool) {
 	b.mu.Lock()
@@ -290,6 +309,9 @@ func quoteOf(in Instrument) quote {
 	if in.Spread > 0 {
 		q.bid = roundTo(in.Price-in.Spread/2, in.MinTick)
 		q.ask = roundTo(in.Price+in.Spread/2, in.MinTick)
+	}
+	if in.Bid > 0 || in.Ask > 0 {
+		q.bid, q.ask = in.Bid, in.Ask
 	}
 	return q
 }

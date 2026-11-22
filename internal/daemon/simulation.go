@@ -38,8 +38,23 @@ import (
 //     reconcile event with origin "simulator", because a simulated book has
 //     no Flex statements to reconcile against and the drawdown brake refuses
 //     every risk-adding order while the reconcile clock has never started
-//     (risk.EvaluateUnreconciledClock).
+//     (risk.EvaluateUnreconciledClock);
+//   - no public site is asked: the regime sources above, the earnings
+//     provider (simulatorOfflineURL), Nasdaq Trader's Reg SHO list and halts
+//     and the borrow-fee FTP (marketEventCache.offline) and the S&P 500
+//     members refresh (embedded list only); macro and Treasury bill readers
+//     are off (a simulated daemon forces Options.DisableMacroSources), and
+//     the config is refused with the Flex fetch on or a cash-ledger web
+//     service off loopback.
+//
+// Nothing else is seeded or bypassed: Desk's production place call (an
+// agent-origin `canary order place --json --preview-token T
+// --accept-add-warnings`) passes every live gate it passes in production.
 const simulatorOrigin = "simulator"
+
+// simulatorOfflineURL is the loopback discard port: a public client a
+// simulated daemon points there is refused at once.
+const simulatorOfflineURL = "http://127.0.0.1:9"
 
 // SimulatorAccount is the only account a simulated daemon accepts: the
 // placeholder live account the TWS simulator's book answers for, listed as
@@ -72,6 +87,12 @@ func checkSimulatorConfig(cfg *config.Resolved) error {
 	}
 	if g.Account != SimulatorAccount {
 		problems = append(problems, fmt.Sprintf("account %q is not the simulator's placeholder %s", g.Account, SimulatorAccount))
+	}
+	if cfg.Flex.Enabled {
+		problems = append(problems, "the Flex statement fetch is enabled")
+	}
+	if u := strings.TrimSpace(cfg.CashLedger.URL); u != "" && !strings.HasPrefix(u, "http://127.0.0.1:") {
+		problems = append(problems, fmt.Sprintf("the cash-ledger web service %q is not on loopback", u))
 	}
 	if cfg.Trading.Mode != "live" {
 		problems = append(problems, fmt.Sprintf("trading mode %q is not live", cfg.Trading.Mode))

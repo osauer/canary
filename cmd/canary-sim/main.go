@@ -14,6 +14,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -21,10 +22,12 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/osauer/canary/v3/internal/config"
 	"github.com/osauer/canary/v3/internal/daemon"
 	"github.com/osauer/canary/v3/internal/discover"
+	"github.com/osauer/canary/v3/internal/marketcal"
 	"github.com/osauer/canary/v3/pkg/ibkr/twssim"
 )
 
@@ -110,8 +113,17 @@ func buildVersion() string {
 }
 
 func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "ctl" {
+		return runCtl(args[1:], stdout, stderr)
+	}
 	flags := flag.NewFlagSet("canary-sim", flag.ContinueOnError)
 	flags.SetOutput(stderr)
+	flags.Usage = func() {
+		fmt.Fprintln(stderr, "canary-sim [-dir DIR] [-listen 127.0.0.1:0]: run the real daemon (live mode, placeholder account U1234567) against the TWS simulator in DIR")
+		flags.PrintDefaults()
+		fmt.Fprintln(stderr, "\nThe exchange sessions start as the official calendar has them now; the control channel changes them.")
+		fmt.Fprintln(stderr, ctlUsage)
+	}
 	dirFlag := flags.String("dir", "", "the stack's directory (created; default a new one under /tmp); keep it short, a Unix socket path is limited to about 100 bytes")
 	listen := flags.String("listen", "127.0.0.1:0", "the simulator's loopback address; port 0 picks a free one")
 	if err := flags.Parse(args); err != nil {
@@ -150,6 +162,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 2
 	}
+	// The simulated exchange opens and closes as the official calendar has it
+	// now, until the control channel says otherwise.
+	for name, cal := range ctlMarkets {
+		session, err := marketcal.New().SessionAt(cal, time.Now())
+		sim.SetSession(name, err == nil && session.IsOpen)
+	}
+	ctl, err := net.Listen("unix", filepath.Join(dir, "ctl.sock"))
+	if err != nil {
+		fmt.Fprintln(stderr, "canary-sim:", err)
+		return 1
+	}
+	defer ctl.Close()
+	go serveControl(ctl, sim)
 	for _, entry := range s.env {
 		key, value, _ := strings.Cut(entry, "=")
 		if err := os.Setenv(key, value); err != nil {
@@ -193,6 +218,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	fmt.Fprintf(stdout, "canary-sim: TWS simulator on %s, account %s (live mode, placeholder account), daemon socket %s\n", sim.Addr(), book.Account(), s.socket)
 	fmt.Fprintf(stdout, "canary-sim: broker frames in %s, daemon log in %s\n", frames.Name(), s.log)
+	fmt.Fprintf(stdout, "canary-sim: control: canary-sim ctl -dir %s COMMAND (canary-sim -h lists them)\n", dir)
 	fmt.Fprintln(stdout, "# set these before running canary against the simulator:")
 	for _, entry := range s.env {
 		key, value, _ := strings.Cut(entry, "=")
