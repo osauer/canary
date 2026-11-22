@@ -37,3 +37,30 @@ func TestStrategiesListNamesTheHeldPosition(t *testing.T) {
 		}
 	}
 }
+
+// An add buys the combination, so its positive limit is what is paid and
+// the count after it is what is held; a gate's warning is shown with it.
+func TestStrategiesAddPreviewSaysWhatIsPaidAndHeld(t *testing.T) {
+	leg := func(conID, ratio int, action string, strike, before, after float64) rpc.StrategyOrderLeg {
+		return rpc.StrategyOrderLeg{Contract: rpc.ContractParams{Symbol: "AAA", SecType: "OPT", Expiry: "20261218", Right: "P", Strike: strike, ConID: conID},
+			Ratio: ratio, Action: action, Quantity: 2, Before: before, After: after}
+	}
+	preview := rpc.OrderPreviewResult{SubmitEligible: true, WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted},
+		Warnings: []rpc.DataWarning{{Message: "Mandate budget: synthetic warning."}},
+		Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 2, LimitPrice: 1.5, StrategyGroup: &rpc.StrategyOrderDraft{
+			StrategyID: "strat-aaa-1", StrategyRevision: 3, Operation: rpc.StrategyOperationAdd, Units: 2, UnitsBefore: 3, UnitsAfter: 5, GuaranteedCombo: true,
+			Legs: []rpc.StrategyOrderLeg{leg(900001, 1, rpc.OrderActionBuy, 145, 3, 5), leg(900002, -1, rpc.OrderActionSell, 135, -3, -5)}}}}
+	var stdout, stderr bytes.Buffer
+	if code := Run(t.Context(), &Env{Stdout: &stdout, Stderr: &stderr, Conn: goldenConn{rpc.MethodStrategyPreview: preview}}, "strategies", []string{"add", "strat-aaa-1", "3", "--units", "2"}); code != 0 {
+		t.Fatalf("exit %d; stderr %s", code, stderr.String())
+	}
+	text := stdout.String()
+	for _, want := range []string{"Add 2 strategy unit(s) to 3 held", "Pay up to 1.50 per strategy", "5 strategy unit(s) held", "Mandate budget: synthetic warning.", "SELL 2  20261218 P 135.00  -3 → -5"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text missing %q:\n%s", want, text)
+		}
+	}
+	if code := Run(t.Context(), &Env{Stdout: &stdout, Stderr: &stderr, Conn: goldenConn{}}, "strategies", []string{"add", "strat-aaa-1", "3"}); code == 0 {
+		t.Fatal("an add without --units ran")
+	}
+}

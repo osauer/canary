@@ -172,6 +172,32 @@ call beside the shares as a collar. The shares name the position and join no
 order: a collar's two options close as one combo, and a covered call's call
 trades on its own.
 
+`canary strategies add ID REVISION --units N` buys more whole units of a held
+strategy as one guaranteed combo, every leg opening in the held ratio, at a
+DAY limit: the most paid per unit, or with a negative limit the least
+received. The order is judged once, as that order, never leg by leg:
+
+- A covered combination, where every sold contract is capped by a bought
+  contract of the same kind, expiry and size nearer the money, can lose the
+  premium paid and no more. The order cap reads that net premium at the
+  limit, the sold legs need no sell-to-open permission, and the mandate judges
+  it as an option buy on the net premium: the premium limits can refuse it,
+  the loss room is its warning.
+- A covered combination of puts on a hedge symbol, or one whose bought puts
+  cover no more shares than you hold, is a hedge entry. The drawdown brake and
+  the mandate leave it open, as they leave the single put open: the sold put
+  lowers the price, and the order still adds protection.
+- Any other combination adds risk like any addition: a credit spread, a ratio,
+  a calendar, or a sold contract nothing in the order caps (a long
+  butterfly's second sold contract included). The order cap reads the gross
+  premium of its legs, the sold legs need `allow_option_sell_to_open`, the
+  drawdown brake applies, and the mandate measures the book once with every
+  leg added. A leg it cannot price refuses the order.
+
+Each leg stays inside `max_option_contracts` in every case. No proposal and no
+pre-authorised bucket adds units: an add is sent only from a preview you
+confirm.
+
 The option-exit policy uses an absolute `0.05` quote-currency `TRAIL LIMIT`
 offset. An inherited or omitted offset fails activation. Standing defaults apply
 only to standard ungrouped long contracts.

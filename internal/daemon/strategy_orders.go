@@ -56,7 +56,7 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 		tif = rpc.OrderTIFDay
 	}
 	if tif != rpc.OrderTIFDay {
-		return nil, errBadRequest("strategy close/reduce supports DAY time-in-force only")
+		return nil, errBadRequest("a strategy order supports DAY time-in-force only")
 	}
 
 	timeout := orderPreviewTimeout(p.TimeoutMs)
@@ -75,6 +75,12 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 		GuaranteedCombo: true,
 		Legs:            make([]rpc.StrategyOrderLeg, 0, len(group.Legs)),
 	}
+	// An add opens every leg further in the held direction; a close or
+	// reduction trades every leg back toward flat.
+	adding := operation == rpc.StrategyOperationAdd
+	if adding {
+		draftGroup.UnitsAfter = group.Units + units
+	}
 	currency := ""
 	quotes := make([]rpc.OrderQuoteSnapshot, 0, len(group.Legs))
 	for _, held := range group.Legs {
@@ -91,7 +97,7 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 			return nil, errBadRequest("strategy legs do not share one currency")
 		}
 		action := rpc.OrderActionSell
-		if held.Ratio < 0 {
+		if (held.Ratio < 0) != adding {
 			action = rpc.OrderActionBuy
 		}
 		quantity := absOrderRatio(held.Ratio) * units
@@ -128,6 +134,14 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 		Strategy: "group-close", OrderRef: previewOrderRef(now), OpenClose: "C",
 		Source: strings.TrimSpace(p.Source), StrategyGroup: draftGroup,
 	}
+	if adding {
+		// Bought as one combination, the limit is the most paid per unit
+		// (negative: the least received). A covered add can lose that
+		// premium and no more, so the order cap reads it at the limit; any
+		// other add keeps the gross premium of its legs (strategy_add.go).
+		draft.Action, draft.Strategy, draft.OpenClose = rpc.OrderActionBuy, "group-add", "O"
+		grossNotional = strategyAddCapNotional(draft, grossNotional)
+	}
 	positionAuthority, err := s.captureBoundStrategyPositionAuthority(ctx, previewAuthority.connector, previewAuthority.session, status, *draftGroup)
 	if err != nil {
 		return nil, err
@@ -144,11 +158,21 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 	if err := validateOrderRiskAuthority(limits, draft, position, notionalAuthority, positionAuthority.BaseCurrency, exitInventory, deltaEvidence); err != nil {
 		return nil, refusePreview(errBadRequest(err.Error()), orderRiskLimitBlocker(limits, err))
 	}
-	if brake, _ := s.riskPolicyBrake(draft, position); brake != nil {
+	// Read broker inventory and correlated fill quantities outside the wire
+	// lock, as the single-order preview does; only an add needs them.
+	if _, err := s.prepareMandatePremium(ctx, draft, position); err != nil {
+		return nil, refusePreview(errBadRequest("Mandate premium: "+err.Error()), rpc.TradingBlocker{Code: rpc.MandatePremiumBlockerCode, Message: "Mandate premium: " + err.Error(), Action: "Refresh orders and positions before adding option premium."})
+	}
+	brake, gateWarnings := s.riskPolicyBrake(draft, position)
+	if brake != nil {
 		return nil, refusePreview(errBadRequest(brake.Message), *brake)
 	}
-	if blocker := s.mandateBudgetGate(draft, position); blocker != nil {
-		return nil, refusePreview(errBadRequest(blocker.Message), *blocker)
+	mandateBlocker, mandateWarning := s.mandateBudgetJudgement(draft, position)
+	if mandateBlocker != nil {
+		return nil, refusePreview(errBadRequest(mandateBlocker.Message), *mandateBlocker)
+	}
+	if mandateWarning != nil {
+		gateWarnings = append(gateWarnings, *mandateWarning)
 	}
 	whatIf, err := s.fetchPreviewWhatIfBound(ctx, status, draft, timeout, previewAuthority)
 	if err != nil {
@@ -156,6 +180,13 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 	}
 	if !s.orderPreviewBrokerAuthorityCurrent(previewAuthority) {
 		return nil, brokerWriteTransactionDriftError()
+	}
+	if adding {
+		// An add opens options, so a recorded denial of the option class
+		// refuses it as it refuses a single option bought to open.
+		if b := s.brokerPermissionBlocker(draftGroup.Legs[0].Contract); b != nil {
+			return nil, refusePreview(errBadRequest(b.Message), *b)
+		}
 	}
 	if _, generation := s.effectiveTradingControlSnapshot(); generation != tradingControlGeneration {
 		return nil, fmt.Errorf("%w: trading controls changed during preview; refresh and retry", ErrTradingDisabled)
@@ -176,7 +207,7 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 	if err := s.orderJournal.Append(event); err != nil {
 		return nil, fmt.Errorf("%w: append preview journal: %v", ErrTradingDisabled, err)
 	}
-	warnings := previewWhatIfWarnings(whatIf)
+	warnings := append(gateWarnings, previewWhatIfWarnings(whatIf)...)
 	tokenMinted := token != "" && tokenID != ""
 	submitEligible := tokenMinted && draftGroup.GuaranteedCombo && whatIf.Status == rpc.OrderWhatIfStatusAccepted && !whatIf.RequiredForSubmit
 	return &rpc.OrderPreviewResult{
@@ -302,8 +333,13 @@ func normalizeStrategyOperation(operation string, units, available int) (string,
 			return "", 0, errBadRequest("reduce units must be positive and leave at least one strategy unit")
 		}
 		return operation, units, nil
+	case rpc.StrategyOperationAdd:
+		if units <= 0 {
+			return "", 0, errBadRequest("add units must be positive")
+		}
+		return operation, units, nil
 	default:
-		return "", 0, errBadRequest("operation must be close or reduce")
+		return "", 0, errBadRequest("operation must be close, reduce or add")
 	}
 }
 
@@ -343,7 +379,7 @@ func (s *Server) reconcileJournaledStrategyGroups(options []rpc.PositionView, gr
 		for i := range groups {
 			groups[i].Actionable = false
 			groups[i].Status = rpc.PositionStrategyStatusReview
-			groups[i].Reason = "Close and reduce are paused until Canary can read its order history."
+			groups[i].Reason = "Strategy orders are paused until Canary can read its order history."
 		}
 		return groups, issues
 	}

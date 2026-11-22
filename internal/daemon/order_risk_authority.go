@@ -656,6 +656,12 @@ func validateOrderRiskAuthority(limits risk.OrderLimitsInForce, draft rpc.OrderD
 	if notional.BaseNotional > limits.CapBase && !protectiveExit && !sweepBill && !deltaExempt && !futureExempt {
 		return fmt.Errorf("order notional %s exceeds the order cap in force %s%s", risk.FormatOrderMoney(notional.BaseNotional, baseCurrency), limits.Summary, deltaWhy)
 	}
+	if strategyAdd(draft) != nil {
+		// An add is judged as one order (strategy_add.go): its shape, the
+		// per-leg contract cap and the sell-to-open permission of a sold leg
+		// nothing in the order caps.
+		return validateStrategyAddDraft(limits, draft, position, notional)
+	}
 	if draft.StrategyGroup != nil {
 		if err := validateStrategyReductionDraft(draft, position, limits.MaxOptionContracts, deltaExempt); err != nil {
 			return err

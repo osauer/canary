@@ -20,7 +20,7 @@ The group column is the heading a command appears under in `canary --help`: Desk
 | [`canary data`](#canary-data) | Markets | Check data availability and freshness | `read-only` | yes |
 | [`canary account`](#canary-account) | Desk | Account summary snapshot (NLV, BP, cash, margin, daily P&L) | `read-only` | yes |
 | [`canary positions`](#canary-positions) | Desk | List open stock, option, bill and bond positions | `read-only` | yes |
-| [`canary strategies`](#canary-strategies) | Desk | Group option legs and close or reduce them as one guaranteed combo | `confirm` | yes |
+| [`canary strategies`](#canary-strategies) | Desk | Group option legs and close, reduce or add to them as one guaranteed combo | `confirm` | yes |
 | [`canary portfolio`](#canary-portfolio) | Desk | Signed allocation by asset class and GICS sector, with coverage; plan reads the next portfolio action | `read-only` | yes |
 | [`canary market`](#canary-market) | Markets | Observed quotes, price history and a daily price/breadth/volume tape | `read-only` | yes |
 | [`canary technical`](#canary-technical) | Markets | Trend, relative strength, ATR, and liquidity from daily bars | `read-only` | yes |
@@ -149,7 +149,7 @@ canary positions [--symbol SYM] [--type stk|opt] [--sort alpha|pnl|value] [--quo
 
 ## `canary strategies`
 
-Group option legs and close or reduce them as one guaranteed combo.
+Group option legs and close, reduce or add to them as one guaranteed combo.
 
 Guard `confirm`. Also available as an MCP tool.
 
@@ -157,6 +157,7 @@ Guard `confirm`. Also available as an MCP tool.
 canary strategies list [--json]
 canary strategies close ID REVISION [--limit PRICE] [--submit]
 canary strategies reduce ID REVISION --units N [--limit PRICE] [--submit]
+canary strategies add ID REVISION --units N [--limit PRICE] [--submit]
 ```
 
 **Subcommands**
@@ -166,6 +167,7 @@ canary strategies reduce ID REVISION --units N [--limit PRICE] [--submit]
 | `list` | `read-only` |
 | `close` | `confirm` |
 | `reduce` | `confirm` |
+| `add` | `confirm` |
 
 **Flags**
 

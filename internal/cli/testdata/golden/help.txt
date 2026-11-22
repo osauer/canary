@@ -12,7 +12,7 @@ Account, positions, orders and risk
   status          Check Canary and the broker connection
   account         Account value, buying power, cash, margin and daily P&L
   positions       List open stock, option, bill and bond positions
-  strategies      View option strategies; close or reduce them as one order
+  strategies      View option strategies; close, reduce or add as one order
   portfolio       Holdings by asset class and sector; review the next planned
                   action
   locks           Keep every held contract of a name out of bulk and automatic
@@ -93,7 +93,7 @@ Start: canary status — check the broker connection
   \x1b[36mstatus          \x1b[0mCheck Canary and the broker connection
   \x1b[36maccount         \x1b[0mAccount value, buying power, cash, margin and daily P&L
   \x1b[36mpositions       \x1b[0mList open stock, option, bill and bond positions
-  \x1b[36mstrategies      \x1b[0mView option strategies; close or reduce them as one order
+  \x1b[36mstrategies      \x1b[0mView option strategies; close, reduce or add as one order
   \x1b[36mportfolio       \x1b[0mHoldings by asset class and sector; review the next planned
                   action
   \x1b[36mlocks           \x1b[0mKeep every held contract of a name out of bulk and automatic

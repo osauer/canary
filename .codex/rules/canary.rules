@@ -118,12 +118,13 @@ prefix_rule(
 )
 
 prefix_rule(
-    pattern = [["ibkr", "canary"], "strategies", ["close", "reduce"]],
+    pattern = [["ibkr", "canary"], "strategies", ["close", "reduce", "add"]],
     decision = "prompt",
-    justification = "Strategy close/reduce previews a combo order and with --submit places it; require a current-turn user decision.",
+    justification = "Strategy close/reduce/add previews a combo order and with --submit places it; require a current-turn user decision.",
     match = [
         "canary strategies close STRAT_ID sha256:abc --json",
         "canary strategies reduce STRAT_ID sha256:abc --units 1 --submit --json",
+        "canary strategies add STRAT_ID sha256:abc --units 1 --submit --json",
     ],
 )
 

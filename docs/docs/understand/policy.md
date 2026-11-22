@@ -417,7 +417,10 @@ it. Selling more than you hold, or
 selling with no position, still needs `allow_stock_short` or
 `allow_option_sell_to_open`; a stale or incomplete position read refuses the
 order until the next refresh. The order cap and the option contract cap still
-apply as above. A sale beside a stop Canary placed on the same line joins the
+apply as above. Units added to a held strategy are one order: a sold leg that
+a bought leg of the same order caps needs no permission, and the order cap
+then reads the net premium paid
+([Protection](../operate/protection.md#proposals-close-or-reduce-only)). A sale beside a stop Canary placed on the same line joins the
 stop's broker one-cancels-all group, or shrinks the stop first and is refused
 when that fails, so the two never sell the line twice
 ([Protection](../operate/protection.md#protective-stop-exemption-and-guard));

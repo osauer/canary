@@ -1933,6 +1933,9 @@ const (
 
 	StrategyOperationClose  = "close"
 	StrategyOperationReduce = "reduce"
+	// StrategyOperationAdd buys more whole units of a held strategy as one
+	// combination; every leg opens in the strategy's ratio.
+	StrategyOperationAdd = "add"
 )
 
 // PositionStrategy is the daemon-owned grouping of exact held contracts.

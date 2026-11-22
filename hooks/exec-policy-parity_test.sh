@@ -64,6 +64,7 @@ run_cli_case order-cancel canary prompt order cancel ORDER_ID --json
 run_cli_case order-place canary prompt order place --preview-token TOKEN --json
 run_cli_case order-modify canary prompt order modify ORDER_ID --preview-token TOKEN --json
 run_cli_case strategies-close canary prompt strategies close STRAT_ID sha256:abc --json
+run_cli_case strategies-add canary prompt strategies add STRAT_ID sha256:abc --units 1 --json
 run_cli_case opportunity-exercise canary prompt opportunities exercise KEY REVISION --json
 run_cli_case proposals-submit-bundle canary prompt proposals submit-bundle --stdin --json
 

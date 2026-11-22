@@ -710,7 +710,8 @@ func mandateMoney(v float64, ccy string) string {
 // mandate gate share: a close or reduce never adds risk (a BUY that closes
 // or shrinks a held index hedge included), a BUY of a put on a Rulebook
 // hedge symbol or one that protects shares held (protectivePut) is a hedge
-// entry that stays open, and a SELL of the index future is a reduction when
+// entry that stays open, as is a covered put combination added to a held
+// strategy on the same terms (strategyAddHedgeEntry), and a SELL of the index future is a reduction when
 // indexHedgeReduces says so; a bill purchase (mandateBillBuy) moves cash
 // into a cash-like line; everything else adds risk. Cancels never reach
 // either gate.
@@ -721,6 +722,11 @@ func (s *Server) riskAddingOrder(draft rpc.OrderDraft, position rpc.OrderPositio
 	}
 	if mandateBillBuy(draft) {
 		return false
+	}
+	if strategyAdd(draft) != nil {
+		// Units added to a held strategy are judged as one order: a hedge
+		// entry when the combination is one, an addition otherwise.
+		return !s.strategyAddHedgeEntry(draft)
 	}
 	if strings.EqualFold(draft.Action, "BUY") && strings.EqualFold(draft.Contract.SecType, "OPT") && strings.EqualFold(draft.Contract.Right, "P") &&
 		(s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol) || s.protectivePut(draft)) {
@@ -886,7 +892,9 @@ func (s *Server) mandateBudgetJudgement(draft rpc.OrderDraft, position rpc.Order
 	if override != nil && sleeve != mandate.SleeveOwner {
 		override = nil
 	}
-	option := mandateOptionAddition(draft)
+	// A covered strategy add can lose its net premium and no more, so it is
+	// judged as an option buy is (strategy_add.go).
+	option := mandateOptionAddition(draft) || strategyAddCovered(strategyAdd(draft))
 	if option && override == nil {
 		if blocker := s.mandatePremiumGate(draft, result, input, ccy, open); blocker != nil {
 			return blocker, nil
@@ -950,20 +958,35 @@ func (s *Server) mandateVolatilityGate(draft rpc.OrderDraft, position rpc.OrderP
 		return &rpc.TradingBlocker{Code: mandateBudgetCode, Message: "Mandate budget: this order cannot be measured: " + strings.Join(why, "; ") + "." + open,
 			Action: "Retry once the history has arrived (the background lane reads it within minutes); `canary mandate` has the measurement."}
 	}
-	leg, ok := mandateOrderLeg(draft, &book)
-	if !ok {
-		// Fail closed: an order the evaluator cannot price is never passed
-		// unmeasured (core sleeve review, 2026-10-14).
-		return mandateUnpricedOrderGate(draft, result.Verdict, book, sleeve, overBudget, ccy, open, action)
+	var legs []mandate.Leg
+	if strategyAdd(draft) != nil {
+		// A strategy add is measured once, with every leg of the order on
+		// the book, and never passed unmeasured: a leg the kept book cannot
+		// price refuses the order.
+		var why string
+		if legs, why = mandateStrategyAddLegs(draft, &book); why != "" {
+			return &rpc.TradingBlocker{Code: mandateBudgetCode, Message: "Mandate budget: this order cannot be measured: " + why + "." + open,
+				Action: "Retry once every leg of the strategy carries a volatility; `canary mandate` has the measurement."}
+		}
+	} else {
+		leg, ok := mandateOrderLeg(draft, &book)
+		if !ok {
+			// Fail closed: an order the evaluator cannot price is never passed
+			// unmeasured (core sleeve review, 2026-10-14).
+			return mandateUnpricedOrderGate(draft, result.Verdict, book, sleeve, overBudget, ccy, open, action)
+		}
+		// The order's units open in its sleeve: the allocations are judged with it
+		// placed there, as a leg of its own where the line's placed units belong
+		// to another sleeve.
+		if legID != "" {
+			leg.ID = legID
+		}
+		legs = []mandate.Leg{leg}
 	}
-	// The order's units open in its sleeve: the allocations are judged with it
-	// placed there, as a leg of its own where the line's placed units belong
-	// to another sleeve.
-	if legID != "" {
-		leg.ID = legID
+	for _, leg := range legs {
+		book.Allocations = book.Allocations.WithPlaced(leg.ID, sleeve)
 	}
-	book.Allocations = book.Allocations.WithPlaced(leg.ID, sleeve)
-	with := mandate.Evaluate(mandate.WithLeg(book, leg))
+	with := mandate.Evaluate(mandateInputWithLegs(book, legs))
 	if with.Status == mandate.StatusUnknown || with.Risk == nil {
 		why := "no reason given"
 		if len(with.Reasons) > 0 {

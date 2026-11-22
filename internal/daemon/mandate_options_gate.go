@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -116,7 +118,13 @@ func (s *Server) mandatePremiumGate(draft rpc.OrderDraft, result *rpc.MandateRis
 	if exposure.NLVBase == nil || !(*exposure.NLVBase > 0) {
 		return refuse("this option buy cannot be measured: "+nonEmptyString(exposure.NLVReason, "net liquidation value is unknown")+".", "Retry once the account has been read; "+measure)
 	}
+	combination := strategyAdd(draft) != nil
 	if !(draft.LimitPrice > 0) {
+		if combination {
+			// A covered combination bought for nothing, or for a credit,
+			// puts no premium at risk.
+			return nil
+		}
 		return refuse("this option buy cannot be measured: without a limit there is no premium to bound its loss.", "Buy at a limit; "+measure)
 	}
 	fx := 1.0
@@ -132,6 +140,10 @@ func (s *Server) mandatePremiumGate(draft rpc.OrderDraft, result *rpc.MandateRis
 		mult = 100
 	}
 	premium := float64(draft.Quantity) * mult * draft.LimitPrice * fx
+	if combination {
+		// The whole order's premium, net of what its sold legs bring in.
+		premium = strategyAddNetPremium(draft) * fx
+	}
 	pending, err := s.mandatePendingPremium(draft, input, exposure, ccy)
 	if err != nil {
 		return refuse("this option buy cannot be measured: "+err.Error()+".", "Refresh the orders and positions reading; "+measure)
@@ -178,10 +190,17 @@ func (s *Server) mandatePremiumGate(draft rpc.OrderDraft, result *rpc.MandateRis
 // The final physical-wire guard reads only that receipt and durable journal;
 // it must never initiate broker I/O while holding the transport lock.
 func (s *Server) prepareMandatePremium(ctx context.Context, draft rpc.OrderDraft, position rpc.OrderPositionImpact) (*protectionOrderSnapshotBinding, error) {
-	if s == nil || s.riskPolicies == nil || s.riskCapital == nil || !mandateOptionAddition(draft) || isRiskReducing(position.Effect) || !s.riskPolicies.snapshot().policy.MandateActive() {
+	combination := strategyAdd(draft)
+	if s == nil || s.riskPolicies == nil || s.riskCapital == nil || (!mandateOptionAddition(draft) && combination == nil) || isRiskReducing(position.Effect) || !s.riskPolicies.snapshot().policy.MandateActive() {
 		return nil, nil
 	}
 	putCover := strings.EqualFold(draft.Contract.Right, "P") && !s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol)
+	if combination != nil {
+		// A combination of puts off the hedge list may be protection of
+		// shares held, which the receipt below has to cover too.
+		_, puts := strategyAddBoughtPuts(combination)
+		putCover = puts > 0 && !s.rulebookPolicy().IsHedgeSymbol(draft.Contract.Symbol)
+	}
 	if !putCover && !s.riskAddingOrder(draft, position) {
 		return nil, nil
 	}
@@ -295,14 +314,46 @@ func (s *Server) mandatePendingPremium(draft rpc.OrderDraft, input *mandate.Inpu
 	out := map[string]float64{}
 	add := func(view rpc.OrderView, remaining float64, legs map[int]rpc.StrategyOrderLeg, filledAt time.Time) error {
 		if strings.EqualFold(view.SecType, "BAG") {
+			if view.OrderRef != "" && view.OrderRef == draft.OrderRef {
+				return nil
+			}
 			if len(legs) == 0 {
 				return fmt.Errorf("a working combination has unknown option premium commitments")
 			}
+			// A leg bought back toward flat closes a sold option and commits
+			// no premium. A leg bought to open does: a covered add commits
+			// its net premium at the limit, and any other combination's net
+			// limit cannot bound what its bought legs cost.
+			group := rpc.StrategyOrderDraft{Operation: rpc.StrategyOperationAdd}
+			opens := false
 			for _, leg := range legs {
-				if strings.EqualFold(leg.Contract.SecType, "OPT") && strings.EqualFold(leg.Action, rpc.OrderActionBuy) {
-					return fmt.Errorf("a working combination's net limit cannot bound its bought option premiums")
+				group.Legs = append(group.Legs, leg)
+				if strings.EqualFold(leg.Contract.SecType, "OPT") && strings.EqualFold(leg.Action, rpc.OrderActionBuy) && !shrinksPosition(leg.Before, leg.After) {
+					opens = true
 				}
 			}
+			if !opens {
+				return nil
+			}
+			slices.SortFunc(group.Legs, func(a, b rpc.StrategyOrderLeg) int { return cmp.Compare(a.Contract.ConID, b.Contract.ConID) })
+			if !strings.EqualFold(view.Action, rpc.OrderActionBuy) || !strategyAddCovered(&group) {
+				return fmt.Errorf("a working combination's net limit cannot bound its bought option premiums")
+			}
+			if view.Filled > 0 && (filledAt.IsZero() || filledAt.After(exposure.AsOf)) {
+				return fmt.Errorf("a strategy purchase filled after the premium reading")
+			}
+			if !(view.LimitPrice > 0) {
+				return nil
+			}
+			fx := 1.0
+			if normCcy(view.Currency) != normCcy(base) {
+				fx = input.FXNow[normCcy(view.Currency)]
+			}
+			amount := remaining * view.LimitPrice * float64(contractMultiplier(group.Legs[0].Contract)) * fx
+			if strings.ToUpper(strings.TrimSpace(view.OrderType)) != "LMT" || !positiveFinite(remaining) || !positiveFinite(fx) || !positiveFinite(amount) || normSym(view.Symbol) == "" || !positiveFinite(out[normSym(view.Symbol)]+amount) {
+				return fmt.Errorf("a working strategy purchase has no bounded premium")
+			}
+			out[normSym(view.Symbol)] += amount
 			return nil
 		}
 		if !strings.EqualFold(view.SecType, "OPT") || !strings.EqualFold(view.Action, rpc.OrderActionBuy) {

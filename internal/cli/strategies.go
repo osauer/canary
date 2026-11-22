@@ -19,7 +19,7 @@ func runStrategies(ctx context.Context, env *Env, args []string) int {
 	subIndex := -1
 	for i, arg := range args {
 		switch arg {
-		case "list", rpc.StrategyOperationClose, rpc.StrategyOperationReduce:
+		case "list", rpc.StrategyOperationClose, rpc.StrategyOperationReduce, rpc.StrategyOperationAdd:
 			subIndex = i
 		}
 		if subIndex >= 0 {
@@ -30,17 +30,17 @@ func runStrategies(ctx context.Context, env *Env, args []string) int {
 		if len(args) == 1 && helpArg(args[0]) {
 			return printCommandUsage(env, "strategies")
 		}
-		return fail(env, "strategies: use list, close, or reduce")
+		return fail(env, "strategies: use list, close, reduce, or add")
 	}
 	sub := args[subIndex]
 	args = append(append([]string{}, args[:subIndex]...), args[subIndex+1:]...)
 	switch sub {
 	case "list":
 		return runStrategiesList(ctx, env, args)
-	case rpc.StrategyOperationClose, rpc.StrategyOperationReduce:
+	case rpc.StrategyOperationClose, rpc.StrategyOperationReduce, rpc.StrategyOperationAdd:
 		return runStrategyOperation(ctx, env, sub, args)
 	default:
-		return fail(env, "strategies: use list, close, or reduce")
+		return fail(env, "strategies: use list, close, reduce, or add")
 	}
 }
 
@@ -71,8 +71,8 @@ func runStrategiesList(ctx context.Context, env *Env, args []string) int {
 func runStrategyOperation(ctx context.Context, env *Env, operation string, args []string) int {
 	fs := flagSet(env, "strategies "+operation)
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
-	units := fs.Int("units", 0, "whole strategy units to reduce")
-	limitText := fs.String("limit", "", "net limit per strategy; positive is a credit, negative is a debit")
+	units := fs.Int("units", 0, "whole strategy units to reduce or add")
+	limitText := fs.String("limit", "", "net limit per strategy unit; close and reduce: positive is the least received, negative the most paid; add: positive is the most paid, negative the least received")
 	submit := fs.Bool("submit", false, "place the guaranteed combo after an accepted broker preview")
 	timeout := fs.Duration("timeout", 10*time.Second, "quote and broker-preview timeout")
 	if err := fs.Parse(args); err != nil {
@@ -88,8 +88,8 @@ func runStrategyOperation(ctx context.Context, env *Env, operation string, args 
 	if operation == rpc.StrategyOperationClose && *units != 0 {
 		return fail(env, "strategies close: close always applies to every remaining unit; drop --units")
 	}
-	if operation == rpc.StrategyOperationReduce && *units <= 0 {
-		return fail(env, "strategies reduce: --units must be positive")
+	if operation != rpc.StrategyOperationClose && *units <= 0 {
+		return fail(env, "strategies %s: --units must be positive", operation)
 	}
 	var limit *float64
 	if strings.TrimSpace(*limitText) != "" {
@@ -191,20 +191,35 @@ func renderStrategyPreview(env *Env, preview rpc.OrderPreviewResult) {
 		fmt.Fprintln(env.Stdout, "Strategy preview is incomplete.")
 		return
 	}
-	label := "Reduce"
-	if group.Operation == rpc.StrategyOperationClose {
-		label = "Close"
-	}
-	fmt.Fprintf(env.Stdout, "%s %d of %d strategy unit(s)\n", label, group.Units, group.UnitsBefore)
+	// A close or reduction sells the combination, so a positive limit is
+	// received; an add buys it, so a positive limit is paid.
+	adding := group.Operation == rpc.StrategyOperationAdd
 	switch {
-	case preview.Draft.LimitPrice > 0:
-		statusRow(env, env.Stdout, "Limit", fmt.Sprintf("Receive at least %.2f per strategy", preview.Draft.LimitPrice))
-	case preview.Draft.LimitPrice < 0:
-		statusRow(env, env.Stdout, "Limit", fmt.Sprintf("Pay up to %.2f per strategy", math.Abs(preview.Draft.LimitPrice)))
+	case adding:
+		fmt.Fprintf(env.Stdout, "Add %d strategy unit(s) to %d held\n", group.Units, group.UnitsBefore)
+	case group.Operation == rpc.StrategyOperationClose:
+		fmt.Fprintf(env.Stdout, "Close %d of %d strategy unit(s)\n", group.Units, group.UnitsBefore)
 	default:
-		statusRow(env, env.Stdout, "Limit", "No net debit or credit")
+		fmt.Fprintf(env.Stdout, "Reduce %d of %d strategy unit(s)\n", group.Units, group.UnitsBefore)
 	}
-	statusRow(env, env.Stdout, "After", fmt.Sprintf("%d strategy unit(s) remain", group.UnitsAfter))
+	switch {
+	case preview.Draft.LimitPrice == 0:
+		statusRow(env, env.Stdout, "Limit", "No net debit or credit")
+	case (preview.Draft.LimitPrice > 0) != adding:
+		statusRow(env, env.Stdout, "Limit", fmt.Sprintf("Receive at least %.2f per strategy", math.Abs(preview.Draft.LimitPrice)))
+	default:
+		statusRow(env, env.Stdout, "Limit", fmt.Sprintf("Pay up to %.2f per strategy", math.Abs(preview.Draft.LimitPrice)))
+	}
+	if adding {
+		statusRow(env, env.Stdout, "After", fmt.Sprintf("%d strategy unit(s) held", group.UnitsAfter))
+	} else {
+		statusRow(env, env.Stdout, "After", fmt.Sprintf("%d strategy unit(s) remain", group.UnitsAfter))
+	}
+	for _, warning := range preview.Warnings {
+		if adding && warning.Message != "" {
+			statusRow(env, env.Stdout, "Note", warning.Message)
+		}
+	}
 	statusRow(env, env.Stdout, "Broker preview", nonEmpty(preview.WhatIf.Status, "unavailable"))
 	statusRow(env, env.Stdout, "Ready to submit", fmt.Sprintf("%v", preview.SubmitEligible))
 	for _, leg := range group.Legs {
