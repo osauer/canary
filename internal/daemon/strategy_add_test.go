@@ -159,8 +159,11 @@ func TestStrategyAddOrderLimitsJudgeTheWholeOrder(t *testing.T) {
 	}
 }
 
-// An add opens every leg at the broker and is bought; a close or reduction
-// closes every leg and is sold.
+// An add is bought and opens (order-level "O"); a close or reduction is sold
+// and closes ("C"). The legs carry no open/close of their own: they go to the
+// broker as Same (0), the official default, because a retail combination
+// tagged buy+open and sell+open (or buy+close and sell+close) on its legs is
+// what TWS rule 10123 refuses on accounts that check it.
 func TestStrategyAddOpensEveryLeg(t *testing.T) {
 	op, units, err := normalizeStrategyOperation(rpc.StrategyOperationAdd, 4, 3)
 	if err != nil || op != rpc.StrategyOperationAdd || units != 4 {
@@ -171,18 +174,25 @@ func TestStrategyAddOpensEveryLeg(t *testing.T) {
 	}
 	add := strategyAddTestDraft("SYNA", "USD", 1, 2, 1, addLeg{11, "P", 145, "", 1}, addLeg{12, "P", 135, "", -1})
 	contract := previewIBKRStrategyContract(add)
-	if len(contract.ComboLegs) != 2 || contract.ComboLegs[0].OpenClose != 1 || contract.ComboLegs[1].OpenClose != 1 ||
+	if len(contract.ComboLegs) != 2 || contract.ComboLegs[0].OpenClose != 0 || contract.ComboLegs[1].OpenClose != 0 ||
 		contract.ComboLegs[0].Action != rpc.OrderActionBuy || contract.ComboLegs[1].Action != rpc.OrderActionSell {
 		t.Fatalf("add legs %+v", contract.ComboLegs)
+	}
+	if order := previewIBKROrder(add); order.OpenClose != "O" {
+		t.Fatalf("add order openClose = %q, want O", order.OpenClose)
 	}
 	reduce := add
 	group := *add.StrategyGroup
 	group.Operation = rpc.StrategyOperationReduce
 	reduce.StrategyGroup = &group
+	reduce.OpenClose = "C"
 	for _, leg := range previewIBKRStrategyContract(reduce).ComboLegs {
-		if leg.OpenClose != 2 {
-			t.Fatalf("a reduction's leg opens: %+v", leg)
+		if leg.OpenClose != 0 {
+			t.Fatalf("a reduction's leg carries open/close: %+v", leg)
 		}
+	}
+	if order := previewIBKROrder(reduce); order.OpenClose != "C" {
+		t.Fatalf("reduce order openClose = %q, want C", order.OpenClose)
 	}
 }
 

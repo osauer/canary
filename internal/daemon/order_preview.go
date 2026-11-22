@@ -1003,12 +1003,10 @@ func previewIBKRStrategyContract(draft rpc.OrderDraft) *ibkrlib.Contract {
 	if draft.StrategyGroup == nil {
 		return contract
 	}
-	// Each leg says whether it opens or closes: an add opens every leg (1),
-	// a close or reduction closes every leg (2).
-	openClose := 2
-	if strategyAdd(draft) != nil {
-		openClose = 1
-	}
+	// The legs go as Same (openClose 0, the official default); the order
+	// itself says open or close (draft.OpenClose). Tagging each leg buy+open
+	// and sell+open, as an add would, is what TWS rule 10123 refuses on
+	// accounts that check it.
 	contract.ComboLegs = make([]ibkrlib.ComboLeg, 0, len(draft.StrategyGroup.Legs))
 	for _, leg := range draft.StrategyGroup.Legs {
 		action := rpc.OrderActionBuy
@@ -1020,7 +1018,7 @@ func previewIBKRStrategyContract(draft rpc.OrderDraft) *ibkrlib.Contract {
 			exchange = "SMART"
 		}
 		contract.ComboLegs = append(contract.ComboLegs, ibkrlib.ComboLeg{
-			ConID: leg.Contract.ConID, Ratio: absOrderRatio(leg.Ratio), Action: action, Exchange: exchange, OpenClose: openClose,
+			ConID: leg.Contract.ConID, Ratio: absOrderRatio(leg.Ratio), Action: action, Exchange: exchange,
 		})
 	}
 	return contract
