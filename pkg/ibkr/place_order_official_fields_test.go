@@ -128,3 +128,49 @@ func TestPlaceOrderFrameSendsOnlyOfficialRequestFields(t *testing.T) {
 		t.Fatalf("PlaceOrderRequest = %+v", request)
 	}
 }
+
+// Contract.7 is `optional double multiplier`; the official client sends
+// Double.parseDouble(contract.multiplier()) (EClientUtils.java:371).
+func TestPlaceOrderFrameMultiplierIsOfficialDouble(t *testing.T) {
+	option := &IBKROrder{
+		OrderID: 31, ClientID: 9, ConID: 7001, Symbol: "SYNA", SecType: "OPT", Exchange: "SMART", Currency: "USD",
+		Expiry: "20270115", Strike: 45, Right: "P", Multiplier: "100", TradingClass: "SYNA",
+		Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1.25, LmtPriceSet: true, TIF: "DAY", Account: "DU1234567",
+	}
+	contract := officialPlaceOrderContract(t, option)
+	if len(contract[7]) != 1 || contract[7][0].doubleValue != 100 {
+		t.Fatalf("Contract.7 multiplier = %+v, want one double 100", contract[7])
+	}
+	future := &IBKROrder{
+		OrderID: 32, ClientID: 9, ConID: 7002, Symbol: "SYNF", SecType: "FUT", Exchange: "CME", Currency: "USD",
+		Expiry: "20261218", Multiplier: "5", Action: "SELL", TotalQty: 1, OrderType: "LMT", LmtPrice: 10.5, LmtPriceSet: true, TIF: "DAY",
+	}
+	if contract := officialPlaceOrderContract(t, future); len(contract[7]) != 1 || contract[7][0].doubleValue != 5 {
+		t.Fatalf("future Contract.7 multiplier = %+v, want one double 5", contract[7])
+	}
+	stock := &IBKROrder{OrderID: 33, ClientID: 9, ConID: 7003, Symbol: "SYNB", SecType: "STK", Exchange: "SMART", Currency: "USD",
+		Action: "BUY", TotalQty: 10, OrderType: "LMT", LmtPrice: 20, LmtPriceSet: true, TIF: "DAY"}
+	if contract := officialPlaceOrderContract(t, stock); len(contract[7]) != 0 {
+		t.Fatalf("stock sent a multiplier: %+v", contract[7])
+	}
+
+	// The wire log reads the multiplier back as the double it now is.
+	body, err := encodePlaceOrderProtoBody(option)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, err := parsePlaceOrderProtoSummary(body)
+	if err != nil || summary.multiplier != "100" {
+		t.Fatalf("outbound summary multiplier = %q, %v", summary.multiplier, err)
+	}
+
+	// A multiplier that is not a finite positive number cannot be sent as
+	// the reviewed order meant it: the order is refused before the wire.
+	for _, bad := range []string{"abc", "NaN", "Inf", "-100", "0", "0x64"} {
+		o := *option
+		o.Multiplier = bad
+		if _, err := encodePlaceOrderProtoBody(&o); err == nil {
+			t.Errorf("multiplier %q was encoded", bad)
+		}
+	}
+}

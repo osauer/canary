@@ -64,7 +64,15 @@ func encodePlaceOrderContractProto(order *IBKROrder) ([]byte, error) {
 		msg = protoAppendDouble(msg, 5, order.Strike)
 	}
 	msg = protoAppendString(msg, 6, strings.ToUpper(order.Right))
-	msg = protoAppendString(msg, 7, order.Multiplier)
+	// Contract.7 is a double; the official client sends
+	// Double.parseDouble(multiplier) (EClientUtils.java:371).
+	multiplier, present, err := placeOrderProtoMultiplier(order.Multiplier)
+	if err != nil {
+		return nil, err
+	}
+	if present {
+		msg = protoAppendDouble(msg, 7, multiplier)
+	}
 	msg = protoAppendString(msg, 8, order.Exchange)
 	msg = protoAppendString(msg, 9, order.PrimaryExch)
 	msg = protoAppendString(msg, 10, order.Currency)
@@ -76,6 +84,31 @@ func encodePlaceOrderContractProto(order *IBKROrder) ([]byte, error) {
 		msg = protoAppendMessage(msg, 20, encodeComboLegProto(leg))
 	}
 	return msg, nil
+}
+
+// placeOrderProtoMultiplier reads the contract multiplier as the double the
+// broker takes. Empty is absent. Anything but a plain positive decimal is
+// refused: sent otherwise, the broker would read a contract other than the
+// one reviewed.
+func placeOrderProtoMultiplier(raw string) (float64, bool, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false, nil
+	}
+	dots := 0
+	for _, r := range raw {
+		switch {
+		case r == '.':
+			dots++
+		case r < '0' || r > '9':
+			dots = 2
+		}
+	}
+	value, err := strconv.ParseFloat(raw, 64)
+	if dots > 1 || err != nil || !(value > 0) || math.IsInf(value, 0) {
+		return 0, false, unsupportedPlaceOrderProtoValue("multiplier", raw, "a positive decimal number")
+	}
+	return value, true, nil
 }
 
 func encodeComboLegProto(leg ComboLeg) []byte {
@@ -326,6 +359,9 @@ func validatePlaceOrderProtoSupported(order *IBKROrder) error {
 		}
 	}
 
+	if _, _, err := placeOrderProtoMultiplier(order.Multiplier); err != nil {
+		return err
+	}
 	if err := validatePlaceOrderOCA(order); err != nil {
 		return err
 	}
@@ -726,7 +762,11 @@ func parseContractProtoSummary(body []byte, summary *placeOrderProtoSummary) err
 		case 6:
 			summary.right = string(value)
 		case 7:
-			summary.multiplier = string(value)
+			v, err := protoFixed64Value(fieldNumber, wireType, value)
+			if err != nil {
+				return err
+			}
+			summary.multiplier = formatProtoSummaryFloat(math.Float64frombits(v))
 		}
 		return nil
 	})
