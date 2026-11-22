@@ -19,38 +19,41 @@ import (
 // the quantity is the decimal string's value, and openClose is its first
 // character.
 type PlaceOrder struct {
-	OrderID         int
-	ClientID        int
-	ParentID        int
-	ConID           int
-	Symbol          string
-	SecType         string
-	Expiry          string
-	Strike          float64
-	Right           string
-	Multiplier      float64
-	Exchange        string
-	PrimaryExch     string
-	Currency        string
-	LocalSymbol     string
-	TradingClass    string
-	ComboLegs       int
-	Action          string
-	Quantity        float64
-	OrderType       string
-	LimitPrice      float64
-	AuxPrice        float64
-	TrailingPercent float64
-	TrailStopPrice  float64
-	TriggerMethod   int
-	TIF             string
-	Account         string
-	OrderRef        string
-	OcaGroup        string
-	OpenClose       string
-	AlgoStrategy    string
-	AlgoParams      map[string]string
-	OutsideRTH      bool
+	OrderID      int
+	ClientID     int
+	ParentID     int
+	ConID        int
+	Symbol       string
+	SecType      string
+	Expiry       string
+	Strike       float64
+	Right        string
+	Multiplier   float64
+	Exchange     string
+	PrimaryExch  string
+	Currency     string
+	LocalSymbol  string
+	TradingClass string
+	// Legs are a BAG order's combo legs, as the broker reads them.
+	Legs              []ComboLeg
+	ComboLegs         int
+	SmartComboRouting map[string]string
+	Action            string
+	Quantity          float64
+	OrderType         string
+	LimitPrice        float64
+	AuxPrice          float64
+	TrailingPercent   float64
+	TrailStopPrice    float64
+	TriggerMethod     int
+	TIF               string
+	Account           string
+	OrderRef          string
+	OcaGroup          string
+	OpenClose         string
+	AlgoStrategy      string
+	AlgoParams        map[string]string
+	OutsideRTH        bool
 	// AttachedOrders says the request carried PlaceOrderRequest.4.
 	AttachedOrders bool
 	WhatIf         bool
@@ -58,6 +61,20 @@ type PlaceOrder struct {
 	// IgnoredByBroker names each field the broker's parser drops, as
 	// "message-path.field-number" (contract.7 is Contract.multiplier).
 	IgnoredByBroker []string
+}
+
+// ComboLeg is one leg of a BAG order (ComboLeg.proto). OpenClose 0 is
+// Same; ExemptCode is the broker's value when the leg omits it (-1 means
+// none was sent: the Gateway then uses its code-0 default).
+type ComboLeg struct {
+	ConID          int
+	Ratio          int
+	Action         string
+	Exchange       string
+	OpenClose      int
+	ShortSalesSlot int
+	ExemptCode     int
+	ExemptCodeSent bool
 }
 
 // officialMessage is one decoded message: its fields by name, the last value
@@ -139,6 +156,17 @@ func DecodePlaceOrder(body []byte) (PlaceOrder, error) {
 	o.Expiry, o.Strike, o.Right, o.Multiplier = c.str("lastTradeDateOrContractMonth"), c.float("strike"), c.str("right"), c.float("multiplier")
 	o.Exchange, o.PrimaryExch, o.Currency = c.str("exchange"), c.str("primaryExch"), c.str("currency")
 	o.LocalSymbol, o.TradingClass, o.ComboLegs = c.str("localSymbol"), c.str("tradingClass"), len(c.nested["comboLegs"])
+	for _, l := range c.nested["comboLegs"] {
+		_, sent := l.scalar["exemptCode"]
+		o.Legs = append(o.Legs, ComboLeg{ConID: l.integer("conId"), Ratio: l.integer("ratio"), Action: l.str("action"), Exchange: l.str("exchange"),
+			OpenClose: l.integer("openClose"), ShortSalesSlot: l.integer("shortSalesSlot"), ExemptCode: l.integer("exemptCode"), ExemptCodeSent: sent})
+	}
+	for _, entry := range x.nested["smartComboRoutingParams"] {
+		if o.SmartComboRouting == nil {
+			o.SmartComboRouting = map[string]string{}
+		}
+		o.SmartComboRouting[entry.str("key")] = entry.str("value")
+	}
 	o.ClientID, o.ParentID, o.Action = x.integer("clientId"), x.integer("parentId"), x.str("action")
 	o.Quantity, _ = strconv.ParseFloat(strings.TrimSpace(x.str("totalQuantity")), 64)
 	o.OrderType, o.LimitPrice, o.AuxPrice = x.str("orderType"), x.float("lmtPrice"), x.float("auxPrice")

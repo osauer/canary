@@ -1,0 +1,216 @@
+package twssim
+
+import (
+	"fmt"
+	"math"
+	"slices"
+	"strings"
+	"time"
+)
+
+// Listed equity options. Each option's price is a Black-Scholes value at a
+// flat 30 percent volatility and 4 percent rate, computed from its
+// underlying's price when it is listed and again whenever that price moves;
+// the bid and ask straddle it by Spread. The model and its greeks are the
+// simulator's (assumed), not a market's.
+const (
+	optionVolatility = 0.30
+	optionRate       = 0.04
+)
+
+func multiplier(in Instrument) float64 {
+	if in.Multiplier > 0 {
+		return in.Multiplier
+	}
+	return 1
+}
+
+// OptionConID is the contract id the simulator gives an option: 910000 plus
+// the underlying's chain index, expiry index and strike index, so the same
+// chain always gets the same ids.
+func optionConID(chain, expiry, strike int, right string) int {
+	id := 910_000 + chain*10_000 + expiry*200 + strike*2
+	if right == "P" {
+		id++
+	}
+	return id
+}
+
+// ListOptions lists calls and puts of a listed stock for every expiry
+// (YYYYMMDD) and strike, with multiplier 100 on SMART.
+func (b *Book) ListOptions(underConID int, expiries []string, strikes []float64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	under, ok := b.instr[underConID]
+	if !ok || under.SecType != "STK" {
+		return fmt.Errorf("twssim: %d is not a listed stock", underConID)
+	}
+	chain := 0
+	for _, in := range b.instr {
+		if in.SecType == "OPT" && in.UnderConID != underConID {
+			chain = max(chain, (in.ConID-910_000)/10_000+1)
+		}
+	}
+	for ei, expiry := range expiries {
+		for si, strike := range strikes {
+			for _, right := range []string{"C", "P"} {
+				in := &Instrument{
+					ConID: optionConID(chain, ei, si, right), Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", PrimaryExch: "",
+					Currency: under.Currency, TradingClass: under.Symbol, Expiry: expiry, Strike: strike, Right: right, Multiplier: 100,
+					UnderConID: underConID, MinTick: 0.01, Spread: 0.04,
+				}
+				in.LocalSymbol = fmt.Sprintf("%-6s%s%s%08d", under.Symbol, expiry[2:], right, int(math.Round(strike*1000)))
+				in.LongName = fmt.Sprintf("SYNTHETIC %s %s %s %v", under.Symbol, expiry, right, strike)
+				b.instr[in.ConID] = in
+			}
+		}
+	}
+	b.repriceLocked(underConID)
+	return nil
+}
+
+// OptionConIDFor finds a listed option by underlying, expiry, strike and right.
+func (b *Book) OptionConIDFor(underConID int, expiry string, strike float64, right string) (int, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, in := range b.instr {
+		if in.SecType == "OPT" && in.UnderConID == underConID && in.Expiry == expiry && in.Strike == strike && in.Right == right {
+			return in.ConID, true
+		}
+	}
+	return 0, false
+}
+
+// repriceLocked values every option on an underlying at the book's clock.
+func (b *Book) repriceLocked(underConID int) {
+	under, ok := b.instr[underConID]
+	if !ok {
+		return
+	}
+	now := b.clock()
+	for _, in := range b.instr {
+		if in.SecType != "OPT" || in.UnderConID != underConID {
+			continue
+		}
+		m := optionModelAt(in, under.Price, now)
+		in.Price = math.Max(roundTo(m.price, in.MinTick), in.MinTick)
+		in.Spread = math.Max(0.02, roundTo(in.Price*0.04, in.MinTick))
+	}
+}
+
+func (b *Book) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+	return time.Now()
+}
+
+type optionModel struct{ price, delta, gamma, vega, theta float64 }
+
+func normCDF(x float64) float64 { return 0.5 * (1 + math.Erf(x/math.Sqrt2)) }
+
+func normPDF(x float64) float64 { return math.Exp(-x*x/2) / math.Sqrt(2*math.Pi) }
+
+// optionModelAt is the Black-Scholes value and greeks of one option.
+func optionModelAt(in *Instrument, spot float64, now time.Time) optionModel {
+	exp, err := time.Parse("20060102", in.Expiry)
+	if err != nil || spot <= 0 || in.Strike <= 0 {
+		return optionModel{}
+	}
+	t := math.Max(exp.Add(20*time.Hour).Sub(now).Hours()/24/365, 1.0/365/24)
+	sq := optionVolatility * math.Sqrt(t)
+	d1 := (math.Log(spot/in.Strike) + (optionRate+optionVolatility*optionVolatility/2)*t) / sq
+	d2 := d1 - sq
+	disc := math.Exp(-optionRate * t)
+	m := optionModel{gamma: normPDF(d1) / (spot * sq), vega: spot * normPDF(d1) * math.Sqrt(t) / 100}
+	if in.Right == "C" {
+		m.price = spot*normCDF(d1) - in.Strike*disc*normCDF(d2)
+		m.delta = normCDF(d1)
+		m.theta = (-spot*normPDF(d1)*optionVolatility/(2*math.Sqrt(t)) - optionRate*in.Strike*disc*normCDF(d2)) / 365
+	} else {
+		m.price = in.Strike*disc*normCDF(-d2) - spot*normCDF(-d1)
+		m.delta = normCDF(d1) - 1
+		m.theta = (-spot*normPDF(d1)*optionVolatility/(2*math.Sqrt(t)) + optionRate*in.Strike*disc*normCDF(-d2)) / 365
+	}
+	return m
+}
+
+// greeks is an option's model at the book's clock and its underlying's price.
+func (b *Book) greeks(in Instrument) (optionModel, float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	under := b.instr[in.UnderConID]
+	if under == nil {
+		return optionModel{}, 0
+	}
+	return optionModelAt(&in, under.Price, b.clock()), under.Price
+}
+
+// optionChains are the reqSecDefOptParams rows of an underlying: one per
+// trading class, with its expiries and strikes.
+func (b *Book) optionChain(underConID int, symbol string) (tradingClass string, expiries []string, strikes []float64) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, in := range b.instr {
+		if in.SecType != "OPT" || (underConID > 0 && in.UnderConID != underConID) || (underConID <= 0 && !strings.EqualFold(in.Symbol, symbol)) {
+			continue
+		}
+		tradingClass = in.TradingClass
+		if !slices.Contains(expiries, in.Expiry) {
+			expiries = append(expiries, in.Expiry)
+		}
+		if !slices.Contains(strikes, in.Strike) {
+			strikes = append(strikes, in.Strike)
+		}
+	}
+	slices.Sort(expiries)
+	slices.Sort(strikes)
+	return tradingClass, expiries, strikes
+}
+
+// OptionExpiries are the Fridays nearest to 5, 14, 30, 60 and 120 days
+// after now: one inside the seven days an option entry refuses, and one in
+// each horizon `add market` offers.
+func OptionExpiries(now time.Time) []string {
+	var out []string
+	for _, days := range []int{5, 14, 30, 60, 120} {
+		d := now.AddDate(0, 0, days)
+		for d.Weekday() != time.Friday {
+			d = d.AddDate(0, 0, 1)
+		}
+		if s := d.Format("20060102"); !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// OptionsBook is [Default] with option chains on SYNA and SYNB and an
+// owner-like option book beside the 100 SYNA shares: three long SYNA calls
+// over two expiries, a long SYNA put the shares cover, and a bear put spread
+// on SYNB (long the 120 put, short the 110 put, one expiry) that the daemon
+// groups as a strategy. Every figure is invented.
+func OptionsBook(now time.Time) *Book {
+	b := Default()
+	b.now = func() time.Time { return now }
+	exps := OptionExpiries(now)
+	_ = b.ListOptions(900001, exps, []float64{40, 45, 50, 55, 60})
+	_ = b.ListOptions(900002, exps, []float64{100, 110, 120, 130, 140})
+	b.now = nil
+	held := []struct {
+		under         int
+		exp           int
+		strike        float64
+		right         string
+		qty, avgPrice float64
+	}{
+		{900001, 3, 55, "C", 2, 2.10}, {900001, 2, 60, "C", 1, 0.80}, {900001, 2, 45, "P", 1, 1.30},
+		{900002, 3, 120, "P", 1, 7.40}, {900002, 3, 110, "P", -1, 3.60},
+	}
+	for _, h := range held {
+		if id, ok := b.OptionConIDFor(h.under, exps[h.exp], h.strike, h.right); ok {
+			b.SetPosition(id, h.qty, h.avgPrice*100)
+		}
+	}
+	return b
+}

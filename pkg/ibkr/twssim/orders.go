@@ -62,6 +62,11 @@ const (
 	FaultSilent = "silent"
 	// FaultDrop closes the client's connection on receipt, before any answer.
 	FaultDrop = "drop"
+	// FaultWhatIfReject answers the next WhatIf with Code (default 201) and
+	// Message, as a margin rejection.
+	FaultWhatIfReject = "whatif-reject"
+	// FaultWhatIfNoFee answers the next WhatIf without commission figures.
+	FaultWhatIfNoFee = "whatif-no-fee"
 	// FaultError answers with Code and Message only (110 price increment,
 	// 200 no security definition, 103 duplicate id, 354 or 10089 market
 	// data, ...) and keeps no order.
@@ -88,8 +93,9 @@ func (s *Server) ArmFault(f Fault) {
 func (s *Server) takeFault(o PlaceOrder) (Fault, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	whatIf := func(kind string) bool { return kind == FaultWhatIfReject || kind == FaultWhatIfNoFee }
 	for i, f := range s.faults {
-		if (f.Kind == FaultRejectChild) != (o.ParentID > 0) {
+		if whatIf(f.Kind) != o.WhatIf || (!o.WhatIf && (f.Kind == FaultRejectChild) != (o.ParentID > 0)) {
 			continue
 		}
 		s.faults = slices.Delete(s.faults, i, i+1)
@@ -137,6 +143,24 @@ func (s *Server) tell(clientID int, frames ...[]byte) {
 func (ss *session) place(o PlaceOrder) {
 	s, b := ss.srv, ss.srv.book
 	in, ok := b.instrument(o.ConID)
+	if o.SecType == "BAG" {
+		b.mu.Lock()
+		bag, err := b.bagInstrumentLocked(o)
+		b.mu.Unlock()
+		if err != nil {
+			ss.fail(o.OrderID, 200, noSecurityDefinition)
+			return
+		}
+		in, ok = bag, true
+		if s.rejectLegOpenClose {
+			for _, leg := range o.Legs {
+				if leg.OpenClose == 1 || leg.OpenClose == 2 {
+					ss.fail(o.OrderID, 10123, "twssim: the account does not accept an open/close instruction on a combination leg")
+					return
+				}
+			}
+		}
+	}
 	if !ok {
 		ss.fail(o.OrderID, 200, noSecurityDefinition)
 		return
@@ -156,8 +180,24 @@ func (ss *session) place(o PlaceOrder) {
 		if s.whatIfDelay > 0 {
 			time.Sleep(s.whatIfDelay)
 		}
+		if f, ok := s.takeFault(o); ok && f.Kind == FaultWhatIfReject {
+			ss.fail(o.OrderID, codeOr(f.Code, 201), nonEmpty(f.Message, "Order rejected - reason:YOUR ORDER IS NOT ACCEPTED. IN ORDER TO OBTAIN THE DESIRED POSITION YOUR EQUITY WITH LOAN VALUE MUST EXCEED THE INITIAL MARGIN"))
+			return
+		} else if ok {
+			b.mu.Lock()
+			w := b.whatIfLocked(o, in)
+			b.mu.Unlock()
+			w.noFee = true
+			order := Order{PlaceOrder: o, Status: "PreSubmitted"}
+			order.ClientID = ss.clientID
+			ss.send(openOrderFrame(order, in, b.Account(), &w))
+			return
+		}
 		b.mu.Lock()
 		w := b.whatIfLocked(o, in)
+		if o.SecType == "BAG" {
+			w = b.bagWhatIfLocked(o, in)
+		}
 		b.mu.Unlock()
 		order := Order{PlaceOrder: o, Status: "PreSubmitted"}
 		order.ClientID = ss.clientID
@@ -238,7 +278,7 @@ func (s *Server) order(id int) (Order, bool) {
 // session and the fault allow.
 func (s *Server) transmit(o PlaceOrder, fault Fault, faulted bool) bool {
 	b := s.book
-	in, _ := b.instrument(o.ConID)
+	in := s.instrumentOf(o)
 	ss := s.sessionFor(o.ClientID)
 	if faulted && ss != nil {
 		switch fault.Kind {
@@ -312,8 +352,7 @@ func (s *Server) fillIfMarketable(id int) {
 	if !ok || o.Status != "Submitted" || o.OrderType != "LMT" {
 		return
 	}
-	in, _ := s.book.instrument(o.ConID)
-	q := quoteOf(in)
+	q := quoteOf(s.instrumentOf(o.PlaceOrder))
 	switch {
 	case o.Action == "BUY" && q.ask > 0 && o.LimitPrice >= q.ask:
 		s.fill(id, 0, q.ask)
@@ -340,6 +379,20 @@ func (s *Server) fill(id int, shares, price float64) {
 	order := b.orders[id]
 	if order == nil {
 		b.mu.Unlock()
+		return
+	}
+	if order.SecType == "BAG" {
+		in, _ := b.bagInstrumentLocked(order.PlaceOrder)
+		execs := b.fillBagLocked(order, shares)
+		filled := *order
+		b.mu.Unlock()
+		var frames [][]byte
+		for _, ex := range execs {
+			frames = append(frames, execFrame(-1, ex), commissionFrame(ex))
+		}
+		frames = append(frames, openOrderFrame(filled, in, b.Account(), nil), orderStatusFrame(filled, filled.AvgPrice))
+		s.tell(filled.ClientID, frames...)
+		s.pushAccount()
 		return
 	}
 	in := *b.instr[order.ConID]
@@ -370,7 +423,7 @@ func (s *Server) fill(id int, shares, price float64) {
 	b.mu.Unlock()
 	s.tell(filled.ClientID, execFrame(-1, *ex), openOrderFrame(filled, in, b.Account(), nil), orderStatusFrame(filled, ex.Price), commissionFrame(*ex))
 	for _, child := range released {
-		cin, _ := b.instrument(child.ConID)
+		cin := s.instrumentOf(child.PlaceOrder)
 		s.tell(child.ClientID, openOrderFrame(child, cin, b.Account(), nil), orderStatusFrame(child, 0))
 	}
 	s.pushAccount()
@@ -427,7 +480,7 @@ func (s *Server) EndDay() {
 			if child.ParentID != o.OrderID || !child.Working() {
 				continue
 			}
-			cin, _ := b.instrument(child.ConID)
+			cin := s.instrumentOf(child.PlaceOrder)
 			if ended.Filled > 0 && s.childOnExpiry == ChildResized {
 				b.mu.Lock()
 				c := b.orders[child.OrderID]
@@ -449,7 +502,7 @@ func (s *Server) EndDay() {
 func (s *Server) releaseResting(market string) {
 	b := s.book
 	for _, o := range b.Orders() {
-		in, _ := b.instrument(o.ConID)
+		in := s.instrumentOf(o.PlaceOrder)
 		if o.Status != "PreSubmitted" || marketOf(in) != market {
 			continue
 		}
@@ -476,3 +529,17 @@ func (s *Server) DropSessions() {
 // PushAccount streams the account values and portfolio to every subscribed
 // client, as TWS does when a value changes.
 func (s *Server) PushAccount() { s.pushAccount() }
+
+// instrumentOf is an order's contract: the listed contract, or a
+// combination priced from its legs now.
+func (s *Server) instrumentOf(o PlaceOrder) Instrument {
+	b := s.book
+	if o.SecType == "BAG" {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		in, _ := b.bagInstrumentLocked(o)
+		return in
+	}
+	in, _ := b.instrument(o.ConID)
+	return in
+}

@@ -5,7 +5,9 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +15,27 @@ import (
 	"github.com/osauer/canary/v3/internal/rpc"
 	"github.com/osauer/canary/v3/pkg/ibkr/twssim"
 )
+
+// simSmoke are the simulator scenarios the normal gate runs; every other
+// scenario runs under `make test-sim` (CANARY_TEST_SIM=1), because together
+// they take minutes and the daemon's trading leg is in every `make check`.
+var simSmoke = map[string]bool{
+	"TestSimulatedTWSPlansAnAdditionFromBrokerEvidence": true,
+	"TestSimulatedTWSAddsToAPositionEndToEnd":           true,
+	"TestSimulatedTWSRefusesAnotherAccount":             true,
+	"TestSimulatedTWSOptionCallEntrySmoke":              true,
+}
+
+// requireSimTier skips a simulator scenario outside `make test-sim` unless it
+// is one of the smoke scenarios. Scenarios still compile in every build.
+func requireSimTier(t *testing.T) {
+	t.Helper()
+	root, _, _ := strings.Cut(t.Name(), "/")
+	if simSmoke[root] || os.Getenv("CANARY_TEST_SIM") == "1" {
+		return
+	}
+	t.Skip("simulator scenario: run it with make test-sim")
+}
 
 // simDesk is the real daemon in simulator mode (live, the placeholder
 // account) against a TWS simulator, with its own XDG roots, socket and state
@@ -29,6 +52,7 @@ type simDesk struct {
 // first regime read does.
 func startSimDesk(t *testing.T, opts twssim.Options, ready bool) *simDesk {
 	t.Helper()
+	requireSimTier(t)
 	sim := twssim.Start(t, opts)
 	dir := shortTempDir(t)
 	for key, sub := range map[string]string{"XDG_STATE_HOME": "state", "XDG_CONFIG_HOME": "config", "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data", "HOME": "home"} {

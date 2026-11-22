@@ -46,6 +46,10 @@ type Options struct {
 	// WhatIfDelay holds each WhatIf answer back this long, as a broker's
 	// margin simulation takes time (IBKR answers in about 50 to 150 ms).
 	WhatIfDelay time.Duration
+	// RejectLegOpenClose answers a BAG whose leg carries an open/close
+	// instruction (1 open, 2 close) with error 10123, as an account that
+	// accepts only Same on combination legs does (assumed).
+	RejectLegOpenClose bool
 	// ClosedMarkets lists the markets whose session starts closed (see
 	// SetSession); every other market starts open.
 	ClosedMarkets []string
@@ -53,16 +57,17 @@ type Options struct {
 
 // Server is a simulated TWS listening on a loopback TCP port.
 type Server struct {
-	ln             net.Listener
-	book           *Book
-	now            func() time.Time
-	rec            *Recorder
-	every          time.Duration
-	rejectAttached bool
-	childOnExpiry  string
-	whatIfDelay    time.Duration
-	done           chan struct{}
-	closeOne       sync.Once
+	ln                 net.Listener
+	book               *Book
+	now                func() time.Time
+	rec                *Recorder
+	every              time.Duration
+	rejectAttached     bool
+	childOnExpiry      string
+	whatIfDelay        time.Duration
+	rejectLegOpenClose bool
+	done               chan struct{}
+	closeOne           sync.Once
 
 	mu       sync.Mutex
 	sessions []*session
@@ -86,7 +91,7 @@ func Listen(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{ln: ln, book: opts.Book, now: opts.Now, rec: opts.Recorder, every: opts.AccountTimeEvery, rejectAttached: opts.RejectAttachedOrders, childOnExpiry: opts.ChildOnPartialExpiry, whatIfDelay: opts.WhatIfDelay, closed: map[string]bool{}, done: make(chan struct{}), nextID: 1}
+	s := &Server{ln: ln, book: opts.Book, now: opts.Now, rec: opts.Recorder, every: opts.AccountTimeEvery, rejectAttached: opts.RejectAttachedOrders, childOnExpiry: opts.ChildOnPartialExpiry, whatIfDelay: opts.WhatIfDelay, rejectLegOpenClose: opts.RejectLegOpenClose, closed: map[string]bool{}, done: make(chan struct{}), nextID: 1}
 	if s.book == nil {
 		s.book = Default()
 	}
@@ -95,6 +100,9 @@ func Listen(opts Options) (*Server, error) {
 	}
 	if s.rec == nil {
 		s.rec = &Recorder{}
+	}
+	if s.book.now == nil {
+		s.book.now = s.now
 	}
 	for _, m := range opts.ClosedMarkets {
 		s.closed[m] = true
@@ -365,9 +373,9 @@ func (ss *session) dispatch(f Frame) {
 	case reqPositions:
 		ss.positions()
 	case reqContractDetails:
-		ss.contractDetails(atoi(field(fs, 1)), atoi(field(fs, 2)), field(fs, 3), field(fs, 4), field(fs, 11))
+		ss.contractDetails(atoi(field(fs, 1)), contractQueryOf(fs, 2))
 	case reqMktData:
-		ss.marketData(atoi(field(fs, 1)), atoi(field(fs, 2)), field(fs, 3), field(fs, 4), field(fs, 11), field(fs, 16) == "1")
+		ss.marketData(atoi(field(fs, 1)), contractQueryOf(fs, 2), field(fs, 16) == "1")
 	case reqHistoricalData:
 		ss.history(fs)
 	case reqHeadTimestamp:
@@ -375,8 +383,7 @@ func (ss *session) dispatch(f Frame) {
 	case reqMarketRule:
 		ss.text(msgMarketRule, field(fs, 0), "1", "0", "0.01")
 	case reqSecDefOptParams:
-		// The simulator lists no option chains.
-		ss.text(msgSecDefOptEnd, field(fs, 0))
+		ss.optionParams(atoi(field(fs, 0)), field(fs, 1), atoi(field(fs, 4)))
 	case reqMatchingSymbols:
 		ss.text(msgSymbolSamples, field(fs, 0), "0")
 	case reqAllOpenOrders, reqOpenOrders:
@@ -432,9 +439,13 @@ func (s *Server) accountFrames() [][]byte {
 	}
 	for _, r := range rows {
 		in, p := r.in, r.pos
-		value := p.Quantity * in.Price
-		unreal := (in.Price - p.AvgCost) * p.Quantity
-		out = append(out, textMessage(msgPortfolioValue, "8", itoa(in.ConID), in.Symbol, in.SecType, "", "0", "", "", in.PrimaryExch, in.Currency, in.LocalSymbol, in.TradingClass,
+		value := p.Quantity * in.Price * multiplier(in)
+		unreal := value - p.AvgCost*p.Quantity
+		strike, mult := "0", ""
+		if in.SecType == "OPT" {
+			strike, mult = num(in.Strike), num(multiplier(in))
+		}
+		out = append(out, textMessage(msgPortfolioValue, "8", itoa(in.ConID), in.Symbol, in.SecType, in.Expiry, strike, in.Right, mult, in.PrimaryExch, in.Currency, in.LocalSymbol, in.TradingClass,
 			num(p.Quantity), num(in.Price), num2(value), num(p.AvgCost), num2(unreal), "0", b.Account()))
 	}
 	out = append(out, textMessage(msgAccountTime, "1", s.now().Format("15:04")))
@@ -490,8 +501,16 @@ func (ss *session) positions() {
 
 const noSecurityDefinition = "No security definition has been found for the request"
 
-func (ss *session) contractDetails(reqID, conID int, symbol, secType, currency string) {
-	found := ss.srv.book.lookup(conID, symbol, secType, currency)
+// contractQueryOf reads a request's contract fields from index at: conId,
+// symbol, secType, expiry, strike, right, multiplier, exchange, primary
+// exchange, currency.
+func contractQueryOf(fs []string, at int) contractQuery {
+	strike, _ := strconv.ParseFloat(field(fs, at+4), 64)
+	return contractQuery{conID: atoi(field(fs, at)), symbol: field(fs, at+1), secType: field(fs, at+2), expiry: field(fs, at+3), strike: strike, right: field(fs, at+5), currency: field(fs, at+9)}
+}
+
+func (ss *session) contractDetails(reqID int, q contractQuery) {
+	found := ss.srv.book.lookupContract(q)
 	if len(found) == 0 {
 		ss.fail(reqID, 200, noSecurityDefinition)
 		return
@@ -518,7 +537,31 @@ func contractDetailsFields(reqID int, in Instrument) []string {
 	if in.SecType == "STK" {
 		stockType = "COMMON"
 	}
-	return []string{itoa(reqID), in.Symbol, in.SecType, "", "", "0", "", in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), "", orderTypes, valid, "1", "0", in.LongName, in.PrimaryExch, "", "", "", "", "US/Eastern", "", "", "", "0", "0", "1", in.Symbol, in.SecType, rules, "", stockType, "1", "1", "1", "0"}
+	strike, mult, under, underSym, underType, month := "0", "", "0", in.Symbol, in.SecType, ""
+	if in.SecType == "OPT" {
+		strike, mult, under, underType, month = num(in.Strike), num(multiplier(in)), itoa(in.UnderConID), "STK", in.Expiry[:6]
+		orderTypes = "LMT,MKT,STP,STPLMT,REL,COMBO"
+	}
+	return []string{itoa(reqID), in.Symbol, in.SecType, in.Expiry, in.Expiry, strike, in.Right, in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), mult, orderTypes, valid, "1", under, in.LongName, in.PrimaryExch, month, "", "", "", "US/Eastern", "", "", "", "0", "0", "1", underSym, underType, rules, in.Expiry, stockType, "1", "1", "1", "0"}
+}
+
+// optionParams answers reqSecDefOptParams: one row of the underlying's
+// chain on SMART (its trading class, multiplier, expiries and strikes), then
+// the end; an underlying with no options gets the end alone.
+func (ss *session) optionParams(reqID int, symbol string, underConID int) {
+	class, expiries, strikes := ss.srv.book.optionChain(underConID, symbol)
+	var out [][]byte
+	if len(expiries) > 0 {
+		fields := []string{itoa(reqID), "SMART", itoa(underConID), class, "100", itoa(len(expiries))}
+		fields = append(fields, expiries...)
+		fields = append(fields, itoa(len(strikes)))
+		for _, k := range strikes {
+			fields = append(fields, num(k))
+		}
+		out = append(out, textMessage(msgSecDefOpt, fields...))
+	}
+	out = append(out, textMessage(msgSecDefOptEnd, itoa(reqID)))
+	ss.send(out...)
 }
 
 // Tick types of the TWS API.
@@ -531,10 +574,18 @@ const (
 	tickLastSz  = 5
 	tickVolume  = 8
 	tickClose   = 9
+	// Option ticks: computations for bid, ask, last and the model, and the
+	// open interest of calls and puts.
+	tickBidOptionComp   = 10
+	tickAskOptionComp   = 11
+	tickLastOptionComp  = 12
+	tickModelOptionComp = 13
+	tickOptionCallOI    = 27
+	tickOptionPutOI     = 28
 )
 
-func (ss *session) marketData(reqID, conID int, symbol, secType, currency string, snapshot bool) {
-	found := ss.srv.book.lookup(conID, symbol, secType, currency)
+func (ss *session) marketData(reqID int, cq contractQuery, snapshot bool) {
+	found := ss.srv.book.lookupContract(cq)
 	if len(found) != 1 {
 		ss.fail(reqID, 200, noSecurityDefinition)
 		return
@@ -560,6 +611,15 @@ func (ss *session) marketData(reqID, conID int, symbol, secType, currency string
 	}
 	size(tickLastSz, 100)
 	size(tickVolume, 1_000_000)
+	if in := found[0]; in.SecType == "OPT" {
+		m, spot := ss.srv.book.greeks(in)
+		size(tickOptionCallOI, 500)
+		size(tickOptionPutOI, 500)
+		for _, tick := range []int{tickBidOptionComp, tickAskOptionComp, tickLastOptionComp, tickModelOptionComp} {
+			out = append(out, textMessage(msgTickOptionComputation, id, itoa(tick), "0", num(optionVolatility), num(roundTo(m.delta, 0.0001)), num(roundTo(m.price, 0.0001)), "0",
+				num(roundTo(m.gamma, 0.0001)), num(roundTo(m.vega, 0.0001)), num(roundTo(m.theta, 0.0001)), num(spot)))
+		}
+	}
 	if snapshot {
 		out = append(out, textMessage(msgTickSnapshotEnd, "1", id))
 	}
@@ -641,6 +701,9 @@ func durationDays(s string) int {
 func contractProto(in Instrument, exchange string) []byte {
 	var w protoWriter
 	w = w.varint(1, int64(in.ConID)).str(2, in.Symbol).str(3, in.SecType)
+	if in.SecType == "OPT" {
+		w = w.str(4, in.Expiry).double(5, in.Strike).str(6, in.Right).double(7, multiplier(in))
+	}
 	return w.str(8, exchange).str(9, in.PrimaryExch).str(10, in.Currency).str(11, in.LocalSymbol).str(12, in.TradingClass)
 }
 
@@ -648,6 +711,12 @@ func openOrderFrame(o Order, in Instrument, account string, w *whatIf) []byte {
 	exchange := o.Exchange
 	if exchange == "" {
 		exchange = in.Exchange
+	}
+	contract := contractProto(in, exchange)
+	for _, leg := range o.Legs {
+		var l protoWriter
+		l = l.varint(1, int64(leg.ConID)).varint(2, int64(leg.Ratio)).str(3, leg.Action).str(4, leg.Exchange).varint(5, int64(leg.OpenClose)).varint(6, int64(leg.ShortSalesSlot)).varint(8, int64(leg.ExemptCode))
+		contract = protoWriter(contract).bytes(20, l)
 	}
 	var order protoWriter
 	order = order.varint(1, int64(o.ClientID)).varint(2, int64(o.OrderID)).varint(3, int64(o.PermID))
@@ -679,12 +748,17 @@ func openOrderFrame(o Order, in Instrument, account string, w *whatIf) []byte {
 			{8, w.initAfter}, {9, w.maintAfter}, {10, w.equityAfter},
 			{11, w.commission}, {12, w.commission}, {13, w.commission},
 		} {
-			state = state.double(v.n, v.v)
+			if !w.noFee || v.n < 11 {
+				state = state.double(v.n, v.v)
+			}
 		}
-		state = state.str(14, w.commissionCcy).str(15, w.marginCcy)
+		if !w.noFee {
+			state = state.str(14, w.commissionCcy)
+		}
+		state = state.str(15, w.marginCcy)
 	}
 	var body protoWriter
-	body = body.varint(1, int64(o.OrderID)).bytes(2, contractProto(in, exchange)).bytes(3, order).bytes(4, state)
+	body = body.varint(1, int64(o.OrderID)).bytes(2, contract).bytes(3, order).bytes(4, state)
 	return protoMessage(msgOpenOrder, body)
 }
 
@@ -725,8 +799,7 @@ func (ss *session) openOrders(all bool) {
 		if !o.Working() || (!all && o.ClientID != ss.clientID) {
 			continue
 		}
-		in, _ := b.instrument(o.ConID)
-		out = append(out, openOrderFrame(o, in, b.Account(), nil), orderStatusFrame(o, 0))
+		out = append(out, openOrderFrame(o, ss.srv.instrumentOf(o.PlaceOrder), b.Account(), nil), orderStatusFrame(o, 0))
 	}
 	out = append(out, protoMessage(msgOpenOrderEnd, nil))
 	ss.send(out...)
