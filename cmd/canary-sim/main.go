@@ -1,4 +1,4 @@
-// Command canary-sim runs the real Canary daemon against the TWS simulator in
+// Command canary-sim (build it with -tags trading to place orders) runs the real Canary daemon against the TWS simulator in
 // pkg/ibkr/twssim, in live mode against a placeholder account (U1234567), inside one directory of its own: socket,
 // config, log, policies, state and home. It prints the environment a caller
 // sets to point the real canary CLI (or Desk) at it, then serves until a
@@ -112,6 +112,21 @@ func buildVersion() string {
 	return "dev"
 }
 
+// tradingBuild reports whether this binary was built with -tags trading,
+// without which the daemon previews but never places an order.
+func tradingBuild() bool {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return false
+	}
+	for _, setting := range bi.Settings {
+		if setting.Key == "-tags" && slices.Contains(strings.Split(setting.Value, ","), "trading") {
+			return true
+		}
+	}
+	return false
+}
+
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "ctl" {
 		return runCtl(args[1:], stdout, stderr)
@@ -217,6 +232,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	defer logFile.Close()
 
 	fmt.Fprintf(stdout, "canary-sim: TWS simulator on %s, account %s (live mode, placeholder account), daemon socket %s\n", sim.Addr(), book.Account(), s.socket)
+	if !tradingBuild() {
+		fmt.Fprintln(stdout, "canary-sim: this build previews but cannot place orders; build it with: go build -tags trading ./cmd/canary-sim")
+	}
 	fmt.Fprintf(stdout, "canary-sim: broker frames in %s, daemon log in %s\n", frames.Name(), s.log)
 	fmt.Fprintf(stdout, "canary-sim: control: canary-sim ctl -dir %s COMMAND (canary-sim -h lists them)\n", dir)
 	fmt.Fprintln(stdout, "# set these before running canary against the simulator:")

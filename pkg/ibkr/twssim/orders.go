@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 )
 
 // The order engine. A transmitted order is acknowledged (openOrder and
@@ -152,6 +153,9 @@ func (ss *session) place(o PlaceOrder) {
 	s.nextID = max(s.nextID, o.OrderID+1)
 	s.mu.Unlock()
 	if o.WhatIf {
+		if s.whatIfDelay > 0 {
+			time.Sleep(s.whatIfDelay)
+		}
 		b.mu.Lock()
 		w := b.whatIfLocked(o, in)
 		b.mu.Unlock()
@@ -167,28 +171,22 @@ func (ss *session) place(o PlaceOrder) {
 		return
 	}
 	fault, faulted := s.takeFault(o)
-	if faulted {
-		switch fault.Kind {
-		case FaultDrop:
-			_ = ss.c.Close()
-			return
-		case FaultError:
-			ss.fail(o.OrderID, fault.Code, nonEmpty(fault.Message, fmt.Sprintf("twssim: error %d", fault.Code)))
-			return
-		case FaultRejectChild, FaultReject:
-			order := s.store(o, "Inactive")
-			ss.fail(o.OrderID, codeOr(fault.Code, 201), nonEmpty(fault.Message, "Order rejected - reason:twssim rejects this order"))
-			ss.send(openOrderFrame(order, in, b.Account(), nil), orderStatusFrame(order, 0))
-			return
-		case FaultSilent:
-			s.store(o, "Submitted")
-			return
-		}
-	}
-	// A child transmits its untransmitted parent first.
+	// A child transmits its untransmitted parent first. A child the broker
+	// rejects leaves the parent held untransmitted; a parent the broker
+	// rejects takes its child with it (both assumed).
 	if o.ParentID > 0 {
 		if parent, ok := s.order(o.ParentID); ok && parent.Status == "Untransmitted" {
-			s.transmit(parent.PlaceOrder, Fault{}, false)
+			if faulted && fault.Kind == FaultRejectChild {
+				s.transmit(o, fault, true)
+				return
+			}
+			pf, pfaulted := s.takeFault(parent.PlaceOrder)
+			if !s.transmit(parent.PlaceOrder, pf, pfaulted) {
+				child := s.store(o, "Cancelled")
+				ss.send(openOrderFrame(child, in, b.Account(), nil), orderStatusFrame(child, 0))
+				ss.fail(o.OrderID, 202, "Order Canceled - reason:parent order rejected")
+				return
+			}
 		}
 	}
 	s.transmit(o, fault, faulted)
@@ -238,9 +236,28 @@ func (s *Server) order(id int) (Order, bool) {
 
 // transmit works a transmitted order: acknowledge, then fill what the
 // session and the fault allow.
-func (s *Server) transmit(o PlaceOrder, fault Fault, faulted bool) {
+func (s *Server) transmit(o PlaceOrder, fault Fault, faulted bool) bool {
 	b := s.book
 	in, _ := b.instrument(o.ConID)
+	ss := s.sessionFor(o.ClientID)
+	if faulted && ss != nil {
+		switch fault.Kind {
+		case FaultDrop:
+			_ = ss.c.Close()
+			return false
+		case FaultError:
+			ss.fail(o.OrderID, fault.Code, nonEmpty(fault.Message, fmt.Sprintf("twssim: error %d", fault.Code)))
+			return false
+		case FaultRejectChild, FaultReject:
+			order := s.store(o, "Inactive")
+			ss.fail(o.OrderID, codeOr(fault.Code, 201), nonEmpty(fault.Message, "Order rejected - reason:twssim rejects this order"))
+			ss.send(openOrderFrame(order, in, b.Account(), nil), orderStatusFrame(order, 0))
+			return false
+		case FaultSilent:
+			s.store(o, "Submitted")
+			return true
+		}
+	}
 	status := "Submitted"
 	parentWorking := false
 	if o.ParentID > 0 {
@@ -261,22 +278,22 @@ func (s *Server) transmit(o PlaceOrder, fault Fault, faulted bool) {
 		case FaultRejectAfterAck:
 			s.setStatus(o.OrderID, "Inactive")
 			order, _ = s.order(o.OrderID)
-			ss := s.sessionFor(o.ClientID)
 			if ss != nil {
 				ss.fail(o.OrderID, codeOr(fault.Code, 201), nonEmpty(fault.Message, "Order rejected - reason:twssim rejects this order after acknowledging it"))
 				ss.send(orderStatusFrame(order, 0))
 			}
-			return
+			return false
 		case FaultPreSubmitted, FaultHold:
-			return
+			return true
 		case FaultPartial:
 			s.fill(o.OrderID, fault.Quantity, 0)
-			return
+			return true
 		}
 	}
 	if status == "Submitted" {
 		s.fillIfMarketable(o.OrderID)
 	}
+	return true
 }
 
 func (s *Server) setStatus(id int, status string) {

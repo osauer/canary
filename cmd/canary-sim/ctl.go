@@ -38,7 +38,8 @@ Commands (against a running canary-sim in DIR):
   tick                            move the account by one cent and stream it
   frames [SINCE]                  recorded client frames from index SINCE (JSON), and the next mark
   orders                          the broker's orders (JSON)
-  drop                            end every broker connection, as a TWS restart does`
+  drop                            end every broker connection, as a TWS restart does
+  account CODE                    log the broker in to another account (ends every connection)`
 
 type ctlRequest struct {
 	Args []string `json:"args"`
@@ -167,6 +168,13 @@ func control(sim *twssim.Server, args []string, now time.Time) (any, error) {
 	case "orders":
 		return sim.Book().Orders(), nil
 	case "drop":
+		sim.DropSessions()
+		return nil, nil
+	case "account":
+		if err := need(2); err != nil {
+			return nil, err
+		}
+		sim.Book().SetAccount(strings.ToUpper(args[1]))
 		sim.DropSessions()
 		return nil, nil
 	}

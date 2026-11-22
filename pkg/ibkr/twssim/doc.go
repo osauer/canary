@@ -25,13 +25,22 @@
 //
 //	behaviour                                              status
 //	marketable BUY LMT fills whole at the ask at once       assumed
-//	fills ignore the exchange session (Book.HoldFills)      assumed
 //	fill sequence: execDetails, openOrder, orderStatus,     assumed
 //	  commissionReport, then account and portfolio push
 //	WhatIf answer: openOrder only, status PreSubmitted,     assumed
 //	  margin 25% of gross, commission min(max(1, 0.005/sh),
 //	  1% notional) as commission, min and max
 //	child order (parentId) waits PreSubmitted, then works   assumed
+//	transmit=false order held, unanswered, until a child    assumed
+//	  with transmit=true transmits the pair
+//	DAY order sent while the session is closed rests        assumed
+//	  PreSubmitted; Submitted and fillable at the open
+//	child rejected: parent left untransmitted at the broker assumed
+//	parent rejected: child cancelled with it (error 202)    assumed
+//	DAY parent ending partly filled: child cancelled, or    assumed (option)
+//	  resized to the filled quantity (ChildOnPartialExpiry)
+//	every scripted Fault (reject 201/442, reject after ack, assumed
+//	  PreSubmitted, partial, silent, drop, error 110/103/200/354/10089)
 //	market data type 1 (live) at every hour                 assumed
 //	daily bars on weekdays only, no exchange holidays       assumed
 //	execution time "yyyyMMdd-HH:mm:ss" in UTC               assumed

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"net"
 	"slices"
@@ -42,6 +43,9 @@ type Options struct {
 	// parent that filled in part: ChildCancelled (the default) or
 	// ChildResized.
 	ChildOnPartialExpiry string
+	// WhatIfDelay holds each WhatIf answer back this long, as a broker's
+	// margin simulation takes time (IBKR answers in about 50 to 150 ms).
+	WhatIfDelay time.Duration
 	// ClosedMarkets lists the markets whose session starts closed (see
 	// SetSession); every other market starts open.
 	ClosedMarkets []string
@@ -56,6 +60,7 @@ type Server struct {
 	every          time.Duration
 	rejectAttached bool
 	childOnExpiry  string
+	whatIfDelay    time.Duration
 	done           chan struct{}
 	closeOne       sync.Once
 
@@ -81,7 +86,7 @@ func Listen(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{ln: ln, book: opts.Book, now: opts.Now, rec: opts.Recorder, every: opts.AccountTimeEvery, rejectAttached: opts.RejectAttachedOrders, childOnExpiry: opts.ChildOnPartialExpiry, closed: map[string]bool{}, done: make(chan struct{}), nextID: 1}
+	s := &Server{ln: ln, book: opts.Book, now: opts.Now, rec: opts.Recorder, every: opts.AccountTimeEvery, rejectAttached: opts.RejectAttachedOrders, childOnExpiry: opts.ChildOnPartialExpiry, whatIfDelay: opts.WhatIfDelay, closed: map[string]bool{}, done: make(chan struct{}), nextID: 1}
 	if s.book == nil {
 		s.book = Default()
 	}
@@ -507,11 +512,13 @@ func contractDetailsFields(reqID int, in Instrument) []string {
 	if in.SecType != "STK" {
 		valid = in.Exchange
 	}
+	// One market rule per valid exchange, in the same order, as TWS lists them.
+	rules := strings.TrimSuffix(strings.Repeat("26,", strings.Count(valid, ",")+1), ",")
 	stockType := ""
 	if in.SecType == "STK" {
 		stockType = "COMMON"
 	}
-	return []string{itoa(reqID), in.Symbol, in.SecType, "", "", "0", "", in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), "", orderTypes, valid, "1", "0", in.LongName, in.PrimaryExch, "", "", "", "", "US/Eastern", "", "", "", "0", "0", "1", in.Symbol, in.SecType, "26", "", stockType, "1", "1", "1", "0"}
+	return []string{itoa(reqID), in.Symbol, in.SecType, "", "", "0", "", in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), "", orderTypes, valid, "1", "0", in.LongName, in.PrimaryExch, "", "", "", "", "US/Eastern", "", "", "", "0", "0", "1", in.Symbol, in.SecType, rules, "", stockType, "1", "1", "1", "0"}
 }
 
 // Tick types of the TWS API.
@@ -655,6 +662,10 @@ func openOrderFrame(o Order, in Instrument, account string, w *whatIf) []byte {
 		order = order.double(10, o.AuxPrice)
 	}
 	order = order.str(11, o.TIF).str(12, account).boolean(19, o.OutsideRTH).str(27, o.OcaGroup).str(28, o.OrderRef).str(61, o.AlgoStrategy)
+	for _, k := range slices.Sorted(maps.Keys(o.AlgoParams)) {
+		var entry protoWriter
+		order = order.bytes(62, entry.str(1, k).str(2, o.AlgoParams[k]))
+	}
 	order = order.boolean(65, w != nil).boolean(66, true)
 	var state protoWriter
 	state = state.str(1, o.Status)
