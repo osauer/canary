@@ -117,9 +117,13 @@ func encodeComboLegProto(leg ComboLeg) []byte {
 	msg = protoAppendInt32(msg, 2, int32(leg.Ratio))
 	msg = protoAppendString(msg, 3, strings.ToUpper(strings.TrimSpace(leg.Action)))
 	msg = protoAppendString(msg, 4, strings.ToUpper(strings.TrimSpace(leg.Exchange)))
-	if leg.OpenClose != 0 {
-		msg = protoAppendInt32(msg, 5, int32(leg.OpenClose))
-	}
+	// As the official encoder writes every leg (EClientUtils.java
+	// createComboLegProto, ComboLeg() defaults): openClose, shortSalesSlot 0
+	// and exemptCode -1 are always present; designatedLocation and
+	// perLegPrice stay unset.
+	msg = protoAppendInt32(msg, 5, int32(leg.OpenClose))
+	msg = protoAppendInt32(msg, 6, 0)
+	msg = protoAppendInt32(msg, 8, -1)
 	return msg
 }
 

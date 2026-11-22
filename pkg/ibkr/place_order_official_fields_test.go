@@ -174,3 +174,43 @@ func TestPlaceOrderFrameMultiplierIsOfficialDouble(t *testing.T) {
 		}
 	}
 }
+
+// Every combo leg as the official encoder writes it (EClientUtils.java
+// createComboLegProto, ComboLeg() defaults): conId, ratio, action, exchange,
+// openClose (0, Same), shortSalesSlot 0 and exemptCode -1 on every leg;
+// designatedLocation only when set, perLegPrice never without order combo
+// leg prices.
+func TestPlaceOrderFrameComboLegsMatchOfficialDefaults(t *testing.T) {
+	bag := &IBKROrder{
+		OrderID: 35, ClientID: 9, Symbol: "SYNA", SecType: "BAG", Exchange: "SMART", Currency: "USD",
+		Action: "BUY", TotalQty: 1, OrderType: "LMT", LmtPrice: 1.10, LmtPriceSet: true, TIF: "DAY", OpenClose: "O",
+		ComboLegs: []ComboLeg{
+			{ConID: 7101, Ratio: 1, Action: "BUY", Exchange: "SMART"},
+			{ConID: 7102, Ratio: 1, Action: "SELL", Exchange: "SMART"},
+		},
+	}
+	contract := officialPlaceOrderContract(t, bag)
+	if len(contract[20]) != 2 {
+		t.Fatalf("combo legs = %d, want 2", len(contract[20]))
+	}
+	for i, raw := range contract[20] {
+		leg := decodeOfficial(t, "ComboLeg", raw.bytesValue, officialComboLegFields)
+		want := bag.ComboLegs[i]
+		if len(leg[1]) != 1 || int(leg[1][0].int32Value) != want.ConID || len(leg[2]) != 1 || leg[2][0].int32Value != 1 ||
+			len(leg[3]) != 1 || string(leg[3][0].bytesValue) != want.Action || len(leg[4]) != 1 || string(leg[4][0].bytesValue) != "SMART" {
+			t.Fatalf("leg %d identity = %+v", i, leg)
+		}
+		for _, f := range []struct {
+			number int
+			name   string
+			want   int32
+		}{{5, "openClose", 0}, {6, "shortSalesSlot", 0}, {8, "exemptCode", -1}} {
+			if len(leg[f.number]) != 1 || leg[f.number][0].int32Value != f.want {
+				t.Errorf("leg %d %s (field %d) = %+v, want present %d", i, f.name, f.number, leg[f.number], f.want)
+			}
+		}
+		if len(leg[7]) != 0 || len(leg[9]) != 0 {
+			t.Errorf("leg %d sent designatedLocation or perLegPrice: %+v", i, leg)
+		}
+	}
+}
