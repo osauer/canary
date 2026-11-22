@@ -1,0 +1,52 @@
+// Package twssim is a simulated TWS: a broker and market on a loopback TCP
+// port that speaks the TWS API at server version 203, so the real daemon, its
+// real IBKR connector and its wire codec run against it without TWS, an
+// account or the network.
+//
+// The state is a [Book]: one paper account with cash per currency, positions,
+// a contract catalogue with deterministic quotes and daily bars, orders and
+// executions. A [Server] answers the handshake, startAPI, account updates and
+// summary, positions, PnL, contract details, market data, history, open
+// orders, executions, WhatIf previews, placed and cancelled orders, and fills
+// marketable limit orders at the touch. Every request a client sends is kept,
+// decoded, by the [Recorder]; a request the simulator does not model is
+// answered with an error at once, never left hanging.
+//
+// What it proves and what it does not. The simulator decodes the client's
+// placeOrder and cancelOrder by the broker's own protocol-buffer field table
+// (schema.go, from IB Gateway 10.50), so a field the broker would drop shows
+// as IgnoredByBroker. Every other frame is written to the layouts pkg/ibkr's
+// decoder and its existing test fakes read, so on those the simulator agrees
+// with Canary by construction: it proves sequencing, gates, recovery and
+// evidence handling, not that real TWS sends a frame in that shape.
+//
+// Behaviour taken from assumption rather than from a captured frame, an
+// existing fake or IBKR's documentation:
+//
+//	behaviour                                              status
+//	marketable BUY LMT fills whole at the ask at once       assumed
+//	fills ignore the exchange session (Book.HoldFills)      assumed
+//	fill sequence: execDetails, openOrder, orderStatus,     assumed
+//	  commissionReport, then account and portfolio push
+//	WhatIf answer: openOrder only, status PreSubmitted,     assumed
+//	  margin 25% of gross, commission min(max(1, 0.005/sh),
+//	  1% notional) as commission, min and max
+//	child order (parentId) waits PreSubmitted, then works   assumed
+//	market data type 1 (live) at every hour                 assumed
+//	daily bars on weekdays only, no exchange holidays       assumed
+//	execution time "yyyyMMdd-HH:mm:ss" in UTC               assumed
+//	error 10354 for attachedOrders (Options, off by default) read from the
+//	                                                        10.50 bytecode
+//	WSH requests answered with error 10276                  assumed
+//	BUY orders, parentId with transmit false, BAG orders    never sent live
+//
+// Live-proven by past fills on the real account, so modelled from fact: STK
+// SELL TRAIL GTC with openClose C and trigger method 2, and OPT SELL LMT DAY
+// with the Adaptive algorithm.
+//
+// The simulator never reads the machine it runs on and refuses to listen
+// anywhere but loopback or on IBKR's API ports ([LiveAPIPorts]). Every id,
+// ticker and figure in [Default] is invented, except the public contract ids
+// of the regime's inputs (SPY, HYG, VIX, VIX3M, SPX, USD.JPY), which the
+// daemon seeds its contract cache with.
+package twssim

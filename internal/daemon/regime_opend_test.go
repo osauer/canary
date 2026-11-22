@@ -94,36 +94,8 @@ func TestOpenDRegimeReadsListedInputsAndRefusesIndicesAndFX(t *testing.T) {
 }
 
 // offlineRegimeSources stand in for the regime's public sites in a test
-// daemon: a steady, current daily series for every official series and for
-// Cboe's VVIX and VIX3M closes, so no test reaches the network.
-func offlineRegimeSources() regimeSources {
-	series := func(level float64) []regimeSeriesPoint {
-		var points []regimeSeriesPoint
-		day := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
-		for len(points) < 400 {
-			if wd := day.Weekday(); wd != time.Saturday && wd != time.Sunday {
-				points = append(points, regimeSeriesPoint{Date: day, Value: level})
-			}
-			day = day.AddDate(0, 0, -1)
-		}
-		slices.Reverse(points)
-		return points
-	}
-	levels := map[string]float64{
-		fredSeriesHYOAS: 3.1, fredSeriesIGOAS: 0.95, fredSeriesCP3M: 4.32, fredSeriesTBill3M: 4.18,
-	}
-	return regimeSources{
-		official: func(_ context.Context, id string) ([]regimeSeriesPoint, error) {
-			level, ok := levels[id]
-			if !ok {
-				return nil, errors.New("offline regime sources: no series " + id)
-			}
-			return series(level), nil
-		},
-		vvix:  func(context.Context) ([]regimeSeriesPoint, error) { return series(88), nil },
-		vix3m: func(context.Context) ([]regimeSeriesPoint, error) { return series(19.4), nil },
-	}
-}
+// daemon, as for a simulated one.
+func offlineRegimeSources() regimeSources { return simulatedRegimeSources() }
 
 // regimeSimWithHYG is the simulator's book with HYG listed beside SPY.
 func regimeSimWithHYG(t *testing.T) *futusim.Server {

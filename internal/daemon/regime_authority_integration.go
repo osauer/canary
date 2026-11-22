@@ -157,6 +157,7 @@ func (s *Server) publishRulesRegimeStageState(state rulesRegimeStageState, publi
 	if s == nil {
 		return
 	}
+	state = s.simulatedRegimeStageOr(state)
 	s.rulesEvaluationMu.Lock()
 	s.rulesRegimeStageMu.Lock()
 	s.rulesRegimeStage = state

@@ -454,6 +454,10 @@ type Server struct {
 	// regimeSourcesForTest replaces the regime's public sources (FRED, the
 	// Federal Reserve, Treasury, Cboe); nil reads the public sites.
 	regimeSourcesForTest *regimeSources
+	// simulator marks a daemon started for the TWS simulator (Options);
+	// simulatorReconcile records its one reconcile event.
+	simulator          bool
+	simulatorReconcile sync.Once
 	// protectiveOCAConfirmWaitForTest shortens how long a sale waits for the
 	// broker to confirm the change to Canary's own stop; zero keeps
 	// protectiveOCAConfirmWait.
@@ -806,6 +810,12 @@ type Options struct {
 	// connection held, the process kept its pid and instance lock with no
 	// socket, and `canary restart` could not take over.
 	ShutdownStarted func()
+	// Simulator runs the daemon against the TWS simulator (pkg/ibkr/twssim)
+	// for cmd/canary-sim and hermetic end-to-end tests; the installed binary
+	// never sets it. Start refuses it unless the config pins a loopback,
+	// non-IBKR port, a DU account and paper mode; simulation.go says what it
+	// changes.
+	Simulator bool
 }
 
 // New constructs a Server with the supplied options.
@@ -819,6 +829,7 @@ func New(opts Options) *Server {
 		ensurePolicyFiles:   opts.EnsurePolicyFiles,
 		shutdownStarted:     opts.ShutdownStarted,
 		disableMacroSources: opts.DisableMacroSources,
+		simulator:           opts.Simulator,
 		cfg:                 disableIBKRHosts(opts.Config),
 		opend:               newOpenDBroker(opts.Config, opts.Version),
 		socketPath:          opts.SocketPath,
@@ -1576,6 +1587,14 @@ func (s *Server) installSubs() {
 // the first fatal error encountered. Returns ErrAlreadyRunning (without
 // touching the gateway) if another Canary daemon holds the instance lock.
 func (s *Server) Start(ctx context.Context) error {
+	if s.simulator {
+		if err := checkSimulatorConfig(s.cfg); err != nil {
+			return err
+		}
+		if s.regimeSourcesForTest == nil {
+			s.regimeSourcesForTest = new(simulatedRegimeSources())
+		}
+	}
 	// Resolve [gateway] maintenance_windows before anything else starts: a
 	// schedule typo is reported as a config issue, never silently ignored,
 	// and the documented IBKR schedule classifies backend-link losses.
@@ -2525,6 +2544,7 @@ func (s *Server) postConnectSetup(a connectAttempter, ep discover.Endpoint) {
 
 	// Latch the postConnectSetup-done barrier. handleStatusHealth gates
 	// loop in pkg/ibkr) and the synchronous sentinel-setting above
+	s.seedSimulatedEvidence()
 	s.postConnectSetupDone.Store(true)
 	// The evaluator starts before the gateway handshake so daemon startup never
 	// depends on an app process. Wake it now that account and portfolio streams
