@@ -48,7 +48,9 @@ func encodePlaceOrderProtoBody(order *IBKROrder) ([]byte, error) {
 	body = protoAppendInt32(body, 1, int32(order.OrderID))
 	body = protoAppendMessage(body, 2, contract)
 	body = protoAppendMessage(body, 3, orderMsg)
-	body = protoAppendMessage(body, 4, nil)
+	// No field 4 (attachedOrders, TWS 10.45+): the official client never
+	// sends it, and its mere presence routes the order through the server's
+	// 10354 "attaching stop-loss or profit-taker is not allowed" check.
 	return body, nil
 }
 
