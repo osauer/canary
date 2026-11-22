@@ -54,7 +54,8 @@ func TestRenderStatusNamesAPortThatDropsConnections(t *testing.T) {
 	res.PortRejection = nil
 	stdout.Reset()
 	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, res, nil)
-	if !strings.Contains(stdout.String(), "port accepts connections and drops them before the API handshake") {
+	// The fact is what matters, not where the row wraps.
+	if !strings.Contains(strings.Join(strings.Fields(stdout.String()), " "), "port accepts connections and drops them before the API handshake") {
 		t.Fatalf("row without evidence:\n%s", stdout.String())
 	}
 }

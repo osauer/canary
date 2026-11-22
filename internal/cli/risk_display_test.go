@@ -138,7 +138,7 @@ func TestStatusExplainsPushAndEverySourceConcern(t *testing.T) {
 		PushDelivery: &rpc.PushDeliveryStatus{ReceivedAt: now, Proof: rpc.PushDeliveryProof{Mode: "watch_and_act", Dispatcher: "unavailable", DispatcherClass: "no_active_subscription"}},
 	}
 	renderStatusText(&Env{Stdout: &out}, &res, nil)
-	if !strings.Contains(out.String(), "Phone push     No push subscription;") || strings.Contains(out.String(), "Reason") || strings.Count(out.String(), "Required sources are available") != 1 {
+	if !strings.Contains(out.String(), "no phone is subscribed") || strings.Contains(out.String(), "Reason") || strings.Count(out.String(), "Required sources are available") != 1 {
 		t.Fatal("status hides push blocker or duplicates healthy verdict", out.String())
 	}
 	out.Reset()

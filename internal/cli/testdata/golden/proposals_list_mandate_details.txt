@@ -4,14 +4,14 @@ Canary Protection Proposals 2 actionable / 2 total
 Revision rev-0002
 Policy protection v3
 Theta/day 0.00
-Mandate reducing · the verdict reads reduce (the loss measure 72,000 EUR
-      is 112% of the loss room 64,000 EUR); 2 cuts sized to take the
-      loss measure to 60,500 EUR, inside the 60,800 EUR target
+Mandate reducing · the verdict reads reduce (the loss measure 63,000 EUR
+      is 112% of the loss room 56,000 EUR); 2 cuts sized to take the
+      loss measure to 52,900 EUR, inside the 53,200 EUR target
   mandate_reduction:0001 mandate_reduction SELL 5 SYNB LMT the loss measure
-  72,000 EUR is 112% of the mandate's loss room 64,000 EUR (reduce); in the
+  63,000 EUR is 112% of the mandate's loss room 56,000 EUR (reduce); in the
   money 2 sessions before expiry; exercised, the delivered shares would push the
   reduced book's volatility over its budget, so it goes first: sell 5 of 5
-  contracts; the batch takes the loss measure to 60,500 EUR, inside the 60,800
+  contracts; the batch takes the loss measure to 52,900 EUR, inside the 53,200
   EUR target [ready] auto: places itself at 12:30 UTC unless vetoed
       Position held 5 ct
       Mandate: rank 1 of 2 · expires in the money first · 2,500 EUR of the loss
@@ -24,14 +24,14 @@ Risk ticket TIF DAY
       waits the full veto window even under a latched brake: a reduction to
       budget is a discretionary-scale action, not a stop
   mandate_reduction:0002 mandate_reduction SELL 200 SYNA LMT the loss measure
-  72,000 EUR is 112% of the mandate's loss room 64,000 EUR (reduce); the largest
-  premium at risk left, SYNA in your sleeve (60,000 EUR of the loss measure):
+  63,000 EUR is 112% of the mandate's loss room 56,000 EUR (reduce); the largest
+  premium at risk left, SYNA in your sleeve (52,000 EUR of the loss measure):
   sell 200 of 3000 shares now (the batch asks for 600; the order caps hold one
   order to 200, and the next cycle measures the rest); the batch takes the loss
-  measure to 60,500 EUR, inside the 60,800 EUR target [ready] auto: places
+  measure to 52,900 EUR, inside the 53,200 EUR target [ready] auto: places
   itself at 12:30 UTC unless vetoed
       Position held 3000 sh
-      Mandate: rank 2 of 2 · largest premium at risk · 60,000 EUR of the loss
+      Mandate: rank 2 of 2 · largest premium at risk · 50,000 EUR of the loss
       measure · sized on the reduce verdict of 13:59 TZ: loss measure 72,000
       EUR, 112% of the loss room 64,000 EUR · this cut takes 9,000 EUR off the
       loss measure and 6,450 EUR a year off the volatility
@@ -47,14 +47,14 @@ Canary Protection Proposals 2 actionable / 2 total
 Revision rev-0002
 Policy protection v3
 Theta/day 0.00
-Mandate reducing · the verdict reads reduce (the loss measure 72,000 EUR
-      is 112% of the loss room 64,000 EUR); 2 cuts sized to take the
-      loss measure to 60,500 EUR, inside the 60,800 EUR target
+Mandate reducing · the verdict reads reduce (the loss measure 63,000 EUR
+      is 112% of the loss room 56,000 EUR); 2 cuts sized to take the
+      loss measure to 52,900 EUR, inside the 53,200 EUR target
   mandate_reduction:0001 mandate_reduction SELL 5 SYNB LMT the loss measure
-  72,000 EUR is 112% of the mandate's loss room 64,000 EUR (reduce); in the
+  63,000 EUR is 112% of the mandate's loss room 56,000 EUR (reduce); in the
   money 2 sessions before expiry; exercised, the delivered shares would push the
   reduced book's volatility over its budget, so it goes first: sell 5 of 5
-  contracts; the batch takes the loss measure to 60,500 EUR, inside the 60,800
+  contracts; the batch takes the loss measure to 52,900 EUR, inside the 53,200
   EUR target [ready] auto: places itself at 12:30 UTC unless vetoed
       Position held 5 ct
       Mandate: rank 1 of 2 · expires in the money first · 2,500 EUR of the loss
@@ -67,14 +67,14 @@ Risk ticket TIF DAY
       waits the full veto window even under a latched brake: a reduction to
       budget is a discretionary-scale action, not a stop
   mandate_reduction:0002 mandate_reduction SELL 200 SYNA LMT the loss measure
-  72,000 EUR is 112% of the mandate's loss room 64,000 EUR (reduce); the largest
-  premium at risk left, SYNA in your sleeve (60,000 EUR of the loss measure):
+  63,000 EUR is 112% of the mandate's loss room 56,000 EUR (reduce); the largest
+  premium at risk left, SYNA in your sleeve (52,000 EUR of the loss measure):
   sell 200 of 3000 shares now (the batch asks for 600; the order caps hold one
   order to 200, and the next cycle measures the rest); the batch takes the loss
-  measure to 60,500 EUR, inside the 60,800 EUR target [ready] auto: places
+  measure to 52,900 EUR, inside the 53,200 EUR target [ready] auto: places
   itself at 12:30 UTC unless vetoed
       Position held 3000 sh
-      Mandate: rank 2 of 2 · largest premium at risk · 60,000 EUR of the loss
+      Mandate: rank 2 of 2 · largest premium at risk · 50,000 EUR of the loss
       measure · sized on the reduce verdict of 13:59 TZ: loss measure 72,000
       EUR, 112% of the loss room 64,000 EUR · this cut takes 9,000 EUR off the
       loss measure and 6,450 EUR a year off the volatility

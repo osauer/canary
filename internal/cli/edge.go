@@ -33,6 +33,7 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 	optionOffset := fs.Int("option-offset", 0, "first row of each option list to return (completed positions, realized episodes, open positions)")
 	optionLimit := fs.Int("option-limit", rpc.MaxEdgeOptionResults, fmt.Sprintf("option rows per list: 1-%d", rpc.MaxEdgeOptionPage))
 	allOptions := fs.Bool("all-options", false, "return every row of each option list")
+	details := fs.Bool("details", false, "show the full review: every section with its evidence")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
@@ -59,7 +60,13 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 	if *jsonOut {
 		return printJSON(env, result)
 	}
-	renderEdgeView(env, result, paged, params.OptionLimit)
+	// Asking for one decision, one option or a page of rows is asking for
+	// detail; only the bare command gets the summary.
+	if *details || paged || *change != "" || *option != "" {
+		renderEdgeView(env, result, paged, params.OptionLimit)
+	} else {
+		renderEdgeSummary(env, result)
+	}
 	return 0
 }
 
@@ -151,31 +158,19 @@ func renderEdgeView(env *Env, result rpc.EdgeResult, paged bool, optionLimit int
 	out := env.Stdout
 	width := briefProseWidth(out)
 	fmt.Fprintln(out, edgeTitle(env, result))
-	if result.State == rpc.EdgeStateActionRequired && result.Setup != nil {
-		fmt.Fprintln(out, "  Flex setup is required before Canary can calculate broker-truth results.")
-		for i, step := range result.Setup.Steps {
-			fmt.Fprintf(out, "  %d. %s\n", i+1, sanitizeRunText(step))
-		}
-		if missing := result.Setup.MissingRequirements; len(missing) > 0 {
-			shown := missing
-			suffix := ""
-			if len(shown) > 8 {
-				shown = shown[:8]
-				suffix = fmt.Sprintf(" (+%d more; use --json)", len(missing)-len(shown))
-			}
-			fmt.Fprintf(out, "  Missing (%d): %s%s\n", len(missing), sanitizeRunText(strings.Join(shown, ", ")), suffix)
-		}
+	if renderEdgeSetup(env, result) {
 		return
 	}
-	edgeProse(env, edgeHeadlineText(env, result), width)
+	// Conclusion first, then each claim's evidence in the same order: the
+	// account, the decisions, the options, and last how the review was built.
+	renderEdgeBottomLine(env, result)
 	if result.ReviewNote != "" {
 		edgeProse(env, sanitizeRunText(result.ReviewNote), width)
 	}
-	renderEdgeEvidence(env, result)
 	renderEdgeAccount(env, result, width)
+	renderEdgeVerdicts(env, result)
 	renderEdgeMatrix(env, result, width)
 	renderEdgeFindings(env, result)
-	renderEdgeVerdicts(env, result)
 	renderEdgeOptions(env, result, paged)
 	if paged {
 		renderEdgeOptionPage(env, result)
@@ -183,6 +178,7 @@ func renderEdgeView(env *Env, result rpc.EdgeResult, paged bool, optionLimit int
 	if next := edgeOptionNextOffset(result.Options); next != nil {
 		fmt.Fprintf(out, "  More option rows: canary edge --option-offset %d --option-limit %d\n", *next, optionLimit)
 	}
+	renderEdgeEvidence(env, result)
 	renderEdgeForwardTests(env, result)
 	if result.Change != nil {
 		renderEdgeChange(env, *result.Change, edgeBaseCurrency(result))
@@ -191,6 +187,39 @@ func renderEdgeView(env *Env, result rpc.EdgeResult, paged bool, optionLimit int
 		renderEdgeOptionDetail(env, *result.Option, edgeBaseCurrency(result))
 	}
 	fmt.Fprintln(out, "\nDetails: canary edge --change <id> · canary edge --option <id> · canary edge --json")
+}
+
+// renderEdgeSetup prints the Flex setup steps when Edge cannot run yet and
+// reports whether it did; both views stop there.
+func renderEdgeSetup(env *Env, result rpc.EdgeResult) bool {
+	out := env.Stdout
+	if result.State != rpc.EdgeStateActionRequired || result.Setup == nil {
+		return false
+	}
+	fmt.Fprintln(out, "  Flex setup is required before Canary can calculate broker-truth results.")
+	for i, step := range result.Setup.Steps {
+		fmt.Fprintf(out, "  %d. %s\n", i+1, sanitizeRunText(step))
+	}
+	if missing := result.Setup.MissingRequirements; len(missing) > 0 {
+		shown := missing
+		suffix := ""
+		if len(shown) > 8 {
+			shown = shown[:8]
+			suffix = fmt.Sprintf(" (+%d more; use --json)", len(missing)-len(shown))
+		}
+		fmt.Fprintf(out, "  Missing (%d): %s%s\n", len(missing), sanitizeRunText(strings.Join(shown, ", ")), suffix)
+	}
+	return true
+}
+
+// renderEdgeSummary is the default view: the conclusion and what supports it
+// in a screen, with the full review one flag away.
+func renderEdgeSummary(env *Env, result rpc.EdgeResult) {
+	fmt.Fprintln(env.Stdout, edgeBriefTitle(env, result))
+	if renderEdgeSetup(env, result) {
+		return
+	}
+	renderEdgeBrief(env, result)
 }
 
 func edgeTitle(env *Env, result rpc.EdgeResult) string {
@@ -211,19 +240,6 @@ func edgeTitle(env *Env, result rpc.EdgeResult) string {
 		parts = append(parts, env.yellow(string(result.State)))
 	}
 	return strings.Join(parts, " · ")
-}
-
-// edgeHeadlineText composes the headline from the typed pattern the daemon
-// selected so its money matches every other line; it never re-selects or
-// re-ranks. Without a selected pattern the daemon's gate explanation stands.
-func edgeHeadlineText(env *Env, result rpc.EdgeResult) string {
-	pattern, lens := edgeSelectedPattern(result)
-	if pattern == nil || lens.TotalBase == nil || lens.MedianBase == nil || pattern.Direction == "" {
-		return sanitizeRunText(result.Headline)
-	}
-	ccy := edgeBaseCurrency(result)
-	direction := strings.ToUpper(pattern.Direction[:1]) + pattern.Direction[1:]
-	return fmt.Sprintf("%s %s: %s price impact across %d of %d changes at %s; median %s.", direction, edgeActionPlural(pattern.Action), edgeSignedMoney(env, *lens.TotalBase, ccy), lens.SampleCount, pattern.EligibleChanges, edgeSessionCount(lens.Sessions), edgeSignedMoney(env, *lens.MedianBase, ccy))
 }
 
 func edgeSelectedPattern(result rpc.EdgeResult) (*rpc.EdgeDecisionPattern, *rpc.EdgePatternHorizon) {

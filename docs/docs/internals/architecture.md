@@ -521,7 +521,7 @@ is no external metrics stack and no tracing.
   discovery still reports `unsupported_client_protocol`. The daemon reads an
   allowlist of API settings once per session, a few seconds after each
   connect, on a separate bounded protocol-219 socket (the same read
-  `status --gateway-diagnostics` makes on demand), and `status` prints the
+  `status --details` makes on demand), and `status` prints the
   settings that differ from what Canary needs as the `Gateway setup` row.
   The read does not publish restart evidence or change the main connection.
   [IBKR's read-only configuration request](https://www.interactivebrokers.com/docs/tws-api/doc/setting-management/request-configuration)

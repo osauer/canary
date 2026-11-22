@@ -88,29 +88,38 @@ func TestEdgeCLIDefaultsToTheAutomaticOneYearReview(t *testing.T) {
 	if conn.params != want {
 		t.Fatalf("default params=%+v want %+v", conn.params, want)
 	}
-	if !strings.Contains(stdout.String(), "automatic one-year decision review") {
-		t.Fatalf("default output does not lead with the automatic review: %s", stdout.String())
+	// The bare command answers first: the period reviewed, then the bottom
+	// line, with the full review named as the next step.
+	title, rest, _ := strings.Cut(stdout.String(), "\n")
+	if !strings.Contains(title, "one year of decisions") || !strings.Contains(rest, "Bottom line") || !strings.Contains(rest, "canary edge --details") {
+		t.Fatalf("default output does not lead with the conclusion: %s", stdout.String())
 	}
 }
 
 func TestDefaultEdgeHumanOutputIsConciseAndComplete(t *testing.T) {
 	result := edgeCLIResult()
-	var stdout bytes.Buffer
-	renderEdgeText(&Env{Stdout: &stdout}, result)
-	// Section headers and their blank-line separators are part of the desk
-	// layout; the cap counts content lines so the screen stays scannable.
+	var summary, details bytes.Buffer
+	renderEdgeSummary(&Env{Stdout: &summary}, result)
+	renderEdgeText(&Env{Stdout: &details}, result)
+	// The summary is one screen: the cap counts content lines.
 	content := 0
-	for line := range strings.SplitSeq(strings.TrimSpace(stdout.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(summary.String()), "\n") {
 		if strings.TrimSpace(line) != "" {
 			content++
 		}
 	}
-	if content > 32 {
-		t.Fatalf("default output has %d content lines, want at most 32:\n%s", content, stdout.String())
+	if content > 24 {
+		t.Fatalf("summary has %d content lines, want at most 24:\n%s", content, summary.String())
 	}
-	for _, required := range []string{"Canary Edge", "Evidence", "Coverage", "Horizon", "Account P/L", "Decisions by action", "OPEN", "ADD", "TRIM", "EXIT", "Findings", "Realized episodes", "Open snapshot", "Details: canary edge"} {
-		if !strings.Contains(stdout.String(), required) {
-			t.Errorf("output missing %q:\n%s", required, stdout.String())
+	for _, required := range []string{"Canary Edge", "Bottom line", "Account", "How far to trust this", "Full review: canary edge --details"} {
+		if !strings.Contains(summary.String(), required) {
+			t.Errorf("summary missing %q:\n%s", required, summary.String())
+		}
+	}
+	// The detailed view keeps every section the review has.
+	for _, required := range []string{"Canary Edge", "Bottom line", "Evidence", "Coverage", "Horizon", "Account P/L", "Decisions by action", "OPEN", "ADD", "TRIM", "EXIT", "Findings", "Realized episodes", "Open snapshot", "Details: canary edge"} {
+		if !strings.Contains(details.String(), required) {
+			t.Errorf("detailed view missing %q:\n%s", required, details.String())
 		}
 	}
 }
@@ -224,8 +233,12 @@ func TestEdgeHumanOutputComposesHeadlineAndOrdersSections(t *testing.T) {
 	// Rows wrap at the prose measure with a four-space hanging indent; join
 	// continuation lines before matching whole rows.
 	flat := strings.ReplaceAll(got, "\n    ", " ")
+	// The bottom line wraps beneath its own column; compare it by its words.
+	words := strings.Join(strings.Fields(got), " ")
+	if want := "Long trims: -€ 4,208.84 over the 1 session after them, across 40 of 89; median -€ 53.76 each"; !strings.Contains(words, want) {
+		t.Fatalf("output missing %q:\n%s", want, got)
+	}
 	for _, want := range []string{
-		"Long trims: -€ 4,208.84 price impact across 40 of 89 changes at 1 session; median -€ 53.76.",
 		"Coverage · 121 of 296 eligible changes scored at 1 session (40.9%) · 1,009 broker position changes found, 713 outside the review",
 		"Horizon · 1 session selected automatically · 20 sessions 9.8% coverage · 5 sessions 18.9% coverage",
 		"Selected sample · 40 of 89 long trims · size coverage 42.5% of execution notional",
@@ -242,7 +255,7 @@ func TestEdgeHumanOutputComposesHeadlineAndOrdersSections(t *testing.T) {
 			t.Fatalf("output still contains %q:\n%s", stale, got)
 		}
 	}
-	order := []string{"Canary Edge", "Long trims:", "\nEvidence\n", "\nAccount P/L\n", "\nDecisions by action\n", "separate decision sets", "ACTION", "TRIM", "\nFindings", "change_abc", "\nOptions", "Realized episodes", "\nDetails: canary edge"}
+	order := []string{"Canary Edge", "Bottom line", "Long trims:", "\nAccount P/L\n", "\nDecisions by action\n", "separate decision sets", "ACTION", "TRIM", "\nFindings", "change_abc", "\nOptions", "Realized episodes", "\nEvidence\n", "\nDetails: canary edge"}
 	last := -1
 	for _, marker := range order {
 		at := strings.Index(got, marker)

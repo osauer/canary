@@ -23,7 +23,7 @@ const handshakePollInterval = 500 * time.Millisecond
 func runStatus(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "status")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
-	gatewayDiagnostics := fs.Bool("gateway-diagnostics", false, "read broker API settings on an isolated diagnostic connection")
+	gatewayDiagnostics := fs.Bool("details", false, "add the broker's API settings, read on a separate short-lived connection")
 	if err := fs.Parse(args); err != nil {
 		return parseExit(err)
 	}
@@ -74,10 +74,17 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	fmt.Fprintln(out)
 	fmt.Fprintf(out, "Canary  %s\n", env.statusBadge(apiStatusConcern(res.Verdict.State, res.Verdict.State)))
 	if res.Verdict.Reason != "" && res.Verdict.State != "READY" {
-		statusHealthRow(env, out, "Reason", env.concernText(apiStatusConcern(res.Verdict.State, res.Verdict.Reason)))
+		statusRow(env, out, "Reason", env.concernText(apiStatusConcern(res.Verdict.State, res.Verdict.Reason)))
 	}
-	fmt.Fprintln(out)
+	// The one question most readers came with is answered under the headline.
+	if res.Trading.Mode != "" {
+		statusRow(env, out, "Trading", formatTradingStatusValue(env, res.Trading))
+	}
+	// Three groups in the order a reader checks them: is the broker there,
+	// can I trade, is Canary itself well.
+	group := func(name string) { fmt.Fprintf(out, "\n%s\n", env.bold(name)) }
 
+	group("Broker")
 	statusHealthRow(env, out, "Session", formatSessionValue(env, *res))
 	statusHealthRow(env, out, "Market data", formatMarketDataValue(env, *res))
 	if len(res.DataFarms) > 0 {
@@ -86,14 +93,17 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 	if len(res.MarketDataAccess) > 0 {
 		statusHealthRow(env, out, "Market access", formatMarketDataAccessStatus(env, res.MarketDataAccess))
 	}
-	statusHealthRow(env, out, "Daemon", formatDaemonValue(*res))
 	if res.OpenD != nil {
 		renderOpenDRows(env, out, res)
 	}
 	switch {
 	case res.OpenD != nil:
 	case res.Connected:
-		statusHealthRow(env, out, "TWS", formatTWSValue(*res))
+		// A plain connection is already said by the Session row; the row
+		// appears when the backend link is down or a diagnosis was asked for.
+		if api := res.GatewayAPI; res.GatewayPhase == rpc.GatewayPhaseBackendLinkDown || res.ServerVersion == 0 || api != nil && api.ConfigState != "not_requested" {
+			statusHealthRow(env, out, "TWS", formatTWSValue(*res))
+		}
 	case isHandshakeInFlight(*res):
 		statusHealthRow(env, out, "TWS", env.dim("handshake in progress"))
 	case res.GatewayPhase == rpc.GatewayPhasePortRejecting:
@@ -106,33 +116,33 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		// found and the next step for the app it found, printed as written.
 		statusHealthRow(env, out, "Last attempt", attempt)
 	}
-	if api := res.GatewayAPI; api != nil {
+	// The protocol and API settings are a diagnosis, shown when asked for
+	// with --details.
+	if api := res.GatewayAPI; api != nil && api.ConfigState != "not_requested" {
 		statusHealthRow(env, out, "API protocol", fmt.Sprintf("%d negotiated · %d client ceiling", res.ServerVersion, api.TradingProtocolMax))
-		if api.ConfigState != "not_requested" {
-			value := api.ConfigState
-			if api.Reason != "" {
-				value += " · " + api.Reason
-			}
-			if api.DiagnosticProtocol > 0 {
-				value += fmt.Sprintf(" · probe protocol %d", api.DiagnosticProtocol)
-			}
-			statusHealthRow(env, out, "API settings", value)
-			if settings := api.Settings; settings != nil {
-				statusHealthRow(env, out, "API read-only", formatDiagnosticBool(settings.ReadOnly))
-				statusHealthRow(env, out, "Recover orders", formatDiagnosticBool(settings.RetainOrdersOnReconnect))
-				statusHealthRow(env, out, "Volume in lots", formatDiagnosticBool(settings.VolumeInLots))
-				statusHealthRow(env, out, "Order download", formatDiagnosticBool(settings.DownloadOpenOrders))
-				statusHealthRow(env, out, "Rate rejection", formatDiagnosticBool(settings.RejectAboveRate))
-				statusHealthRow(env, out, "Master client", formatDiagnosticInt(settings.MasterClientID, "not set"))
-				statusHealthRow(env, out, "Localhost only", formatDiagnosticBool(settings.LocalhostOnly)+" · loopback trusted "+formatDiagnosticBool(settings.LoopbackTrusted))
-				statusHealthRow(env, out, "API log", formatAPILogValue(*settings))
-			}
-			if p := api.Precautions; p != nil {
-				statusHealthRow(env, out, "Precautions", formatPrecautionsValue(*p))
-			}
-			if l := api.LockAndExit; l != nil {
-				statusHealthRow(env, out, "Lock and exit", formatLockAndExitValue(*l))
-			}
+		value := api.ConfigState
+		if api.Reason != "" {
+			value += " · " + api.Reason
+		}
+		if api.DiagnosticProtocol > 0 {
+			value += fmt.Sprintf(" · probe protocol %d", api.DiagnosticProtocol)
+		}
+		statusHealthRow(env, out, "API settings", value)
+		if settings := api.Settings; settings != nil {
+			statusHealthRow(env, out, "API read-only", formatDiagnosticBool(settings.ReadOnly))
+			statusHealthRow(env, out, "Recover orders", formatDiagnosticBool(settings.RetainOrdersOnReconnect))
+			statusHealthRow(env, out, "Volume in lots", formatDiagnosticBool(settings.VolumeInLots))
+			statusHealthRow(env, out, "Order download", formatDiagnosticBool(settings.DownloadOpenOrders))
+			statusHealthRow(env, out, "Rate rejection", formatDiagnosticBool(settings.RejectAboveRate))
+			statusHealthRow(env, out, "Master client", formatDiagnosticInt(settings.MasterClientID, "not set"))
+			statusHealthRow(env, out, "Localhost only", formatDiagnosticBool(settings.LocalhostOnly)+" · loopback trusted "+formatDiagnosticBool(settings.LoopbackTrusted))
+			statusHealthRow(env, out, "API log", formatAPILogValue(*settings))
+		}
+		if p := api.Precautions; p != nil {
+			statusHealthRow(env, out, "Precautions", formatPrecautionsValue(*p))
+		}
+		if l := api.LockAndExit; l != nil {
+			statusHealthRow(env, out, "Lock and exit", formatLockAndExitValue(*l))
 		}
 	}
 	if setup := res.GatewaySetup; setup != nil {
@@ -162,14 +172,9 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 			statusHealthRow(env, out, "Answers", env.yellow(formatStalledAnswerPath(lane)))
 		}
 	}
-	if len(res.BackgroundTasks) > 0 {
-		statusHealthRow(env, out, "Background", formatBackgroundTasks(res.BackgroundTasks))
-	}
-	if len(res.Subsystems) > 0 {
-		statusHealthRow(env, out, "Subsystems", formatSubsystemsValue(env, res.Subsystems))
-	}
-	if res.Trading.Mode != "" {
-		statusHealthRow(env, out, "Trading", formatTradingStatusValue(env, res.Trading))
+
+	if len(res.Trading.BrokerPermissions) > 0 || res.Executions != nil || len(res.Strategies) > 0 {
+		group("Trading")
 	}
 	if len(res.Trading.BrokerPermissions) > 0 {
 		statusHealthRow(env, out, "Broker access", formatBrokerAccessValue(env, res.Trading.BrokerPermissions))
@@ -184,19 +189,17 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		}
 		statusHealthRow(env, out, label, formatStrategyHealthValue(env, st))
 	}
-	if alerts != nil {
-		if value := formatAlertCoverageValue(env, alerts.Coverage); value != "" {
-			statusHealthRow(env, out, "Alerts", value)
-		}
+
+	group("Canary")
+	statusHealthRow(env, out, "Version", formatDaemonValue(*res))
+	if daemonVersionDrift(res.DaemonVersion, cliVersion) {
+		statusHealthRow(env, out, "Local client", fmt.Sprintf("CLI %s differs from daemon %s", cliVersion, res.DaemonVersion))
 	}
-	if res.PushDelivery != nil {
-		statusHealthRow(env, out, "Phone push", formatPushDeliveryValue(env, *res.PushDelivery, time.Now()))
+	if len(res.BackgroundTasks) > 0 {
+		statusHealthRow(env, out, "Background", formatBackgroundTasks(res.BackgroundTasks))
 	}
-	if len(res.DataQuality) > 0 {
-		statusHealthRow(env, out, "Data quality", env.yellow(formatDataQualityValue(res.DataQuality)))
-	}
-	if members := formatMembersValue(res.Members); members != "" {
-		statusHealthRow(env, out, "SPX members", members)
+	if len(res.Subsystems) > 0 {
+		statusHealthRow(env, out, "Services", formatSubsystemsValue(env, res.Subsystems))
 	}
 	if res.DataHealth != nil {
 		statusHealthRow(env, out, "Data health", res.DataHealth.Summary.Label)
@@ -207,8 +210,19 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 			statusHealthRow(env, out, "Source concern", env.yellow(sanitizeRunText(concern.Label)))
 		}
 	}
-	if daemonVersionDrift(res.DaemonVersion, cliVersion) {
-		statusHealthRow(env, out, "Local client", fmt.Sprintf("CLI %s differs from daemon %s", cliVersion, res.DaemonVersion))
+	if len(res.DataQuality) > 0 {
+		statusHealthRow(env, out, "Data quality", env.yellow(formatDataQualityValue(res.DataQuality)))
+	}
+	if members := formatMembersValue(res.Members); members != "" {
+		statusHealthRow(env, out, "S&P 500 list", members)
+	}
+	if alerts != nil {
+		if value := formatAlertCoverageValue(env, alerts.Coverage); value != "" {
+			statusHealthRow(env, out, "Alerts", value)
+		}
+	}
+	if res.PushDelivery != nil {
+		statusHealthRow(env, out, "Phone push", formatPushDeliveryValue(env, *res.PushDelivery, time.Now()))
 	}
 
 	if isHandshakeInFlight(*res) {
@@ -229,7 +243,8 @@ func renderStatusText(env *Env, res *rpc.HealthResult, alerts *rpc.AlertCandidat
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, env.dim("  Daemon log: "+dial.DisplayPath(dial.DefaultLogPath())))
 	}
-	statusHealthRow(env, out, "Colors", env.dim("Amber = row needs attention; headline = overall Canary status."))
+	fmt.Fprintln(out)
+	fmt.Fprintln(out, env.dim("Amber rows need attention. Broker settings: canary status --details"))
 	fmt.Fprintln(out)
 }
 
@@ -325,8 +340,9 @@ func statusRow(env *Env, out io.Writer, label, value string) {
 	labeledRow(env, out, "", 15, label, value)
 }
 
+// statusHealthRow is a row inside one of the status groups.
 func statusHealthRow(env *Env, out io.Writer, label, value string) {
-	statusRow(env, out, label, value)
+	labeledRow(env, out, "  ", 15, label, value)
 }
 
 type statusConcernLevel int
@@ -490,7 +506,12 @@ func formatSessionValue(env *Env, res rpc.HealthResult) string {
 		}
 		return value
 	}
-	value := fmt.Sprintf("%s via %s %s, client %d", account, endpoint, formatGatewayBadge(res), res.ClientID)
+	// How the port was chosen is a diagnosis: said while the connection is
+	// down or being examined, left out of the everyday row.
+	value := fmt.Sprintf("%s via %s, client %d", account, endpoint, res.ClientID)
+	if api := res.GatewayAPI; !res.Connected || res.GatewayTLS != res.NegotiatedTLS || api != nil && api.ConfigState != "not_requested" {
+		value = fmt.Sprintf("%s via %s %s, client %d", account, endpoint, formatGatewayBadge(res), res.ClientID)
+	}
 	if len(res.Alternates) > 0 {
 		value += "; also up: " + joinPorts(res.Alternates)
 	}

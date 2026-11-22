@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/osauer/canary/v3/internal/rpc"
 	"strings"
@@ -92,7 +93,8 @@ func TestRenderStatus_GatewaySetupRowSpeaksPlainly(t *testing.T) {
 		"Open orders are not downloaded at connect: orders placed elsewhere stay unseen.",
 	}}
 	got := render(res)
-	for _, want := range []string{"Gateway setup  Master API client ID is not 15", "\n               Open orders are not downloaded"} {
+	// Each difference starts its own line; the second carries no label.
+	for _, want := range []string{"Gateway setup  Master API client ID is not 15", "\n                 Open orders are not downloaded"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("two differences, one row each, missing %q:\n%s", want, got)
 		}
@@ -470,4 +472,35 @@ func TestRenderStatusExecutionsRow(t *testing.T) {
 			t.Fatalf("missing %q in\n%s", test.want, out.String())
 		}
 	}
+}
+
+// --details asks the daemon for the broker's API settings.
+func TestStatusDetailsAsksForTheBrokerSettings(t *testing.T) {
+	for _, flag := range []string{"--details"} {
+		conn := &statusDetailsConn{}
+		env := &Env{Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, Conn: conn}
+		if code := Run(t.Context(), env, "status", []string{flag}); code != 0 {
+			t.Fatalf("%s: exit %d", flag, code)
+		}
+		if !conn.asked {
+			t.Fatalf("%s did not ask the daemon for the broker settings", flag)
+		}
+	}
+}
+
+type statusDetailsConn struct{ asked bool }
+
+func (c *statusDetailsConn) Call(_ context.Context, method string, params, out any) error {
+	if p, ok := params.(rpc.HealthParams); ok && p.GatewayDiagnostics {
+		c.asked = true
+	}
+	if method != rpc.MethodStatusHealth {
+		return errors.New("not served")
+	}
+	raw, _ := json.Marshal(rpc.HealthResult{Connected: true, Verdict: rpc.HealthVerdict{State: "READY"}})
+	return json.Unmarshal(raw, out)
+}
+
+func (*statusDetailsConn) Stream(context.Context, string, any, func(json.RawMessage) error) error {
+	return errors.New("unexpected stream")
 }

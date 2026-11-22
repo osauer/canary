@@ -255,7 +255,7 @@ func renderGoldenCases() []renderGoldenCase {
 			renderOrderPreviewText(env, &r)
 		}},
 		{name: "stress_undated", argv: []string{"stress"}, render: func(env *Env) { r := goldenStress(); r.AsOf = time.Time{}; renderStress(env, r, false) }},
-		{name: "status_gateway_diagnostics", argv: []string{"status", "--gateway-diagnostics"}, conn: goldenConn{rpc.MethodStatusHealth: diagnosticHealth}},
+		{name: "status_details", argv: []string{"status", "--details"}, conn: goldenConn{rpc.MethodStatusHealth: diagnosticHealth}},
 		{name: "portfolio_plan", argv: []string{"portfolio", "plan"}, conn: goldenConn{rpc.MethodPortfolioPlan: goldenPortfolioPlan()}},
 		{name: "portfolio_plan_held", argv: []string{"portfolio", "plan"}, conn: goldenConn{rpc.MethodPortfolioPlan: rpc.PortfolioPlanResult{State: "held", Reason: "Current portfolio evidence is incomplete.", Blockers: []rpc.TradingBlocker{{Code: "portfolio_book_unavailable", Message: "A complete same-session account and portfolio are required."}}}}},
 		{name: "add_plan", argv: []string{"add", "plan", "SYNA", "--currency", "USD", "--limit", "100", "--max"}, conn: goldenConn{rpc.MethodAddPlan: goldenStockAdd()}},
@@ -416,6 +416,7 @@ func renderGoldenCases() []renderGoldenCase {
 		}},
 		{name: "positions_bond_facts", argv: []string{"positions"}, render: func(env *Env) { renderBondFacts(env, env.Stdout, goldenBondFacts()) }},
 		{name: "edge", argv: []string{"edge"}, conn: goldenConn{rpc.MethodEdgeSnapshot: goldenEdge(0, 3)}},
+		{name: "edge_details", argv: []string{"edge", "--details"}, conn: goldenConn{rpc.MethodEdgeSnapshot: goldenEdge(0, 3)}},
 		{name: "edge_change", argv: []string{"edge", "--change", "change_s2"}, conn: goldenConn{rpc.MethodEdgeSnapshot: goldenEdgeChange()}},
 		{name: "edge_option_page", argv: []string{"edge", "--option-offset", "3", "--option-limit", "3"}, conn: goldenConn{rpc.MethodEdgeSnapshot: goldenEdge(3, 3)}},
 		{name: "edge_replay", argv: []string{"edge", "replay", "--from", "2026-08-03"}, conn: goldenConn{rpc.MethodEdgeReplay: goldenEdgeReplay()}},
@@ -882,7 +883,7 @@ func goldenMandateReducing() rpc.MandateRiskResult {
 	l.TotalBase += 9000
 	l.RatioToRoom = l.TotalBase / l.RoomBase
 	res.Reduction = &rpc.MandateReductionView{State: rpc.MandateReductionReducing, Rows: 2, Pending: 2, VetoUntil: goldenAt.Add(30 * time.Minute), PreAuthorised: true,
-		Reason: "the verdict reads reduce (the loss measure 83,000 EUR is 129% of the loss room 64,101 EUR); 2 cuts sized to take the loss measure to 60,100 EUR, inside the 60,896 EUR target",
+		Reason: "the verdict reads reduce (the loss measure 72,600 EUR is 129% of the loss room 56,101 EUR); 2 cuts sized to take the loss measure to 52,600 EUR, inside the 53,296 EUR target",
 		Orders: []rpc.MandateReductionOrder{
 			{Rank: 1, Key: "mandate_reduction:0001", Contract: rpc.ContractParams{Symbol: "SYNA", SecType: "STK"}, Action: rpc.OrderActionSell, Quantity: 3200,
 				Phase: rpc.MandatePhaseGap, LossBase: 83000, ContributionPct: 71.4, Automatic: rpc.TradeProposalAutomaticPending, SubmitAt: goldenAt.Add(30 * time.Minute)},
@@ -949,7 +950,7 @@ func goldenMandateProposals() rpc.TradeProposalSnapshot {
 	sessions := 2
 	mandateRow := func(rank int, phase string, contribution, cut, legLoss, lossCut float64) *rpc.TradeProposalMandate {
 		m := &rpc.TradeProposalMandate{Rank: rank, BatchRows: 2, Phase: phase, ContributionPct: contribution, Units: 600,
-			LossBase: 72000, LossRoomBase: 64000, LossTargetBase: 60800, LegLossBase: legLoss, LossCutBase: lossCut, LossAfterBase: 60500,
+			LossBase: 72000, LossRoomBase: 64000, LossTargetBase: 50800, LegLossBase: legLoss, LossCutBase: lossCut, LossAfterBase: 50500,
 			RiskAnnualBase: 41200, BudgetAnnualSD: 36000, RiskCutAnnualBase: cut, RiskAfterAnnualBase: 34050,
 			VerdictStatus: mandate.StatusReduce, VerdictAt: verdictAt, VerdictFingerprint: "a1b2c3d4e5f6", BaseCurrency: "EUR"}
 		if phase == rpc.MandatePhaseExpiry {
@@ -961,22 +962,22 @@ func goldenMandateProposals() rpc.TradeProposalSnapshot {
 		Revision: "rev-0002", PolicyID: "protection", PolicyVersion: 3,
 		Counts: rpc.TradeProposalCounts{Total: 2, Actionable: 2, MandateReduction: 2},
 		MandateReduction: &rpc.TradeProposalMandateStatus{State: rpc.MandateReductionReducing, VerdictStatus: mandate.StatusReduce, VerdictAt: verdictAt,
-			VerdictFingerprint: "a1b2c3d4e5f6", ConsecutiveOver: 2, LossBase: 72000, LossRoomBase: 64000, LossTargetBase: 60800, ProjectedLossBase: new(60500.0),
+			VerdictFingerprint: "a1b2c3d4e5f6", ConsecutiveOver: 2, LossBase: 72000, LossRoomBase: 64000, LossTargetBase: 50800, ProjectedLossBase: new(52900.0),
 			RiskAnnualBase: 41200, BudgetAnnualSD: 36000, ProjectedRiskAnnualBase: new(34050.0),
 			TargetReached: true, Rows: 2, BaseCurrency: "EUR",
-			Reason: "the verdict reads reduce (the loss measure 72,000 EUR is 112% of the loss room 64,000 EUR); 2 cuts sized to take the loss measure to 60,500 EUR, inside the 60,800 EUR target"},
+			Reason: "the verdict reads reduce (the loss measure 63,000 EUR is 112% of the loss room 56,000 EUR); 2 cuts sized to take the loss measure to 52,900 EUR, inside the 53,200 EUR target"},
 		Proposals: []rpc.TradeProposal{
 			{Key: "mandate_reduction:0001", Bucket: rpc.TradeProposalBucketMandateReduction, Action: rpc.OrderActionSell, Quantity: 5, Symbol: "SYNB", SecType: "OPT",
 				OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, PositionEffect: rpc.OrderPositionEffectClose, PositionQuantity: 5, NeverSkipVeto: true,
 				Contract: rpc.ContractParams{Symbol: "SYNB", SecType: "OPT", Currency: "EUR", Expiry: "20260909", Strike: 75, Right: "C"},
-				Reason:   "the loss measure 72,000 EUR is 112% of the mandate's loss room 64,000 EUR (reduce); in the money 2 sessions before expiry; exercised, the delivered shares would push the reduced book's volatility over its budget, so it goes first: sell 5 of 5 contracts; the batch takes the loss measure to 60,500 EUR, inside the 60,800 EUR target",
+				Reason:   "the loss measure 63,000 EUR is 112% of the mandate's loss room 56,000 EUR (reduce); in the money 2 sessions before expiry; exercised, the delivered shares would push the reduced book's volatility over its budget, so it goes first: sell 5 of 5 contracts; the batch takes the loss measure to 52,900 EUR, inside the 53,200 EUR target",
 				Mandate:  mandateRow(1, rpc.MandatePhaseExpiry, 4.2, 700, 2500, 2500), Automatic: auto,
 				Details: []string{"order 1 of 2 in the batch, sent in this order; this cut takes 2,500 EUR off the loss measure and 700 EUR a year off the volatility", "waits the full veto window even under a latched brake: a reduction to budget is a discretionary-scale action, not a stop"}},
 			{Key: "mandate_reduction:0002", Bucket: rpc.TradeProposalBucketMandateReduction, Action: rpc.OrderActionSell, Quantity: 200, Symbol: "SYNA", SecType: "STK",
 				OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay, PositionEffect: rpc.OrderPositionEffectReduce, PositionQuantity: 3000, NeverSkipVeto: true,
 				Contract: rpc.ContractParams{Symbol: "SYNA", SecType: "STK", Currency: "EUR"},
-				Reason:   "the loss measure 72,000 EUR is 112% of the mandate's loss room 64,000 EUR (reduce); the largest premium at risk left, SYNA in your sleeve (60,000 EUR of the loss measure): sell 200 of 3000 shares now (the batch asks for 600; the order caps hold one order to 200, and the next cycle measures the rest); the batch takes the loss measure to 60,500 EUR, inside the 60,800 EUR target",
-				Mandate:  mandateRow(2, rpc.MandatePhasePremium, 88.1, 6450, 60000, 9000), Automatic: auto,
+				Reason:   "the loss measure 63,000 EUR is 112% of the mandate's loss room 56,000 EUR (reduce); the largest premium at risk left, SYNA in your sleeve (52,000 EUR of the loss measure): sell 200 of 3000 shares now (the batch asks for 600; the order caps hold one order to 200, and the next cycle measures the rest); the batch takes the loss measure to 52,900 EUR, inside the 53,200 EUR target",
+				Mandate:  mandateRow(2, rpc.MandatePhasePremium, 88.1, 6450, 50000, 9000), Automatic: auto,
 				Details: []string{"order 2 of 2 in the batch, sent in this order; this cut takes 9,000 EUR off the loss measure and 6,450 EUR a year off the volatility", "waits the full veto window even under a latched brake: a reduction to budget is a discretionary-scale action, not a stop"}},
 		},
 	}

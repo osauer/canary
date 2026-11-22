@@ -3,34 +3,44 @@
 Canary  OFFLINE
 Reason         Broker data connection unavailable
 
-Session        auto-detect via 127.0.0.1:4002 (tls=false, configured), client 15
-Market data    unavailable until connected
-Daemon         v0.0.0-golden, just started
-TWS            not connected
-Last attempt   127.0.0.1:4002 refused the connection; IB Gateway is running (pid
-               4242) but its API port is closed — it is still starting (the port
-               opens once its login has completed), or it listens on a
-               non-default Socket port (Configure → Settings → API → Settings;
-               pin it in ~/.config/ibkr/config.toml under [gateway])
+Broker
+  Session        auto-detect via 127.0.0.1:4002 (tls=false, configured), client
+                 15
+  Market data    unavailable until connected
+  TWS            not connected
+  Last attempt   127.0.0.1:4002 refused the connection; IB Gateway is running
+                 (pid 4242) but its API port is closed — it is still starting
+                 (the port opens once its login has completed), or it listens on
+                 a non-default Socket port (Configure → Settings → API →
+                 Settings; pin it in ~/.config/ibkr/config.toml under [gateway])
+
+Canary
+  Version        v0.0.0-golden, just started
 
   Daemon log: /synthetic/state/ibkr/ibkr-daemon.log
-Colors         Amber = row needs attention; headline = overall Canary status.
+
+Amber rows need attention. Broker settings: canary status --details
 
 # canary status · COLUMNS=80 · colour on, ESC written as \x1b
 
 Canary  \x1b[31m\x1b[1mOFFLINE\x1b[0m\x1b[0m
 \x1b[2mReason        \x1b[0m \x1b[31mBroker data connection unavailable\x1b[0m
 
-\x1b[2mSession       \x1b[0m auto-detect via 127.0.0.1:4002 (tls=false, configured), client 15
-\x1b[2mMarket data   \x1b[0m \x1b[2munavailable until connected\x1b[0m
-\x1b[2mDaemon        \x1b[0m v0.0.0-golden, just started
-\x1b[2mTWS           \x1b[0m \x1b[31mnot connected\x1b[0m
-\x1b[2mLast attempt  \x1b[0m 127.0.0.1:4002 refused the connection; IB Gateway is running (pid
-               4242) but its API port is closed — it is still starting (the port
-               opens once its login has completed), or it listens on a
-               non-default Socket port (Configure → Settings → API → Settings;
-               pin it in ~/.config/ibkr/config.toml under [gateway])
+\x1b[1mBroker\x1b[0m
+  \x1b[2mSession       \x1b[0m auto-detect via 127.0.0.1:4002 (tls=false, configured), client
+                 15
+  \x1b[2mMarket data   \x1b[0m \x1b[2munavailable until connected\x1b[0m
+  \x1b[2mTWS           \x1b[0m \x1b[31mnot connected\x1b[0m
+  \x1b[2mLast attempt  \x1b[0m 127.0.0.1:4002 refused the connection; IB Gateway is running
+                 (pid 4242) but its API port is closed — it is still starting
+                 (the port opens once its login has completed), or it listens on
+                 a non-default Socket port (Configure → Settings → API →
+                 Settings; pin it in ~/.config/ibkr/config.toml under [gateway])
+
+\x1b[1mCanary\x1b[0m
+  \x1b[2mVersion       \x1b[0m v0.0.0-golden, just started
 
 \x1b[2m  Daemon log: /synthetic/state/ibkr/ibkr-daemon.log\x1b[0m
-\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; headline = overall Canary status.\x1b[0m
+
+\x1b[2mAmber rows need attention. Broker settings: canary status --details\x1b[0m
 

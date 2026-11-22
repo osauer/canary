@@ -59,11 +59,21 @@ func TestPushDeliveryLineNamesSilenceWitnessAndBlockers(t *testing.T) {
 
 	var stdout bytes.Buffer
 	env := &Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}
-	if got := formatPushDeliveryValueIn(env, rpc.PushDeliveryStatus{Proof: witnessed, ReceivedAt: now.Add(-time.Hour)}, now, time.UTC); !strings.HasPrefix(got, "Current delivery unknown · app host last reported 2026-09-25 17:00 · last report:") {
-		t.Fatalf("stale report not named: %q", got)
+	// The status row is one fact. An old report says the state is not known
+	// and when the app last reported; it gives no setup instruction, because
+	// the report cannot speak for the phone now.
+	for _, proof := range []rpc.PushDeliveryProof{witnessed, failing} {
+		got := formatPushDeliveryValueIn(env, rpc.PushDeliveryStatus{Proof: proof, ReceivedAt: now.Add(-time.Hour)}, now, time.UTC)
+		if !strings.HasPrefix(got, "not known") || !strings.Contains(got, "2026-09-25 17:00") || strings.Contains(got, "enable notifications") || !strings.Contains(got, "canary app status") {
+			t.Fatalf("an old report must read as not known, dated, with the place to look: %q", got)
+		}
 	}
-	if got := formatPushDeliveryValueIn(env, rpc.PushDeliveryStatus{Proof: failing, ReceivedAt: now.Add(-time.Hour)}, now, time.UTC); !strings.HasPrefix(got, "Current delivery unknown") || strings.Contains(got, "enable notifications") || !strings.Contains(got, "subscription expired 2026-09-25 17:59") || !strings.Contains(got, "No push subscription") {
-		t.Fatalf("old report must retain historical subscription evidence without a current setup instruction: %q", got)
+	// A current report names the one thing in the way, or that it works.
+	if got := formatPushDeliveryValueIn(env, rpc.PushDeliveryStatus{Proof: failing, ReceivedAt: now}, now, time.UTC); !strings.Contains(got, "no phone is subscribed") {
+		t.Fatalf("unsubscribed phone not named: %q", got)
+	}
+	if got := formatPushDeliveryValueIn(env, rpc.PushDeliveryStatus{Proof: witnessed, ReceivedAt: now}, now, time.UTC); !strings.HasPrefix(got, "working") {
+		t.Fatalf("a witnessed, healthy channel must read as working: %q", got)
 	}
 }
 
@@ -85,7 +95,7 @@ func TestRenderStatusPhonePushRowOnlyWhenTheAppReported(t *testing.T) {
 	}}
 	stdout.Reset()
 	renderStatusText(&Env{Stdout: &stdout, Stderr: &bytes.Buffer{}}, res, nil)
-	if !strings.Contains(stdout.String(), "Phone push     no alert push accepted on record · never witnessed on a device") {
+	if !strings.Contains(stdout.String(), "Phone push") || !strings.Contains(stdout.String(), "not yet seen on a phone") {
 		t.Fatalf("phone push row missing:\n%s", stdout.String())
 	}
 }

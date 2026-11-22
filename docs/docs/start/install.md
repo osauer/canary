@@ -84,20 +84,25 @@ A healthy install prints something close to this. The values below are synthetic
 
 ```text
 Canary  READY
+Trading        paper ready
 
-Session        DU0000000 (PAPER) via 127.0.0.1:4002 (tls=false, discovered),
-               client 15
-Market data    Live
-Daemon         v3.34.1, up 30m42s
-TWS            API server 178
-Gateway setup  as expected · read 09:02
-Executions     other-client fills not yet observed · required TWS Master API
-               client ID: 15
-SPX members    cache:2026-05-22, 503 names
-Colors         Amber = row needs attention; headline = overall Canary status.
+Broker
+  Session        DU0000000 (PAPER) via 127.0.0.1:4002, client 15
+  Market data    Live
+  Gateway setup  as expected · read 09:02
+
+Trading
+  Executions     other-client fills not yet observed · required TWS Master API
+                 client ID: 15
+
+Canary
+  Version        v3.42.0, up 30m42s
+  S&P 500 list   cache:2026-05-22, 503 names
+
+Amber rows need attention. Broker settings: canary status --details
 ```
 
-The badge on the first line is `READY`, `STARTING`, `ATTENTION`, or `OFFLINE`. When it is not `READY`, a `Reason` row directly below it names the cause. `discovered` on the Session row means the port came from the probe; `pinned` means it came from your config file. Rows for data farms, market access, background work, subsystems, trading, and data quality appear only when they have something to say.
+The badge on the first line is `READY`, `STARTING`, `ATTENTION`, or `OFFLINE`. When it is not `READY`, a `Reason` row directly below it names the cause. The `Trading` row under it says whether you can trade and, if not, what blocks it. The rest is in three groups: the broker connection, trading, and Canary itself. Rows for data farms, market access, background work, services, and data quality appear only when they have something to say. `canary status --details` adds the broker's API settings and how the port was chosen: `discovered` means it came from the probe, `pinned` from your config file.
 
 The `Executions` row reports evidence of fills from other clients. Before one is observed, visibility is unproven even if TWS is already configured correctly. TWS reports fills entered by hand or by other API clients only to its master client, so the execution cost report and the decision scorecard see them only after you set **Global Configuration → API → Settings → Master API client ID** in TWS to Canary's client ID; the row reads `all clients (proven HH:MM)` once the first such fill has been seen, and `canary status --json` carries the same facts under `executions`.
 
@@ -115,16 +120,21 @@ On a first run with no IBKR app open, the badge is `OFFLINE` and the `Last attem
 Canary  OFFLINE
 Reason         Broker data connection unavailable
 
-Session        auto-detect via 127.0.0.1 (tls=false), client 15
-Market data    unavailable until connected
-Daemon         v3.34.1, just started
-TWS            not connected
-Last attempt   no IBKR listener found on 127.0.0.1 ports [4001 4002 7496 7497]
-               (probe timeout 200ms); no TWS / IB Gateway / IBKR Desktop process
-               found — start one and Canary will reconnect automatically
+Broker
+  Session        auto-detect via 127.0.0.1 (tls=false), client 15
+  Market data    unavailable until connected
+  TWS            not connected
+  Last attempt   no IBKR listener found on 127.0.0.1 ports [4001 4002 7496
+                 7497] (probe timeout 200ms); no TWS / IB Gateway / IBKR
+                 Desktop process found — start one and Canary will reconnect
+                 automatically
+
+Canary
+  Version        v3.42.0, just started
 
   Daemon log: ~/.local/state/ibkr/ibkr-daemon.log
-Colors         Amber = row needs attention; headline = overall Canary status.
+
+Amber rows need attention. Broker settings: canary status --details
 ```
 
 The `Last attempt` row is the daemon's own verdict on its last connect attempt, printed as written: no IBKR app running, a port that refuses the connection while an app runs (with the setting to check, or the `[gateway]` port to pin in `config.toml`), a handshake that did not finish, or a port that accepts connections and drops them. [Troubleshooting](troubleshooting.md) explains each message. The `Reason` row keeps the daemon's overall verdict.

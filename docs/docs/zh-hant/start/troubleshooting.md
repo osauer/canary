@@ -14,7 +14,7 @@ description: Canary 以症狀為先的修復方法：閘道探測和握手錯誤
 
 ## `Gateway setup` 行說某項設定不同 {#the-gateway-setup-row-says-a-setting-differs}
 
-每次連線後數秒，守護程序會在一個獨立的短暫連線上讀取一次應用程式的 API 設定（與下文 `--gateway-diagnostics` 相同的讀取），而 `canary status` 把結果印為 `Gateway setup` 行。`as expected` 表示 Canary 依賴的每項設定都符合所需。否則該行會為每個差異帶一個短句，各自按 TWS 或 IB Gateway 的標籤命名該設定，並說明它對你的代價：
+每次連線後數秒，守護程序會在一個獨立的短暫連線上讀取一次應用程式的 API 設定（與下文 `--details` 相同的讀取），而 `canary status` 把結果印為 `Gateway setup` 行。`as expected` 表示 Canary 依賴的每項設定都符合所需。否則該行會為每個差異帶一個短句，各自按 TWS 或 IB Gateway 的標籤命名該設定，並說明它對你的代價：
 
 ```text
 Gateway setup  Master API client ID is not 15: orders and fills from TWS or
@@ -23,13 +23,13 @@ Gateway setup  Master API client ID is not 15: orders and fills from TWS or
                elsewhere stay unseen.
 ```
 
-它檢查的設定，除另有說明外都在 Configure → Settings → API → Settings： `Read-Only API`（當 `[trading].mode` 是 paper 或 live 時必須關閉）、`Master API client ID`（Canary 的客戶端 ID）、`Download open orders on connection` （開啟）、`Reject messages above maximum allowed message rate`（關閉：開啟時三次拒絕就會切斷工作階段）、守護程序撥接迴環位址時的受信任 IP 清單（`Allow connections from localhost only` 開啟，或 `127.0.0.1` 受信任；否則每次重新連線都要等待一次點擊）、API 日誌等級（`Detail` 增長很快）和 `Include market data in API log file`（關閉），以及 Lock and Exit 下的每日 `Auto restart`（登出會讓 Gateway 處於已登出狀態）。經紀商沒有回報的設定不算差異。`not read yet` 表示讀取尚未完成或無法進行；原因跟在後面。Canary 永不更改設定：請在應用程式中修正，該行會在下一次連線或 `canary status --gateway-diagnostics` 時更新。
+它檢查的設定，除另有說明外都在 Configure → Settings → API → Settings： `Read-Only API`（當 `[trading].mode` 是 paper 或 live 時必須關閉）、`Master API client ID`（Canary 的客戶端 ID）、`Download open orders on connection` （開啟）、`Reject messages above maximum allowed message rate`（關閉：開啟時三次拒絕就會切斷工作階段）、守護程序撥接迴環位址時的受信任 IP 清單（`Allow connections from localhost only` 開啟，或 `127.0.0.1` 受信任；否則每次重新連線都要等待一次點擊）、API 日誌等級（`Detail` 增長很快）和 `Include market data in API log file`（關閉），以及 Lock and Exit 下的每日 `Auto restart`（登出會讓 Gateway 處於已登出狀態）。經紀商沒有回報的設定不算差異。`not read yet` 表示讀取尚未完成或無法進行；原因跟在後面。Canary 永不更改設定：請在應用程式中修正，該行會在下一次連線或 `canary status --details` 時更新。
 
 IB Gateway 以加密方式寫入其日誌和設定檔（`*.ibgzenc`），而 IBKR 沒有記載任何關閉此功能的設定。純文字副本來自 Gateway 的 File 選單（`API Logs` 或 `Gateway Logs` → `Export Today Logs…`）。`Automatic Encryption` 選單項目與日誌無關：它關乎 FIX CTCI 連線，在 API 模式下沒有作用。
 
 ## 更改 TWS 或 Gateway 後檢查 API 設定 {#check-api-settings-after-changing-tws-or-gateway}
 
-執行 `canary status --gateway-diagnostics`（加上 `--json` 取得所有欄位）。正常連線維持其已測試的協定上限 203。診斷會對同一端點開啟一個獨立連線，協商至最高 219，讀取 API 設定，並在五秒內關閉。它不會重啟 TWS、更改通訊埠、更新設定、綁定訂單或向經紀商提交指示。
+執行 `canary status --details`（加上 `--json` 取得所有欄位）。正常連線維持其已測試的協定上限 203。診斷會對同一端點開啟一個獨立連線，協商至最高 219，讀取 API 設定，並在五秒內關閉。它不會重啟 TWS、更改通訊埠、更新設定、綁定訂單或向經紀商提交指示。
 
 `observed` 表示經紀商回傳了設定。`unsupported` 表示該工作階段無法協商所需的設定讀取協定；請在 TWS 或 Gateway 中手動檢查設定。`unavailable` 或 `rejected` 帶有原因。省略的設定表示**未回報**，而不是關閉。協商得出的協定不是已安裝應用程式的版本號。
 

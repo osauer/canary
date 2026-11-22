@@ -105,12 +105,12 @@ the "Canary notification test" notification on the phone, then run:
 canary status
 ```
 
-The `Phone push` row says how long alert pushes have been silent, which device
-last reported a push displayed or opened, and what blocks delivery: alert intake
-refused, no subscription, an expired subscription, or notifications off.
-If the app host has not reported for more than fifteen minutes, the row leads
-with current delivery unknown and the last report time. Its historical evidence
-remains visible, but it cannot establish the phone's current notification setup.
+The `Phone push` row states one fact: pushes work and which device last showed
+one, or the one thing in the way: notifications off, no phone subscribed, alerts
+refused, or the push sender unavailable. If the app host has not reported for
+more than fifteen minutes, the row says the state is not known and gives the
+last report time, because an old report cannot speak for the phone's setup now.
+`canary app status` prints the full delivery history.
 `canary status --json` carries the full record under `push_delivery`, and
 `canary app status` adds the last push sent. `/api/push/diagnostic` is
 local-Mac only and the remote relay refuses it.

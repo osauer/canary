@@ -1,31 +1,19 @@
 # canary edge --change change_s2 · COLUMNS=80 · colour off
 Canary Edge · 90d decision review · 20-session lens · evidence to 2026-08-24
-  Best observed result: ABC add, USD +125.50 after 20 sessions.
 
-Evidence
-  Coverage · 4 of 6 eligible changes scored at 20 sessions (66.7%) · 8 broker
-    position changes found, 2 outside the review
-  Horizon · 20 sessions selected with --horizon · automatic mode picks the
-    longest horizon with at least 25% coverage and a 3-observation action sample
-  Last full revalidation · 2026-08-24
+Bottom line
+  Account         $ 450.00 from 2026-05-27 to 2026-08-24, after deposits and
+                  withdrawals
+  Stocks          3 decisions helped, 2 hurt, 1 made no difference · judged 5
+                  sessions later, after costs
+  Options         2 of 5 closed positions made money, 1 lost money, 2 flat or
+                  not graded
+  Finding         Best observed result: ABC add, USD +125.50 after 20 sessions.
 
 Account P/L
   $ 450.00 · 2026-05-27 to 2026-08-24 · external flows $ 100.00
   Everything after confirmed flows, options and market moves included; not a
     sum of the rows below.
-
-Decisions by action
-  Columns are separate decision sets; compare horizons under Same decisions.
-  ACTION      1 SESSION            5 SESSIONS           20 SESSIONS
-  OPEN           $ 1.00  n=1           $ 5.00  n=1          $ 20.00  n=1
-  ADD            $ 1.00  n=1           $ 5.00  n=1          $ 20.00  n=1
-  TRIM           $ 1.00  n=1           $ 5.00  n=1          $ 20.00  n=1
-  EXIT           $ 1.00  n=1           $ 5.00  n=1          $ 20.00  n=1
-
-Findings  by absolute impact at 20 sessions; not the headline group
-       $ 100.00   +10.00%  ABC add  change_abc
-        $ 99.00    +9.00%  DEF add  change_def
-        $ 98.00    +8.00%  GHI add  change_ghi
 
 Verdicts  stocks by decision at 5 sessions, after costs; options by closed position
   Stocks · 3 helped · 2 hurt · 1 no difference · 2 without a verdict
@@ -45,6 +33,19 @@ Verdicts  stocks by decision at 5 sessions, after costs; options by closed posit
   2026-08-11 · open long SYNB 260918P00090000 · these contracts expired
     worthless
   2026-08-10 · add long SYNE · helped $ 1,240.00 after 5 sessions
+
+Decisions by action
+  Columns are separate decision sets; compare horizons under Same decisions.
+  ACTION      1 SESSION            5 SESSIONS           20 SESSIONS
+  OPEN           $ 1.00  n=1           $ 5.00  n=1          $ 20.00  n=1
+  ADD            $ 1.00  n=1           $ 5.00  n=1          $ 20.00  n=1
+  TRIM           $ 1.00  n=1           $ 5.00  n=1          $ 20.00  n=1
+  EXIT           $ 1.00  n=1           $ 5.00  n=1          $ 20.00  n=1
+
+Findings  by absolute impact at 20 sessions; not the headline group
+       $ 100.00   +10.00%  ABC add  change_abc
+        $ 99.00    +9.00%  DEF add  change_def
+        $ 98.00    +8.00%  GHI add  change_ghi
 
 Options  broker actuals in separate scopes; they do not add together
   Completed positions · 5 proven flat-to-flat contract cycles · 5 complete
@@ -76,6 +77,13 @@ Options  broker actuals in separate scopes; they do not add together
         -$ 640.00  SYNA 2026-12-18 120 C · complete · option_o1
   More option rows: canary edge --option-offset 3 --option-limit 20
 
+Evidence
+  Coverage · 4 of 6 eligible changes scored at 20 sessions (66.7%) · 8 broker
+    position changes found, 2 outside the review
+  Horizon · 20 sessions selected with --horizon · automatic mode picks the
+    longest horizon with at least 25% coverage and a 3-observation action sample
+  Last full revalidation · 2026-08-24
+
 Forward tests  questions about your own trading
   2 of 2 tests registered · fixed as written rules 2026-08-20 14:00 TZ,
     before the trades that answer them
@@ -99,32 +107,20 @@ Change change_s2 · SYNC  261016C00050000 exit -2 · 2026-08-22 14:00 TZ
 Details: canary edge --change <id> · canary edge --option <id> · canary edge --json
 # canary edge --change change_s2 · COLUMNS=80 · colour on, ESC written as \x1b
 Canary Edge · 90d decision review · 20-session lens · evidence to 2026-08-24
-  Best observed result: ABC add, USD +125.50 after 20 sessions.
 
-Evidence
-  Coverage · 4 of 6 eligible changes scored at 20 sessions (66.7%) · 8 broker
-    position changes found, 2 outside the review
-  Horizon · 20 sessions selected with --horizon · automatic mode picks the
-    longest horizon with at least 25% coverage and a 3-observation action sample
-  Last full revalidation · 2026-08-24
+\x1b[1mBottom line\x1b[0m
+  \x1b[2mAccount        \x1b[0m \x1b[1m\x1b[32m$ 450.00\x1b[0m\x1b[0m from 2026-05-27 to 2026-08-24, after deposits and
+                  withdrawals
+  \x1b[2mStocks         \x1b[0m 3 decisions helped, 2 hurt, 1 made no difference · judged 5
+                  sessions later, after costs
+  \x1b[2mOptions        \x1b[0m 2 of 5 closed positions made money, 1 lost money, 2 flat or
+                  not graded
+  \x1b[2mFinding        \x1b[0m Best observed result: ABC add, USD +125.50 after 20 sessions.
 
 Account P/L
   \x1b[1m\x1b[32m$ 450.00\x1b[0m\x1b[0m · 2026-05-27 to 2026-08-24 · external flows \x1b[32m$ 100.00\x1b[0m
   \x1b[2mEverything after confirmed flows, options and market moves included; not a
     sum of the rows below.\x1b[0m
-
-Decisions by action
-  \x1b[2mColumns are separate decision sets; compare horizons under Same decisions.\x1b[0m
-  ACTION      1 SESSION            5 SESSIONS           20 SESSIONS
-  OPEN           \x1b[32m$ 1.00\x1b[0m  n=1           \x1b[32m$ 5.00\x1b[0m  n=1          \x1b[32m$ 20.00\x1b[0m  n=1
-  ADD            \x1b[32m$ 1.00\x1b[0m  n=1           \x1b[32m$ 5.00\x1b[0m  n=1          \x1b[32m$ 20.00\x1b[0m  n=1
-  TRIM           \x1b[32m$ 1.00\x1b[0m  n=1           \x1b[32m$ 5.00\x1b[0m  n=1          \x1b[32m$ 20.00\x1b[0m  n=1
-  EXIT           \x1b[32m$ 1.00\x1b[0m  n=1           \x1b[32m$ 5.00\x1b[0m  n=1          \x1b[32m$ 20.00\x1b[0m  n=1
-
-Findings  \x1b[2mby absolute impact at 20 sessions; not the headline group\x1b[0m
-       \x1b[32m$ 100.00\x1b[0m   +10.00%  ABC add  \x1b[2mchange_abc\x1b[0m
-        \x1b[32m$ 99.00\x1b[0m    +9.00%  DEF add  \x1b[2mchange_def\x1b[0m
-        \x1b[32m$ 98.00\x1b[0m    +8.00%  GHI add  \x1b[2mchange_ghi\x1b[0m
 
 Verdicts  \x1b[2mstocks by decision at 5 sessions, after costs; options by closed position\x1b[0m
   Stocks · 3 helped · 2 hurt · 1 no difference · 2 without a verdict
@@ -144,6 +140,19 @@ Verdicts  \x1b[2mstocks by decision at 5 sessions, after costs; options by close
   2026-08-11 · open long SYNB 260918P00090000 · these contracts expired
     worthless
   2026-08-10 · add long SYNE · helped \x1b[32m$ 1,240.00\x1b[0m after 5 sessions
+
+Decisions by action
+  \x1b[2mColumns are separate decision sets; compare horizons under Same decisions.\x1b[0m
+  ACTION      1 SESSION            5 SESSIONS           20 SESSIONS
+  OPEN           \x1b[32m$ 1.00\x1b[0m  n=1           \x1b[32m$ 5.00\x1b[0m  n=1          \x1b[32m$ 20.00\x1b[0m  n=1
+  ADD            \x1b[32m$ 1.00\x1b[0m  n=1           \x1b[32m$ 5.00\x1b[0m  n=1          \x1b[32m$ 20.00\x1b[0m  n=1
+  TRIM           \x1b[32m$ 1.00\x1b[0m  n=1           \x1b[32m$ 5.00\x1b[0m  n=1          \x1b[32m$ 20.00\x1b[0m  n=1
+  EXIT           \x1b[32m$ 1.00\x1b[0m  n=1           \x1b[32m$ 5.00\x1b[0m  n=1          \x1b[32m$ 20.00\x1b[0m  n=1
+
+Findings  \x1b[2mby absolute impact at 20 sessions; not the headline group\x1b[0m
+       \x1b[32m$ 100.00\x1b[0m   +10.00%  ABC add  \x1b[2mchange_abc\x1b[0m
+        \x1b[32m$ 99.00\x1b[0m    +9.00%  DEF add  \x1b[2mchange_def\x1b[0m
+        \x1b[32m$ 98.00\x1b[0m    +8.00%  GHI add  \x1b[2mchange_ghi\x1b[0m
 
 Options  \x1b[2mbroker actuals in separate scopes; they do not add together\x1b[0m
   Completed positions · 5 proven flat-to-flat contract cycles · 5 complete
@@ -174,6 +183,13 @@ Options  \x1b[2mbroker actuals in separate scopes; they do not add together\x1b[
          \x1b[32m$ 410.00\x1b[0m  SYNB 2026-12-18 85 P · complete · \x1b[2moption_o2\x1b[0m
         \x1b[31m-$ 640.00\x1b[0m  SYNA 2026-12-18 120 C · complete · \x1b[2moption_o1\x1b[0m
   More option rows: canary edge --option-offset 3 --option-limit 20
+
+Evidence
+  Coverage · 4 of 6 eligible changes scored at 20 sessions (66.7%) · 8 broker
+    position changes found, 2 outside the review
+  Horizon · 20 sessions selected with --horizon · automatic mode picks the
+    longest horizon with at least 25% coverage and a 3-observation action sample
+  Last full revalidation · 2026-08-24
 
 Forward tests  \x1b[2mquestions about your own trading\x1b[0m
   2 of 2 tests registered · fixed as written rules 2026-08-20 14:00 TZ,

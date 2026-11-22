@@ -227,7 +227,7 @@ own flat-to-flat position from executions alone:
 - A position closed by exercise or assignment, or whose opening is not in
   the statement history, has no price comparison.
 
-`canary edge` prints the fact as a sentence, for example "sold 14.0% below
+`canary edge --details` prints the fact as a sentence, for example "sold 14.0% below
 the position's average cost", and `verdicts.recent` lists the 20 newest
 decisions of every class: a stock or ETF decision with its verdict, an
 option decision with `position`. The comparison is `result_pct`, positive
@@ -256,7 +256,8 @@ therefore carries a small set of **forward tests**: rules registered before
 the results they will be read on. `forward_tests` in `canary edge --json`
 lists each rule with its full text, a `rule_hash` that identifies that exact
 text, and `registered_at`, the moment this install first registered it for
-the account. `canary edge` prints how many are registered and since when,
+the account. `canary edge` prints how many are registered, `canary edge
+--details` adds since when,
 and `canary edge tests` shows how far each one is (below).
 
 Only a decision executed after `registered_at` belongs to a rule's sample;
@@ -555,7 +556,7 @@ An Edge snapshot is in one of six states:
 - `insufficient_evidence`: account evidence may be usable, but a completed one-year report did not return a Trades section, so Edge does not imply that a decision review exists. This is a terminal evidence diagnosis, not a backfill promise. If the account traded during the period, verify that Trades is selected at execution detail in the saved Activity Flex Query; if it did not, there are no decisions to score.
 - `unavailable`: no safely scoped result can be served.
 
-Use `canary edge` for the automatic concise review, `canary edge --json` for its complete typed contract, the Edge tab in the paired app, or `canary_edge` with no arguments after `canary_brief` in a full MCP profile. In the app, tap a finding to expand its position before/after, execution VWAP, costs, horizon bars, FX, market context, and typed results or exclusion reasons. Tap an option row to expand its exact broker facts and missing-evidence state. Both interactions are explanatory and read-only; neither can preview or submit a trade.
+Use `canary edge` for the summary (the bottom line, the option trades by kind, the largest single decisions and how much of the history is scored), `canary edge --details` for the full review with every section and its evidence, `canary edge --json` for its complete typed contract, the Edge tab in the paired app, or `canary_edge` with no arguments after `canary_brief` in a full MCP profile. In the app, tap a finding to expand its position before/after, execution VWAP, costs, horizon bars, FX, market context, and typed results or exclusion reasons. Tap an option row to expand its exact broker facts and missing-evidence state. Both interactions are explanatory and read-only; neither can preview or submit a trade.
 
 For a narrower investigation, the terminal and MCP surfaces accept optional 90-day, 1-session, or 5-session overrides. They select another view of the same daemon-published evidence and do not start a refresh. `canary_reporting` gives an AI the same redacted setup and evidence blockers as `canary reporting status`; it cannot receive credentials, validate a candidate, refresh evidence, or change setup. The app loads Edge only when its tab opens. All of these reads expose no trading control.
 

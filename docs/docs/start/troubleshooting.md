@@ -8,7 +8,7 @@ Each section below starts from a symptom, names the cause and gives the fix. Sta
 
 A few seconds after each connect, the daemon reads the application's API
 settings once, on a separate short-lived connection (the same read as
-`--gateway-diagnostics` below), and `canary status` prints the result as the
+`--details` below), and `canary status` prints the result as the
 `Gateway setup` row. `as expected` means every setting Canary depends on is as
 it needs it. Otherwise the row carries one short sentence per difference, each
 naming the setting as TWS or IB Gateway labels it and what it costs you:
@@ -32,7 +32,7 @@ every reconnect waits for a click), the API log level (`Detail` grows fast) and
 did not report is not a difference. `not read yet` means the read has not landed
 or could not be made; the reason follows it. Canary never changes a setting:
 fix it in the application, and the row updates at the next connect or
-`canary status --gateway-diagnostics`.
+`canary status --details`.
 
 IB Gateway writes its logs and settings file encrypted (`*.ibgzenc`), and IBKR
 documents no setting that turns that off. Plain-text copies come from the
@@ -42,7 +42,7 @@ CTCI connection and does nothing in API mode.
 
 ## Check API settings after changing TWS or Gateway
 
-Run `canary status --gateway-diagnostics` (add `--json` for all fields).
+Run `canary status --details` (add `--json` for all fields).
 The normal connection keeps its tested protocol ceiling of 203. The diagnostic
 opens one separate connection to the same endpoint, negotiates up to 219,
 reads API settings, and closes within five seconds. It does not restart TWS,

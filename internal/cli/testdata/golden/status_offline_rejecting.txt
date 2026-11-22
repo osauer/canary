@@ -4,17 +4,23 @@ Canary  OFFLINE
 Reason         Broker API port accepts connections and drops them before the
                handshake
 
-Session        auto-detect via 127.0.0.1:4002 (tls=false, configured), client 15
-Market data    unavailable until connected
-Daemon         v0.0.0-golden, just started
-TWS            port 4002 accepts connections and resets them before the API
-               handshake (IB Gateway pid 4242)
-Last attempt   IB Gateway (pid 4242) accepts connections on 127.0.0.1:4002 and
-               resets them before the API handshake, so nothing reaches its API
-               — verify the login, Trusted IPs and the OS application firewall
+Broker
+  Session        auto-detect via 127.0.0.1:4002 (tls=false, configured), client
+                 15
+  Market data    unavailable until connected
+  TWS            port 4002 accepts connections and resets them before the API
+                 handshake (IB Gateway pid 4242)
+  Last attempt   IB Gateway (pid 4242) accepts connections on 127.0.0.1:4002 and
+                 resets them before the API handshake, so nothing reaches its
+                 API — verify the login, Trusted IPs and the OS application
+                 firewall
+
+Canary
+  Version        v0.0.0-golden, just started
 
   Daemon log: /synthetic/state/ibkr/ibkr-daemon.log
-Colors         Amber = row needs attention; headline = overall Canary status.
+
+Amber rows need attention. Broker settings: canary status --details
 
 # canary status · COLUMNS=80 · colour on, ESC written as \x1b
 
@@ -22,15 +28,21 @@ Canary  \x1b[31m\x1b[1mOFFLINE\x1b[0m\x1b[0m
 \x1b[2mReason        \x1b[0m \x1b[31mBroker API port accepts connections and drops them before the
                handshake\x1b[0m
 
-\x1b[2mSession       \x1b[0m auto-detect via 127.0.0.1:4002 (tls=false, configured), client 15
-\x1b[2mMarket data   \x1b[0m \x1b[2munavailable until connected\x1b[0m
-\x1b[2mDaemon        \x1b[0m v0.0.0-golden, just started
-\x1b[2mTWS           \x1b[0m \x1b[31mport 4002 accepts connections and resets them before the API
-               handshake (IB Gateway pid 4242)\x1b[0m
-\x1b[2mLast attempt  \x1b[0m IB Gateway (pid 4242) accepts connections on 127.0.0.1:4002 and
-               resets them before the API handshake, so nothing reaches its API
-               — verify the login, Trusted IPs and the OS application firewall
+\x1b[1mBroker\x1b[0m
+  \x1b[2mSession       \x1b[0m auto-detect via 127.0.0.1:4002 (tls=false, configured), client
+                 15
+  \x1b[2mMarket data   \x1b[0m \x1b[2munavailable until connected\x1b[0m
+  \x1b[2mTWS           \x1b[0m \x1b[31mport 4002 accepts connections and resets them before the API
+                 handshake (IB Gateway pid 4242)\x1b[0m
+  \x1b[2mLast attempt  \x1b[0m IB Gateway (pid 4242) accepts connections on 127.0.0.1:4002 and
+                 resets them before the API handshake, so nothing reaches its
+                 API — verify the login, Trusted IPs and the OS application
+                 firewall
+
+\x1b[1mCanary\x1b[0m
+  \x1b[2mVersion       \x1b[0m v0.0.0-golden, just started
 
 \x1b[2m  Daemon log: /synthetic/state/ibkr/ibkr-daemon.log\x1b[0m
-\x1b[2mColors        \x1b[0m \x1b[2mAmber = row needs attention; headline = overall Canary status.\x1b[0m
+
+\x1b[2mAmber rows need attention. Broker settings: canary status --details\x1b[0m
 

@@ -88,37 +88,32 @@ func plural(n int, one, many string) string {
 	return many
 }
 
-// formatPushDeliveryValue is the `canary status` row: the shared verdict,
-// plus a note when the app host has stopped reporting to the daemon.
+// formatPushDeliveryValue is the `canary status` row: one fact, whether an
+// alert reaches the phone and, when it does not, the one thing in the way.
+// The delivery history stays on `canary app status`.
 func formatPushDeliveryValue(env *Env, status rpc.PushDeliveryStatus, now time.Time) string {
 	return formatPushDeliveryValueIn(env, status, now, time.Local)
 }
 
 func formatPushDeliveryValueIn(env *Env, status rpc.PushDeliveryStatus, now time.Time, loc *time.Location) string {
-	line, ok := pushDeliveryLine(status.Proof, now, loc)
-	outdated := now.Sub(status.ReceivedAt) > pushReportStaleAfter
-	// Put the concrete blocker before the historical delivery proof. Keep the
-	// shared proof text intact for app status and detailed diagnostics.
-	if status.Proof.Mode != "none" && status.Proof.ActiveSubscriptions == 0 {
-		line = strings.Replace(line, " · no push subscription", "", 1)
-		if status.Proof.Dispatcher == "unavailable" && status.Proof.DispatcherClass == "no_active_subscription" {
-			line = strings.Replace(line, " · dispatcher unavailable (no_active_subscription)", "", 1)
-		}
-		blocker := "No push subscription"
-		if !outdated {
-			blocker += "; enable notifications on the phone"
-		}
-		line = blocker + " · " + line
+	const more = " · details: canary app status"
+	p := status.Proof
+	stamp := func(at time.Time) string { return at.In(loc).Format("2006-01-02 15:04") }
+	witness, witnessed := p.LastWitness()
+	switch {
+	case now.Sub(status.ReceivedAt) > pushReportStaleAfter:
+		// An old app report proves the past, not the phone's setup now.
+		return env.yellow("not known: the phone app last reported " + stamp(status.ReceivedAt) + more)
+	case p.Mode == "none":
+		return env.yellow("off: notifications are switched off in the app")
+	case p.ActiveSubscriptions == 0:
+		return env.yellow("off: no phone is subscribed; enable notifications on the phone")
+	case p.IntakeRejectedSince != nil:
+		return env.yellow("failing: alerts rejected since " + stamp(*p.IntakeRejectedSince) + more)
+	case p.Dispatcher != "healthy":
+		return env.yellow("failing: the push sender is " + strings.ReplaceAll(p.Dispatcher, "_", " ") + more)
+	case !witnessed:
+		return env.yellow("set up, not yet seen on a phone" + more)
 	}
-	if outdated {
-		// An old app report proves historical delivery facts, not the phone's
-		// current setup. Preserve those facts without a present-tense action.
-		line = strings.ReplaceAll(line, "; enable notifications on the phone", "")
-		line = "Current delivery unknown · app host last reported " + status.ReceivedAt.In(loc).Format("2006-01-02 15:04") + " · last report: " + line
-		ok = false
-	}
-	if ok {
-		return env.green(line)
-	}
-	return env.yellow(line)
+	return env.green(fmt.Sprintf("working: %s on %s %s", witness.Event, witness.Device, stamp(witness.At)))
 }
