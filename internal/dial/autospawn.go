@@ -229,7 +229,7 @@ func AutospawnAndConnectContextFromExecutable(ctx context.Context, socketPath, e
 	if err := CheckAutostart(socketPath); err != nil {
 		return nil, err
 	}
-	spawnedPID, err := spawnDaemonFromExecutable(ctx, executable)
+	spawnedPID, err := startDaemon(ctx, executable, socketPath, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start daemon: %w", err)
 	}
@@ -285,6 +285,11 @@ func AutospawnAndConnectContextFromExecutableWithTimeout(ctx context.Context, so
 		return nil, errors.New("daemon executable is empty")
 	}
 
+	// A daemon launchd restarted after the stop must be gone before the
+	// lock is read: it would own it.
+	if err := QuiesceDaemonAgent(ctx, socketPath); err != nil {
+		return nil, fmt.Errorf("stop the daemon's launchd agent: %w", err)
+	}
 	lockPath := LockPath(socketPath)
 	if pid := LockHolderPID(lockPath); pid > 0 && IsProcessAlive(pid) {
 		return nil, fmt.Errorf("refusing exact-executable daemon start: pid %d already owns %s", pid, lockPath)
@@ -296,7 +301,7 @@ func AutospawnAndConnectContextFromExecutableWithTimeout(ctx context.Context, so
 		return nil, err
 	}
 
-	spawnedPID, err := spawnDaemonFromExecutable(ctx, executable)
+	spawnedPID, err := startDaemon(ctx, executable, socketPath, true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start daemon from %s: %w", executable, err)
 	}
@@ -343,6 +348,17 @@ func waitForSocketOrPIDDeath(ctx context.Context, socketPath string, pid int, ti
 		}
 	}
 	return nil, false
+}
+
+// startDaemon starts bin's daemon and returns its pid: through the launchd
+// agent where that is this starter's to use (macOS, the default daemon),
+// directly otherwise. install is the restart path, which writes the agent
+// for the binary it was told to start.
+func startDaemon(ctx context.Context, bin, socketPath string, install bool) (int, error) {
+	if pid, handled, err := startDaemonViaAgent(ctx, strings.TrimSpace(bin), socketPath, install); handled {
+		return pid, err
+	}
+	return spawnDaemonFromExecutable(ctx, bin)
 }
 
 // spawnDaemonFromExecutable starts bin's `daemon` mode detached from the

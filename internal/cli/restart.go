@@ -52,6 +52,10 @@ type restartDeps struct {
 	stop           func(int, time.Duration) error
 	kill           func(int, time.Duration) error
 	startAndHealth func(context.Context, string, io.Writer, bool) (int, rpc.HealthResult, error)
+	// quiesceAgent unloads the daemon's launchd agent before the start
+	// (macOS; dial.QuiesceDaemonAgent in production). It is a dependency so
+	// that no test can reach the user's launchd: nil does nothing.
+	quiesceAgent func(context.Context, string) error
 }
 
 // signalPolicy is the graceful-stop budget shared by `restart` and `stop`:
@@ -213,6 +217,7 @@ func productionDaemonRestartDepsForExecutable(executable string) restartDeps {
 				return dial.AutospawnAndConnectContextFromExecutableWithTimeout(ctx, socketPath, executable, restartStartupTimeout(ctx))
 			})
 		},
+		quiesceAgent: dial.QuiesceDaemonAgent,
 	}
 }
 
@@ -624,6 +629,16 @@ func restartDaemonWithBehavior(ctx context.Context, opts *restartOptions, deps r
 		return res, 1
 	}
 
+	// On macOS launchd restarts a daemon that ended by a kill or a hung
+	// shutdown. Unload its agent before the start budget begins: ending
+	// that daemon can take as long as its shutdown, and the start itself
+	// installs the agent again.
+	if deps.quiesceAgent != nil && !dial.SocketPathOverridden() {
+		if err := deps.quiesceAgent(ctx, socketPath); err != nil {
+			fmt.Fprintf(opts.err, "%s restart: stop the daemon's launchd agent: %v\n", productidentity.Executable, err)
+			return res, 1
+		}
+	}
 	startCtx := ctx
 	cancel := func() {}
 	if _, hasDeadline := ctx.Deadline(); !hasDeadline {

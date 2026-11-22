@@ -28,8 +28,22 @@ func runDaemon(args []string) {
 	logPath := fs.String("log", "", fmt.Sprintf("log file path (default %s; 'stderr' for stderr)", dial.DisplayPath(dial.DefaultLogPath())))
 	foreground := fs.Bool("foreground", false, "run in foreground; do not idle-shutdown")
 	showVer := fs.Bool("version", false, "print version and exit")
+	removeAgent := fs.Bool("remove-agent", false, "macOS: stop the daemon and remove its launchd agent; the daemon then starts directly again")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
+	}
+	if *removeAgent {
+		removed, err := dial.RemoveDaemonAgent(context.Background())
+		switch {
+		case err != nil:
+			fmt.Fprintf(os.Stderr, "%s daemon: remove launchd agent: %v\n", productidentity.Executable, err)
+			os.Exit(1)
+		case removed:
+			fmt.Println("Stopped the daemon and removed its launchd agent. The next command starts the daemon directly; `canary restart` installs the agent again.")
+		default:
+			fmt.Println("No launchd agent for the daemon is installed.")
+		}
+		return
 	}
 
 	if *showVer {
@@ -40,23 +54,28 @@ func runDaemon(args []string) {
 	// Only unreadable account-identity pins stop the daemon (owner decision
 	// 2026-09-26); every other unreadable part runs on Canary's default and is
 	// reported on status, the brief and the alert inbox.
+	socketPath := *socket
+	if socketPath == "" {
+		socketPath = dial.DefaultSocketPath()
+	}
+	// launchd starts its agent at login and after a kill, with nobody asking.
+	// An operator's stop still holds then.
+	if dial.RunningUnderDaemonAgent() && errors.Is(dial.CheckAutostart(socketPath), dial.ErrStopped) {
+		return
+	}
+
 	cfg, configIssues, err := config.LoadForDaemon(*cfgPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(2)
+		daemonExit(2)
 	}
 	resolved, err := cfg.Resolve()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		os.Exit(2)
+		daemonExit(2)
 	}
 	if *foreground {
 		resolved.Daemon.SetIdleTimeout(0)
-	}
-
-	socketPath := *socket
-	if socketPath == "" {
-		socketPath = dial.DefaultSocketPath()
 	}
 
 	effectiveLogPath := *logPath
@@ -66,7 +85,7 @@ func runDaemon(args []string) {
 	logWriter, err := openDaemonLog(effectiveLogPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open log: %v\n", err)
-		os.Exit(2)
+		daemonExit(2)
 	}
 	defer func() {
 		if c, ok := logWriter.(io.Closer); ok {
@@ -118,8 +137,20 @@ func runDaemon(args []string) {
 			return
 		}
 		logger.Errorf("start: %v", err)
-		os.Exit(1)
+		daemonExit(1)
 	}
+}
+
+// daemonExit ends a daemon that refuses to start. Under the launchd agent
+// the status is 0 whatever the reason: launchd restarts the agent ten
+// seconds after any other status, and a daemon that cannot start on a broken
+// config would be started again every ten seconds for as long as it stays
+// broken. The reason is in the log; the next client's start tries again.
+func daemonExit(code int) {
+	if dial.RunningUnderDaemonAgent() {
+		os.Exit(0)
+	}
+	os.Exit(code)
 }
 
 func openDaemonLog(path string) (io.Writer, error) {

@@ -80,6 +80,16 @@ func LockDaemonStartup(ctx context.Context, socketPath string) (release func(), 
 		// before exact-PID verification and app resume have completed.
 		return func() { _ = file.Close() }, nil
 	}
+	// launchd cannot pass a descriptor, and the starter that asked launchd
+	// for this daemon holds the reservation while it waits for the socket:
+	// waiting for it here would be waiting for ourselves. The agent runs one
+	// process and the instance lock admits one daemon, so two can never
+	// serve. What the reservation adds is a restart's gap, and a restart
+	// closes that itself by unloading the agent before it starts its own
+	// daemon (QuiesceDaemonAgent).
+	if RunningUnderDaemonAgent() {
+		return func() {}, nil
+	}
 	_, release, err = WithStartupLock(ctx, socketPath)
 	return release, err
 }

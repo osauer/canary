@@ -1,7 +1,99 @@
 # Daemon lifetime
 
-Status: design, not built. Written 2026-11-22 08:05 CET after the incident
-below. Owner instruction of 07:34 CET: think it through and design it.
+Status: built for macOS on 2026-11-22 (owner instruction 09:13 CET: build
+it, starting at login is fine). Code: `internal/dial/agent_darwin.go`.
+"What was built" below says where the build differs from the design; the
+rest of this note is the design as written at 08:05 CET the same day.
+
+## What was built
+
+- `canary restart` installs the agent
+  (`~/Library/LaunchAgents/com.osauer.canary-daemon.plist`) for the binary
+  it restarts and loads it; loading starts the daemon. `canary update` and
+  `make restart-daemon` run `canary restart`, so an update installs it.
+  Nothing else installs it: a first start on a new machine is a direct
+  start until the first restart or update.
+- Every other start uses the agent only when it is installed for this
+  binary and this scope. An own agent that is installed and not loaded, as
+  a failed restart leaves it, is loaded again by that start. The scope is the set of variables
+  that decide which config, state, log and socket a daemon uses (the four
+  `XDG_*` roots, `CANARY_CONFIG`, `CANARY_LOG`,
+  `CANARY_SPX_MEMBERS_AUTO_REFRESH`); a variable set to its own default
+  counts as unset. Otherwise it is a direct start, as before. A development
+  build, a test with its own HOME or socket, and a login without a GUI
+  session never touch launchd.
+- One agent per user, for the scope that installed it. A restart in another
+  scope leaves it alone, starts its daemon directly and says so.
+- Proxy variables, `TZ` and `IBKR_PACKET_LOG_TEMPLATE` are copied into the
+  agent from the shell that runs the restart: launchd gives a job a bare
+  environment.
+- The daemon ends every exit it chooses with status 0 under the agent and
+  checks the operator's stop intent before it starts.
+- The startup reservation: a daemon launchd started does not wait for it,
+  because the starter that asked for it holds it while it waits for the
+  socket. The agent runs one process and the instance lock admits one
+  daemon. A restart closes its own gap: after it stopped the daemon and
+  before its start budget begins, it unloads the agent on this socket,
+  whatever scope installed it, and waits until launchd has let go of it
+  (`QuiesceDaemonAgent`), so a daemon launchd restarted after a kill or a
+  hung shutdown is gone. An earlier draft passed the reservation on a token
+  file; review found two races in it and it was removed.
+- When the agent cannot be installed or loaded, the start says so on the
+  terminal and starts the daemon directly.
+- The installed agent is read through `plutil`, so a file rewritten by a
+  macOS tool, to other escaping or to the binary format, is still
+  recognised.
+- `canary daemon --remove-agent` stops the daemon, unloads the agent and
+  deletes the file.
+- The job runs as `ProcessType Interactive`. As a `Background` job the
+  daemon took 2m15s to start serving where it takes half a minute.
+
+Measured on the owner's Mac that day, with the live daemon:
+
+- started through `canary restart`, the daemon's coalition differs from the
+  shell that ran the restart inside the desktop app;
+- after SIGKILL launchd started a new daemon within a second, and it served
+  again after its normal half-minute start;
+- after SIGTERM the daemon exited with status 0 and launchd left it down
+  for the 14 seconds watched;
+- right after launchd spawns the job, its process cannot be signalled for a
+  moment (EPERM), which the liveness probe read as "exited during startup";
+  the start now waits until the pid answers.
+
+Reviewed twice by an independent reader the same day. The first review
+found the token races, the asynchronous `bootout` and a comparison on the
+raw environment; the second found that a failed restart left the agent
+unloaded for good, that an agent of another scope on the same socket was
+not unloaded, that the unload ate the start budget, and that recognising
+the agent depended on the file's spelling. All are fixed, each with a test.
+
+One more defect came from running the tests, not from a review: the first
+version bound the agent to the default socket by the environment alone, so a
+unit test that restarted a daemon on a temporary socket unloaded the live
+agent and stopped the live daemon for half a minute. The agent is now bound
+to the socket a caller actually starts, the restart's unload is an injected
+dependency that tests leave empty, and a test pins both.
+
+Not built, not proven:
+
+- No test covers the daemon's own two rules under the agent: status 0 on a
+  refused start, and the early return on a stop intent. Both were read by
+  the second reviewer and the clean stop was observed live.
+
+- **A client that embeds an older Canary starts the daemon directly.** It
+  compiles the start code of the version it pins, which knows no agent. Such
+  a daemon is in that client's coalition and is not restarted after a kill.
+  Seen the same day: after the clean stop, an embedding app's next poll
+  started the daemon directly, before any `canary` command ran.
+- A deterministic panic at start is restarted by launchd for as long as it
+  lasts. One such site is known (`internal/daemon/cash_policy_settings.go`).
+- The restart hint "run: kill" for a stuck daemon is unchanged.
+- Linux: unchanged, `setsid` only.
+- The end-to-end proof is still pending: the daemon alive after the next
+  self-update of the app that started the restart.
+
+---
+
 
 ## What happened
 

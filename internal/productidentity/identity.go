@@ -32,6 +32,9 @@ const (
 	DaemonLockName   = "ibkr.lock"
 	// AppLaunchAgentLabel pins the already-installed macOS supervisor.
 	AppLaunchAgentLabel = "com.osauer.ibkr-app"
+	// DaemonLaunchAgentLabel is the per-user launchd agent that runs the
+	// default daemon on macOS, outside the coalition of whatever started it.
+	DaemonLaunchAgentLabel = "com.osauer.canary-daemon"
 )
 
 // IsManagedProcessExecutableBase reports whether base can belong to the
