@@ -234,6 +234,14 @@ func (e *proposalEngine) prepareOwnerQueue(ctx context.Context, p rpc.TradePropo
 	if !p.FullPosition {
 		terms.OwnerOrder.AdaptivePriority = queuedOwnerAdaptivePriority(contract)
 	}
+	if terms.OwnerOrder.Add {
+		// The owner signs the Add warnings the plan review shows, priced at the
+		// signed cap. A plan that cannot be computed now carries none, so any
+		// warning at the send stops it, as before.
+		if plan, err := s.planStockAdd(ctx, rpc.AddParams{Contract: contract, LimitPrice: bound, Quantity: order.Quantity}); err == nil && len(plan.Blockers) == 0 {
+			terms.OwnerOrder.AddWarnings = slices.Clone(plan.Warnings)
+		}
+	}
 	if problem := ownerQueueProblem(terms); problem != "" {
 		return block("queue_terms_invalid", problem)
 	}
@@ -344,14 +352,22 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 		out.Blockers = preparedBlocker("preview_not_submit_eligible", "The broker preview is not eligible.")
 		return out, nil
 	}
+	// The owner confirmed these exact warning facts with the terms, compared
+	// as the immediate path compares them (validateStockAddDraft). Changed
+	// warnings need another confirmation; a previous acknowledgement cannot
+	// cover new risk.
+	accept := false
 	if preview.Draft.Add != nil && len(preview.Draft.Add.Plan.Warnings) > 0 {
-		out.Blockers = preparedBlocker("queue_new_add_warning", "New addition warnings require a fresh owner confirmation.")
-		return out, nil
+		if !slices.Equal(o.AddWarnings, preview.Draft.Add.Plan.Warnings) {
+			out.Blockers = preparedBlocker("queue_new_add_warning", "New addition warnings require a fresh owner confirmation.")
+			return out, nil
+		}
+		accept = true
 	}
 	if err = opts.beforePlace(preview); err != nil {
 		return out, err
 	}
-	placed, err := e.server.proposalPlaceOrder(ctx, rpc.OrderPlaceParams{PreviewToken: preview.PreviewToken, Origin: rpc.OrderOriginDaemonOwnerQueued})
+	placed, err := e.server.proposalPlaceOrder(ctx, rpc.OrderPlaceParams{PreviewToken: preview.PreviewToken, AcceptAddWarnings: accept, Origin: rpc.OrderOriginDaemonOwnerQueued})
 	if err != nil {
 		opts.placeRefused(err)
 		return out, err

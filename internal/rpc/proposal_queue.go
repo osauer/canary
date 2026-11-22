@@ -1,6 +1,10 @@
 package rpc
 
-import "time"
+import (
+	"time"
+
+	"github.com/osauer/canary/v3/internal/risk"
+)
 
 // Queued-authorisation methods carry one owner-signed reduction to the next
 // regular session (owner decisions #26–#31, 2026-09-28). Prepare and arm are
@@ -109,6 +113,12 @@ type QueuedOwnerOrder struct {
 	AdaptivePriority string          `json:"adaptive_priority,omitempty"`
 	FullPosition     bool            `json:"full_position"`
 	Add              bool            `json:"add,omitempty"`
+	// AddWarnings are the stock Add plan's warnings at prepare, as the
+	// immediate plan review carries them, so the owner signs them with the
+	// order. The send proceeds only on the same warnings; absent (a record
+	// written before 2026-11-22, or a plan that could not be computed) means
+	// none were signed, and any warning at the send stops it.
+	AddWarnings []risk.StockAddBlocker `json:"add_warnings,omitempty"`
 }
 
 // QueuedAuthQuote is the quote an order was priced from when it was sent.
