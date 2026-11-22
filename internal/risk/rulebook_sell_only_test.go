@@ -12,9 +12,8 @@ import (
 // call counted at its price paid (12,000 over an 8,000 value), a gaining call
 // at its value (15,000 over a 10,000 cost), a short call and a protection put
 // that stay outside the budget, and a stock line small enough that rule 15
-// stays quiet. Premium at risk: 27,000 outside protection, 32,000 = 32% of
-// NLV with the protection put counted (owner, 2026-10-27 19:52 CET: "Count
-// it").
+// stays quiet. Premium at risk: 27,000 = 27% of NLV, with the protection
+// put's 5,000 named beside it.
 func premiumBook() []NameInput {
 	losing := limitsLongCall("AAA", 60, 8000)
 	losing.CostBasisBase = new(12000.0)
@@ -39,32 +38,31 @@ func premiumInputs(stage string, carried bool) RuleInputs {
 }
 
 // Rule 3 is the premium budget (amendment 17): premium at risk over NLV,
-// the per-leg figure of rule 2, every bought option counted, protection
-// included (owner decision 2026-10-27 19:52 CET; until then
-// protection was left out), against the regime set's watch and act levels,
-// with available funds as context only. The protection share is disclosed.
-func TestPremiumBudgetMeasuresPremiumAtRiskProtectionIncluded(t *testing.T) {
+// the per-leg figure of rule 2, every bought option outside protection
+// counted, against the regime set's watch and act levels, with available
+// funds as context only. Protection premium is named beside the budget.
+func TestPremiumBudgetMeasuresPremiumAtRiskProtectionBeside(t *testing.T) {
 	pol := limitsAllModes(RuleModeAlert)
 	ev := EvaluateRulebook(premiumInputs(RegimeBucketCalm, false), pol)
 	r := rowByID(t, ev, RuleCashSellOnly)
-	if r.Number != 3 || r.Title != "Premium budget" || r.Status != RuleStatusWatch || r.Observed == nil || *r.Observed != 32 ||
+	if r.Number != 3 || r.Title != "Premium budget" || r.Status != RuleStatusWatch || r.Observed == nil || *r.Observed != 27 ||
 		*r.WatchThreshold != 25 || *r.ActThreshold != 35 || *r.Threshold != 25 || r.RegimeSet != RegimeBucketCalm {
 		t.Fatalf("premium budget row = %+v", r)
 	}
-	if r.ImpactBase != 32000 {
-		t.Fatalf("ranking impact = %v, want the whole premium in base currency, 32000", r.ImpactBase)
+	if r.ImpactBase != 27000 {
+		t.Fatalf("ranking impact = %v, want the premium outside protection in base currency, 27000", r.ImpactBase)
 	}
-	want := "Option premium at risk is 32.0% of NLV, at or above the calm set's 25% budget (act at 35%); option buys are held until it is back under the budget. Available funds are 90.0% of NLV."
+	want := "Option premium at risk is 27.0% of NLV, at or above the calm set's 25% budget (act at 35%); option buys are held until it is back under the budget. Available funds are 90.0% of NLV."
 	if r.Evidence != want {
 		t.Fatalf("evidence = %q\nwant       %q", r.Evidence, want)
 	}
-	if len(r.Offenders) != 3 || r.Offenders[0].Symbol != "BBB" || r.Offenders[1].Note != "counted at the price paid, above today's value" || r.Offenders[2].Observed != 5 {
-		t.Fatalf("offenders = %+v, want the two long calls and the protection put, largest first, the loser at its price paid", r.Offenders)
+	if len(r.Offenders) != 2 || r.Offenders[0].Symbol != "BBB" || r.Offenders[1].Note != "counted at the price paid, above today's value" {
+		t.Fatalf("offenders = %+v, want the two long calls, largest first, the loser at its price paid, and no protection put", r.Offenders)
 	}
 	if !slices.ContainsFunc(r.Notes, func(n string) bool {
-		return strings.Contains(n, "of which protection premium 5.0% of NLV, counted in this budget")
+		return strings.Contains(n, "protection premium 5.0% of NLV is shown beside this budget, not counted in it")
 	}) {
-		t.Fatalf("notes = %v, want the protection premium's share disclosed", r.Notes)
+		t.Fatalf("notes = %v, want the protection premium named beside the budget", r.Notes)
 	}
 	if !r.SellOnly || !ev.SellOnly.Active || !slices.Equal(ev.SellOnly.Rules, []string{RuleCashSellOnly}) {
 		t.Fatalf("sell-only = row %v, result %+v; want rule 3 alone", r.SellOnly, ev.SellOnly)
@@ -161,13 +159,11 @@ func TestPremiumBudgetNeverPassesOnMissingInputs(t *testing.T) {
 		t.Fatalf("no long option: %+v (sell-only %+v)", r, ev.SellOnly)
 	}
 
-	// Protection alone counts at its premium (owner, 2026-10-27 19:52 CET:
-	// "Count it"; until then it read 0%): 20,000 of 100,000, under the
-	// calm budget.
+	// Protection alone leaves the budget at 0%: its 20,000 is named beside.
 	in = limitsInputs()
 	in.Names = limitsProtection(30, 20000)
-	if r := rowByID(t, EvaluateRulebook(in, pol), RuleCashSellOnly); r.Status != RuleStatusPass || *r.Observed != 20 {
-		t.Fatalf("protection alone: %+v, want a pass at 20%%", r)
+	if r := rowByID(t, EvaluateRulebook(in, pol), RuleCashSellOnly); r.Status != RuleStatusPass || *r.Observed != 0 {
+		t.Fatalf("protection alone: %+v, want a pass at 0%%", r)
 	}
 }
 

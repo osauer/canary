@@ -126,12 +126,12 @@ type MandateExposureRow struct {
 	GammaBase     *float64 `json:"gamma_base,omitempty"`
 	ThetaBase     *float64 `json:"theta_base,omitempty"`
 	VegaBase      *float64 `json:"vega_base,omitempty"`
-	// PremiumAtRiskBase is the premium at risk on every long leg, protection
-	// included (the higher of price paid and value per leg; owner decision
-	// 2026-10-27 19:52 CET, "Count it"), PremiumPctNLV its share of NLV,
+	// PremiumAtRiskBase is the premium at risk on every long leg outside
+	// protection (the higher of price paid and value per leg, a spread at
+	// what the pair can lose), PremiumPctNLV its share of NLV,
 	// PremiumCapBase the cap in money (the name's or the book's) and
 	// PremiumRoomBase what the cap still leaves; PremiumOver says the cap is
-	// reached. HedgePremiumBase is the protection premium within it.
+	// reached. HedgePremiumBase is the protection premium beside it.
 	PremiumAtRiskBase *float64 `json:"premium_at_risk_base,omitempty"`
 	PremiumPctNLV     *float64 `json:"premium_pct_nlv,omitempty"`
 	PremiumCapBase    *float64 `json:"premium_cap_base,omitempty"`

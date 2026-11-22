@@ -27,7 +27,7 @@ const (
 // rules: rule 3 premium budget and rule 4 extrinsic budget (both
 // ex-protection), rule 12 protection band, rule 15 net exposure.
 type RegimeThresholds struct {
-	// PremiumBudgetWatchPct is rule 3's watch level, the budget for new buying: premium at risk in long options, protection included (the higher of price paid and current value, summed) as a percent of NLV. It tightens with the regime; at watch or act option buys are held.
+	// PremiumBudgetWatchPct is rule 3's watch level, the budget for new buying: premium at risk in long options outside protection (the higher of price paid and current value, a spread at what the pair can lose, summed) as a percent of NLV. It tightens with the regime; at watch or act option buys are held.
 	PremiumBudgetWatchPct float64 `toml:"premium_budget_watch_pct" json:"premium_budget_watch_pct"`
 	// PremiumBudgetActPct is rule 3's act level, the cap on the same measure. Canary's default is the same in every regime set, so a rise in volatility alone never forces a sale; tighten it per set if you want. Under basis = rulebook the budget governor sells back to the set's watch level once the total reaches it.
 	PremiumBudgetActPct float64 `toml:"premium_budget_act_pct" json:"premium_budget_act_pct"`
@@ -95,7 +95,7 @@ type RulebookPolicy struct {
 	OptionLineWatchPct float64 `toml:"option_line_watch_pct" json:"option_line_watch_pct"`
 	// OptionLineActPct acts at or above this long-option premium at risk as a percent of NLV. It also supplies the budget governor's per-line limit under basis = rulebook.
 	OptionLineActPct float64 `toml:"option_line_act_pct" json:"option_line_act_pct"`
-	// OptionNameActPct caps the premium at risk on one underlying, every long option on it summed, protection included (the higher of price paid and current value, as rule 2 measures a line), as a percent of NLV. An option buy that would take the name past it is refused at every order gate; the premium budget's act level caps the book the same way. Owner decision 2026-10-23 18:22 CEST: options add risk within premium limits, not within the mandate's volatility budget.
+	// OptionNameActPct caps the premium at risk on one underlying, every long option on it outside protection summed (the higher of price paid and current value, as rule 2 measures a line), as a percent of NLV. An option buy that would take the name past it is refused at every order gate; the premium budget's act level caps the book the same way. Owner decision 2026-10-23 18:22 CEST: options add risk within premium limits, not within the mandate's volatility budget.
 	OptionNameActPct float64 `toml:"option_name_act_pct" json:"option_name_act_pct"`
 	// HedgeLineWatchPct watches at or above this protection option's premium at risk as a percent of NLV. Rule 12 separately measures total hedge size.
 	HedgeLineWatchPct float64 `toml:"hedge_line_watch_pct" json:"hedge_line_watch_pct"`

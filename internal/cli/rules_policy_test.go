@@ -34,7 +34,7 @@ func TestRulesPolicyScreenShowsEveryRuleAndTheOverhedgeMultiple(t *testing.T) {
 	// Rules 3 and 15 show their regime bands (amendment 17); the retired
 	// cash reserve example is gone.
 	for _, want := range []string{
-		"option premium at risk of NLV, protection included, watch/act at: calm 25%/35%, early warning 20%/35%, confirmed 15%/35%; option buys held from watch",
+		"option premium at risk of NLV, protection beside, watch/act at: calm 25%/35%, early warning 20%/35%, confirmed 15%/35%; option buys held from watch",
 		"net exposure of NLV, whole book with hedges, watch/act at: calm 100%/150%, early warning 100%/130%, confirmed 75%/100%; orders adding to the flagged side held from watch",
 		// Rule 19 (amendment 18) reads downward.
 		"19 margin_headroom        alert  broker excess liquidity of NLV, the worse of current and look-ahead: watch below 30%, act below 15%; never trims",

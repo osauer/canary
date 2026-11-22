@@ -25,7 +25,7 @@ import (
 //     additions. For an option buy its judgement, with the 1-day expected
 //     shortfall and the beta-adjusted exposure, is computed and shown, and
 //     carried on the preview as a warning, never a block; the premium limits
-//     count protection since 2026-10-27 (the owner: "Count it").
+//     leave protection premium beside them.
 //   - The holds that bound a loss rather than a volatility stay for every
 //     addition: at the maximum loss (no room) nothing adds, and the owner
 //     sleeve's drawdown stop keeps the sleeve reduce-only while engaged.

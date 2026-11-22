@@ -18,7 +18,8 @@ func ClassifyCompleteIndexPutRoles(in RuleInputs, pol RulebookPolicy) (RuleInput
 		}
 		gross += math.Max(n.ExposureBase, 0)
 		shortPut := 0.0
-		for _, l := range n.Legs {
+		shorts := indexPutShorts(n.Legs)
+		for li, l := range n.Legs {
 			if !optionExitFinite(l.Quantity) || l.Quantity == 0 || math.Trunc(l.Quantity) != l.Quantity ||
 				!optionExitFinite(l.Multiplier) || l.Multiplier <= 0 || l.Delta == nil || !optionExitFinite(*l.Delta) || math.Abs(*l.Delta) > 1.05 ||
 				l.Underlying == nil || !optionExitFinite(*l.Underlying) || *l.Underlying <= 0 || l.UnderlyingSource == UnderlyingSourceStockLegMark ||
@@ -30,7 +31,7 @@ func ClassifyCompleteIndexPutRoles(in RuleInputs, pol RulebookPolicy) (RuleInput
 				return RuleInputs{}, false
 			}
 			if indexPutRoleEligible(l) {
-				shortPut += indexPutShortBase(l)
+				shortPut += shorts[li]
 				if !optionExitFinite(shortPut) {
 					return RuleInputs{}, false
 				}

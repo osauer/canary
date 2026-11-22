@@ -72,8 +72,7 @@ func mandateTestLongOptionBook(t *testing.T, srv *Server, calls float64) *rpc.Po
 // The book's premium at risk is capped by the premium budget's act level of
 // the regime set in force (35% by default): a buy that would take the book
 // past it is refused naming the figure, the budget and the room; the
-// protection put counts in the budget at its premium (owner, 2026-10-27
-// 19:52 CET: "Count it") and its share is named.
+// protection put's premium is named beside the budget and not counted in it.
 func TestMandatePremiumGateCapsTheBook(t *testing.T) {
 	srv, _ := mandateTestServer(t, testMandateConstitution())
 	seedMandateHistory(t, srv, 0)
@@ -84,17 +83,15 @@ func TestMandatePremiumGateCapsTheBook(t *testing.T) {
 		t.Fatalf("exposure %+v", e)
 	}
 	// 50 calls at 20 EUR: 100,000 EUR of premium, over the 90,000 paid, so
-	// counted at its value; the hedge put's 3,500 USD paid (3,150 EUR) is
-	// counted too and named as the protection share: 103,150 EUR, 34.4% of
-	// net liquidation.
-	if e.Book.PremiumAtRiskBase == nil || math.Abs(*e.Book.PremiumAtRiskBase-103150) > 1e-6 || e.Book.HedgePremiumBase == nil || math.Abs(*e.Book.HedgePremiumBase-3150) > 1e-6 || e.Book.PremiumOver {
+	// counted at its value, 33.3% of net liquidation; the hedge put's 3,500
+	// USD paid (3,150 EUR) is named beside it as protection.
+	if e.Book.PremiumAtRiskBase == nil || math.Abs(*e.Book.PremiumAtRiskBase-100000) > 1e-6 || e.Book.HedgePremiumBase == nil || math.Abs(*e.Book.HedgePremiumBase-3150) > 1e-6 || e.Book.PremiumOver {
 		t.Fatalf("book premium %+v", e.Book)
 	}
 	// The loss measure reads the calls at today's value, over the 69,000 EUR
 	// loss room, so the verdict reads reduce; the hedge put is protection,
 	// named beside the measure at its value and left out of it (owner,
-	// 2026-11-13 05:00 CET), while the premium budget above still counts it
-	// at the price paid.
+	// 2026-11-13 05:00 CET), as the premium budget above leaves it out.
 	if v := res.Verdict; v.Status != mandate.StatusReduce || v.Loss == nil || math.Abs(v.Loss.PremiumBase-100000) > 1e-6 || math.Abs(v.Loss.TotalBase-100000) > 1e-6 || math.Abs(v.Loss.ProtectionBase-3000) > 1e-6 {
 		t.Fatalf("verdict %s loss %+v", res.Verdict.Status, res.Verdict.Loss)
 	}
@@ -111,10 +108,10 @@ func TestMandatePremiumGateCapsTheBook(t *testing.T) {
 	// A 2% buy on SYNA: the name has room, the book has not.
 	call := rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 10, LimitPrice: 8, Contract: rpc.ContractParams{Symbol: "SYNA", SecType: "OPT", Currency: "USD", Right: "C", Strike: 100, Expiry: "20270115", Multiplier: 100}}
 	blocker := srv.mandateBudgetGate(call, mandateOpen)
-	if blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode || !strings.Contains(blocker.Message, "the book's premium at risk would be 110,350 EUR, 36.8% of net liquidation 300,000 EUR, over the 35.0% premium budget") || !strings.Contains(blocker.Action, "room for 1,850 EUR more premium") {
+	if blocker == nil || blocker.Code != rpc.MandatePremiumBlockerCode || !strings.Contains(blocker.Message, "the book's premium at risk would be 107,200 EUR, 35.7% of net liquidation 300,000 EUR, over the 35.0% premium budget") || !strings.Contains(blocker.Action, "room for 5,000 EUR more premium") {
 		t.Fatalf("a buy past the premium budget: %+v", blocker)
 	}
-	// Two calls fit the budget: 1,440 EUR more, 34.9%; the verdict over the
+	// Two calls fit the budget: 1,440 EUR more, 33.8%; the verdict over the
 	// loss room is the buy's warning, never its refusal.
 	call.Quantity = 2
 	if blocker, warning := srv.mandateBudgetJudgement(call, mandateOpen); blocker != nil || warning == nil || !strings.Contains(warning.Message, "over the mandate's loss room") {

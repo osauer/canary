@@ -61,6 +61,57 @@ func indexPutShortBase(l LegInput) float64 {
 	return short
 }
 
+// indexPutShorts returns, index-aligned with one underlying's legs, the short
+// delta in base currency of each hedge-eligible long put as rule 12 sizes
+// it: its own short delta less what a sold put against it gives back. A sold
+// put counts against a bought one of the same expiry and contract size with
+// a higher strike, the nearest strike first, for the contracts it covers (the
+// pairing premium at risk uses, spreadCovers). A bought put measured alone
+// reads larger than the pair held, and a put spread then reads as more than
+// the book it protects. A sold put without a delta or price, of another
+// expiry, or nearer the money gives nothing back.
+func indexPutShorts(legs []LegInput) []float64 {
+	out := make([]float64, len(legs))
+	open := make([]float64, len(legs))
+	var longs []int
+	for i, l := range legs {
+		switch {
+		case indexPutRoleEligible(l):
+			out[i] = indexPutShortBase(l)
+			if l.Multiplier > 0 && !l.Expiry.IsZero() {
+				longs = append(longs, i)
+			}
+		case l.Quantity < 0 && l.HedgeListed && isPut(l.Right) && l.Delta != nil && l.Underlying != nil &&
+			l.UnderlyingSource != UnderlyingSourceStockLegMark && l.Multiplier > 0 && !l.Expiry.IsZero():
+			open[i] = -l.Quantity
+		}
+	}
+	slices.SortStableFunc(longs, func(a, b int) int { return cmp.Compare(legs[b].Strike, legs[a].Strike) })
+	for _, i := range longs {
+		long := legs[i]
+		var sold []int
+		for j, s := range legs {
+			if open[j] > 0 && spreadCovers(long, s) {
+				sold = append(sold, j)
+			}
+		}
+		slices.SortStableFunc(sold, func(a, b int) int { return cmp.Compare(legs[b].Strike, legs[a].Strike) })
+		covered, back := 0.0, 0.0
+		for _, j := range sold {
+			m := math.Min(long.Quantity-covered, open[j])
+			if m <= 0 {
+				break
+			}
+			s := legs[j]
+			back += indexPutShortBase(s) * m / -s.Quantity
+			covered += m
+			open[j] -= m
+		}
+		out[i] = math.Max(out[i]-back, 0)
+	}
+	return out
+}
+
 // PlanHedgeTrim sizes the trim on rule 12's own measurement. It reports
 // false while protection is inside the over-hedge line, and whenever the book
 // is not whole: an unhealthy positions read, a name whose exposure or deltas
@@ -127,7 +178,8 @@ func AssessHedgeTrim(in RuleInputs, pol RulebookPolicy) HedgeTrimAssessment {
 		if n.ExposureBase > 0 {
 			plan.GrossLongBase += n.ExposureBase
 		}
-		for _, l := range n.Legs {
+		shorts := indexPutShorts(n.Legs)
+		for li, l := range n.Legs {
 			if !l.HedgeListed || !isPut(l.Right) || l.Quantity <= 0 {
 				continue
 			}
@@ -138,7 +190,7 @@ func AssessHedgeTrim(in RuleInputs, pol RulebookPolicy) HedgeTrimAssessment {
 				}
 				continue
 			}
-			per := indexPutShortBase(l) / l.Quantity
+			per := shorts[li] / l.Quantity
 			if !(per > 0) || math.IsInf(per, 0) {
 				if unmeasured == "" {
 					unmeasured = n.Symbol + " " + l.Desc + " has no short delta"

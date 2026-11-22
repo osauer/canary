@@ -10,10 +10,11 @@ import (
 // Premium at risk is the Rulebook's measure of what a long option book has
 // put at stake: per leg the higher of the price paid and today's value (rule 2's line
 // figure), a spread at what the pair can lose (PremiumAtRiskLegs), summed per
-// underlying and over the book, protection legs counted
-// since the owner's decision of 2026-10-27 19:52 CET ("Count it")
-// with their share named beside (rule 2's hedge tier and rule 12
-// still govern the hedge's own band). Rule 3 measures the book's total
+// underlying and over the book. Protection legs (a hedge-listed long put rule
+// 12 sizes as protection) are measured the same way and named beside the
+// total, not counted in it: rule 2's hedge tier and rule 12 govern the
+// hedge's own size, and buying protection must not read as breaking the
+// premium budget. Rule 3 measures the book's total
 // against the premium budget; since the owner's decision of 2026-10-23
 // 18:22 CEST the same figures gate option additions (option_name_act_pct per
 // name, the premium budget's act level for the book) and are served per name
@@ -157,18 +158,18 @@ func spreadCovers(long, s LegInput) bool {
 	return false
 }
 
-// PremiumAtRiskName is one underlying's premium at risk, protection
-// included.
+// PremiumAtRiskName is one underlying's premium at risk, with its
+// protection premium beside.
 type PremiumAtRiskName struct {
 	Symbol string
-	// Base is the sum over the name's long legs, protection included; Legs
-	// counts them. Unmeasured names each leg whose figure is unknown, with
+	// Base is the sum over the name's long legs outside protection; Legs
+	// counts every long leg, protection too. Unmeasured names each leg whose figure is unknown, with
 	// why; while any is, Base understates and Known is false.
 	Base       float64
 	Legs       int
 	Known      bool
 	Unmeasured []string
-	// HedgeBase is the protection premium within Base.
+	// HedgeBase is the protection premium, beside Base and not in it.
 	HedgeBase float64
 }
 
@@ -176,9 +177,9 @@ type PremiumAtRiskName struct {
 type PremiumAtRiskReport struct {
 	// Names lists every underlying with a long option leg, largest first.
 	Names []PremiumAtRiskName
-	// TotalBase is the book's figure, protection included; Known is false
+	// TotalBase is the book's figure outside protection; Known is false
 	// while any leg is unmeasured, and Unmeasured names each such leg.
-	// HedgeBase is the protection premium within TotalBase.
+	// HedgeBase is the protection premium beside TotalBase.
 	TotalBase  float64
 	Known      bool
 	Unmeasured []string
@@ -215,6 +216,7 @@ func PremiumAtRisk(names []NameInput) PremiumAtRiskReport {
 			}
 			if rule12HedgeLeg(l) {
 				row.HedgeBase += fig.AtRisk
+				continue
 			}
 			row.Base += fig.AtRisk
 		}
