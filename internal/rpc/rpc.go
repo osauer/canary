@@ -1937,15 +1937,27 @@ const (
 
 // PositionStrategy is the daemon-owned grouping of exact held contracts.
 // Units are whole strategy units; signed ratios describe the held direction.
+//
+// Kind is the shape (vertical, calendar, butterfly, iron_condor, collar).
+// Name is what a trader calls the held position, direction included, in
+// lower case ("bear put spread", "short strangle", "long call butterfly"),
+// so no client derives it from the legs; it is empty where the shape has no
+// settled name (an uneven calendar, a pair across rights and expiries).
+//
+// Legs are the option contracts, which trade together as one combo. Stock is
+// the shares a covered call or a collar is written against: it names the
+// position, takes part in no combo order and is absent everywhere else.
 type PositionStrategy struct {
 	ID                  string                `json:"id"`
 	Revision            int64                 `json:"revision"`
 	Underlying          string                `json:"underlying"`
 	Kind                string                `json:"kind,omitempty"`
+	Name                string                `json:"name,omitempty"`
 	Source              string                `json:"source"`
 	Status              string                `json:"status"`
 	Units               int                   `json:"units"`
 	Legs                []PositionStrategyLeg `json:"legs"`
+	Stock               *PositionStrategyLeg  `json:"stock,omitempty"`
 	PositionFingerprint string                `json:"position_fingerprint"`
 	GuaranteedCombo     bool                  `json:"guaranteed_combo"`
 	Actionable          bool                  `json:"actionable"`
@@ -1954,6 +1966,8 @@ type PositionStrategy struct {
 
 // PositionStrategyLeg allocates an exact current position to one strategy.
 // Ratio is positive for a held long leg and negative for a held short leg.
+// For a strategy's Stock, Quantity is the shares the option legs cover and
+// Ratio the shares per unit; the holding may be larger.
 type PositionStrategyLeg struct {
 	Contract ContractParams `json:"contract"`
 	Quantity float64        `json:"quantity"`

@@ -646,7 +646,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	flagOptionMarkOutsideBidAsk(res.Options)
 
 	res.ByUnderlying = groupByUnderlying(res.Stocks, res.Options, baseCcy, netLiquidationBase)
-	res.Strategies, res.StrategyIssues = positionstrategy.InferPositionStrategies(res.Options)
+	res.Strategies, res.StrategyIssues = positionstrategy.InferStrategies(res.Stocks, res.Options)
 	res.Strategies, res.StrategyIssues = s.reconcileJournaledStrategyGroups(res.Options, res.Strategies, res.StrategyIssues)
 	res.Portfolio = buildPortfolioAggregatesWithBase(res.Stocks, res.Options, baseCcy)
 	addPortfolioBaseContext(res.Portfolio, res.ByUnderlying, baseCcy, netLiquidationBase)

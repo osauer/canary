@@ -137,6 +137,7 @@ func mandateMarkProtectionExcess(legs []mandate.Leg, pos *rpc.PositionsResult, p
 func hedgeTrimRows(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, pos *rpc.PositionsResult, pol risk.RulebookPolicy, plan risk.HedgeTrimPlan, sizing mandateReductionInput, baseCcy string) []rpc.TradeProposal {
 	lead := fmt.Sprintf("index protection is %.0f%% of the long book, past the %s%% over-hedge line (%s× the %s%% band top)",
 		plan.RatioPct, rulebookLimitText(plan.ActPct), rulebookLimitText(pol.OverhedgeMultiple), rulebookLimitText(plan.TopPct))
+	inStrategy, _ := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), now)
 	var out []rpc.TradeProposal
 	for _, line := range plan.Lines {
 		row, found := hedgeTrimRow(pos, pol, line)
@@ -145,6 +146,16 @@ func hedgeTrimRows(policy protectionPolicy, status rpc.ProtectionPolicyStatus, s
 		}
 		full := int(math.Floor(row.Quantity + 1e-9))
 		units := min(int(math.Floor(line.Sell+1e-9)), full)
+		// A put held as one leg of a strategy is trimmed in whole units of
+		// it, never alone (proposal_strategy_legs.go). Rule 12 counts the
+		// long puts, so the units that sell the plan's contracts take the
+		// same short delta off its measure.
+		if inStrategy[row.ConID] {
+			if p, ok := hedgeTrimUnitRow(policy, status, sources, now, pos, pol, plan, row, units, full, lead, sizing, baseCcy); ok {
+				out = append(out, p)
+				continue
+			}
+		}
 		qty, waits := mandateCycleQuantity(&mandateCut{row: row, full: full, step: 1, units: units}, sizing, baseCcy)
 		if qty <= 0 {
 			continue
@@ -171,6 +182,33 @@ func hedgeTrimRows(policy protectionPolicy, status rpc.ProtectionPolicyStatus, s
 	return out
 }
 
+// hedgeTrimUnitRow is the trim of a put line held inside a strategy: whole
+// units of the strategy, each selling the line's put with the legs it is
+// held against. ok is false where the strategy has no combo route or no whole
+// unit fits the caps; the line's own row then stands, blocked.
+func hedgeTrimUnitRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, pos *rpc.PositionsResult, pol risk.RulebookPolicy, plan risk.HedgeTrimPlan, row rpc.PositionView, cut, full int, lead string, sizing mandateReductionInput, baseCcy string) (rpc.TradeProposal, bool) {
+	s, ok := routableStrategyOfLeg(pos, row.ConID)
+	if !ok {
+		return rpc.TradeProposal{}, false
+	}
+	units, waits, ok := strategyUnitCut(pos, s, row, cut, sizing, baseCcy)
+	if !ok {
+		return rpc.TradeProposal{}, false
+	}
+	reason := fmt.Sprintf("%s; the trim back to the band top sells %d of the %d %s put %s, held as %d %s of one strategy, so it sells %d %s of the strategy",
+		lead, cut, full, legDesc(row), pluralNoun(full, "contract"), s.Units, pluralNoun(s.Units, "unit"), units, pluralNoun(units, "unit"))
+	p := strategyUnitRow(policy, status, sources, now, rpc.TradeProposalBucketRiskReduction, pos, s, units, reason)
+	p.Details = append(p.Details, fmt.Sprintf("the puts' short delta is %s against a long book of %s; the %s%% band top allows %s (Rulebook rule 12)",
+		mandateMoney(plan.ShortBase, baseCcy), mandateMoney(plan.GrossLongBase, baseCcy), rulebookLimitText(plan.TopPct), mandateMoney(plan.TargetBase, baseCcy)),
+		"rule 12 counts the long puts; each unit also buys back the short legs held against them")
+	if waits != "" {
+		p.Details = append(p.Details, waits)
+	}
+	p.Details = append(p.Details, "offered for your confirmation only: Canary never sells protection unattended", p.Unit.Route)
+	p.Score = plan.RatioPct
+	return p, true
+}
+
 // hedgeTrimRow finds the held put line a trim line sells.
 func hedgeTrimRow(pos *rpc.PositionsResult, pol risk.RulebookPolicy, line risk.HedgeTrimLine) (rpc.PositionView, bool) {
 	if pos == nil {
@@ -194,6 +232,6 @@ func hedgeTrimProposal(p rpc.TradeProposal) bool {
 // hedgePutSale reports a sale of a put on a hedge-listed index: protection,
 // or what was bought as protection, which only the owner sells.
 func hedgePutSale(pol risk.RulebookPolicy, p rpc.TradeProposal) bool {
-	return strings.EqualFold(p.Action, rpc.OrderActionSell) && strings.EqualFold(strings.TrimSpace(p.Contract.Right), "P") &&
+	return unitSellsHedgePut(pol, p) || strings.EqualFold(p.Action, rpc.OrderActionSell) && strings.EqualFold(strings.TrimSpace(p.Contract.Right), "P") &&
 		pol.IsHedgeSymbol(p.Contract.Symbol)
 }
