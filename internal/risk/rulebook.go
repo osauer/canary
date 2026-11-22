@@ -280,9 +280,12 @@ type LegInput struct {
 	DTE        int
 	Quantity   float64 // signed contracts
 	Multiplier float64
-	Mark       float64
-	Underlying *float64
-	Delta      *float64
+	// TradingClass is the listed option class ("SPX", "SPXW"); two classes
+	// of one symbol may expire on one date and settle on different prices.
+	TradingClass string
+	Mark         float64
+	Underlying   *float64
+	Delta        *float64
 	// MarketValueBase is the signed base-currency mark value of the leg.
 	MarketValueBase float64
 	// MarketValueBaseSource discloses whether MarketValueBase was converted or

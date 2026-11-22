@@ -182,7 +182,7 @@ DAY limit: the most paid per unit, or with a negative limit the least
 received. The order is judged once, as that order, never leg by leg:
 
 - A covered combination, where every sold contract is capped by a bought
-  contract of the same kind, expiry and size nearer the money, can lose the
+  contract of the same kind, expiry, size and trading class nearer the money, can lose the
   premium paid and no more. The order cap reads that net premium at the
   limit, the sold legs need no sell-to-open permission, and the mandate judges
   it as an option buy on the net premium: the premium limits can refuse it,

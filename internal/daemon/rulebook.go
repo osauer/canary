@@ -943,16 +943,19 @@ func mapRuleNames(pos *rpc.PositionsResult, pol risk.RulebookPolicy, baseCcy str
 				continue
 			}
 			leg := risk.LegInput{
-				Desc:        legDesc(o),
-				Right:       o.Right,
-				Strike:      o.Strike,
-				Quantity:    o.Quantity,
-				Multiplier:  float64(max(o.Multiplier, 1)),
-				Mark:        o.Mark,
-				Underlying:  o.Underlying,
-				Delta:       o.Delta,
-				Gamma:       o.Gamma,
-				HedgeListed: pol.IsHedgeSymbol(g.Underlying),
+				Desc:       legDesc(o),
+				Right:      o.Right,
+				Strike:     o.Strike,
+				Quantity:   o.Quantity,
+				Multiplier: float64(max(o.Multiplier, 1)),
+				// The pair rules read the class: a sold option of another
+				// class caps nothing (risk.spreadCovers).
+				TradingClass: o.TradingClass,
+				Mark:         o.Mark,
+				Underlying:   o.Underlying,
+				Delta:        o.Delta,
+				Gamma:        o.Gamma,
+				HedgeListed:  pol.IsHedgeSymbol(g.Underlying),
 			}
 			if o.Delta != nil && o.Underlying == nil {
 				// The aggregator can't pair this delta with a spot, so the

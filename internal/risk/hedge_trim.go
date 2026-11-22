@@ -64,8 +64,9 @@ func indexPutShortBase(l LegInput) float64 {
 // indexPutShorts returns, index-aligned with one underlying's legs, the short
 // delta in base currency of each hedge-eligible long put as rule 12 sizes
 // it: its own short delta less what a sold put against it gives back. A sold
-// put counts against a bought one of the same expiry and contract size with
-// a higher strike, the nearest strike first, for the contracts it covers (the
+// put counts against a bought one of the same expiry, contract size and
+// trading class with a higher strike, the nearest strike first, for the
+// contracts it covers (the
 // pairing premium at risk uses, spreadCovers). A bought put measured alone
 // reads larger than the pair held, and a put spread then reads as more than
 // the book it protects. A sold put without a delta or price, of another

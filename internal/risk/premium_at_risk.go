@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 // Premium at risk is the Rulebook's measure of what a long option book has
@@ -58,8 +59,8 @@ type PremiumAtRiskFigure struct {
 
 // PremiumAtRiskLegs measures every leg of one underlying, index-aligned with
 // legs. A long leg alone counts as PremiumAtRiskLeg has it. A long leg with a
-// sold option of the same kind, expiry and contract size further out of the
-// money against it is a spread, and for the contracts the sold leg covers the
+// sold option of the same kind, expiry, contract size and trading class
+// further out of the money against it is a spread, and for the contracts the sold leg covers the
 // pair can lose the premium paid less the premium received, or the pair's
 // value today when that is higher, and never less than nothing. Contracts the
 // sold leg does not cover count in full. A sold leg nearer the money, of
@@ -139,9 +140,13 @@ func spreadMoneyRank(l LegInput) float64 {
 }
 
 // spreadCovers reports whether sold leg s caps bought leg long: the same
-// kind, expiry day and contract size, and a strike further out of the money.
+// kind, expiry day, contract size and trading class, and a strike further out
+// of the money. Two classes of one index settle on different prices (a
+// monthly on the opening print, a weekly on the close), so a sold leg of
+// another class caps nothing.
 func spreadCovers(long, s LegInput) bool {
-	if s.Quantity >= 0 || s.Right != long.Right || s.Multiplier != long.Multiplier {
+	if s.Quantity >= 0 || s.Right != long.Right || s.Multiplier != long.Multiplier ||
+		!strings.EqualFold(strings.TrimSpace(s.TradingClass), strings.TrimSpace(long.TradingClass)) {
 		return false
 	}
 	ly, lm, ld := long.Expiry.Date()
