@@ -39,11 +39,17 @@ import (
 //
 // What still bounds a covered add now that its sold legs pass without the
 // permission and its cap reads the net premium: the loss is the premium
-// paid, which the order cap, the premium limits and the mandate's hard
-// holds bound; each leg stays inside [order_limits].max_option_contracts;
-// the broker margins and checks the combination as one order; and it is
-// sent only from a preview a person confirmed. No proposal and no
-// pre-authorised bucket sends an add.
+// paid, which the order cap bounds per order and, unless it is a hedge
+// entry, the premium limits and the mandate's hard holds bound across the
+// book; each leg stays inside [order_limits].max_option_contracts; the
+// broker margins and checks the combination as one order; and it is sent
+// only from a preview a person confirmed at the command line. No proposal,
+// no pre-authorised bucket and no app route sends an add.
+//
+// A hedge entry meets the order cap and the contract cap only, each per
+// order, as the single hedge put does: nothing sums the premium of repeated
+// hedge entries at the gate. Rule 2's hedge tier and rule 12 report on the
+// held hedge afterwards; they do not refuse an order.
 
 // strategyAdd returns the group of an order that adds units of a held
 // strategy, or nil for every other order.

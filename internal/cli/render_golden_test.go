@@ -313,6 +313,8 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "core_resolve_none", argv: []string{"core", "resolve", "--isin", "IE00B5BMR087", "--currency", "EUR"}, conn: goldenConn{rpc.MethodCoreResolve: goldenCoreResolveNone()}},
 		{name: "core_inactive", argv: []string{"core"}, conn: goldenConn{rpc.MethodCoreTarget: rpc.CoreTargetResult{AsOf: goldenAt, Status: rpc.CoreStatusInactive, ReadOnly: true, Message: "the risk constitution carries no [mandate.core] table; the core sleeve is inactive"}}},
 		{name: "strategies_list", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[6].res}},
+		{name: "strategies_list_named", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: goldenStrategiesNamed()}},
+		{name: "strategies_add_preview", argv: []string{"strategies", "add", "strat-aaa-1", "3", "--units", "2"}, conn: goldenConn{rpc.MethodStrategyPreview: goldenStrategyAddPreview()}},
 		{name: "strategies_list_empty", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[5].res}},
 		{name: "strategies_list_unavailable", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[0].res}},
 		{name: "strategies_list_stale", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[4].res}},

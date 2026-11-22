@@ -48,6 +48,8 @@ func projectReducePortfolioReview(res *rpc.TradeProposalReducePortfolioResult, p
 			if len(leg.Blockers) > 0 {
 				reason = leg.Blockers[0].Message
 			}
+		} else if b := soldAgainstBlocker(pos, row); b != nil {
+			code, reason = strategyWorkflowRequiredCode, "One leg of a multi-leg position, which trades as whole units. "+b.Action
 		} else if !reduceEligible(row) {
 			code, reason = "unsupported", "This position is outside the supported reduction scope."
 		} else if dd, ok := positionDollarDelta(row, positionWireSecType(row.SecType) == "OPT"); ok && dd*res.NetDollarDeltaBefore < 0 {

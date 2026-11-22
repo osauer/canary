@@ -57,6 +57,14 @@ func TestUncoveredStrategyAddMeetsThePremiumLimits(t *testing.T) {
 	if b := srv.mandateBudgetGate(diagonal(1), strategyAddImpact(18, 1)); b != nil && b.Code == rpc.MandatePremiumBlockerCode {
 		t.Fatalf("one unit inside the limit was refused by the premium limit: %+v", b)
 	}
+	// A bought put on a hedge symbol carries a value too: an uncovered put
+	// combination there is measured, not refused as unmeasurable.
+	hedge := srv.rulebookPolicy().HedgeSymbols[0]
+	puts := strategyAddTestDraft(hedge, "USD", 1, 2, 18, addLeg{addHedgeLongPut, "P", 500, "20270319", 1}, addLeg{addHedgeShortPut, "P", 450, "20270115", -1})
+	_, input, _, _ := srv.currentMandateVerdict()
+	if premium, why := strategyAddBoughtPremiumBase(puts.StrategyGroup, input); why != "" || !(premium > 0) {
+		t.Fatalf("uncovered put combination on a hedge symbol: premium %v, %q; want a measured premium", premium, why)
+	}
 }
 
 // A working strategy order carries the held ratio of each leg, negative for

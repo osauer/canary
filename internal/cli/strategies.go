@@ -221,7 +221,13 @@ func renderStrategyPreview(env *Env, preview rpc.OrderPreviewResult) {
 		}
 	}
 	statusRow(env, env.Stdout, "Broker preview", nonEmpty(preview.WhatIf.Status, "unavailable"))
-	statusRow(env, env.Stdout, "Ready to submit", fmt.Sprintf("%v", preview.SubmitEligible))
+	// The label fits the row's column; a longer one pushed its value onto a
+	// line of its own.
+	ready := "no"
+	if preview.SubmitEligible {
+		ready = "yes"
+	}
+	statusRow(env, env.Stdout, "Can submit", ready)
 	for _, leg := range group.Legs {
 		fmt.Fprintf(env.Stdout, "  %s %d  %s %s %.2f  %.0f → %.0f\n", leg.Action, leg.Quantity, leg.Contract.Expiry, leg.Contract.Right, leg.Contract.Strike, leg.Before, leg.After)
 	}

@@ -1,0 +1,22 @@
+# canary strategies list · COLUMNS=80 · colour off
+
+Option strategies  U1234567 · live
+  strat-aaa-1  AAA  2 unit(s)  bull call spread  revision 3
+    long 1 × 20261218 C 100.00 AAA  conID 900001
+    short 1 × 20261218 C 110.00 AAA  conID 900002
+  strat-bbb-1  BBB  2 unit(s)  covered call  revision 1
+    short 1 × 20261218 C 50.00 BBB  conID 900011
+    against 200 shares of BBB  conID 900010
+    the call trades on its own order; the shares it is written against stay
+
+# canary strategies list · COLUMNS=80 · colour on, ESC written as \x1b
+
+Option strategies  U1234567 · live
+  strat-aaa-1  AAA  2 unit(s)  bull call spread  revision 3
+    long 1 × 20261218 C 100.00 AAA  conID 900001
+    short 1 × 20261218 C 110.00 AAA  conID 900002
+  strat-bbb-1  BBB  2 unit(s)  covered call  revision 1
+    short 1 × 20261218 C 50.00 BBB  conID 900011
+    against 200 shares of BBB  conID 900010
+    the call trades on its own order; the shares it is written against stay
+

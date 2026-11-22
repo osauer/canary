@@ -208,14 +208,9 @@ func (s *Server) prepareReduce(ctx context.Context, p rpc.TradeProposalReducePar
 	if err != nil {
 		return preparedReduce{}, nil, err
 	}
-	row, blockers := findReducePosition(posResult, p.ConID, p.Symbol)
+	row, blockers := reduceTargetRow(posResult, p.ConID, p.Symbol)
 	if len(blockers) > 0 {
-		return preparedReduce{}, blockers, nil
-	}
-	// A long option held against a sold one is reduced with it, as whole
-	// units of the strategy, never alone (proposal_strategy_legs.go).
-	if b := soldAgainstBlocker(posResult, row); b != nil {
-		return preparedReduce{row: row}, []rpc.TradingBlocker{*b}, nil
+		return preparedReduce{row: row}, blockers, nil
 	}
 	free := row.Quantity
 	if reduceSingleEligible(row) {
@@ -234,6 +229,20 @@ func (s *Server) prepareReduce(ctx context.Context, p rpc.TradeProposalReducePar
 	prep, blockers := prepareReduceForRow(row, p, s.reduceOrderLimits(), free)
 	prep.committed = math.Abs(row.Quantity) - math.Abs(free)
 	return prep, blockers, nil
+}
+
+// reduceTargetRow resolves the holding a single reduction names and holds a
+// long option that is held against a sold one: it is reduced with it, as
+// whole units of the strategy, never alone (proposal_strategy_legs.go).
+func reduceTargetRow(pos *rpc.PositionsResult, conID int, symbol string) (rpc.PositionView, []rpc.TradingBlocker) {
+	row, blockers := findReducePosition(pos, conID, symbol)
+	if len(blockers) > 0 {
+		return rpc.PositionView{}, blockers
+	}
+	if b := soldAgainstBlocker(pos, row); b != nil {
+		return row, []rpc.TradingBlocker{*b}
+	}
+	return row, nil
 }
 
 // reduceOrderLimits is the loaded policy's [order_limits] table, nil when no
@@ -707,6 +716,10 @@ func reduceTokenPositionCheck(pos *rpc.PositionsResult, draft rpc.OrderDraft) (r
 	sell := strings.EqualFold(draft.Action, rpc.OrderActionSell)
 	if (sell && row.Quantity <= 0) || (!sell && row.Quantity >= 0) {
 		return row, []rpc.TradingBlocker{{Code: "position_changed", Message: fmt.Sprintf("%s is now %s, not on the reviewed side", strings.ToUpper(strings.TrimSpace(row.Symbol)), formatPositionQuantity(row.Quantity)), Action: "Preview the reduction again; nothing was sent."}}
+	}
+	// A short option opened against the line since the review makes it a leg.
+	if b := soldAgainstBlocker(pos, row); b != nil && sell {
+		return row, []rpc.TradingBlocker{*b}
 	}
 	held, _ := closeReduceQuantity(row.Quantity)
 	if draft.Quantity > held {

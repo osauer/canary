@@ -147,9 +147,11 @@ func reduceSweepCandidates(pos, exposure *rpc.PositionsResult, percent int) (can
 			continue
 		}
 		// A long option held against a sold one trades with it, as whole
-		// units of the strategy (proposal_strategy_legs.go).
-		if b := soldAgainstBlocker(pos, row); b != nil {
-			cands = append(cands, reduceSweepCandidate{row: row, blockers: []rpc.TradingBlocker{*b}})
+		// units of the strategy (proposal_strategy_legs.go). It is left out,
+		// not listed as a blocked leg: a held spread must never make the
+		// bulk reduction of the other lines read as refused. The review
+		// names it among the untouched positions.
+		if soldAgainstBlocker(pos, row) != nil {
 			continue
 		}
 		isOption := positionWireSecType(row.SecType) == "OPT"

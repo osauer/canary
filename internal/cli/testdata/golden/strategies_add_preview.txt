@@ -1,0 +1,24 @@
+# canary strategies add strat-aaa-1 3 --units 2 · COLUMNS=80 · colour off
+
+Add 2 strategy unit(s) to 3 held
+Limit          Pay up to 1.50 per strategy
+After          5 strategy unit(s) held
+Note           Mandate budget: synthetic warning.
+Broker preview accepted
+Can submit     yes
+  BUY 2  20261218 P 145.00  3 → 5
+  SELL 2  20261218 P 135.00  -3 → -5
+No order was sent. Add --submit to send this exact operation after a fresh preview.
+
+# canary strategies add strat-aaa-1 3 --units 2 · COLUMNS=80 · colour on, ESC written as \x1b
+
+Add 2 strategy unit(s) to 3 held
+\x1b[2mLimit         \x1b[0m Pay up to 1.50 per strategy
+\x1b[2mAfter         \x1b[0m 5 strategy unit(s) held
+\x1b[2mNote          \x1b[0m Mandate budget: synthetic warning.
+\x1b[2mBroker preview\x1b[0m accepted
+\x1b[2mCan submit    \x1b[0m yes
+  BUY 2  20261218 P 145.00  3 → 5
+  SELL 2  20261218 P 135.00  -3 → -5
+No order was sent. Add --submit to send this exact operation after a fresh preview.
+

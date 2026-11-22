@@ -23,11 +23,17 @@ func TestBulkReductionNeverSellsTheLongLegOfASpread(t *testing.T) {
 	pos.Strategies, pos.StrategyIssues = strategy.InferStrategies(pos.Stocks, pos.Options)
 	check := func(mode string, cands []reduceSweepCandidate) {
 		t.Helper()
-		leg, ok := reduceFindCandidate(cands, 2)
-		if !ok || leg.qty != 0 || !hasBlocker(leg.blockers, strategyWorkflowRequiredCode) {
-			t.Errorf("%s: spread's long call = %+v (found %v), want held with %s", mode, leg, ok, strategyWorkflowRequiredCode)
+		if leg, ok := reduceFindCandidate(cands, 2); ok {
+			t.Errorf("%s: spread's long call is a candidate: %+v", mode, leg)
 		}
-		if alone, ok := reduceFindCandidate(cands, 4); !ok || alone.qty < 1 || len(alone.blockers) > 0 {
+		// The held spread never turns the reduction of the other lines
+		// into a refusal: no candidate carries a blocker for it.
+		for _, c := range cands {
+			if len(c.blockers) > 0 {
+				t.Errorf("%s: candidate %d is blocked: %+v", mode, c.row.ConID, c.blockers)
+			}
+		}
+		if alone, ok := reduceFindCandidate(cands, 4); !ok || alone.qty < 1 {
 			t.Errorf("%s: a long call with nothing sold against it = %+v (found %v), want a sale", mode, alone, ok)
 		}
 	}
@@ -37,11 +43,16 @@ func TestBulkReductionNeverSellsTheLongLegOfASpread(t *testing.T) {
 		cands, _ := reduceScopedCandidates(pos, rpc.TradeProposalReducePortfolioParams{Mode: mode, Percent: 50}, reduceScopeFacts{})
 		check(mode, cands)
 	}
-	if b := soldAgainstBlocker(pos, opts[0]); b == nil || b.Code != strategyWorkflowRequiredCode {
-		t.Errorf("single reduction of the spread's long call = %+v, want %s", b, strategyWorkflowRequiredCode)
+	// The single reduction refuses the leg at preview and again at submit.
+	if _, blockers := reduceTargetRow(pos, 2, ""); !hasBlocker(blockers, strategyWorkflowRequiredCode) {
+		t.Errorf("single reduction of the spread's long call: blockers %+v, want %s", blockers, strategyWorkflowRequiredCode)
 	}
-	if b := soldAgainstBlocker(pos, opts[2]); b != nil {
-		t.Errorf("single reduction of a long call held alone was held: %+v", b)
+	if _, blockers := reduceTargetRow(pos, 4, ""); len(blockers) > 0 {
+		t.Errorf("single reduction of a long call held alone was held: %+v", blockers)
+	}
+	draft := rpc.OrderDraft{Action: rpc.OrderActionSell, Quantity: 5, Contract: rpc.ContractParams{ConID: 2, Symbol: "SYNTHB"}}
+	if _, blockers := reduceTokenPositionCheck(pos, draft); !hasBlocker(blockers, strategyWorkflowRequiredCode) {
+		t.Errorf("submit of a reviewed sale of the spread's long call: blockers %+v, want %s", blockers, strategyWorkflowRequiredCode)
 	}
 }
 

@@ -127,9 +127,9 @@ func reduceScopedCandidates(pos *rpc.PositionsResult, p rpc.TradeProposalReduceP
 		}
 		isOption := positionWireSecType(row.SecType) == "OPT"
 		// A long option held against a sold one trades with it, as whole
-		// units of the strategy (proposal_strategy_legs.go).
-		if b := soldAgainstBlocker(pos, row); b != nil {
-			cands = append(cands, reduceSweepCandidate{row: row, blockers: []rpc.TradingBlocker{*b}})
+		// units of the strategy; left out as in the net sweep
+		// (reduceSweepCandidates).
+		if soldAgainstBlocker(pos, row) != nil {
 			continue
 		}
 		var ddBase float64
