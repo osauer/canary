@@ -123,6 +123,9 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 	if len(capacity.Blockers) > 0 {
 		return out, nil
 	}
+	if refusal := adaptiveRefusal(ev.contract); p.AdaptivePriority != "" && refusal != "" {
+		return held("evidence", "add_adaptive_unsupported", refusal)
+	}
 	if p.Quantity > upper {
 		return held("capacity", "add_quantity_above_max", "The requested addition exceeds the current order allowance before broker costs.")
 	}

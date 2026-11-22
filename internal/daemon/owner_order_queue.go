@@ -360,11 +360,11 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 	return out, nil
 }
 
-// queuedOwnerAdaptivePriority is the algorithm a queued midpoint order carries.
-// Adaptive runs only on SMART, so an order on a listing's own exchange goes as a
+// queuedOwnerAdaptivePriority is the algorithm a queued midpoint order carries:
+// Normal where the contract can carry Adaptive (adaptiveSupported), otherwise a
 // plain limit at the same bounded price.
 func queuedOwnerAdaptivePriority(contract rpc.ContractParams) string {
-	if strings.EqualFold(strings.TrimSpace(contract.Exchange), "SMART") {
+	if adaptiveSupported(contract) {
 		return "Normal"
 	}
 	return ""

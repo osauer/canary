@@ -62,9 +62,13 @@ remain unchanged, and no MCP write surface is added.
 
 The corresponding immediate Desk order uses the explicit preview limit with
 `--adaptive-priority Normal` on `order preview` or `add preview`. The optional
-`adaptive_priority` RPC field is part of the signed draft, supports only stock
-or option limits and known priorities, and retains all normal owner execution
-gates. Omitting it preserves existing plain-limit CLI behavior.
+`adaptive_priority` RPC field is part of the signed draft, supports only a
+SMART-routed stock or ETF limit and known priorities, and retains all normal
+owner execution gates; an option, a combination or a listing on its own
+exchange goes as a plain limit, and asking for Adaptive on one is refused
+before the broker (2026-11-22 23:23 CET: options were admitted here and then
+refused by the broker layer). Omitting it preserves existing plain-limit CLI
+behavior.
 
 ## Version 1 terms
 
