@@ -726,7 +726,8 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 	var normalOff, hedgeOff, unmeasured []RuleOffender
 	worst, hedgeWorst := 0.0, 0.0
 	for _, n := range c.in.Names {
-		for _, l := range n.Legs {
+		figures := PremiumAtRiskLegs(n.Legs)
+		for i, l := range n.Legs {
 			if l.Quantity <= 0 {
 				continue
 			}
@@ -747,6 +748,10 @@ func (c *ruleContext) optionLinePremium() RuleRow {
 			atRisk, note := math.Abs(l.MarketValueBase), ""
 			if l.CostBasisBase != nil && *l.CostBasisBase > atRisk {
 				atRisk, note = *l.CostBasisBase, "counted at the price paid, above today's value"
+			}
+			// A spread counts at what the pair can lose, as in rule 3.
+			if figures[i].OK && figures[i].Covered > 0 {
+				atRisk, note = figures[i].AtRisk, figures[i].Note
 			}
 			p := pct(atRisk, c.nlv)
 			// Hedge-classified legs measure against their own premium tier:
@@ -838,17 +843,19 @@ func (c *ruleContext) premiumBudget() RuleRow {
 	longLegs := 0
 	var offenders, unmeasured []RuleOffender
 	for _, n := range c.in.Names {
-		for _, l := range n.Legs {
+		figures := PremiumAtRiskLegs(n.Legs)
+		for i, l := range n.Legs {
 			if l.Quantity <= 0 {
 				continue
 			}
 			longLegs++
 			// The same per-leg figure as rule 2 and the premium gate
-			// (PremiumAtRiskLeg): a losing leg counts at the price paid, a
-			// gaining leg at its value. A substituted base value is wrong by
-			// the exchange rate, and a leg with neither a cost nor a value
-			// is simply not known: zero would be a quiet pass.
-			atRisk, note, ok, why := PremiumAtRiskLeg(l)
+			// (PremiumAtRiskLegs): a losing leg counts at the price paid, a
+			// gaining leg at its value, a spread at what the pair can lose.
+			// A substituted base value is wrong by the exchange rate, and a
+			// leg with neither a cost nor a value is simply not known: zero
+			// would be a quiet pass.
+			atRisk, note, ok, why := figures[i].AtRisk, figures[i].Note, figures[i].OK, figures[i].Why
 			if !ok {
 				unmeasured = append(unmeasured, RuleOffender{Symbol: n.Symbol, Leg: l.Desc, Status: RuleStatusUnknown, Note: why})
 				continue
@@ -1568,12 +1575,13 @@ func (c *ruleContext) earningsPremiumFreeze() RuleRow {
 	terminalExempt, brokerExempt, secTypeExempt := 0, 0, 0
 	for _, n := range c.in.Names {
 		premium, legs, measured := 0.0, 0, true
-		for _, l := range n.Legs {
+		figures := PremiumAtRiskLegs(n.Legs)
+		for i, l := range n.Legs {
 			if l.Quantity <= 0 {
 				continue
 			}
 			legs++
-			atRisk, _, ok, _ := PremiumAtRiskLeg(l)
+			atRisk, ok := figures[i].AtRisk, figures[i].OK
 			if !ok {
 				// The premium is there; only its size is unknown. The name is
 				// assessed and the figure disclosed as a lower bound.
