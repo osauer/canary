@@ -20,12 +20,13 @@ const (
 
 // strategyLegBook is hedgeTrimBook with the index puts held as one bear put
 // spread: 15 long 400 puts against 15 short 350 puts of one expiry. Counted
-// as rule 12 counts them, the long puts are short 75,000 EUR of delta against
-// a 50,000 EUR long book, 150%: past the 140% line, and 8 contracts over the
-// 70% band top.
+// as rule 12 counts them, by the pair, each unit is short 3,000 EUR of delta
+// (5,000 from the long put less 2,000 the short put gives back): 45,000 EUR
+// against a 30,000 EUR long book, 150%: past the 140% line, and 8 units over
+// the 70% band top.
 func strategyLegBook(t *testing.T) (*rpc.AccountResult, *rpc.PositionsResult, rpc.PositionStrategy) {
 	t.Helper()
-	acct, pos := hedgeTrimBook(50000)
+	acct, pos := hedgeTrimBook(30000)
 	hedge := risk.DefaultRulebookPolicy().HedgeSymbols[0]
 	long := pos.Options[1]
 	long.ConID, long.Quantity = spreadLongPut, spreadUnits
