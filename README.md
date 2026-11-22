@@ -14,7 +14,7 @@ Canary runs beside your IB Gateway or TWS and nothing runs on a server of mine.
 It tells you what needs attention today. It runs twenty discipline checks
 against limits you set and names the ones your positions breach. It shows
 exposure by underlying. Canary Edge shows what the price did 1, 5 and 20
-sessions after your past stock and ETF trades, from your broker statements,
+sessions after your past stock, ETF and option trades, from your broker statements,
 where a decision repeated often enough to count. The same readings come as
 text, as JSON, in a paired phone app, and as MCP tools for Claude Desktop,
 Claude Code, Cursor or Zed.

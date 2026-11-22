@@ -166,8 +166,9 @@ a quote per fill in daemon.db; `canary reporting costs` reads them.
 
 This release hardens compatibility with TWS / IB Gateway 10.50. Existing TWS
 connections keep their tested protocol. The optional
-`canary status --gateway-diagnostics` probe reads supported API settings on a
-separate connection; unsupported settings remain unknown. No broker settings or
+`canary status --gateway-diagnostics` probe (replaced by `canary status
+--details` in 3.42) reads supported API settings on a separate connection;
+unsupported settings remain unknown. No broker settings or
 existing policies change on upgrade.
 
 Order reads can now report `deactivated`. It is a nonterminal state that stays
