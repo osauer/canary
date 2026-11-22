@@ -138,9 +138,8 @@ func TestExecDetailsProtoCallbackSummaryAndEndMarker(t *testing.T) {
 
 func TestOpenOrderProtoCallbackContractAndStateFields(t *testing.T) {
 	// Contract as the inbound decoder reads it: conId (1, int32), strike (5,
-	// double), multiplier (7, read as a double and formatted; the outbound
-	// encoder writes field 7 as a string, an asymmetry this test records,
-	// not settles), expiry in 4 and the lastTradeDate in 21.
+	// double), multiplier (7, a double, as the outbound encoder also writes
+	// it), expiry in 4 and the lastTradeDate in 21.
 	var contract []byte
 	contract = protoAppendInt32(contract, 1, 4242)
 	contract = protoAppendString(contract, 2, "SYNX")
