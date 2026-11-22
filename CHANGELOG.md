@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.43.0 — 2026-11-22 11:00 CET
+
+### What's new
+
+**On macOS the daemon is now started by launchd, so it no longer belongs to the app that started it.** The daemon is the background program that holds your broker connection and watches your orders. macOS ends the processes an app started when that app quits or updates itself. A daemon started from an app, or from a terminal inside one, went down with it and left no line in its log. With an order working and no command running, nothing would have started it again.
+
+`canary restart`, and the restart after `canary update`, now install a per-user launchd agent, and from then on `canary` starts the daemon through it. Three things change for you. The daemon starts when you log in, and exits again after the idle time if nothing uses it. If it crashes or is force-killed, launchd starts it again within seconds, and it serves again after its usual start of about half a minute. A stop you asked for stays a stop. macOS lists the agent among its background items in System Settings. The agent keeps the proxy settings and time zone of the shell that ran the restart.
+
+What is not shown yet: that the daemon stays up through an app update. On the test machine it now runs outside the app's process group, which is what macOS goes by, and the next update of that app is the proof.
+
+A program that was already running before the update, such as an AI assistant with Canary connected, keeps starting the daemon the old way until that program is restarted. Linux is unchanged.
+
+**With a mandate, the drawdown brake and the mandate measure the same fall.** The brake stops new risk once the fall from the account's peak has used a set share of your declared risk capital. Its peak rose on any single reading of the account value. The mandate's high needs a second reading at least five minutes later and takes the lower of the two. So the two measured the fall from different highs, and the brake could block before the mandate's maximum loss was reached. With a `[mandate]` table the brake now uses the mandate's confirmed high.
+
+What this means for you: the brake counts only the fall since the mandate's high, so a fall from a peak before the mandate began no longer counts, and the peak Canary shows becomes the mandate's high. The change can only move a block later, never earlier. The warn and block percentages, your declared risk capital, how a block clears and the mandate's own limits are unchanged, and without a mandate nothing changes.
+
+### Added
+
+- macOS: a per-user launchd agent for the daemon, `~/Library/LaunchAgents/com.osauer.canary-daemon.plist`, installed by `canary restart` and by the restart after `canary update`.
+- `canary daemon --remove-agent`: removes the agent once the daemon is stopped. The daemon then starts the old way until the next restart or update.
+
+### Changed
+
+- macOS: the daemon starts at login once the agent is installed, and launchd restarts it after a crash or a forced kill. There is one agent per user, for the configuration that installed it; a daemon in another configuration, one with its own `CANARY_SOCKET`, and one started over SSH without a desktop session are started directly as before.
+- With a `[mandate]` table the drawdown brake's peak is the mandate's confirmed high. A peak you lowered yourself with `reset-drawdown` or `correct-peak` still applies while it is the lower one. The first reading that uses the mandate's high writes a `brake_peak_source_changed` line to the risk-policy journal.
+
+### Fixed
+
+- macOS: a daemon started from an app, or from a terminal inside one, stopped without a line in its log when that app quit or updated itself. It is now started by launchd, outside the app.
+
 ## v3.42.1 — 2026-11-22 08:15 CET
 
 ### What's new

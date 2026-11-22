@@ -1,6 +1,35 @@
 # Canary full context
 
-Updated: 2026-11-22 06:45 CET
+Updated: 2026-11-22 11:00 CET
+
+Version 3.43 starts the daemon through launchd on macOS, so it no longer
+belongs to the app that started it. macOS ends the processes an app started when that app quits or updates
+itself and may not leave background processes behind; a daemon started from
+an app, or from a terminal inside one, went down with it and left no line in
+its log. `canary restart`, and so the restart after `canary update`, installs
+a per-user launchd agent, `~/Library/LaunchAgents/com.osauer.canary-daemon.plist`,
+and from then on `canary` starts the daemon through it. The daemon starts at
+login and exits after the idle time if nothing uses it; launchd starts it
+again after a crash or a forced kill; a stop the user asked for stays a stop.
+macOS lists the agent among its background items. A program that was already running before the update keeps
+starting the daemon directly until that program is restarted. There is one
+agent per user, for the configuration that installed it: a daemon with its
+own `CANARY_SOCKET`, other `XDG_*` directories or another config file, or one
+started over SSH without a desktop session, is started directly, as on Linux,
+where nothing changes. `canary daemon --remove-agent` removes the agent once
+the daemon is stopped. With a `[mandate]` table the drawdown brake reads the
+mandate's high-water mark as its peak: a new high counts once a second
+reading at least five minutes later confirms it, at the lower of the two.
+Before, the brake's own peak rose on a single reading, so the brake could
+block before the mandate's maximum loss was reached. The brake then counts only the fall since the mandate's high, and the
+change can only move a block later. A peak the user lowered with
+`reset-drawdown` or `correct-peak` still applies while it is the lower one;
+the warn and block percentages and how a block clears are unchanged, and
+without a mandate nothing changes. Version 3.42.1: a Regime indicator
+that had confirmed keeps its confirmation while its own reading is not due
+(USD/JPY in its pause, gamma from the options close to the next open); a row
+older than its group's age bound is not a current rating; a Cboe volatility
+file overdue for more than four days counts as a concern.
 
 Version 3.42 makes `canary status` and `canary edge` answer first.
 `canary status` prints whether you can trade under its headline, then three

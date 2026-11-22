@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-22 06:45 CET. Current release: v3.42.0.
+Updated: 2026-11-22 11:00 CET. Current release: v3.43.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -14,6 +14,19 @@ exist in Traditional Chinese (https://osauer.dev/canary/zh-hant/ and
 https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
 (https://osauer.dev/canary/zh-hans/ and https://osauer.dev/canary/docs/zh-hans/);
 English is the master.
+
+Version 3.43 starts the daemon through launchd on macOS, so it no longer
+belongs to the app that started it. macOS ends the processes an app started when the app quits or updates
+itself, and a daemon started from an app or a terminal inside one went down
+with it. `canary restart` and the restart after `canary update` now install a
+per-user launchd agent, and `canary` starts the daemon through it: it starts
+at login, exits when idle, and launchd starts it again after a crash or a
+forced kill. `canary daemon --remove-agent` removes the agent. With a
+`[mandate]` table the drawdown brake measures the fall from the mandate's
+confirmed high, so the brake and the mandate's maximum loss measure the same
+fall; this can only move a block later, and without a mandate nothing
+changes. Version 3.42.1 lets a Regime indicator that had confirmed keep its
+confirmation while no newer reading can exist.
 
 Version 3.42 makes `canary status` and `canary edge` answer first. Status says
 whether you can trade under its headline and groups the rest as Broker,
