@@ -243,6 +243,9 @@ func (e *proposalEngine) Run(ctx context.Context) {
 		// The protective stop guard keeps Canary's own working sell stops no
 		// larger than the long position they protect.
 		e.server.runProtectiveStopGuard(ctx)
+		// An entry whose attached stop the broker refused before the entry
+		// was acknowledged is withdrawn (stock_entry_stop_lifecycle.go).
+		e.server.withdrawUnprotectedEntries(ctx)
 		wait := proposalRefreshWait(e.cadence, failures)
 		if next, ok := e.queuedWake(e.clock()); ok {
 			wait = min(wait, next)

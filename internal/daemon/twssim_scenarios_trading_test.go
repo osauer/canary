@@ -117,8 +117,11 @@ func TestSimulatedTWSProtectedAdd(t *testing.T) {
 // E2. The broker rejects the Adaptive protected pair in three assumed
 // shapes. order.place answers accepted in each (the answer is the send, not
 // the broker's verdict); the record and the broker's book are asserted.
-// child-only leaves the parent held untransmitted at the broker while the
-// daemon records it pending_submit: a finding for the report.
+// child-only: the broker refuses the stop and holds the entry
+// untransmitted; the daemon cancels the entry at the broker once, and both
+// records say so with the broker's reason. The broker's Cancelled for an
+// order it never acknowledged carries no reference, so the entry record
+// waits pending_cancel for the reconcile sweep (E5b ends it).
 func TestSimulatedTWSBrokerRejectsTheProtectedPair(t *testing.T) {
 	for _, tc := range []struct {
 		name                      string
@@ -127,7 +130,7 @@ func TestSimulatedTWSBrokerRejectsTheProtectedPair(t *testing.T) {
 		parentState               string
 	}{
 		{"parent-201", twssim.Fault{Kind: twssim.FaultReject, Code: 201, Message: "Order rejected - reason:a bracket with an IB algo is not supported"}, "Inactive", "Cancelled", "rejected"},
-		{"child-only-201", twssim.Fault{Kind: twssim.FaultRejectChild, Code: 201, Message: "Order rejected - reason:child order not supported"}, "Untransmitted", "Inactive", "pending_submit"},
+		{"child-only-201", twssim.Fault{Kind: twssim.FaultRejectChild, Code: 201, Message: "Order rejected - reason:child order not supported"}, "Cancelled", "Inactive", "pending_cancel"},
 		{"parent-442", twssim.Fault{Kind: twssim.FaultReject, Code: 442, Message: "Specified algorithm is not allowed for this order"}, "Inactive", "Cancelled", "inactive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -140,7 +143,11 @@ func TestSimulatedTWSBrokerRejectsTheProtectedPair(t *testing.T) {
 			if len(sent) != 2 || sent[0].AlgoStrategy != "Adaptive" || sent[0].AlgoParams["adaptivePriority"] != "Normal" {
 				t.Fatalf("frames %+v", sent)
 			}
-			parent := d.waitStatus(placed.OrderRef, func(v rpc.OrderView) bool { return v.LifecycleStatus == tc.parentState })
+			var parent rpc.OrderView
+			d.waitFor("the entry record "+tc.parentState, 90*time.Second, func() bool {
+				parent = d.status(placed.OrderRef).Order
+				return parent.LifecycleStatus == tc.parentState
+			})
 			stop := d.waitStatus(placed.AttachedStopOrderRef, func(v rpc.OrderView) bool { return !v.Open })
 			if b := brokerOrder(t, d.sim, sent[0].OrderID); b.Status != tc.brokerParent {
 				t.Fatalf("broker parent %+v", b)
@@ -148,9 +155,29 @@ func TestSimulatedTWSBrokerRejectsTheProtectedPair(t *testing.T) {
 			if b := brokerOrder(t, d.sim, sent[1].OrderID); b.Status != tc.brokerChild {
 				t.Fatalf("broker child %+v", b)
 			}
+			if tc.fault.Kind == twssim.FaultRejectChild {
+				want := "The broker refused the attached stop (broker error 201: " + tc.fault.Message + "); the entry's withdrawal was sent to the broker."
+				if stop.Open || parent.LastMessage != want || stop.LastMessage != want || d.cancels() != 1 {
+					t.Fatalf("withdrawn pair:\nparent %s\nstop %s", orderLine(parent), orderLine(stop))
+				}
+				if n := len(d.realPlaces()); n != 2 {
+					t.Fatalf("withdrawal sent %d placeOrder frames, want the pair's two", n)
+				}
+			}
 			t.Logf("daemon: parent %s; stop %s", orderLine(parent), orderLine(stop))
 		})
 	}
+}
+
+// cancels counts the cancelOrder frames the daemon sent.
+func (d *simDesk) cancels() int {
+	n := 0
+	for _, f := range d.sim.Recorder().Frames() {
+		if f.Name == "cancelOrder" {
+			n++
+		}
+	}
+	return n
 }
 
 // E3. --max is held in the simulated book: it carries no index protection

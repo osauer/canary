@@ -826,6 +826,7 @@ func buildOrderViews(events []orderJournalEvent) []rpc.OrderView {
 		views = append(views, view)
 	}
 	deriveStockEntryStates(views, events)
+	deriveRefusedStopPairs(views, events)
 	sortOrderViews(views)
 	return views
 }

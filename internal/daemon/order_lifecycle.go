@@ -165,6 +165,13 @@ func (s *Server) appendOrderLifecycleEvent(ev ibkrlib.OrderLifecycleEvent) bool 
 		s.warnf("append order lifecycle event: %v", persistErr)
 		return false
 	}
+	if (journalEvent.Type == orderJournalEventBrokerError || strings.EqualFold(journalEvent.Status, "Rejected") || strings.EqualFold(journalEvent.Status, "Inactive")) && s.serverCtx != nil {
+		// A refused attached stop may leave its entry untransmitted at the
+		// broker. A broker error often carries no order reference, so any
+		// refusal triggers the check. The withdrawal runs outside this
+		// callback's barrier, under brokerWriteMu, and rechecks the journal.
+		go s.withdrawUnprotectedEntries(s.serverCtx)
+	}
 	s.offerSetupMarkoutFill(journalEvent)
 	s.offerFillQuoteCapture(journalEvent)
 	if journalEvent.Source == proposalOrderSource && s.proposalOutcomes != nil && journalEvent.Filled > 0 {

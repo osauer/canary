@@ -1,8 +1,11 @@
 package daemon
 
 import (
-	"github.com/osauer/canary/v3/internal/rpc"
+	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/osauer/canary/v3/internal/rpc"
 )
 
 // Derive from the full durable event sequence, including terminal parents.
@@ -79,6 +82,98 @@ func deriveStockEntryStates(views []rpc.OrderView, events []orderJournalEvent) {
 			}
 		} else if parent.Open && (parent.LifecycleStatus == rpc.OrderLifecycleSubmitted || parent.LifecycleStatus == rpc.OrderLifecyclePreSubmitted || parent.LifecycleStatus == rpc.OrderLifecyclePartiallyFilled) && child.Open && strings.EqualFold(child.Status, "PreSubmitted") {
 			child.EntryState = "held"
+		}
+	}
+}
+
+// stockEntryRefusedStop is the attached stop of parent that the broker
+// refused before any share of it filled, if there is exactly one.
+func stockEntryRefusedStop(views []rpc.OrderView, parent rpc.OrderView) (rpc.OrderView, bool) {
+	if parent.AttachedStop == nil {
+		return rpc.OrderView{}, false
+	}
+	var found []rpc.OrderView
+	for _, child := range views {
+		link := child.EntryLink
+		if link == nil || link.ParentRef != parent.OrderRef || link.ParentID != parent.ReservedOrderID || child.Account != parent.Account ||
+			child.ClientID != parent.ClientID || child.Endpoint != parent.Endpoint || child.Mode != parent.Mode {
+			continue
+		}
+		found = append(found, child)
+	}
+	if len(found) != 1 {
+		return rpc.OrderView{}, false
+	}
+	child := found[0]
+	refused := !child.Open && child.Filled == 0 && (child.LifecycleStatus == rpc.OrderLifecycleRejected || child.LifecycleStatus == rpc.OrderLifecycleInactive)
+	return child, refused
+}
+
+// stockEntryAwaitingWithdrawal reports an entry whose attached stop the
+// broker refused while the broker has never acknowledged the entry itself:
+// sent with transmit=false, it can sit untransmitted at the broker, where a
+// human could transmit it by hand without its stop. The daemon withdraws
+// it, once: an entry the journal already holds a cancel for (cancelSent),
+// whatever the broker answered, is never cancelled again. An entry the
+// broker acknowledged (working or filled) is not touched.
+func stockEntryAwaitingWithdrawal(views []rpc.OrderView, parent rpc.OrderView, cancelSent bool) bool {
+	if cancelSent || !parent.Open || parent.PermID != 0 || parent.SendState == orderSendStateBrokerAcknowledged || parent.Filled > 0 ||
+		parent.ReservedOrderID <= 0 || parent.LifecycleStatus == rpc.OrderLifecyclePendingCancel {
+		return false
+	}
+	_, refused := stockEntryRefusedStop(views, parent)
+	return refused
+}
+
+// orderCancelRequested reports whether the journal holds a cancel request
+// for the order.
+func orderCancelRequested(events []orderJournalEvent, view rpc.OrderView) bool {
+	key := orderViewKey(view)
+	return slices.ContainsFunc(events, func(e orderJournalEvent) bool {
+		return e.Type == orderJournalEventCancelRequested && orderJournalKey(e) == key
+	})
+}
+
+// deriveRefusedStopPairs says on both records of a pair whose stop the
+// broker refused what that means for the entry, with the broker's reason:
+// withdrawn (only when the journal holds Canary's cancel for it), its
+// withdrawal sent, about to be withdrawn, working without the stop, or
+// filled without it. An entry with its own broker verdict (rejected,
+// inactive) keeps it. A later broker event's text never hides the sentence,
+// since it is derived from the pair each time.
+func deriveRefusedStopPairs(views []rpc.OrderView, events []orderJournalEvent) {
+	for i := range views {
+		parent := &views[i]
+		child, refused := stockEntryRefusedStop(views, *parent)
+		if !refused || parent.LifecycleStatus == rpc.OrderLifecycleRejected || parent.LifecycleStatus == rpc.OrderLifecycleInactive {
+			continue
+		}
+		reason := strings.TrimSpace(child.LastMessage)
+		if reason == "" {
+			reason = "no reason given"
+		}
+		cancelSent := orderCancelRequested(events, *parent)
+		var msg string
+		switch {
+		case parent.Filled > 0:
+			msg = fmt.Sprintf("The broker refused the attached stop (%s); the entry filled %g shares that this stop does not protect.", reason, parent.Filled)
+		case !parent.Open && cancelSent:
+			msg = fmt.Sprintf("The broker refused the attached stop (%s); the entry was withdrawn.", reason)
+		case !parent.Open:
+			continue
+		case cancelSent:
+			msg = fmt.Sprintf("The broker refused the attached stop (%s); the entry's withdrawal was sent to the broker.", reason)
+		case stockEntryAwaitingWithdrawal(views, *parent, false):
+			parent.CancelEligible = true
+			msg = fmt.Sprintf("The broker refused the attached stop (%s); the entry is being withdrawn.", reason)
+		default:
+			msg = fmt.Sprintf("The broker refused the attached stop (%s); the entry is working without it.", reason)
+		}
+		parent.LastMessage = msg
+		for j := range views {
+			if orderViewKey(views[j]) == orderViewKey(child) {
+				views[j].LastMessage = msg
+			}
 		}
 	}
 }

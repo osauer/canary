@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/osauer/canary/v3/internal/config"
 	"github.com/osauer/canary/v3/internal/daemon/corestore"
@@ -124,4 +125,57 @@ func (s *Server) submitBoundStockEntryStop(ctx context.Context, binding brokerWr
 		return unsent(err)
 	}
 	return err
+}
+
+// withdrawUnprotectedEntries cancels, through the ordinary gated cancel path,
+// each entry whose attached stop the broker refused while the entry itself
+// was never acknowledged (stockEntryAwaitingWithdrawal). A cancel is allowed
+// while trading is frozen; it is sent at most once per entry, since the
+// cancel request leaves the record pending_cancel.
+func (s *Server) withdrawUnprotectedEntries(ctx context.Context) {
+	if s == nil || ctx == nil || ctx.Err() != nil || s.orderJournal == nil || !s.orderBrokerWritesEnabled() {
+		return
+	}
+	views, events, err := s.loadOrderViews()
+	if err != nil {
+		return
+	}
+	for _, parent := range views {
+		if stockEntryAwaitingWithdrawal(views, parent, orderEventsCancelRequested(events, parent)) {
+			if err := s.withdrawUnprotectedEntry(ctx, parent); err != nil {
+				s.warnf("protected add: withdraw entry %s after its stop was refused: %v", parent.OrderRef, err)
+			} else {
+				s.infof("protected add: entry %s withdrawn after the broker refused its stop", parent.OrderRef)
+			}
+		}
+	}
+}
+
+func (s *Server) withdrawUnprotectedEntry(ctx context.Context, parent rpc.OrderView) error {
+	s.brokerWriteMu.Lock()
+	defer s.brokerWriteMu.Unlock()
+	views, events, err := s.loadOrderViews()
+	if err != nil {
+		return err
+	}
+	still := false
+	for _, v := range views {
+		if orderViewKey(v) == orderViewKey(parent) {
+			parent, still = v, stockEntryAwaitingWithdrawal(views, v, orderEventsCancelRequested(events, v))
+			break
+		}
+	}
+	if !still {
+		return errors.New("the entry no longer waits for withdrawal")
+	}
+	s.protectiveStopGuardGrant.Store(&protectiveStopGuardWriteGrant{Kind: protectiveStopGuardCancel, OrderRef: parent.OrderRef, ReservedOrderID: parent.ReservedOrderID})
+	defer s.protectiveStopGuardGrant.Store(nil)
+	_, err = s.cancelOrderForAction(ctx, rpc.OrderCancelParams{ID: parent.OrderRef, Origin: rpc.OrderOriginDaemonProtectiveGuard}, corestore.ActionCancel)
+	return err
+}
+
+// orderEventsCancelRequested reports whether the read model's events for the
+// order hold a cancel request.
+func orderEventsCancelRequested(events map[string][]rpc.OrderEvent, view rpc.OrderView) bool {
+	return slices.ContainsFunc(events[orderViewKey(view)], func(e rpc.OrderEvent) bool { return e.Type == orderJournalEventCancelRequested })
 }
