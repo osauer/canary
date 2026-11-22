@@ -287,6 +287,17 @@ func TestReportingHealthBeforeTheDailyWindowIsOnSchedule(t *testing.T) {
 	if row := waiting(time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)); row == nil || row.State != "limited" || len(row.ProblemIDs) != 1 {
 		t.Fatalf("a missing older statement was hidden behind the daily window: %+v", row)
 	}
+	// The broker check reports the same wait from local midnight, hours
+	// before New York's. Then the newest due statement is the one yesterday
+	// morning's check already had its turn at: Tuesday's, still missing on
+	// Wednesday night, is a gap and not a statement on schedule.
+	now = time.Date(2026, 11, 19, 1, 0, 0, 0, time.UTC)
+	if row := waiting(time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)); row == nil || row.State != "limited" || len(row.ProblemIDs) != 1 {
+		t.Fatalf("a statement that failed all day read as on schedule overnight: %+v", row)
+	}
+	if row := waiting(time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)); row == nil || row.State != "not_due" {
+		t.Fatalf("a complete book before the daily window counted as a concern: %+v", row)
+	}
 }
 
 // A real projection read may queue behind accepted-history work on the single
@@ -309,5 +320,25 @@ func TestReportingHealthAllowsCompletedReadBeyondOneSecond(t *testing.T) {
 	}, time.Now())
 	if row == nil || row.State != "unavailable" || row.Detail != rpc.ReconReportReasonAuthorityUnavailable || len(row.ProblemIDs) != 1 {
 		t.Fatalf("failed read was hidden: %+v", row)
+	}
+}
+
+// Saturday's Flex maintenance explains the statement it delays, Friday's. A
+// statement that was already missing before the weekend is still a gap.
+func TestReportingHealthMaintenanceDoesNotExcuseAnOlderGap(t *testing.T) {
+	now := time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC) // Saturday
+	maintenance := func(coverage time.Time) *rpc.DataSourceHealth {
+		return reportingDataHealth(func(context.Context) (*rpc.ReportingStatusResult, error) {
+			return &rpc.ReportingStatusResult{
+				State: rpc.ReportingStateBackfilling, Reason: rpc.ReportingReasonBrokerMaintenance,
+				Evidence: rpc.ReportingEvidenceStatus{CoverageTo: coverage},
+			}, nil
+		}, now)
+	}
+	if row := maintenance(time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC)); row == nil || row.Cause != rpc.DataHealthCauseUpstreamMaintenance {
+		t.Fatalf("Friday's statement delayed by maintenance is not an expected delay: %+v", row)
+	}
+	if row := maintenance(time.Date(2026, 11, 10, 0, 0, 0, 0, time.UTC)); row == nil || row.State != "limited" || row.Cause == rpc.DataHealthCauseUpstreamMaintenance || len(row.ProblemIDs) != 1 {
+		t.Fatalf("a gap older than the maintenance read as an expected delay: %+v", row)
 	}
 }

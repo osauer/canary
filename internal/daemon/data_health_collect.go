@@ -213,7 +213,12 @@ func reportingDataHealth(read func(context.Context) (*rpc.ReportingStatusResult,
 		row.State, row.Receiving = "not_due", "As scheduled"
 	}
 	if row.State == "limited" && report.Reason == rpc.ReportingReasonBrokerMaintenance {
-		row.Receiving, row.Cause = "IBKR scheduled maintenance", rpc.DataHealthCauseUpstreamMaintenance
+		row.Receiving = "IBKR scheduled maintenance"
+		// Maintenance explains the statement it delays, not a gap that was
+		// already there: an older missing statement stays a concern.
+		if statementMaintenanceCoversGap(report.Evidence.CoverageTo, now) {
+			row.Cause = rpc.DataHealthCauseUpstreamMaintenance
+		}
 	}
 	if row.State != "current" && row.State != "not_due" {
 		row.ProblemIDs = []string{row.ID}
@@ -221,18 +226,49 @@ func reportingDataHealth(read func(context.Context) (*rpc.ReportingStatusResult,
 	return &row
 }
 
-// statementWaitIsScheduled reports the daily seam between New York midnight,
-// when the next statement becomes due, and Canary's own first Flex check: the
-// broker check waits for its window and every earlier statement is in, so
-// the row is on schedule. A gap older than the newly due statement is not.
+// statementWaitIsScheduled reports the wait before Canary's own first Flex
+// check of the day when nothing is overdue. After New York midnight a new
+// statement is due that no check has had a turn at, so coverage through the
+// session before it is on schedule. The broker check reports the same wait
+// from local midnight, hours earlier; then the newest due statement is the
+// one yesterday morning's check already tried for, and it must be in. An
+// older gap is never on schedule.
 func statementWaitIsScheduled(report *rpc.ReportingStatusResult, now time.Time) bool {
 	if report.Broker.State != rpc.ReconReportStateWaiting || report.Broker.Reason != rpc.ReconReportReasonBeforeDailyWindow ||
-		report.Reason != rpc.ReconReportReasonBeforeDailyWindow || report.Evidence.CoverageTo.IsZero() {
+		report.Reason != rpc.ReconReportReasonBeforeDailyWindow {
 		return false
 	}
-	target, _ := flexDailyWindow(now)
+	return statementCoverageOnSchedule(report.Evidence.CoverageTo, now)
+}
+
+// statementMaintenanceCoversGap reports whether the only statement missing
+// is the one the maintenance window delays: coverage reaches the session
+// before the newest due statement.
+func statementMaintenanceCoversGap(coverage, now time.Time) bool {
+	if coverage.IsZero() {
+		return false
+	}
+	target := latestCompletedFlexDate(now)
 	previous := latestCompletedFlexDate(time.Date(target.Year(), target.Month(), target.Day(), 12, 0, 0, 0, flexReportingLocation()))
-	return !report.Evidence.CoverageTo.Before(previous)
+	return !coverage.Before(previous)
+}
+
+// statementCoverageOnSchedule reports whether coverage reaches every
+// statement a daily check has already had its turn at.
+func statementCoverageOnSchedule(coverage, now time.Time) bool {
+	if coverage.IsZero() {
+		return false
+	}
+	target, first := flexDailyWindow(now)
+	if first.After(now) {
+		first = first.AddDate(0, 0, -1)
+	}
+	if latestCompletedFlexDate(first).Equal(target) {
+		// The last check ran after target was due and should have it.
+		return !coverage.Before(target)
+	}
+	previous := latestCompletedFlexDate(time.Date(target.Year(), target.Month(), target.Day(), 12, 0, 0, 0, flexReportingLocation()))
+	return !coverage.Before(previous)
 }
 
 func (s *Server) regimeDataHealth(now time.Time) []rpc.DataSourceHealth {
