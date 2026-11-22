@@ -105,6 +105,9 @@ func (c *Calendar) Query(q Query) (Result, error) {
 		days = maxDays
 	}
 	session := c.sessionAt(spec, loc, at)
+	if simulated, ok := simulatedSession(spec, at); ok {
+		session = simulated
+	}
 	sessions := make([]Session, 0, days)
 	startDate := localDate(at.In(loc))
 	for i := range days {

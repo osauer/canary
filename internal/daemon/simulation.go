@@ -21,7 +21,8 @@ import (
 // simulator in pkg/ibkr/twssim: cmd/canary-sim and the hermetic end-to-end
 // tests set it, the installed canary binary never does. It changes only the
 // inputs that have no TWS source, and refuses to start unless the config
-// points at a loopback simulator in paper mode:
+// points at a loopback simulator with the placeholder account U1234567 in
+// live mode (checkSimulatorConfig):
 //
 //   - the regime's public series (FRED, the Federal Reserve, Treasury and
 //     Cboe's VVIX and VIX3M closes) read steady synthetic levels instead of
@@ -40,10 +41,18 @@ import (
 //     (risk.EvaluateUnreconciledClock).
 const simulatorOrigin = "simulator"
 
+// SimulatorAccount is the only account a simulated daemon accepts: the
+// placeholder live account the TWS simulator's book answers for, listed as
+// synthetic for the account-data gate. A simulated daemon runs in live mode
+// because Monday's orders run the live path, and paper mode cannot add at all
+// (the capital store observes no paper equity, risk_capital_state.go:808).
+const SimulatorAccount = "U1234567"
+
 // checkSimulatorConfig refuses a simulated daemon whose broker endpoint could
 // be a real TWS or Gateway: the port must be pinned, on loopback and off
-// IBKR's API ports (so discovery never probes them), the account a paper
-// (DU) account and the trading mode paper.
+// IBKR's API ports (so discovery never probes them), the account must be
+// [SimulatorAccount] and the trading mode live. The pinned account is the
+// second wall: the daemon refuses a session whose broker names any other.
 func checkSimulatorConfig(cfg *config.Resolved) error {
 	if cfg == nil {
 		return errors.New("simulator: no config")
@@ -61,11 +70,11 @@ func checkSimulatorConfig(cfg *config.Resolved) error {
 	if ip := net.ParseIP(g.HostOrDefault()); ip == nil || !ip.IsLoopback() {
 		problems = append(problems, fmt.Sprintf("gateway host %q is not a loopback address", g.Host))
 	}
-	if !strings.HasPrefix(strings.ToUpper(g.Account), "DU") {
-		problems = append(problems, fmt.Sprintf("account %q is not a paper (DU) account", g.Account))
+	if g.Account != SimulatorAccount {
+		problems = append(problems, fmt.Sprintf("account %q is not the simulator's placeholder %s", g.Account, SimulatorAccount))
 	}
-	if cfg.Trading.Mode != "paper" {
-		problems = append(problems, fmt.Sprintf("trading mode %q is not paper", cfg.Trading.Mode))
+	if cfg.Trading.Mode != "live" {
+		problems = append(problems, fmt.Sprintf("trading mode %q is not live", cfg.Trading.Mode))
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("simulator refused: %s", strings.Join(problems, "; "))

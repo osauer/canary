@@ -38,6 +38,13 @@ type Options struct {
 	// attached-order feature is off does (read from the 10.50 bytecode; the
 	// condition that turns the feature off is not known, so it is an option).
 	RejectAttachedOrders bool
+	// ChildOnPartialExpiry says what EndDay does with the children of a DAY
+	// parent that filled in part: ChildCancelled (the default) or
+	// ChildResized.
+	ChildOnPartialExpiry string
+	// ClosedMarkets lists the markets whose session starts closed (see
+	// SetSession); every other market starts open.
+	ClosedMarkets []string
 }
 
 // Server is a simulated TWS listening on a loopback TCP port.
@@ -48,11 +55,14 @@ type Server struct {
 	rec            *Recorder
 	every          time.Duration
 	rejectAttached bool
+	childOnExpiry  string
 	done           chan struct{}
 	closeOne       sync.Once
 
 	mu       sync.Mutex
 	sessions []*session
+	faults   []Fault
+	closed   map[string]bool
 	nextID   int // order ids handed out by nextValidId
 	accepted int
 }
@@ -71,7 +81,7 @@ func Listen(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{ln: ln, book: opts.Book, now: opts.Now, rec: opts.Recorder, every: opts.AccountTimeEvery, rejectAttached: opts.RejectAttachedOrders, done: make(chan struct{}), nextID: 1}
+	s := &Server{ln: ln, book: opts.Book, now: opts.Now, rec: opts.Recorder, every: opts.AccountTimeEvery, rejectAttached: opts.RejectAttachedOrders, childOnExpiry: opts.ChildOnPartialExpiry, closed: map[string]bool{}, done: make(chan struct{}), nextID: 1}
 	if s.book == nil {
 		s.book = Default()
 	}
@@ -80,6 +90,9 @@ func Listen(opts Options) (*Server, error) {
 	}
 	if s.rec == nil {
 		s.rec = &Recorder{}
+	}
+	for _, m := range opts.ClosedMarkets {
+		s.closed[m] = true
 	}
 	if s.every <= 0 {
 		s.every = time.Minute
@@ -685,51 +698,6 @@ func commissionFrame(ex Execution) []byte {
 	return textMessage(msgCommissionReport, "1", ex.ExecID, num(ex.Fee), ex.FeeCcy, "1.7976931348623157E308", "1.7976931348623157E308", "")
 }
 
-func (ss *session) place(o PlaceOrder) {
-	s, b := ss.srv, ss.srv.book
-	in, ok := b.instrument(o.ConID)
-	if !ok {
-		ss.fail(o.OrderID, 200, noSecurityDefinition)
-		return
-	}
-	if o.AttachedOrders && s.rejectAttached {
-		ss.fail(o.OrderID, 10354, "twssim: attached orders are not accepted by this TWS")
-		return
-	}
-	if o.Account != "" && o.Account != b.Account() {
-		ss.fail(o.OrderID, 321, "Error validating request.-'bN' : cause - The account code is invalid")
-		return
-	}
-	s.mu.Lock()
-	s.nextID = max(s.nextID, o.OrderID+1)
-	s.mu.Unlock()
-	if o.WhatIf {
-		b.mu.Lock()
-		w := b.whatIfLocked(o, in)
-		b.mu.Unlock()
-		order := Order{PlaceOrder: o, Status: "PreSubmitted"}
-		order.ClientID = ss.clientID
-		ss.send(openOrderFrame(order, in, b.Account(), &w))
-		return
-	}
-	order, ex := b.accept(o, ss.clientID, s.now())
-	if order.Status == "Inactive" {
-		ss.fail(o.OrderID, 201, "Order rejected - reason:twssim cannot route this order")
-		ss.send(orderStatusFrame(*order, 0))
-		return
-	}
-	if ex == nil {
-		ss.send(openOrderFrame(*order, in, b.Account(), nil), orderStatusFrame(*order, 0))
-		return
-	}
-	// A marketable order is acknowledged as working, then fills.
-	working := *order
-	working.Status, working.Filled, working.AvgPrice = "Submitted", 0, 0
-	ss.send(openOrderFrame(working, in, b.Account(), nil), orderStatusFrame(working, 0))
-	ss.send(execFrame(-1, *ex), openOrderFrame(*order, in, b.Account(), nil), orderStatusFrame(*order, ex.Price), commissionFrame(*ex))
-	s.pushAccount()
-}
-
 // pushAccount streams the account and portfolio to every subscribed session
 // after the book changed.
 func (s *Server) pushAccount() {
@@ -737,16 +705,6 @@ func (s *Server) pushAccount() {
 	for _, ss := range s.subscribed() {
 		ss.send(frames...)
 	}
-}
-
-func (ss *session) cancel(orderID int) {
-	o, ok := ss.srv.book.cancel(orderID)
-	if !ok {
-		ss.fail(orderID, 10147, fmt.Sprintf("OrderId %d that needs to be cancelled is not found.", orderID))
-		return
-	}
-	ss.send(orderStatusFrame(o, 0))
-	ss.fail(orderID, 202, "Order Canceled - reason:")
 }
 
 func (ss *session) openOrders(all bool) {

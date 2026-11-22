@@ -1,5 +1,5 @@
 // Command canary-sim runs the real Canary daemon against the TWS simulator in
-// pkg/ibkr/twssim, in paper mode, inside one directory of its own: socket,
+// pkg/ibkr/twssim, in live mode against a placeholder account (U1234567), inside one directory of its own: socket,
 // config, log, policies, state and home. It prints the environment a caller
 // sets to point the real canary CLI (or Desk) at it, then serves until a
 // signal. It is not a release binary. It refuses to start when any path it
@@ -164,7 +164,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	book := sim.Book()
-	cfgText := fmt.Sprintf("# canary-sim: the simulated broker. A CLI that autospawns a daemon from this\n# file reaches only this port.\n[gateway]\nhost = \"127.0.0.1\"\nport = %d\nclient_id = 15\naccount = %q\ntls = false\n\n[trading]\nmode = \"paper\"\n\n[cash_ledger]\nurl = \"http://127.0.0.1:1/v1/api\"\n", sim.Port(), book.Account())
+	cfgText := fmt.Sprintf("# canary-sim: the simulated broker. A CLI that autospawns a daemon from this\n# file reaches only this port.\n[gateway]\nhost = \"127.0.0.1\"\nport = %d\nclient_id = 15\naccount = %q\ntls = false\n\n[trading]\nmode = \"live\"\n\n[cash_ledger]\nurl = \"http://127.0.0.1:1/v1/api\"\n", sim.Port(), book.Account())
 	if err := os.WriteFile(s.config, []byte(cfgText), 0o600); err != nil {
 		fmt.Fprintln(stderr, "canary-sim:", err)
 		return 1
@@ -191,7 +191,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	defer logFile.Close()
 
-	fmt.Fprintf(stdout, "canary-sim: TWS simulator on %s, account %s (paper), daemon socket %s\n", sim.Addr(), book.Account(), s.socket)
+	fmt.Fprintf(stdout, "canary-sim: TWS simulator on %s, account %s (live mode, placeholder account), daemon socket %s\n", sim.Addr(), book.Account(), s.socket)
 	fmt.Fprintf(stdout, "canary-sim: broker frames in %s, daemon log in %s\n", frames.Name(), s.log)
 	fmt.Fprintln(stdout, "# set these before running canary against the simulator:")
 	for _, entry := range s.env {

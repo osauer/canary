@@ -3,7 +3,7 @@
 // real IBKR connector and its wire codec run against it without TWS, an
 // account or the network.
 //
-// The state is a [Book]: one paper account with cash per currency, positions,
+// The state is a [Book]: one account with cash per currency, positions,
 // a contract catalogue with deterministic quotes and daily bars, orders and
 // executions. A [Server] answers the handshake, startAPI, account updates and
 // summary, positions, PnL, contract details, market data, history, open

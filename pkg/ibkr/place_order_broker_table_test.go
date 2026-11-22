@@ -1,7 +1,6 @@
 package ibkr
 
 import (
-	"slices"
 	"testing"
 
 	"github.com/osauer/canary/v3/pkg/ibkr/twssim"
@@ -25,7 +24,7 @@ func TestPlaceOrderFramesAsTheBrokerReadsThem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.IgnoredByBroker) != 0 || got.ConID != 900001 || got.Action != "BUY" || got.Quantity != 10 || got.LimitPrice != 50.1 || got.TIF != "DAY" || !got.WhatIf || !got.Transmit || got.Account != "DU1234567" {
+	if len(got.IgnoredByBroker) != 0 || got.AttachedOrders || got.ConID != 900001 || got.Action != "BUY" || got.Quantity != 10 || got.LimitPrice != 50.1 || got.TIF != "DAY" || !got.WhatIf || !got.Transmit || got.Account != "DU1234567" {
 		t.Fatalf("stock limit as the broker reads it: %+v", got)
 	}
 
@@ -37,8 +36,8 @@ func TestPlaceOrderFramesAsTheBrokerReadsThem(t *testing.T) {
 	if got, err = twssim.DecodePlaceOrder(body); err != nil {
 		t.Fatal(err)
 	}
-	if got.Multiplier != 0 || !slices.Contains(got.IgnoredByBroker, "contract.7") {
-		t.Fatalf("option multiplier at the broker: %v, dropped %v", got.Multiplier, got.IgnoredByBroker)
+	if got.Multiplier != 100 || len(got.IgnoredByBroker) != 0 || got.AttachedOrders {
+		t.Fatalf("option multiplier at the broker: %v, dropped %v, attachedOrders %t", got.Multiplier, got.IgnoredByBroker, got.AttachedOrders)
 	}
 	if got.Strike != 55 || got.Right != "C" || got.Expiry != "20261218" {
 		t.Fatalf("option identity as the broker reads it: %+v", got)

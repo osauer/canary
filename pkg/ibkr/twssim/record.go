@@ -269,6 +269,8 @@ var requestNames = map[int]string{
 	cancelPositions: "cancelPositions", startAPI: "startApi", reqSecDefOptParams: "reqSecDefOptParams",
 	reqMatchingSymbols: "reqMatchingSymbols", reqHeadTimestamp: "reqHeadTimestamp", cancelHeadTimestamp: "cancelHeadTimestamp",
 	reqMarketRule: "reqMarketRule", reqPnL: "reqPnL", cancelPnL: "cancelPnL", reqCompletedOrders: "reqCompletedOrders",
+	reqPnLSingle: "reqPnLSingle", cancelPnLSingle: "cancelPnLSingle", reqWSHMetaData: "reqWSHMetaData", cancelWSHMetaData: "cancelWSHMetaData",
+	reqWSHEventData: "reqWSHEventData", cancelWSHEventData: "cancelWSHEventData",
 }
 
 func requestName(id int) string {

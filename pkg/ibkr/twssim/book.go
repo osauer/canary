@@ -49,7 +49,8 @@ type Order struct {
 // Remaining is the quantity not yet filled.
 func (o Order) Remaining() float64 { return max(0, o.Quantity-o.Filled) }
 
-// Working reports whether the order can still fill.
+// Working reports whether the order is live at the exchange (an
+// untransmitted order is held at the broker and is not).
 func (o Order) Working() bool {
 	return o.Status == "PreSubmitted" || o.Status == "Submitted"
 }
@@ -92,9 +93,6 @@ type Book struct {
 	permID  int
 	execSeq int
 
-	// holdFills keeps accepted orders working instead of filling a
-	// marketable one at once, as an exchange outside its session does.
-	holdFills bool
 	// feePerShare and feeMin price the commission (IBKR fixed-style tiers are
 	// not modelled).
 	feePerShare, feeMin float64
@@ -110,11 +108,12 @@ func NewBook(account, base string) *Book {
 	}
 }
 
-// DefaultAccount is the paper account of [Default].
-const DefaultAccount = "DU1234567"
+// DefaultAccount is the account of [Default]: IBKR's documentation-style
+// placeholder for a live account, never a real one.
+const DefaultAccount = "U1234567"
 
 // Default is the synthetic book every test and canary-sim start from: a USD
-// paper account holding 100 SYNA bought at 48, with 100,000 USD cash, and the
+// account holding 100 SYNA bought at 48, with 100,000 USD cash, and the
 // instruments the daemon's regime reads by name. Every figure is invented.
 func Default() *Book {
 	b := NewBook(DefaultAccount, "USD")
@@ -139,7 +138,19 @@ func Default() *Book {
 }
 
 // Account is the account code the book answers for.
-func (b *Book) Account() string { return b.account }
+func (b *Book) Account() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.account
+}
+
+// SetAccount changes the account code the broker announces and answers for,
+// as a login to another account would.
+func (b *Book) SetAccount(account string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.account = account
+}
 
 // Base is the account's base currency.
 func (b *Book) Base() string { return b.base }
@@ -196,14 +207,6 @@ func (b *Book) SetPrice(conID int, price float64) {
 	if in := b.instr[conID]; in != nil {
 		in.Price = price
 	}
-}
-
-// HoldFills keeps accepted orders working (true) or lets a marketable order
-// fill at once (false, the default).
-func (b *Book) HoldFills(hold bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.holdFills = hold
 }
 
 // Position returns a holding and whether the book holds it.
@@ -485,49 +488,17 @@ func (b *Book) whatIfLocked(o PlaceOrder, in Instrument) whatIf {
 	}
 }
 
-// accept records a transmitted order and decides at once whether it fills:
-// a buy limit at or above the ask, or a sell limit at or below the bid, fills
-// whole at that touch unless fills are held. A child order (ParentID) waits
-// for its parent, then works without filling (a protective stop).
-func (b *Book) accept(o PlaceOrder, clientID int, now time.Time) (*Order, *Execution) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.permID++
-	order := &Order{PlaceOrder: o, PermID: b.permID, Status: "Submitted", Placed: now}
-	order.ClientID = clientID
-	if prior := b.orders[o.OrderID]; prior != nil && prior.Working() {
-		order.PermID, order.Filled = prior.PermID, prior.Filled
+// fillLocked fills shares of an order at price (all that remains when shares
+// is zero or more than remains) and moves cash and the position.
+func (b *Book) fillLocked(order *Order, in Instrument, shares, price float64, now time.Time) *Execution {
+	if shares <= 0 || shares > order.Remaining() {
+		shares = order.Remaining()
 	}
-	b.orders[o.OrderID] = order
-	in, ok := b.instr[o.ConID]
-	if !ok {
-		order.Status = "Inactive"
-		return order, nil
-	}
-	if o.ParentID > 0 || o.OrderType != "LMT" || b.holdFills {
-		if o.ParentID > 0 {
-			order.Status = "PreSubmitted"
-		}
-		return order, nil
-	}
-	q := quoteOf(*in)
-	price := 0.0
-	switch {
-	case o.Action == "BUY" && q.ask > 0 && o.LimitPrice >= q.ask:
-		price = q.ask
-	case o.Action == "SELL" && q.bid > 0 && o.LimitPrice <= q.bid:
-		price = q.bid
-	default:
-		return order, nil
-	}
-	return order, b.fillLocked(order, *in, price, now)
-}
-
-func (b *Book) fillLocked(order *Order, in Instrument, price float64, now time.Time) *Execution {
-	shares := order.Remaining()
 	order.AvgPrice = (order.AvgPrice*order.Filled + price*shares) / (order.Filled + shares)
 	order.Filled += shares
-	order.Status = "Filled"
+	if order.Remaining() == 0 {
+		order.Status = "Filled"
+	}
 	signed := shares
 	side := "BOT"
 	if order.Action == "SELL" {
@@ -554,24 +525,5 @@ func (b *Book) fillLocked(order *Order, in Instrument, price float64, now time.T
 		OrderRef: order.OrderRef, Fee: fee, FeeCcy: in.Currency, Account: b.account, Exchange: in.PrimaryExch, Contract: in,
 	}
 	b.execs = append(b.execs, ex)
-	// A filled parent releases its children to work.
-	for _, child := range b.orders {
-		if child.ParentID == order.OrderID && child.Status == "PreSubmitted" {
-			child.Status = "Submitted"
-		}
-	}
 	return &ex
-}
-
-// cancel ends a working order; it reports the order and whether it was
-// working.
-func (b *Book) cancel(orderID int) (Order, bool) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	o := b.orders[orderID]
-	if o == nil || !o.Working() {
-		return Order{}, false
-	}
-	o.Status = "Cancelled"
-	return *o, true
 }

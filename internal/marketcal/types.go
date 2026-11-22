@@ -3,6 +3,13 @@
 //
 // Coverage is finite and disclosed on every result. Dates outside the embedded
 // range return StateUnknown rather than being inferred from weekdays.
+//
+// One exception replaces the official calendar: [SimulateSession], which only
+// a daemon running against the TWS simulator installs (cmd/canary-sim). It
+// gives a market one synthetic session window at wall-clock time, so every
+// reader of the calendar, whichever Calendar it built, sees the simulated
+// exchange open, closed or opening; a test holds the installers to the
+// simulator path.
 package marketcal
 
 import "time"
