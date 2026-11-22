@@ -30,23 +30,6 @@ func (d *simDesk) placeProtected(p rpc.AddParams) rpc.OrderPlaceResult {
 	return placed
 }
 
-func (d *simDesk) logState(label string, refs ...string) {
-	d.t.Helper()
-	for _, ref := range refs {
-		if ref == "" {
-			continue
-		}
-		st := d.status(ref)
-		d.t.Logf("%s daemon %s", label, orderLine(st.Order))
-		if st.AttachedStop != nil {
-			d.t.Logf("%s daemon attached %s", label, orderLine(*st.AttachedStop))
-		}
-	}
-	for _, o := range d.sim.Book().Orders() {
-		d.t.Logf("%s broker order %d parent %d %s %s %s qty %v filled %v status %s", label, o.OrderID, o.ParentID, o.Action, o.OrderType, o.TIF, o.Quantity, o.Filled, o.Status)
-	}
-}
-
 func orderLine(o rpc.OrderView) string {
 	entry := 0
 	if o.EntryLink != nil {
