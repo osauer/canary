@@ -63,3 +63,15 @@ func TestPremiumBudgetShowsProtectionBeside(t *testing.T) {
 		t.Fatalf("report total %.0f hedge %.0f, want 27,000 with 5,000 beside", report.TotalBase, report.HedgeBase)
 	}
 }
+
+// A pair whose sold put gives back all of the bought put's short delta (both
+// deep in the money after a fall) is measured at nothing to trim. It is not
+// an unmeasured put: that state stops the mandate verdict and with it every
+// addition and the forced reduction.
+func TestHedgeTrimReadsAPairThatNetsToNothingAsMeasured(t *testing.T) {
+	pol := limitsAllModes(RuleModeAlert)
+	in := trimBook(100000, trimPut("SPY bought P", 101, 10, 15000, 1), soldPut("SPY sold P", 101, 10, 15000, 1))
+	if a := AssessHedgeTrim(in, pol); a.State != HedgeTrimInside {
+		t.Fatalf("assessment = %+v, want inside the band with nothing to trim", a)
+	}
+}

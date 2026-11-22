@@ -140,10 +140,12 @@ func (s *Server) pendingPutCover(draft rpc.OrderDraft) (sold, bought float64, er
 				return fmt.Errorf("a working combination has unknown protection commitments")
 			}
 			for _, leg := range legs {
-				if leg.Ratio <= 0 {
+				// A leg carries the held ratio, negative for a sold one; its
+				// own action says which way it trades.
+				if leg.Ratio == 0 {
 					return fmt.Errorf("a working combination has unknown leg quantities")
 				}
-				if err := addContract(leg.Contract, leg.Action, remaining*float64(leg.Ratio)); err != nil {
+				if err := addContract(leg.Contract, leg.Action, remaining*float64(absOrderRatio(leg.Ratio))); err != nil {
 					return err
 				}
 			}

@@ -194,7 +194,8 @@ verdicts:
 - **Option buys.** While the risk policy carries a `[mandate]` table, an
   option buy is refused with `mandate_premium` when it would take the premium
   at risk on its underlying past `option_name_act_pct` of NLV (15% by
-  default), every long option on the name summed and protection included. It
+  default), every long option on the name summed, a spread at what the pair can
+  lose and protection puts left out. It
   is also refused when it would take the book's premium at risk past rule 3's
   act level (35% of NLV in every regime unless your file sets per-regime
   levels). A put bought to protect shares you hold is a hedge, not an

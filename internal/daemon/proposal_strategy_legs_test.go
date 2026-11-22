@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"context"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -187,5 +188,56 @@ func TestEveryBucketHoldsAStrategyLeg(t *testing.T) {
 	submit, err := engine.Submit(context.Background(), rpc.TradeProposalSubmitParams{Key: rows[0].Key, Revision: rows[0].Revision})
 	if err != nil || submit.Accepted || len(submit.Blockers) == 0 || submit.Blockers[0].Code != "strategy_workflow_required" {
 		t.Fatalf("submit of a held leg: accepted=%v blockers=%+v err=%v", submit.Accepted, submit.Blockers, err)
+	}
+}
+
+// A strategy with two bought hedge puts (a long put butterfly) is trimmed in
+// one row, and its units sell no more of either put line than the plan names
+// for it. Sized per line, the trim raised two rows under one key and, where
+// the caps allowed, sold more protection than the band top asked for.
+func TestUnitTrimOfTwoPutLinesIsOneRowInsideThePlan(t *testing.T) {
+	engine := &proposalEngine{server: &Server{}}
+	policy := defaultProtectionPolicy()
+	policy.Buckets.RiskReduction.MaxOrderNotional = 1e9
+	_, status := (*protectionPolicyManager)(nil).Active()
+	acct, pos := hedgeTrimBook(30000)
+	hedge := risk.DefaultRulebookPolicy().HedgeSymbols[0]
+	base := pos.Options[1]
+	leg := func(conID int, strike, qty, delta, mark float64) rpc.PositionView {
+		r := base
+		r.ConID, r.Strike, r.Quantity, r.Mark, r.AvgCost = conID, strike, qty, mark, mark*100
+		r.Delta = new(delta)
+		r.MarketValue = mark * 100 * qty
+		r.MarketValueBase = new(r.MarketValue * 0.5)
+		return r
+	}
+	hi, body, lo := leg(9941, 420, 10, -0.40, 9), leg(9942, 400, -20, -0.25, 6), leg(9943, 380, 10, -0.15, 3)
+	pos.Options = []rpc.PositionView{pos.Options[0], hi, body, lo}
+	pos.ByUnderlying[1] = rpc.PositionGroup{Underlying: hedge, Options: []rpc.PositionView{hi, body, lo}, GroupDollarDeltaBase: new(-10000.0), GroupMarketValueBase: new(0.0)}
+	pos.Strategies, pos.StrategyIssues = strategy.InferStrategies(pos.Stocks, pos.Options)
+	if len(pos.Strategies) != 1 || len(pos.Strategies[0].Legs) != 3 {
+		t.Fatalf("fixture: strategies = %+v, want one three-leg butterfly", pos.Strategies)
+	}
+	plan, _, _, ok := engine.hedgeTrimPlan(context.Background(), acct, pos, mandateTestNow)
+	if !ok || len(plan.Lines) != 2 {
+		t.Fatalf("fixture: plan ok=%v lines=%+v, want a trim naming both put lines", ok, plan.Lines)
+	}
+	least := math.Inf(1)
+	for _, line := range plan.Lines {
+		least = math.Min(least, line.Sell)
+	}
+	rows, _ := engine.generate(context.Background(), policy, status, acct, pos, rpc.TradeProposalSourceFingerprints{}, nil, brokerStateScope{}, mandateTestNow)
+	units := 0
+	for _, p := range rows {
+		if p.Unit == nil {
+			continue
+		}
+		units++
+		if float64(p.Quantity) > least+1e-9 {
+			t.Errorf("unit row sells %d units, more than the %v contracts the plan names for one of its put lines", p.Quantity, least)
+		}
+	}
+	if units != 1 {
+		t.Fatalf("unit rows = %d, want one for the one strategy", units)
 	}
 }

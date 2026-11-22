@@ -197,3 +197,41 @@ func unitSellsHedgePut(pol risk.RulebookPolicy, p rpc.TradeProposal) bool {
 	}
 	return false
 }
+
+// soldAgainstBlocker holds a long option that is held against a sold one: a
+// leg of a strategy with a sold leg, or a long option on an underlying whose
+// legs cannot be grouped while a sold option is held on it. The paths that
+// trade one contract outside the proposal book (the reductions and the
+// exercise) would leave that sold option uncovered. A long option with
+// nothing sold against it, a long straddle's leg included, returns nil.
+func soldAgainstBlocker(pos *rpc.PositionsResult, row rpc.PositionView) *rpc.TradingBlocker {
+	if pos == nil || row.ConID <= 0 || row.Quantity <= 0 || sameContractSecFamily(row.SecType) != "OPT" {
+		return nil
+	}
+	held := func() *rpc.TradingBlocker {
+		b := strategyLegBlocker(pos, row.ConID)
+		return &b
+	}
+	for _, s := range pos.Strategies {
+		member, sold := false, false
+		for _, leg := range s.Legs {
+			member = member || leg.Contract.ConID == row.ConID
+			sold = sold || leg.Ratio < 0
+		}
+		if member && sold {
+			return held()
+		}
+	}
+	symbol := normSym(row.Symbol)
+	for _, issue := range pos.StrategyIssues {
+		if normSym(issue.Underlying) != symbol {
+			continue
+		}
+		for _, other := range pos.Options {
+			if other.Quantity < 0 && normSym(other.Symbol) == symbol {
+				return held()
+			}
+		}
+	}
+	return nil
+}

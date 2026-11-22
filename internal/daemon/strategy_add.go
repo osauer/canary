@@ -33,7 +33,9 @@ import (
 //     premium of its legs, the sold legs need
 //     [order_limits].allow_option_sell_to_open, the brake applies, and the
 //     mandate measures the book once with every leg added and refuses what
-//     it cannot measure.
+//     it cannot measure. Its bought contracts also meet the premium limits,
+//     at the held contract's value (strategyAddBoughtPremiumBase): once held
+//     they count in the premium at risk in full.
 //
 // What still bounds a covered add now that its sold legs pass without the
 // permission and its cap reads the net premium: the loss is the premium
@@ -54,8 +56,9 @@ func strategyAdd(draft rpc.OrderDraft) *rpc.StrategyOrderDraft {
 
 // strategyAddCovered reports a combination whose every sold contract is
 // capped by a bought contract of the same order, by the Rulebook's spread
-// rule (risk.PremiumAtRiskLegs): the same kind, expiry day and contract
-// size, the sold strike further out of the money, each bought contract
+// rule (risk.PremiumAtRiskLegs): the same kind, expiry day, contract size
+// and trading class (two classes of one index settle on different prices),
+// the sold strike further out of the money, each bought contract
 // capping one sold contract. Such a combination can lose the premium paid
 // and no more, and once held its premium at risk is counted at the same net.
 // A calendar, a ratio's extra sold contract and a sold leg nearer the money
@@ -107,7 +110,8 @@ func strategyAddCovered(g *rpc.StrategyOrderDraft) bool {
 				break
 			}
 			l := leg.Contract
-			if room[i] <= 0 || !strings.EqualFold(l.Right, s.Right) || strings.TrimSpace(l.Expiry) != strings.TrimSpace(s.Expiry) || contractMultiplier(l) != contractMultiplier(s) {
+			if room[i] <= 0 || !strings.EqualFold(l.Right, s.Right) || strings.TrimSpace(l.Expiry) != strings.TrimSpace(s.Expiry) || contractMultiplier(l) != contractMultiplier(s) ||
+				!strings.EqualFold(strings.TrimSpace(l.TradingClass), strings.TrimSpace(s.TradingClass)) {
 				continue
 			}
 			if strings.EqualFold(s.Right, "P") && !(s.Strike < l.Strike) || strings.EqualFold(s.Right, "C") && !(s.Strike > l.Strike) {
@@ -284,4 +288,45 @@ func mandateStrategyAddLegs(draft rpc.OrderDraft, in *mandate.Input) (legs []man
 		legs = append(legs, add)
 	}
 	return legs, ""
+}
+
+// strategyAddBuys reports an add with a bought leg.
+func strategyAddBuys(g *rpc.StrategyOrderDraft) bool {
+	if g == nil {
+		return false
+	}
+	for _, leg := range g.Legs {
+		if leg.Ratio > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// strategyAddBoughtPremiumBase is the premium the bought contracts of an add
+// put at risk, in base currency: each at the held contract's value today,
+// the figure the kept book carries per contract. The premium limits read it
+// for an add that is not covered, whose net limit bounds nothing. why names
+// the first bought leg the book cannot value; such an order is refused, never
+// passed unmeasured.
+func strategyAddBoughtPremiumBase(g *rpc.StrategyOrderDraft, in *mandate.Input) (premium float64, why string) {
+	if g == nil || in == nil {
+		return 0, "the book carries no value for its legs"
+	}
+	for _, leg := range g.Legs {
+		if leg.Ratio <= 0 {
+			continue
+		}
+		id, value := mandateConLegID(leg.Contract.ConID), 0.0
+		for i := range in.Legs {
+			if in.Legs[i].ID == id && in.Legs[i].Kind == mandate.KindOption && in.Legs[i].Quantity > 0 {
+				value = in.Legs[i].LossPerUnitBase
+			}
+		}
+		if !positiveFinite(value) || leg.Quantity <= 0 {
+			return 0, "the book carries no value for " + deltaContractDesc(leg.Contract)
+		}
+		premium += float64(leg.Quantity) * value
+	}
+	return premium, ""
 }

@@ -370,7 +370,7 @@ broker_write_command() {
 		has_re '(^|[[:space:]])--submit(=|[[:space:]]|$)'
 	} ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+opportunities[[:space:]]+(preview|exercise|ignore)([[:space:]]|$)' ||
-	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+strategies[[:space:]]+(close|reduce|add)([[:space:]]|$)' ||
+	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+strategies([[:space:]]+[^[:space:]|;&]+)*[[:space:]]+(close|reduce|add)([[:space:]]|$)' ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+order[[:space:]]+(preview|place|modify|cancel)([[:space:]]|$)' ||
 	has_re '(^|[[:space:]/])(ibkr|canary)[[:space:]]+(submit|place|transmit|modify|cancel|close)([[:space:]]|$)'
 }

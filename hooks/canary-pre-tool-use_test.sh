@@ -132,6 +132,15 @@ run_case request-stop-frozen 2 "$live_frozen" status 'canary proposals request-s
 run_case submit-bundle-live-ready 0 "$live_ready" status 'canary proposals submit-bundle --stdin --json'
 run_case submit-bundle-frozen 2 "$live_frozen" status 'canary proposals submit-bundle --stdin --json'
 run_case submit-bundle-disabled 2 "$mode_disabled" status 'canary proposals submit-bundle --stdin --json'
+# A strategy order is a write wherever its verb stands: the CLI finds the
+# verb after any flags, as it does for settings.
+run_case strategies-add-frozen 2 "$live_frozen" status 'canary strategies add STRAT_ID 3 --units 1 --submit'
+run_case strategies-add-flags-first 2 "$live_frozen" status 'canary strategies --units 1 --submit add STRAT_ID 3'
+run_case strategies-reduce-flags-first 2 "$live_frozen" status 'canary strategies --units 1 --json reduce STRAT_ID 3'
+run_case strategies-close-flags-first 2 "$live_frozen" status 'canary strategies --json close STRAT_ID 3'
+run_case strategies-add-ready 0 "$live_ready" status 'canary strategies --units 1 add STRAT_ID 3'
+run_case strategies-list 0 "$live_frozen" none 'canary strategies list --json'
+run_case strategies-list-piped 0 "$live_frozen" none 'canary strategies list --json | grep add'
 
 # Shell composition around a write is blocked before any status lookup.
 run_case compound-write 2 "$live_ready" none 'canary orders --json; canary order cancel 42'

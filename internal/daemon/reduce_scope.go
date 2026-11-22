@@ -126,6 +126,12 @@ func reduceScopedCandidates(pos *rpc.PositionsResult, p rpc.TradeProposalReduceP
 			cands = append(cands, reduceSweepCandidate{row: row, blockers: []rpc.TradingBlocker{{Code: code, Message: msg, Action: action}}})
 		}
 		isOption := positionWireSecType(row.SecType) == "OPT"
+		// A long option held against a sold one trades with it, as whole
+		// units of the strategy (proposal_strategy_legs.go).
+		if b := soldAgainstBlocker(pos, row); b != nil {
+			cands = append(cands, reduceSweepCandidate{row: row, blockers: []rpc.TradingBlocker{*b}})
+			continue
+		}
 		var ddBase float64
 		if row.Stale {
 			block("position_stale", fmt.Sprintf("%s has no current price to size a trim", symbol), "Refresh positions once the market quotes it.")

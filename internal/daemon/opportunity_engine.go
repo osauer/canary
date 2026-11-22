@@ -427,6 +427,13 @@ func (e *opportunityEngine) generate(policy opportunityPolicy, status rpc.Opport
 		if !ok {
 			continue
 		}
+		// Exercising a long option held against a sold one leaves the sold
+		// option uncovered: it is listed, held, with the strategy route.
+		if b := soldAgainstBlocker(pos, row); b != nil {
+			opp.Blockers = appendTradingBlockerOnce(opp.Blockers, *b)
+			opp.State = rpc.OpportunityStateBlocked
+			opp.Reason = "held: this option is one leg of a multi-leg position"
+		}
 		if e.isIgnored(scope, opp.Key) {
 			continue
 		}

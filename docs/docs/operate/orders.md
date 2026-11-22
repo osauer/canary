@@ -26,7 +26,8 @@ these actions:
 - submit a currency leveling conversion, which repays a borrowed currency
   ([Currency leveling](cash.md#currency-leveling));
 - exercise an eligible held option when the action reduces or closes risk;
-- close or reduce a grouped option strategy as one combo; and
+- close or reduce a grouped option strategy as one combo, or add whole units
+  to one you hold (`canary strategies add`); and
 - cancel a Canary-owned order.
 
 `order preview` mints a signed draft token and runs the broker WhatIf; it never

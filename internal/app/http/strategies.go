@@ -21,6 +21,14 @@ func (h *handler) handleStrategyPreview(w nethttp.ResponseWriter, r *nethttp.Req
 	// The paired app can identify a daemon-authored strategy, operation, and
 	// price. It cannot claim another source or author combo legs.
 	req.Source = "strategy_app"
+	// The app closes and reduces. Adding units opens risk and belongs to the
+	// gated CLI alone, so no other operation is passed on to the daemon.
+	switch req.Operation = strings.ToLower(strings.TrimSpace(req.Operation)); req.Operation {
+	case rpc.StrategyOperationClose, rpc.StrategyOperationReduce:
+	default:
+		writeError(w, nethttp.StatusBadRequest, "the app closes or reduces a strategy; operation must be close or reduce")
+		return
+	}
 	res, err := h.deps.Daemon.StrategyPreview(r.Context(), req)
 	if err != nil {
 		writeError(w, nethttp.StatusBadGateway, err.Error())

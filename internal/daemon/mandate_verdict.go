@@ -895,7 +895,10 @@ func (s *Server) mandateBudgetJudgement(draft rpc.OrderDraft, position rpc.Order
 	// A covered strategy add can lose its net premium and no more, so it is
 	// judged as an option buy is (strategy_add.go).
 	option := mandateOptionAddition(draft) || strategyAddCovered(strategyAdd(draft))
-	if option && override == nil {
+	// Any other add that buys options also meets the premium limits, on its
+	// bought contracts, beside the loss gate below: once held they count in
+	// the name's and the book's premium at risk in full.
+	if (option || strategyAddBuys(strategyAdd(draft))) && override == nil {
 		if blocker := s.mandatePremiumGate(draft, result, input, ccy, open); blocker != nil {
 			return blocker, nil
 		}

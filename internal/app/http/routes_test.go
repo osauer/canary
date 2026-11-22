@@ -437,6 +437,24 @@ func TestOpportunityExerciseHTTPDoesNotAuthorizeWrites(t *testing.T) {
 	}
 }
 
+// The paired app closes and reduces a held strategy. Adding units opens risk
+// and is the gated CLI's alone, whatever a posted body asks for.
+func TestStrategyPreviewRefusesAnAddFromThePairedApp(t *testing.T) {
+	t.Parallel()
+	handler := newTestHandlerWithClient(t, routeWriteFakeClient{}).Handler()
+	cookie := routeSessionCookie(t, handler)
+	for _, operation := range []string{"add", " ADD ", "open", ""} {
+		req := httptest.NewRequest(http.MethodPost, "/api/strategies/preview", bytes.NewReader([]byte(
+			`{"strategy_id":"strategy-1","expected_revision":3,"units":1,"operation":"`+operation+`"}`)))
+		req.AddCookie(cookie)
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusBadRequest {
+			t.Fatalf("operation %q: status=%d, want 400; body=%s", operation, res.Code, res.Body.String())
+		}
+	}
+}
+
 func TestStrategyPreviewAndSubmitUseDaemonAuthority(t *testing.T) {
 	t.Parallel()
 	handler := newTestHandlerWithClient(t, routeWriteFakeClient{}).Handler()

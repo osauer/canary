@@ -146,6 +146,12 @@ func reduceSweepCandidates(pos, exposure *rpc.PositionsResult, percent int) (can
 		if row.Stale || !reduceEligible(row) {
 			continue
 		}
+		// A long option held against a sold one trades with it, as whole
+		// units of the strategy (proposal_strategy_legs.go).
+		if b := soldAgainstBlocker(pos, row); b != nil {
+			cands = append(cands, reduceSweepCandidate{row: row, blockers: []rpc.TradingBlocker{*b}})
+			continue
+		}
 		isOption := positionWireSecType(row.SecType) == "OPT"
 		dd, ok := positionDollarDelta(row, isOption)
 		if !ok {

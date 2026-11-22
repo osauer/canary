@@ -78,6 +78,15 @@ func TestStrategyAddCoveredFollowsTheSpreadRule(t *testing.T) {
 	if strategyAddCovered(nil) {
 		t.Error("no group read as covered")
 	}
+	// Two classes of one index settle on different prices (an AM-settled
+	// monthly against a PM-settled weekly of the same day), so a sold leg of
+	// another class caps nothing.
+	mixed := strategyAddTestDraft("SYNA", "USD", 1, 2, 1, addLeg{1, "P", 145, "", 1}, addLeg{2, "P", 135, "", -1})
+	mixed.StrategyGroup.Legs[0].Contract.TradingClass = "SYNAW"
+	mixed.StrategyGroup.Legs[1].Contract.TradingClass = "SYNA"
+	if strategyAddCovered(mixed.StrategyGroup) {
+		t.Error("a sold leg of another trading class read as covered")
+	}
 }
 
 // Owner, 2026-11-22: the strategy is added as one order and judged as one.

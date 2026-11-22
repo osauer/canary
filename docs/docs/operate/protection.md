@@ -159,7 +159,11 @@ legs have no single decomposition, is blocked with
 `strategy_workflow_required` and names the strategy's close or reduction
 instead: selling a spread's long put alone would leave its short put
 uncovered. The exception is a pair of long options you declared independent
-exits for, contract by contract.
+exits for, contract by contract. The reductions you start yourself
+(`canary proposals reduce`, with or without `--portfolio`) and the exercise
+opportunities follow the same rule for a long option held against a sold
+one: the reduction leaves it out and the exercise is listed blocked, both
+with `strategy_workflow_required`.
 
 `canary strategies list` shows the groups Canary reconstructs from the
 positions, each with the name of the held position (`bear put spread`,
@@ -192,11 +196,15 @@ received. The order is judged once, as that order, never leg by leg:
   butterfly's second sold contract included). The order cap reads the gross
   premium of its legs, the sold legs need `allow_option_sell_to_open`, the
   drawdown brake applies, and the mandate measures the book once with every
-  leg added. A leg it cannot price refuses the order.
+  leg added. A leg it cannot price refuses the order. Its bought contracts
+  also meet the premium limits, at the held contract's value today, because
+  once held they count in full.
 
-Each leg stays inside `max_option_contracts` in every case. No proposal and no
-pre-authorised bucket adds units: an add is sent only from a preview you
-confirm.
+Each leg stays inside `max_option_contracts` in every case, and a sold leg
+covers a bought one only within one trading class. No proposal and no
+pre-authorised bucket adds units: an add is sent only from the command line,
+from a preview you confirm. The paired app closes and reduces a strategy and
+does not add.
 
 The option-exit policy uses an absolute `0.05` quote-currency `TRAIL LIMIT`
 offset. An inherited or omitted offset fails activation. Standing defaults apply
@@ -376,8 +384,8 @@ today's value like any bought option, and the puts the hedge band still
 allows stay out. Puts left with no long position to protect count whole, and
 a put Canary cannot measure (no delta, price or exchange rate) makes the
 verdict unknown. The verdict then reads reduce until you trim them; the
-forced reduction neither sells them nor sizes its cuts on them (the Rulebook's premium budget still counts every bought option at the
-higher of the price paid and its value, protection included),
+forced reduction neither sells them nor sizes its cuts on them (the Rulebook's premium budget shows protection premium beside its total
+and does not count it),
 plus the cash loss to the stop of every share line a working stop or trail
 covers, plus a held index-hedge future's loss in a 10% index move against it
 (or to its stop, when a working stop covers the whole line). A share line

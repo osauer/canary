@@ -191,6 +191,11 @@ func AssessHedgeTrim(in RuleInputs, pol RulebookPolicy) HedgeTrimAssessment {
 				continue
 			}
 			per := shorts[li] / l.Quantity
+			if own := indexPutShortBase(l); shorts[li] == 0 && own > 0 && !math.IsInf(own, 0) {
+				// The sold put against it gives all of its short delta
+				// back: measured, with nothing to trim.
+				continue
+			}
 			if !(per > 0) || math.IsInf(per, 0) {
 				if unmeasured == "" {
 					unmeasured = n.Symbol + " " + l.Desc + " has no short delta"

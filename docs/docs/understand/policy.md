@@ -309,7 +309,7 @@ holds those paths without making the common limits incomplete.
 | `max_order_floor_base` | Smallest notional cap in force, account base currency | `[trading].max_notional`, else 10,000 |
 | `max_order_pct_nlv` | Share of net liquidation value that sets the cap between floor and ceiling | 10.0 |
 | `max_order_ceiling_base` | Largest notional cap in force, account base currency | 100,000, raised to the floor if the migrated floor is higher |
-| `max_option_contracts` | Contracts in one single-leg option order or each strategy-close leg | `[trading].max_option_contracts`, else 10 |
+| `max_option_contracts` | Contracts in one single-leg option order or each leg of a strategy order | `[trading].max_option_contracts`, else 10 |
 | `allow_stock_short` | A stock or ETF order may open or flip a short | `[trading].allow_stock_short`, else false |
 | `allow_option_sell_to_open` | An option order may sell to open | `[trading].allow_option_sell_to_open`, else false |
 | `max_bond_maturity_years` | Longest time to maturity, in whole years from today, a bond or bill buy may have (1 to 100) | 30 |

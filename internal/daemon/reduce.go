@@ -212,6 +212,11 @@ func (s *Server) prepareReduce(ctx context.Context, p rpc.TradeProposalReducePar
 	if len(blockers) > 0 {
 		return preparedReduce{}, blockers, nil
 	}
+	// A long option held against a sold one is reduced with it, as whole
+	// units of the strategy, never alone (proposal_strategy_legs.go).
+	if b := soldAgainstBlocker(posResult, row); b != nil {
+		return preparedReduce{row: row}, []rpc.TradingBlocker{*b}, nil
+	}
 	free := row.Quantity
 	if reduceSingleEligible(row) {
 		action := rpc.OrderActionSell

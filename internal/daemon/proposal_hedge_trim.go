@@ -138,6 +138,16 @@ func hedgeTrimRows(policy protectionPolicy, status rpc.ProtectionPolicyStatus, s
 	lead := fmt.Sprintf("index protection is %.0f%% of the long book, past the %s%% over-hedge line (%s× the %s%% band top)",
 		plan.RatioPct, rulebookLimitText(plan.ActPct), rulebookLimitText(pol.OverhedgeMultiple), rulebookLimitText(plan.TopPct))
 	inStrategy, _ := optionExitStrategyScope(pos, directionalOptionIntents(policy.Buckets.TrailingStop.Options), now)
+	// What the plan sells of each put line, by contract: a unit of a strategy
+	// sells every bought put it holds, so no unit row may sell more of any
+	// of them than this, and one strategy gets one row.
+	planSell := map[int]int{}
+	for _, line := range plan.Lines {
+		if row, found := hedgeTrimRow(pos, pol, line); found {
+			planSell[row.ConID] = int(math.Floor(line.Sell + 1e-9))
+		}
+	}
+	unitRow := map[string]bool{}
 	var out []rpc.TradeProposal
 	for _, line := range plan.Lines {
 		row, found := hedgeTrimRow(pos, pol, line)
@@ -151,7 +161,11 @@ func hedgeTrimRows(policy protectionPolicy, status rpc.ProtectionPolicyStatus, s
 		// long puts, so the units that sell the plan's contracts take the
 		// same short delta off its measure.
 		if inStrategy[row.ConID] {
-			if p, ok := hedgeTrimUnitRow(policy, status, sources, now, pos, pol, plan, row, units, full, lead, sizing, baseCcy); ok {
+			if s, ok := routableStrategyOfLeg(pos, row.ConID); ok && unitRow[s.ID] {
+				continue
+			}
+			if p, ok := hedgeTrimUnitRow(policy, status, sources, now, pos, pol, plan, planSell, row, units, full, lead, sizing, baseCcy); ok {
+				unitRow[p.Unit.StrategyID] = true
 				out = append(out, p)
 				continue
 			}
@@ -185,12 +199,29 @@ func hedgeTrimRows(policy protectionPolicy, status rpc.ProtectionPolicyStatus, s
 // hedgeTrimUnitRow is the trim of a put line held inside a strategy: whole
 // units of the strategy, each selling the line's put with the legs it is
 // held against. ok is false where the strategy has no combo route or no whole
-// unit fits the caps; the line's own row then stands, blocked.
-func hedgeTrimUnitRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, pos *rpc.PositionsResult, pol risk.RulebookPolicy, plan risk.HedgeTrimPlan, row rpc.PositionView, cut, full int, lead string, sizing mandateReductionInput, baseCcy string) (rpc.TradeProposal, bool) {
+// unit fits the caps or the plan; the line's own row then stands, blocked.
+// planSell is what the plan sells of each put line: a unit sells every
+// bought hedge put of the strategy, so the units are held to the line the
+// plan sells least of, and a put line the plan keeps allows none.
+func hedgeTrimUnitRow(policy protectionPolicy, status rpc.ProtectionPolicyStatus, sources rpc.TradeProposalSourceFingerprints, now time.Time, pos *rpc.PositionsResult, pol risk.RulebookPolicy, plan risk.HedgeTrimPlan, planSell map[int]int, row rpc.PositionView, cut, full int, lead string, sizing mandateReductionInput, baseCcy string) (rpc.TradeProposal, bool) {
 	s, ok := routableStrategyOfLeg(pos, row.ConID)
 	if !ok {
 		return rpc.TradeProposal{}, false
 	}
+	most, rowRatio := s.Units, 0
+	for _, leg := range s.Legs {
+		if leg.Ratio <= 0 || !strings.EqualFold(strings.TrimSpace(leg.Contract.Right), "P") || !pol.IsHedgeSymbol(leg.Contract.Symbol) {
+			continue
+		}
+		most = min(most, planSell[leg.Contract.ConID]/leg.Ratio)
+		if leg.Contract.ConID == row.ConID {
+			rowRatio = leg.Ratio
+		}
+	}
+	if most <= 0 || rowRatio <= 0 {
+		return rpc.TradeProposal{}, false
+	}
+	cut = min(cut, most*rowRatio)
 	units, waits, ok := strategyUnitCut(pos, s, row, cut, sizing, baseCcy)
 	if !ok {
 		return rpc.TradeProposal{}, false

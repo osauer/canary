@@ -118,31 +118,42 @@ func (s *Server) mandatePremiumGate(draft rpc.OrderDraft, result *rpc.MandateRis
 	if exposure.NLVBase == nil || !(*exposure.NLVBase > 0) {
 		return refuse("this option buy cannot be measured: "+nonEmptyString(exposure.NLVReason, "net liquidation value is unknown")+".", "Retry once the account has been read; "+measure)
 	}
-	combination := strategyAdd(draft) != nil
-	if !(draft.LimitPrice > 0) {
-		if combination {
-			// A covered combination bought for nothing, or for a credit,
-			// puts no premium at risk.
-			return nil
+	combination := strategyAdd(draft)
+	premium := 0.0
+	if combination != nil && !strategyAddCovered(combination) {
+		// The net limit of a combination that is not covered cannot bound
+		// what its bought contracts cost, and once held they count in full:
+		// they are read at the held contract's value today.
+		var why string
+		if premium, why = strategyAddBoughtPremiumBase(combination, input); why != "" {
+			return refuse("this strategy add cannot be measured: "+why+".", "Retry once every bought leg of the strategy carries a value; "+measure)
 		}
-		return refuse("this option buy cannot be measured: without a limit there is no premium to bound its loss.", "Buy at a limit; "+measure)
-	}
-	fx := 1.0
-	if c := normCcy(draft.Contract.Currency); c != "" && c != normCcy(ccy) {
-		rate, ok := input.FXNow[c]
-		if !ok || !(rate > 0) {
-			return refuse("this option buy cannot be measured: no "+ccy+"/"+c+" exchange rate for its premium.", "Retry once the rate has been read; "+measure)
+	} else {
+		if !(draft.LimitPrice > 0) {
+			if combination != nil {
+				// A covered combination bought for nothing, or for a credit,
+				// puts no premium at risk.
+				return nil
+			}
+			return refuse("this option buy cannot be measured: without a limit there is no premium to bound its loss.", "Buy at a limit; "+measure)
 		}
-		fx = rate
-	}
-	mult := float64(draft.Contract.Multiplier)
-	if mult <= 0 {
-		mult = 100
-	}
-	premium := float64(draft.Quantity) * mult * draft.LimitPrice * fx
-	if combination {
-		// The whole order's premium, net of what its sold legs bring in.
-		premium = strategyAddNetPremium(draft) * fx
+		fx := 1.0
+		if c := normCcy(draft.Contract.Currency); c != "" && c != normCcy(ccy) {
+			rate, ok := input.FXNow[c]
+			if !ok || !(rate > 0) {
+				return refuse("this option buy cannot be measured: no "+ccy+"/"+c+" exchange rate for its premium.", "Retry once the rate has been read; "+measure)
+			}
+			fx = rate
+		}
+		mult := float64(draft.Contract.Multiplier)
+		if mult <= 0 {
+			mult = 100
+		}
+		premium = float64(draft.Quantity) * mult * draft.LimitPrice * fx
+		if combination != nil {
+			// The whole order's premium, net of what its sold legs bring in.
+			premium = strategyAddNetPremium(draft) * fx
+		}
 	}
 	pending, err := s.mandatePendingPremium(draft, input, exposure, ccy)
 	if err != nil {
