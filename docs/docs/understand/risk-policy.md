@@ -211,7 +211,12 @@ Adding or changing the key is itself a policy edit and becomes effective the
 same way as any other revision (see "Making a revision effective" above).
 
 Evaluation covers one selected account: the ladder measures that account's
-current equity against its own cash-flow-adjusted peak. Paper and live state are
+current equity against its own cash-flow-adjusted peak. With a `[mandate]`
+table, that peak is the mandate's high-water mark: a new high counts once a
+second reading at least five minutes later confirms it, at the lower of the two,
+so the brake and the mandate's maximum loss measure the same fall. A peak you
+lowered yourself with `reset-drawdown` or `correct-peak` still applies while it
+is the lower one. Paper and live state are
 kept separate, and switching accounts cannot reuse another account's peak,
 drawdown latch, or reconciliation clock. A policy revision still changes the
 answer for everything held in the selected account at once; no position carries
