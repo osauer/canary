@@ -244,51 +244,7 @@ func (c *Connector) previewOrderWhatIf(ctx context.Context, contract *Contract, 
 		return orderWhatIfUnavailableResult("no active connection"), nil
 	}
 
-	ibkrOrder := &IBKROrder{
-		ParentID:         order.ParentID,
-		AdaptivePriority: order.AdaptivePriority,
-		ConID:            contract.ConID,
-		Symbol:           contract.Symbol,
-		SecType:          contract.SecType,
-		Expiry:           contract.Expiry,
-		Strike:           contract.Strike,
-		Right:            contract.Right,
-		Multiplier:       multiplierToString(contract.Multiplier),
-		Exchange:         contract.Exchange,
-		PrimaryExch:      contract.PrimaryExch,
-		Currency:         contract.Currency,
-		LocalSymbol:      contract.LocalSymbol,
-		TradingClass:     contract.TradingClass,
-		SecIDType:        contract.SecIDType,
-		SecID:            contract.SecID,
-		BondRules:        cloneBondOrderRules(contract.BondRules),
-		ClientID:         order.ClientID,
-		Action:           order.Action,
-		TotalQty:         order.TotalQty,
-		OrderType:        order.OrderType,
-		LmtPrice:         order.LmtPrice,
-		AuxPrice:         order.AuxPrice,
-		TrailStopPrice:   order.TrailStopPrice,
-		TrailingPercent:  order.TrailingPercent,
-		LmtPriceOffset:   order.LmtPriceOffset,
-		TIF:              order.TIF,
-		TriggerMethod:    order.TriggerMethod,
-		OrderRef:         order.OrderRef,
-		OutsideRth:       order.OutsideRth,
-		OcaGroup:         strings.TrimSpace(order.OcaGroup),
-		OcaType:          order.OcaType,
-		Account:          order.Account,
-		Transmit:         false,
-		WhatIf:           true,
-		OpenClose:        strings.ToUpper(strings.TrimSpace(order.OpenClose)),
-		Origin:           0,
-	}
-	if ibkrOrder.OpenClose == "" {
-		ibkrOrder.OpenClose = "O"
-	}
-	if orderID > 0 {
-		ibkrOrder.OrderID = orderID
-	}
+	ibkrOrder := whatIfIBKROrder(contract, order, orderID)
 	conn.rememberLocalPreviewIdentity(ibkrOrder.OrderID, conn.BrokerSessionEpoch(), order.Changes, c.PlacedOrderID(ibkrOrder.OrderID))
 	if ibkrOrder.OrderID > 0 && conn.modifyStatusIsUncertain(ibkrOrder.OrderID, conn.BrokerSessionEpoch()) {
 		recoveryBinding := ConnectorSessionBinding{connector: c, connection: conn, epoch: conn.BrokerSessionEpoch()}
@@ -466,6 +422,22 @@ func (c *Connection) sendPlaceOrderFrameGuarded(ctx context.Context, order *IBKR
 
 	msg := c.encodeMsg(interfaces...)
 	return c.sendMessageWithTypeContextForEpochGuarded(ctx, msg, RequestTypeOrder, epoch, true, guard)
+}
+
+// whatIfIBKROrder is the order a WhatIf asks the broker about: the order
+// rawIBKROrder places, built by the same function so no field can reach one
+// path and miss the other (a combination's legs and its explicit limit once
+// did). It differs only where a WhatIf must: whatIf set and not transmitted,
+// the broker order id only when the caller names one (a modification's), and
+// no permanent id.
+func whatIfIBKROrder(contract *Contract, order *RawOrder, orderID int) *IBKROrder {
+	ibkrOrder := rawIBKROrder(contract, order)
+	ibkrOrder.Transmit, ibkrOrder.WhatIf = false, true
+	ibkrOrder.OrderID, ibkrOrder.PermID = 0, 0
+	if orderID > 0 {
+		ibkrOrder.OrderID = orderID
+	}
+	return ibkrOrder
 }
 
 func orderWhatIfUnavailableResult(message string) OrderWhatIfResult {
