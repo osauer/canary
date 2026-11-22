@@ -787,7 +787,7 @@ func (s *Server) appendOrderSendCompleted(draft rpc.OrderDraft, status rpc.Tradi
 	ev.AttemptID = attemptID
 	ev.ActionKind = action
 	ev.SendState = orderSendStateSendAttempted
-	ev.Message = "broker transport returned after frame flush; waiting for broker lifecycle evidence"
+	ev.Message = orderSendAwaitingBrokerMessage
 	if err := s.orderJournal.Append(ev); err != nil {
 		s.warnf("append order send completion: %v", err)
 		s.markOrderLifecyclePersistenceUncertain()

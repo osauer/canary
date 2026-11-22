@@ -233,8 +233,8 @@ func TestSimulatedTWSAddWhileClosedFillsAtTheOpen(t *testing.T) {
 // E5. Broker answers to one plain add. Each sends exactly one transmitted
 // placeOrder (never a resend) and ends in the recorded lifecycle. Errors the
 // broker sends without ever acknowledging the order (200, 354, 10089) and an
-// order the broker never answers leave the record open: the reconcile sweep
-// considers only rows the broker once accepted (order_reconcile.go:58).
+// order the broker never answers leave the record open, and a sweep inside
+// the reconcile grace leaves it so; E5b steps past the grace and ends them.
 func TestSimulatedTWSBrokerAnswersToAnAdd(t *testing.T) {
 	for _, tc := range []struct {
 		name      string

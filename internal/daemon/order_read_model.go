@@ -1128,6 +1128,10 @@ func orderJournalEventFromView(view rpc.OrderView, eventType string, at time.Tim
 	}
 }
 
+// orderSendAwaitingBrokerMessage is a completed send's note until the
+// broker's first lifecycle event for the order.
+const orderSendAwaitingBrokerMessage = "broker transport returned after frame flush; waiting for broker lifecycle evidence"
+
 func mergeOrderJournalEventIntoView(view *rpc.OrderView, ev orderJournalEvent) {
 	if view.AttachedStop == nil && ev.AttachedStop != nil {
 		view.AttachedStop = new(*ev.AttachedStop)
@@ -1311,6 +1315,9 @@ func mergeOrderJournalEventIntoView(view *rpc.OrderView, ev orderJournalEvent) {
 	}
 	if ev.Message != "" {
 		view.LastMessage = ev.Message
+	} else if (ev.Type == orderJournalEventBrokerAcknowledged || ev.Type == orderJournalEventStatusUpdated) && view.LastMessage == orderSendAwaitingBrokerMessage {
+		// The broker's own evidence arrived; the send's wait is over.
+		view.LastMessage = ""
 	}
 	// buildOrderViews receives authoritative event_seq order. The last
 	// inserted event wins even when its broker timestamp moves backwards.

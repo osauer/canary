@@ -35,8 +35,12 @@ const (
 // will ever get. The sweep is read-only at the broker: its single wire
 // reconciled-absent events to the append-only journal, never by rewriting.
 // Fail-safe rules: no complete snapshot → no action; only rows in the
-// current concrete account/mode scope; only rows the broker once accepted
-// (PermID set); never rows with journal activity inside the grace window.
+// current concrete account/mode scope; never rows with journal activity
+// inside the grace window. A row without a PermID (the broker never
+// acknowledged it, or its acknowledgement was lost) is swept too: the
+// snapshot's own openOrder callbacks, journaled before openOrderEnd, bind it
+// by reference when the broker holds it; one the complete snapshot still
+// does not contain is closed, so no record stays open forever.
 func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 	if s == nil || s.orderJournal == nil {
 		return
@@ -55,7 +59,7 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 	now := s.orderNow()
 	var candidates []rpc.OrderView
 	for _, v := range views {
-		if !v.Open || v.PermID == 0 || !orderViewMatchesBrokerScope(v, scope) {
+		if !v.Open || !orderViewMatchesBrokerScope(v, scope) || v.PermID == 0 && !orderReconcileUnacknowledgedCandidate(v, now) {
 			continue
 		}
 		if v.UpdatedAt.IsZero() || now.Sub(v.UpdatedAt) < orderReconcileGrace {
@@ -96,7 +100,7 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 	now = s.orderNow()
 	var events []orderJournalEvent
 	for _, v := range currentViews {
-		if !v.Open || v.PermID == 0 || !orderViewMatchesBrokerScope(v, scope) {
+		if !v.Open || !orderViewMatchesBrokerScope(v, scope) || v.PermID == 0 && !orderReconcileUnacknowledgedCandidate(v, now) {
 			continue
 		}
 		if !persistenceUncertain && (v.UpdatedAt.IsZero() || now.Sub(v.UpdatedAt) < orderReconcileGrace) {
@@ -112,6 +116,9 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 		ev.Status = ""
 		ev.SendState = orderSendStateTerminal
 		ev.Message = "broker open-order snapshot did not include this order; closed by reconciliation. Final broker state unknown (cancelled or filled outside daemon view) — confirm against broker statements."
+		if v.PermID == 0 {
+			ev.Message = "the broker never acknowledged this order and its complete open-order snapshot does not include it; closed by reconciliation. Final broker state unknown (most likely never accepted; a fill outside daemon view is not excluded) — confirm against broker statements."
+		}
 		events = append(events, ev)
 	}
 	receiptSession := snap.Session
@@ -185,6 +192,22 @@ func (s *Server) reconcileOrderJournalWithBroker(ctx context.Context) {
 		}
 	}
 	s.infof("order reconcile: closed %d journal row(s) absent from a complete broker open-order snapshot (%d snapshot orders, %d candidates)", len(events), len(snap.Orders), len(candidates))
+}
+
+// orderReconcileUnacknowledgedCandidate reports whether a row without a
+// PermID may be swept: past the grace, and its last event is either a send
+// that flushed cleanly (a placement, or the cancel that withdrew it) or a
+// broker error with its code, so the broker saw the order. Every other row
+// keeps its uncertainty: a send whose transport failed (send-error), one
+// with no outcome at all (the process died mid-send), or one restart
+// recovery marked unknown may have reached the broker and filled unseen, so
+// absence never resolves it; it stays unknown and keeps blocking another
+// order until someone reconciles it.
+func orderReconcileUnacknowledgedCandidate(v rpc.OrderView, now time.Time) bool {
+	if v.UpdatedAt.IsZero() || now.Sub(v.UpdatedAt) < orderReconcileGrace {
+		return false
+	}
+	return v.LastEvent == orderJournalEventSendCompleted || v.LastEvent == orderJournalEventBrokerError && v.LastErrorCode != 0
 }
 
 // orderJournalHeadSettle is how long a stable-head reload waits before
