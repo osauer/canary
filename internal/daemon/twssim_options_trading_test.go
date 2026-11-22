@@ -273,3 +273,37 @@ func TestSimulatedTWSOptionRefusals(t *testing.T) {
 		})
 	}
 }
+
+// Rule 12 passes with index protection inside its band, and then --max
+// sizes a positive addition. The book is the one these control commands
+// make of the default book (the Desk harness's recipe):
+//
+//	canary-sim ctl -dir D position SYNA 600 48
+//	canary-sim ctl -dir D options SPY 520 540 560
+//	canary-sim ctl -dir D position <the SPY 540 put of the 60-day expiry> 1 700
+//
+// 600 SYNA is 30,000 USD of gross long, 20 percent of the account (rule 1
+// watches at 30); one SPY 540 put is about 0.17 delta, about 10,000 USD of
+// index short: 33 percent, inside the calm band of 25-35 percent, so rule 12
+// passes and --max sizes up to the band's bottom.
+func TestSimulatedTWSMaxSizesWithIndexProtection(t *testing.T) {
+	now := time.Now()
+	book := twssim.Default()
+	book.SetPosition(900001, 600, 48)
+	exps := twssim.OptionExpiries(now)
+	if err := book.ListOptions(756733, exps, []float64{520, 540, 560}); err != nil {
+		t.Fatal(err)
+	}
+	put, ok := book.OptionConIDFor(756733, exps[3], 540, "P")
+	if !ok {
+		t.Fatal("no SPY 540 put")
+	}
+	book.SetPosition(put, 1, 700)
+	setSessions(t, true)
+	d := startSimDesk(t, twssim.Options{Book: book}, true)
+	plan := d.plan(rpc.AddParams{Contract: rpc.ContractParams{Symbol: "SYNA", Currency: "USD"}, LimitPrice: 50.10, Max: true})
+	if len(plan.Blockers) > 0 || plan.Quantity <= 0 {
+		t.Fatalf("max plan with index protection: %d, %+v", plan.Quantity, plan.Blockers)
+	}
+	t.Logf("--max sizes %d SYNA (put con id %d)", plan.Quantity, put)
+}

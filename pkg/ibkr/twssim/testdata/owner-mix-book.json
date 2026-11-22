@@ -1,0 +1,21 @@
+{
+  "account": "U1234567",
+  "base_currency": "USD",
+  "cash": {"USD": 80000},
+  "positions": [
+    {"con_id": 900001, "symbol": "SYNA", "sec_type": "STK", "currency": "USD", "exchange": "SMART", "primary_exchange": "NASDAQ", "trading_class": "NMS", "quantity": 100, "avg_cost": 48, "last": 50, "bid": 49.99, "ask": 50.01},
+    {"con_id": 900002, "symbol": "SYNB", "sec_type": "STK", "currency": "USD", "exchange": "SMART", "primary_exchange": "NYSE", "quantity": 0, "avg_cost": 0, "last": 120},
+    {"con_id": 900003, "symbol": "SYNC", "sec_type": "STK", "currency": "USD", "exchange": "SMART", "primary_exchange": "NASDAQ", "quantity": 0, "avg_cost": 0, "last": 32},
+    {"con_id": 900004, "symbol": "SYND", "sec_type": "STK", "currency": "USD", "exchange": "SMART", "primary_exchange": "NYSE", "quantity": 0, "avg_cost": 0, "last": 75},
+    {"con_id": 930001, "symbol": "SYNA", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNA", "underlying_con_id": 900001, "right": "C", "strike": 55, "expiry": "20270319", "multiplier": 100, "quantity": 2, "avg_cost": 210, "last": 1.9, "bid": 1.85, "ask": 1.95},
+    {"con_id": 930002, "symbol": "SYNA", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNA", "underlying_con_id": 900001, "right": "C", "strike": 60, "expiry": "20270618", "multiplier": 100, "quantity": 1, "avg_cost": 150, "last": 1.6, "bid": 1.55, "ask": 1.65},
+    {"con_id": 930003, "symbol": "SYNC", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNC", "underlying_con_id": 900003, "right": "C", "strike": 35, "expiry": "20270219", "multiplier": 100, "quantity": 3, "avg_cost": 120, "last": 1.1, "bid": 1.05, "ask": 1.15},
+    {"con_id": 930004, "symbol": "SYNC", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNC", "underlying_con_id": 900003, "right": "C", "strike": 40, "expiry": "20270618", "multiplier": 100, "quantity": 2, "avg_cost": 90, "last": 0.95, "bid": 0.9, "ask": 1.0},
+    {"con_id": 930005, "symbol": "SYND", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYND", "underlying_con_id": 900004, "right": "C", "strike": 80, "expiry": "20270319", "multiplier": 100, "quantity": 1, "avg_cost": 400, "last": 3.8, "bid": 3.7, "ask": 3.9},
+    {"con_id": 930006, "symbol": "SYND", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYND", "underlying_con_id": 900004, "right": "C", "strike": 90, "expiry": "20270618", "multiplier": 100, "quantity": 1, "avg_cost": 260, "last": 2.4, "bid": 2.3, "ask": 2.5},
+    {"con_id": 930007, "symbol": "SYNA", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNA", "underlying_con_id": 900001, "right": "P", "strike": 45, "expiry": "20270319", "multiplier": 100, "quantity": 1, "avg_cost": 160, "last": 1.5, "bid": 1.45, "ask": 1.55},
+    {"con_id": 930008, "symbol": "SYND", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYND", "underlying_con_id": 900004, "right": "P", "strike": 65, "expiry": "20270219", "multiplier": 100, "quantity": 1, "avg_cost": 180, "last": 1.7, "bid": 1.65, "ask": 1.75},
+    {"con_id": 930009, "symbol": "SYNB", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNB", "underlying_con_id": 900002, "right": "P", "strike": 120, "expiry": "20270319", "multiplier": 100, "quantity": 1, "avg_cost": 740, "last": 7.8, "bid": 7.7, "ask": 7.9},
+    {"con_id": 930010, "symbol": "SYNB", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNB", "underlying_con_id": 900002, "right": "P", "strike": 110, "expiry": "20270319", "multiplier": 100, "quantity": -1, "avg_cost": 360, "last": 3.9, "bid": 3.8, "ask": 4.0}
+  ]
+}

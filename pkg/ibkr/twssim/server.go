@@ -542,7 +542,7 @@ func contractDetailsFields(reqID int, in Instrument) []string {
 		strike, mult, under, underType, month = num(in.Strike), num(multiplier(in)), itoa(in.UnderConID), "STK", in.Expiry[:6]
 		orderTypes = "LMT,MKT,STP,STPLMT,REL,COMBO"
 	}
-	return []string{itoa(reqID), in.Symbol, in.SecType, in.Expiry, in.Expiry, strike, in.Right, in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), mult, orderTypes, valid, "1", under, in.LongName, in.PrimaryExch, month, "", "", "", "US/Eastern", "", "", "", "0", "0", "1", underSym, underType, rules, in.Expiry, stockType, "1", "1", "1", "0"}
+	return []string{itoa(reqID), in.Symbol, in.SecType, in.Expiry, in.Expiry, strike, in.Right, in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), mult, orderTypes, valid, itoa(max(in.PriceMagnifier, 1)), under, in.LongName, in.PrimaryExch, month, "", "", "", "US/Eastern", "", "", "", "0", "0", "1", underSym, underType, rules, in.Expiry, stockType, "1", "1", "1", "0"}
 }
 
 // optionParams answers reqSecDefOptParams: one row of the underlying's

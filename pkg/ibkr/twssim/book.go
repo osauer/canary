@@ -35,6 +35,9 @@ type Instrument struct {
 	Right      string
 	Multiplier float64
 	UnderConID int
+	// PriceMagnifier is TWS's quote scale (100 for an LSE line quoted in
+	// pence); zero counts as 1.
+	PriceMagnifier int
 }
 
 // Position is one holding of the book's account.
@@ -149,6 +152,22 @@ func Default() *Book {
 	return b
 }
 
+// EuropeanBook is [Default] with a EUR line on Xetra (SYNE, IBIS) and a GBP
+// line on the LSE (SYNG, quoted in pence: price magnifier 100), native cash
+// in both and their USD rates, with the IDEALPRO pairs listed.
+func EuropeanBook() *Book {
+	b := Default()
+	b.SetCash("EUR", 20_000)
+	b.SetFX("EUR", 1.08)
+	b.SetCash("GBP", 15_000)
+	b.SetFX("GBP", 1.27)
+	b.AddInstrument(Instrument{ConID: 900401, Symbol: "SYNE", SecType: "STK", Exchange: "SMART", PrimaryExch: "IBIS", Currency: "EUR", TradingClass: "XETR", LongName: "SYNTHETIC E AG", MinTick: 0.01, Price: 40, Spread: 0.02})
+	b.AddInstrument(Instrument{ConID: 900402, Symbol: "SYNG", SecType: "STK", Exchange: "SMART", PrimaryExch: "LSE", Currency: "GBP", TradingClass: "SYNG", LongName: "SYNTHETIC G PLC", MinTick: 0.1, Price: 250, Spread: 0.5, PriceMagnifier: 100})
+	b.AddInstrument(Instrument{ConID: 900501, Symbol: "EUR", SecType: "CASH", Exchange: "IDEALPRO", Currency: "USD", LocalSymbol: "EUR.USD", TradingClass: "EUR.USD", MinTick: 0.00005, Price: 1.08, Spread: 0.0001})
+	b.AddInstrument(Instrument{ConID: 900502, Symbol: "GBP", SecType: "CASH", Exchange: "IDEALPRO", Currency: "USD", LocalSymbol: "GBP.USD", TradingClass: "GBP.USD", MinTick: 0.00005, Price: 1.27, Spread: 0.0001})
+	return b
+}
+
 // Account is the account code the book answers for.
 func (b *Book) Account() string {
 	b.mu.Lock()
@@ -239,6 +258,21 @@ func (b *Book) SetQuote(symbol string, bid, ask, last float64) error {
 	}
 	return fmt.Errorf("twssim: %s is not listed", symbol)
 }
+
+// StockConID finds a listed stock by symbol.
+func (b *Book) StockConID(symbol string) (int, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, in := range b.instr {
+		if in.SecType == "STK" && strings.EqualFold(in.Symbol, symbol) {
+			return in.ConID, true
+		}
+	}
+	return 0, false
+}
+
+// Contract returns a listed contract.
+func (b *Book) Contract(conID int) (Instrument, bool) { return b.instrument(conID) }
 
 // Position returns a holding and whether the book holds it.
 func (b *Book) Position(conID int) (Position, bool) {

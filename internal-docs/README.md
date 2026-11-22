@@ -36,6 +36,7 @@ and this index needs the fix.
 | [design/daemon-lifetime.md](design/daemon-lifetime.md) | Why a daemon dies with the app that started it on macOS, and the launchd agent design that ends it (not built) |
 | [guides/trading-harness-development.md](guides/trading-harness-development.md) | Risk-harness development guide |
 | [guides/canary-spa-dev.md](guides/canary-spa-dev.md) | SPA development guide |
+| [guides/tws-simulator.md](guides/tws-simulator.md) | TWS simulator, canary-sim and the simulator scenarios |
 
 ## Approved, not yet implemented
 
