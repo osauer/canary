@@ -2,6 +2,50 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.42.0 — 2026-11-22 06:50 CET
+
+### What's new
+
+**`canary status` and `canary edge` answer first.** Status now says whether you can trade directly under its headline, then groups the rest under Broker, Trading and Canary. The phone push row is one line: pushes work, or the one thing in the way. `canary status --details` adds the broker's API settings.
+
+`canary edge` fits one screen. It opens with a bottom line: what the account made, how many graded stock decisions helped or hurt, how many closed option positions made or lost money, and the one finding the review singles out. Below that are your option trades by kind, the three largest single decisions and how much of your history is scored. `canary edge --details` is the full review in the same order, with the evidence last.
+
+**Edge counts its forward tests.** A forward test is a question about your own trading, fixed as a written rule before the trades that answer it. Edge now carries seven and counts the decisions of five of them since each was registered. The other two, option buys against the premium budget and option sales after a move against you, are registered but cannot be counted in this version, and the screen says so. `canary edge tests` shows each test's question, its count and when it is expected to be full. Canary counts and does not answer: no verdict, warning or order depends on a test.
+
+**Regime reads a shut market correctly.** On a weekend or overnight, a row whose market is closed showed as stale and "not a current rating" although nothing newer could exist. Friday's close is now the current rating until the market reopens. Separately, when an input outage hides a confirmation, the stage is blanked for data quality and no longer reads calmer than before the outage.
+
+### Added
+
+- `canary edge --details`: the full review. `--change`, `--option` and the paging flags show it too; it now opens with the bottom line and puts the evidence last.
+- `canary status --details`: the broker's API settings, read on a separate short-lived connection.
+- `canary edge tests [RULE] [--all] [--json]`, and `forward_tests[].sample` in `canary edge --json` and `canary_edge`: each rule's counted decisions by group, and the expected date.
+- A seventh forward test: whether option sales made after the underlying moved against you come too early. It is registered and not yet counted.
+- A forward test about sales says how many of its counted sales Canary's protection sent.
+- An option spread is left out of the forward tests that read options, because one leg alone misreads a spread.
+- `canary regime --json --view monitor`: each row carries `current`.
+- `rules.snapshot`: each held name's earnings row carries `sessions_until` and `window`.
+
+### Changed
+
+- `canary edge` without flags prints the summary. Evidence, the by-month table, the decisions-by-action table, the per-decision verdict rows, lending income and the option position, episode and open-position rows are in `canary edge --details`. JSON, the MCP tool and the app are unchanged.
+- `canary status`: the API protocol row shows only with `--details`. The plain TWS row and the note on encryption and how the port was chosen (`tls=`, `pinned`) show with `--details` or when the connection is in trouble. Daemon, Subsystems and SPX members are now Version, Services and S&P 500 list. The colour legend is one footer line. The push delivery history is on `canary app status`.
+- Six forward tests are reworded and registered again with a new date, so only decisions after that date count.
+- The daemon records each US session's Regime stage and premium budget level itself. Before, a session was recorded only if something read Regime between the close and midnight New York.
+- One instrument failing no longer marks the quote or history feed unhealthy while the service answers other requests.
+- An expected delay alone no longer makes `canary status` read ATTENTION. `canary data health` describes such a row as on the provider's schedule.
+- A broker statement that is waiting for Canary's morning check is on schedule while every earlier statement is in. Before, it counted as a concern from midnight New York until the check ran.
+- The trading-halts feed is not due while US markets are closed. IBKR's Saturday Flex maintenance is an expected delay for the statement it delays, not an action for you.
+
+### Removed
+
+- `canary status --gateway-diagnostics`. Use `canary status --details`.
+
+### Fixed
+
+- On an install that had run for some weeks, Edge could no longer tell which of your sales Canary's protection had sent, and said so on every reply.
+- When a position download after a reconnect ended incomplete, each retry discarded the rows already received. Canary now keeps them, so rows that arrive late can complete the book. This does not help when the broker application sends no positions at all after its nightly restart, which is what the last three nights showed; the positions then stay unavailable until it does.
+- After a daemon start, or a quiet stretch with no chart open, `canary status` read ATTENTION with the history source "Not checked". The data-health check now reads a week of SPY closes itself.
+
 ## v3.41.0 — 2026-11-20 16:47 CET
 
 ### What's new

@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-20 16:47 CET. Current release: v3.41.0.
+Updated: 2026-11-22 06:45 CET. Current release: v3.42.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -14,6 +14,18 @@ exist in Traditional Chinese (https://osauer.dev/canary/zh-hant/ and
 https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
 (https://osauer.dev/canary/zh-hans/ and https://osauer.dev/canary/docs/zh-hans/);
 English is the master.
+
+Version 3.42 makes `canary status` and `canary edge` answer first. Status says
+whether you can trade under its headline and groups the rest as Broker,
+Trading and Canary; `canary status --details` adds the broker's API settings
+and replaces `--gateway-diagnostics`. `canary edge` opens with a bottom line
+and fits one screen; `canary edge --details` is the full review. Edge carries
+seven forward tests and counts the decisions of five since each was registered;
+`canary edge tests` shows how far each is. An option spread is left out of
+those tests. Regime rates a close from a shut market as current, and an input
+outage no longer makes the stage read calmer than the confirmation it hid.
+One instrument failing no longer marks a data feed unhealthy, and an expected
+delay alone does not make status read ATTENTION.
 
 Version 3.41 adopts policy files left behind by v3.35.0. Since that release a
 daemon whose `XDG_CONFIG_HOME` is not `~/.config`, updated without copying its

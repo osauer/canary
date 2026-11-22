@@ -1,6 +1,33 @@
 # Canary full context
 
-Updated: 2026-11-20 16:47 CET
+Updated: 2026-11-22 06:45 CET
+
+Version 3.42 makes `canary status` and `canary edge` answer first.
+`canary status` prints whether you can trade under its headline, then three
+groups: Broker, Trading and Canary. Its phone push row states one fact and
+`canary app status` keeps the delivery history. `canary status --details`
+adds the broker's API settings, read on a separate short-lived connection; it
+replaces `--gateway-diagnostics`, which is removed. `canary edge` opens with a
+bottom line (the account result, how graded stock decisions and closed option
+positions split, and the review's one finding), then option trades by kind,
+the largest single decisions and how much of the history is scored;
+`canary edge --details` is the full review, and `--change`, `--option` and
+the paging flags show it too. These view changes leave JSON, the MCP tools
+and the app as they were. Edge carries seven forward tests;
+`forward_tests[].sample` counts a rule's decisions executed after its
+registration for five of them, and two are registered but not yet counted.
+`canary edge tests` shows each test's question, count and expected date.
+Canary counts and does not answer them: no verdict, grade, warning or order
+depends on them. A sale test says how many of its sales Canary's protection
+sent, and an option spread is left out because one leg misreads it. The daemon writes each US session's
+Regime stage and premium budget level itself, without waiting for a reader.
+Regime rates a reading from a shut market as current when no newer one can
+exist, each monitor row carries `current`, and an input outage that hides a
+confirmation blanks the stage instead of letting it read calmer. Data health:
+one instrument failing no longer marks the quote or history feed unhealthy,
+an expected delay alone no longer makes `canary status` read ATTENTION, the
+trading-halts feed is not due while US markets are closed, and IBKR's
+Saturday Flex maintenance is an expected delay for the statement it delays.
 
 Version 3.41 adopts policy files left in the old directory. Through v3.34.1
 the four policy files lived in `~/.config/ibkr/policies`; v3.35.0 moved their
