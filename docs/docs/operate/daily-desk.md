@@ -1,6 +1,6 @@
 # The daily desk
 
-Updated: 2026-11-07 07:37 CET
+Updated: 2026-11-22 09:20 CET
 
 The recurring loop, in the order a trading day runs it. Each command is followed by the decision it supports. [Your first session](../start/first-session.md) explains what these screens contain; this page assumes you already know and only tells you when to look.
 
@@ -11,7 +11,7 @@ canary status
 canary brief
 ```
 
-`canary status` shows Canary's overall health and the reason for any concern before the broker-session details. A calendar or data-source problem can require attention while the gateway remains connected. Amber rows retain their own concerns, including execution visibility and phone delivery; they do not all determine the headline. The command exits 1 when the gateway is not connected, so it also works as a connection guard in a script; exit 0 does not mean every source is healthy. `--json` carries the daemon's full verdict and evidence.
+`canary status` shows Canary's overall health, the reason for any concern, and whether you can trade, before the broker, trading and Canary rows. A calendar or data-source problem can require attention while the gateway remains connected. Amber rows retain their own concerns, including execution visibility and phone delivery; they do not all determine the headline. The command exits 1 when the gateway is not connected, so it also works as a connection guard in a script; exit 0 does not mean every source is healthy. `--json` carries the daemon's full verdict and evidence.
 
 `canary brief` opens with assessment completeness and the served portfolio-risk
 reading. **Needs review** keeps reported findings visible even when other inputs
@@ -108,7 +108,9 @@ its own coverage evidence. Failed background chart refreshes retain their retry
 interval after the request finishes, including time spent waiting for pacing.
 
 A stale Regime snapshot labels readings as recorded context; a retained green
-band is not a current rating. The default view keeps thresholds and long source
+band is not a current rating. A reading from a closed market is the current
+rating until that market reopens, as long as it is no older than the age bound
+of its indicator group, which is three to seven days. The default view keeps thresholds and long source
 errors out of the indicator list without discarding them from detail.
 
 One rule about the stress read is worth carrying into every session: account-only stress is evidence, not a trigger. A zero margin cushion with no confirmed market pressure renders its evidence row and still returns `stand_down`. The `defend` action needs defensive direction at act severity, confirmed market stress, high portfolio fit, and healthy inputs together.

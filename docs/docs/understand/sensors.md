@@ -1,6 +1,6 @@
 # Sensors
 
-Updated: 2026-11-18 21:35 CET
+Updated: 2026-11-22 09:20 CET
 
 A sensor is one measurement the daemon keeps current from broker and public
 sources, such as the market regime or the stress on the book you hold. Each
@@ -67,9 +67,9 @@ word can appear in more than one, with the same sense:
 |---|---|---|---|
 | `ok` | source health, Regime row status | The source delivered a complete, current observation. | Use the value subject to its quality and scope. |
 | `current` | refresh progress | The source refresh is complete and no newer observation is due. | Use the value subject to its quality and scope. |
-| `fresh` | Regime row freshness | The row is within its native publication cadence. | The only state that may confirm stress. |
+| `fresh` | Regime row freshness | The row is within its native publication cadence. | The only state in which a red row can earn confirmation. |
 | `ready` | breadth state | A completed breadth snapshot can be served. | Read its freshness and coverage before use. |
-| `not_due` | refresh progress, Regime row freshness | The source's publication or trading window is closed, so no newer observation should exist yet. | Keep valid last-good context visible, but do not promote it to fresh confirmation. |
+| `not_due` | refresh progress, Regime row freshness | The source's publication or trading window is closed, so no newer observation should exist yet. | Keep the last reading visible. A red row that had confirmed keeps its confirmation; one that had not cannot gain it. |
 | `partial` | source health | Some expected fields, symbols, or child sources arrived and others did not. | Use only the explicitly complete part; absence elsewhere is unknown. |
 | `pending` | refresh progress, Regime row freshness | A refresh for the current publication period is in flight, evidenced by a typed marker, inside a bounded window anchored to the period start. | Keep the previous period's value visible as context; it never becomes fresh confirmation, and the state expires into `overdue` at the window's deadline. |
 | `stale` | source health, Regime row freshness, Regime row status | A known value is older than its allowed evidence window or a due refresh failed. | Display as old context; dependent decisions normally degrade or block. |
@@ -213,9 +213,12 @@ reports raw and confirmed cluster counts, source health, posture, a semantic
 fingerprint, and one of `quiet`, `early_warning`, `confirmed_stress`, `panic`,
 `stabilization`, `opportunity`, or `data_quality`.
 
-Red does not automatically mean confirmed. Only a `fresh` observation may
-confirm, and the check is an allowlist: a state whose authority has not been
-decided cannot inherit confirmation. Depth, persistence and freshness decide
+Red does not automatically mean confirmed. Only a `fresh` observation can
+earn confirmation, and the check is an allowlist: a state whose authority has
+not been decided cannot inherit it. A row that had confirmed keeps its
+confirmation while its own reading is `not_due`, because no newer reading can
+exist then; a `pending`, `stale` or `overdue` row loses it, and so does a row
+older than its group's age bound of three to seven days. Depth, persistence and freshness decide
 whether a red row may confirm stress, and its role decides what that is worth:
 volatility, funding and cash credit spreads are stress witnesses and can start
 a warning; the HYG/SPY proxy, USD/JPY, gamma and breadth are co-signs that
@@ -310,7 +313,8 @@ deadline without a current-session result.
 The FX carry proxy follows its venue instead of a publication clock. IDEALPRO
 trades one continuous weekly session, so USD/JPY needs a live tick only while
 that session is open; the weekend and the daily 17:00-17:15 ET changeover are
-`not_due` context on the last tick, not a dead feed.
+`not_due` on the last tick, not a dead feed. A USD/JPY red that had confirmed
+keeps its confirmation through both.
 
 Breadth counts only constituent windows whose last bar matches the requested
 trading session. Successful windows are checkpointed every ten names, so a

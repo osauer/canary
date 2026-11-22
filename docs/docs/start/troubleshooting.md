@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Updated: 2026-11-13 04:30 CET
+Updated: 2026-11-22 09:20 CET
 
 Each section below starts from a symptom, names the cause and gives the fix. Start with `canary status`: it prints one of four verdicts (`READY`, `STARTING`, `ATTENTION`, `OFFLINE`), waits up to 25 seconds for the API handshake to land, and exits 1 while the gateway is not connected. For missing or degraded inputs, run `canary data health`.
 
@@ -14,10 +14,10 @@ it needs it. Otherwise the row carries one short sentence per difference, each
 naming the setting as TWS or IB Gateway labels it and what it costs you:
 
 ```text
-Gateway setup  Master API client ID is not 15: orders and fills from TWS or
-               other apps stay unseen. · read 08:36
-               Open orders are not downloaded at connect: orders placed
-               elsewhere stay unseen.
+  Gateway setup  Master API client ID is not 15: orders and fills from TWS or
+                 other apps stay unseen. · read 08:36
+                 Open orders are not downloaded at connect: orders placed
+                 elsewhere stay unseen.
 ```
 
 The settings it checks, in Configure → Settings → API → Settings unless noted:
@@ -169,8 +169,9 @@ another section. The message names the key and the line. Fix it in
 `~/.config/ibkr/config.toml` and run `canary restart`.
 
 Any other part of the file that cannot be read never stops the daemon. It runs
-on Canary's default for that part and says so: `canary status` shows
-`config:degraded` with the keys, the brief carries a `config` row, and the
+on Canary's default for that part and says so: the `Services` row of `canary
+status` shows `config:degraded`, `canary status --json` names the keys under
+`subsystems`, the brief carries a `config` row, and the
 alert inbox a "Config file needs attention" notice. While `[trading]`,
 `[auto_trade]` or `[rulebook]` runs on defaults, pre-authorised protection
 submission pauses; manual exits, trims and reads continue. Fix the file and
@@ -188,8 +189,8 @@ To replace a running daemon deliberately, use `canary restart`. It stops the old
 
 `canary trading status` and order commands report `daemon_storage_unavailable`
 with this message; the code in it is `lost_write` or `outside_opener`. `canary
-status` shows `Subsystem issue: storage unavailable: authoritative persistence
-is latched fail-closed`. The daemon found that its database no longer matched
+status` reads `ATTENTION` with the reason `storage requires attention`, and its
+`Services` row shows `storage:unavailable`. The daemon found that its database no longer matched
 what it had just saved, or that another program had opened the database, and it
 stopped sending orders rather than act on a state it cannot trust. Reading still
 works.
@@ -273,7 +274,7 @@ and the daily brief to distinguish `cold`, `computing`, `ready`, and `degraded`.
 A `ready` reading is one specific session's close. The brief retains that date
 and marks it stale when it is no longer the latest completed session. The daemon
 keeps serving last-good rather than publishing a partial replacement; `canary
-status` carries the subsystem cause and retry state.
+status --json` carries the cause under `subsystems`.
 
 Computing for a long time is expected on a fresh daemon. IBKR's historical-data pacing caps the 503-name fan-out at about 6 names a minute, so the first build takes about 74 minutes. A pass that lands below 80% constituent coverage publishes nothing. The engine keeps the names it did fetch and tries again every 12 minutes until a pass reaches 80%; there is no limit on the number of tries. While the broker connection or its historical-data farm is unusable, it checks every 60 seconds instead. Once a snapshot is published, the normal once-daily refresh takes over, 35 minutes after the official session close.
 

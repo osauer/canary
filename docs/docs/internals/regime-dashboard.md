@@ -1,6 +1,6 @@
 # Regime dashboard contract
 
-Updated: 2026-11-19 06:20 CET
+Updated: 2026-11-22 09:20 CET
 
 The daemon's Regime engine classifies the broad-market stress lifecycle as `quiet`,
 `early_warning`, `confirmed_stress`, `panic`, `stabilization`, `opportunity`,
@@ -379,15 +379,22 @@ Cluster currency is the worst of its rows, never the primitive.
 | Class | Meaning | May confirm | Visible / bands | Cost to the read |
 | --- | --- | --- | --- | --- |
 | `fresh` | current under the row's own cadence | yes | yes | none |
-| `not_due` | the publication window is closed, so no newer observation can exist | no | yes | none |
+| `not_due` | the publication window is closed, so no newer observation can exist | keeps a confirmation earned while `fresh`; cannot gain one | yes | none |
 | `pending` | the current period's refresh is in flight, typed and inside a bounded window anchored to the period start | no | yes | none |
 | `stale` | a known value older than its window, or a due refresh that failed, inside an explicit tolerance | no | yes | degrades readiness |
 | `overdue` | a newer observation should exist and no bounded excuse applies; also the class for missing or untyped evidence | no | policy per row | data-quality defect |
 
-Confirmation is an allowlist on `fresh`, so a class added later cannot inherit
-authority. Both scheduled classes are bounded by the cluster's served
-`max_age_seconds`, so a dead subscription still serving its last value reaches
-`overdue` rather than reading healthy off-hours.
+A red earns confirmation only while `fresh`, and that check is an allowlist,
+so a class added later cannot inherit authority. A row that had confirmed
+keeps its confirmation while it is `not_due`, for a witness and a co-sign
+alike; a co-sign still counts only beside a standing witness. Both scheduled
+classes are bounded by the cluster's served `max_age_seconds`, so a dead
+subscription still serving its last value reaches `overdue` rather than
+reading healthy off-hours. The bounds are four days for volatility, USD/JPY
+and breadth, seven for credit and funding, and three for gamma. A row older
+than its cluster's bound is not a current rating either, whatever its
+schedule says: `canary regime` shows it as recorded, and `current` is false on
+its row in `canary regime --json --view monitor`.
 
 Two inputs may read `pending`. Dealer gamma is `pending` for 30
 minutes from the options open while the session's first compute is in flight
@@ -439,7 +446,7 @@ thresholds; values live in `internal/rpc/history_index.go`):
 | HY OAS | band is the gate | n/a | 1 | series <= 7d | < 5.25 and widening < 0.85 pp |
 | Funding | band is the gate | n/a | 1 | series <= 7d | < 65 bp |
 | USD/JPY | band is the gate (speed is depth) | n/a | 1 | live tick while IDEALPRO trades (Sunday 17:15 to Friday 17:00 ET); the weekend and the daily 17:00-17:15 ET changeover are `not_due`, not overdue | yen move < 1.5% |
-| Dealer gamma | gamma-weighted SPY/SPX signed model depth >= 0.5% | short-gamma depth >= 4.5%, or a wholly-short profile | 1 | compute within current NY trading date (prior-date cache = `stale`, warns only) | signed depth < -0.5% |
+| Dealer gamma | gamma-weighted SPY/SPX signed model depth >= 0.5% | short-gamma depth >= 4.5%, or a wholly-short profile | 1 | compute within current NY trading date (before the next open a prior-date result is `not_due` and keeps a confirmation it had earned; from the open until the session's first compute it does not confirm) | signed depth < -0.5% |
 | Breadth | <= 38% | <= 30% | 2 | last completed session's compute | > 45% |
 
 Dealer gamma's depth averages the two indexes by each one's gross gamma
@@ -480,7 +487,7 @@ records what the two sources established:
 | `unverified` | No usable official close within one session of the last completed window. | `overdue` |
 
 Only a vouched leg may read `not_due`, because `not_due` exempts a row from
-every age bound. The served row carries `vix3m_source`, `vix3m_official`,
+every age bound short of the cluster's served maximum. The served row carries `vix3m_source`, `vix3m_official`,
 `vix3m_official_date`, and — on a disagreement — the broker's own
 `vix3m_gateway_last`, so the discrepancy is inspectable rather than asserted. A
 disagreement also raises `vix3m_source_disagreement`. An `unverified` verdict

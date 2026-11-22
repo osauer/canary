@@ -1,6 +1,6 @@
 ---
 translation-of: docs/docs/start/troubleshooting.md
-source-revision: 878809c383cfb140aa2d8e0af56d5d6830e80b03
+source-revision: b0b97e2003f025647b371085cac105823bea42ea
 nav-title: 故障排除
 summary: 閘道無法連接、報價過時、守護程序無法啟動，以及解答每個問題的日誌。
 description: Canary 以症狀為先的修復方法：閘道探測和握手錯誤、無法啟動的守護程序、延遲或凍結的報價、市場廣度和 Gamma 的狀態、MCP 主機接線，以及日誌的位置。
@@ -8,19 +8,19 @@ description: Canary 以症狀為先的修復方法：閘道探測和握手錯誤
 
 # 故障排除 {#troubleshooting}
 
-更新：2026-11-04 09:23 CET
+更新：2026-11-22 09:40 CET
 
-症狀、原因、修復。先從 `canary status` 開始：它印出四種判斷之一（`READY`、`STARTING`、`ATTENTION`、`OFFLINE`），最多等待 25 秒讓 API 握手完成，並在閘道未連線時以 1 退出。對於缺失或退化的輸入，執行 `canary data health`。
+以下每節從一個症狀開始，指出原因並給出修復方法。先從 `canary status` 開始：它印出四種判斷之一（`READY`、`STARTING`、`ATTENTION`、`OFFLINE`），最多等待 25 秒讓 API 握手完成，並在閘道未連線時以 1 退出。對於缺失或退化的輸入，執行 `canary data health`。
 
 ## `Gateway setup` 行說某項設定不同 {#the-gateway-setup-row-says-a-setting-differs}
 
 每次連線後數秒，守護程序會在一個獨立的短暫連線上讀取一次應用程式的 API 設定（與下文 `--details` 相同的讀取），而 `canary status` 把結果印為 `Gateway setup` 行。`as expected` 表示 Canary 依賴的每項設定都符合所需。否則該行會為每個差異帶一個短句，各自按 TWS 或 IB Gateway 的標籤命名該設定，並說明它對你的代價：
 
 ```text
-Gateway setup  Master API client ID is not 15: orders and fills from TWS or
-               other apps stay unseen. · read 08:36
-               Open orders are not downloaded at connect: orders placed
-               elsewhere stay unseen.
+  Gateway setup  Master API client ID is not 15: orders and fills from TWS or
+                 other apps stay unseen. · read 08:36
+                 Open orders are not downloaded at connect: orders placed
+                 elsewhere stay unseen.
 ```
 
 它檢查的設定，除另有說明外都在 Configure → Settings → API → Settings： `Read-Only API`（當 `[trading].mode` 是 paper 或 live 時必須關閉）、`Master API client ID`（Canary 的客戶端 ID）、`Download open orders on connection` （開啟）、`Reject messages above maximum allowed message rate`（關閉：開啟時三次拒絕就會切斷工作階段）、守護程序撥接迴環位址時的受信任 IP 清單（`Allow connections from localhost only` 開啟，或 `127.0.0.1` 受信任；否則每次重新連線都要等待一次點擊）、API 日誌等級（`Detail` 增長很快）和 `Include market data in API log file`（關閉），以及 Lock and Exit 下的每日 `Auto restart`（登出會讓 Gateway 處於已登出狀態）。經紀商沒有回報的設定不算差異。`not read yet` 表示讀取尚未完成或無法進行；原因跟在後面。Canary 永不更改設定：請在應用程式中修正，該行會在下一次連線或 `canary status --details` 時更新。
@@ -101,19 +101,21 @@ Gateway API 存取與經紀商報表是分開的。新安裝可以成功連線�
 
 一則相關訊息 `none of N discovered endpoint(s) completed TWS handshake (tried ...)` 表示有幾個應用程式接受了 TCP 而沒有一個完成握手。它列出嘗試過的每個端點，通常是一個過時的 Gateway 視窗連同一個剛登入的 TWS。退出你不想要的那個。
 
-## `daemon socket did not appear within 5s` {#daemon-socket-did-not-appear-within-5s}
+## `daemon socket did not appear within …` 或 `daemon pid N exited during startup` {#daemon-socket-did-not-appear-within--or-daemon-pid-n-exited-during-startup}
 
-當 socket 不存在時，CLI 會自動啟動 `canary daemon`，並給它 5 秒的預算到達其接受迴圈。此訊息表示它沒有做到，所以守護程序在啟動期間崩潰或卡住了。
+當 socket 不存在時，CLI 會自行啟動 `canary daemon`，並等待 socket 出現。等待時間隨守護程序狀態的大小增加，因為守護程序在接受連線之前會檢查全部狀態，並可能升級它。等待時間是 5 秒，另加 `daemon.db` 每 40 MiB 6 秒，上限四小時，而訊息會印出它所用的等待時間，例如 1 GiB 的資料庫是 `daemon socket did not appear within 2m41s`。此訊息表示等待結束時守護程序仍在運行，卻沒有開啟 socket，所以它在啟動期間卡住了。
+
+在啟動期間退出的守護程序會即時回報，不會等完整段時間：`daemon pid N exited during startup without opening PATH`。
 
 錯誤帶有 CLI 能查明的資訊。當鎖定持有者仍在運行時，它加上 `daemon PID N holds PATH but never opened the socket` 和 `if it's stuck, run: kill N`。當守護程序日誌的最後一行可讀時，它附上 `last daemon log: ...`。在終止任何東西之前，先閱讀 `~/.local/state/ibkr/ibkr-daemon.log` 的完整日誌。
 
-如果守護程序日誌以關於 `daemon authority`、`daemon.db` 或預覽金鑰的 `start:` 行結尾，表示啟動完整性檢查失敗，守護程序刻意保持停止；請依照 [從失敗的啟動檢查中復原](../internals/storage.md#recover-from-a-failed-startup-check)。
+如果訊息說守護程序已退出，而 `last daemon log` 一行以 `start:` 開頭並提到 `daemon authority`、`daemon.db` 或預覽金鑰，表示啟動完整性檢查失敗，守護程序刻意保持停止；請依照 [從失敗的啟動檢查中復原](../internals/storage.md#recover-from-a-failed-startup-check)。
 
 ## 守護程序在啟動時因設定錯誤而停止 {#the-daemon-stops-at-start-with-a-config-error}
 
 守護程序日誌或 `canary daemon` 的輸出顯示 `config ...: ... The [gateway] pins and [trading].mode decide which broker account Canary acts on`。 Canary 無法讀取決定經紀商帳戶的設定：檔案本身、某個 `[gateway]` 固定值（`host`、`port`、`account`、`client_id`、`tls`）或 `[trading].mode`。當 `[gateway]` 或 `[trading]` 帶有它不認識的鍵時它也會停止，因為那可能是拼錯的固定值，或者固定值的名稱放在了另一個區段。訊息會指出鍵和行號。在 `~/.config/ibkr/config.toml` 中修正並執行 `canary restart`。
 
-檔案中任何其他無法讀取的部分永遠不會停止守護程序。它以 Canary 對該部分的預設值運行並如此說明：`canary status` 顯示 `config:degraded` 並列出鍵，簡報帶有一行 `config`，警報收件匣有一則「Config file needs attention」通知。當 `[trading]`、`[auto_trade]` 或 `[rulebook]` 以預設值運行時，預先授權的保護提交會暫停；手動平倉、減倉和讀取繼續。修正檔案並執行 `canary restart` 以清除。
+檔案中任何其他無法讀取的部分永遠不會停止守護程序。它以 Canary 對該部分的預設值運行並如此說明：`canary status` 的 `Services` 行顯示 `config:degraded`，`canary status --json` 在 `subsystems` 下列出鍵，簡報帶有一行 `config`，警報收件匣有一則「Config file needs attention」通知。當 `[trading]`、`[auto_trade]` 或 `[rulebook]` 以預設值運行時，預先授權的保護提交會暫停；手動平倉、減倉和讀取繼續。修正檔案並執行 `canary restart` 以清除。
 
 ## 第二個守護程序無法啟動 {#a-second-daemon-will-not-start}
 
@@ -122,6 +124,30 @@ Gateway API 存取與經紀商報表是分開的。新安裝可以成功連線�
 崩潰的守護程序遺留的 socket 檔案也不是問題。新的守護程序會撥接探測它：沒有回應表示過時，會自動移除。鎖被持有而仍有即時回應是不可能的情況，它會以 `socket PATH already serving despite holding lock; refusing to evict` 大聲失敗。
 
 要刻意替換運行中的守護程序，使用 `canary restart`。它停止舊程序，從目前的二進位檔啟動新程序，並回報閘道健康狀況。
+
+## `daemon authoritative storage reported lost_write; broker writes are blocked` {#daemon-authoritative-storage-reported-lost-write-broker-writes-are-blocked}
+
+`canary trading status` 和訂單指令會以此訊息回報 `daemon_storage_unavailable`；訊息中的代碼是 `lost_write` 或 `outside_opener`。`canary status` 顯示 `ATTENTION`，原因是 `storage requires attention`，而其 `Services` 行顯示 `storage:unavailable`。守護程序發現其資料庫與它剛儲存的內容不再相符，或者有另一個程式開啟了資料庫，於是停止發送訂單，而不按它無法信任的狀態行事。讀取仍然正常。
+
+- `lost_write`：守護程序儲存了一項更改，之後讀回的卻是較舊的狀態。
+- `outside_opener`：另一個程式繞過了守護程序對 `daemon.db` 的鎖，這很罕見。
+
+無論哪種情況，停止狀態都會維持到重啟為止：
+
+1. 已在經紀商處的訂單會留在那裏。期間請在 TWS 或另一個 IBKR 應用程式中更改或取消它們。
+2. 關閉任何其他開啟了 `daemon.db` 的程式，例如資料庫瀏覽器或指令碼。
+3. 守護程序會把其資料庫檔案複製到狀態資料夾（預設為 `~/.local/state/ibkr/`）內 `damaged/` 下的一個資料夾。請等到守護程序日誌（同一狀態資料夾中的 `ibkr-daemon.log`）指出該資料夾為止：在此之前重啟會失去該副本。
+4. 執行 `canary restart`，然後執行 `canary status`。
+
+該副本包含你的帳戶數據，用完後請刪除。[儲存](../internals/storage.md)解釋這兩項檢查。
+
+## 另一個程式開啟 `daemon.db` 時出現 `database is locked` {#database-is-locked-when-another-program-opens-daemondb}
+
+這是預期的。守護程序運行時獨佔 `daemon.db`，所以 `sqlite3` 和類似工具會被拒絕，而守護程序繼續運作。只複製檔案的備份和同步工具不會干擾它。要自行讀取資料庫，請使用帶 `--json` 的 `canary` 指令，或先以 `canary stop --daemon` 停止守護程序。
+
+## `bad_request` 連同 `decode params: json: unknown field` {#bad-request-with-decode-params-json-unknown-field}
+
+守護程序會拒絕帶有其方法沒有宣告的欄位的請求；訊息會指出該欄位。常見原因是 `canary` 指令或 MCP 外掛程式與守護程序的版本不同，或者你自己呼叫守護程序的指令碼中有拼錯的欄位。請一併更新指令、外掛程式和守護程序，執行 `canary restart`，並修正指令碼中的欄位。
 
 ## `CLI version X does not match daemon version Y` {#cli-version-x-does-not-match-daemon-version-y}
 
@@ -148,7 +174,7 @@ Canary: warning: CLI version X does not match daemon version Y — run `canary r
 
 守護程序在每次連線時刻意向閘道請求市場數據類型 2（支援凍結）：類型 1（純即時）在收市時可能讓快照請求懸而未決，而類型 2 會改為回傳最後已知的價格。如果你預期某個代號是 `live` 卻得到 `delayed`，修復方法是在 IBKR 的帳戶管理中訂閱市場數據，而不是在這裏更改。
 
-閘道在凍結模式下只發送一次快照，永不串流。在 v3 中，請查看相關的持倉或應用程式行及其交易時段背景；獨立的報價監看指令已經停用。
+閘道在凍結模式下只發送一次快照，永不串流。要了解某個報價的背景，請查看相關的持倉或應用程式行及其交易時段。
 
 ## 持有的名稱在隔夜閘道重設後停止更新 {#a-held-name-stopped-updating-after-an-overnight-gateway-reset}
 
@@ -162,9 +188,9 @@ IBKR 的每夜重設可以讓閘道在一段時間內對所有東西回答「no 
 
 冷的或仍在計算的引擎還沒有讀數。使用 `canary status --json` 和每日簡報分辨 `cold`、`computing`、`ready` 和 `degraded`。
 
-一個 `ready` 讀數是某個特定交易時段的收市值。簡報保留該日期，並在它不再是最新完成的交易時段時標記為過時。守護程序繼續提供最後良好值，而不會發佈部分的替代值；`canary status` 帶有子系統的原因和重試狀態。
+一個 `ready` 讀數是某個特定交易時段的收市值。簡報保留該日期，並在它不再是最新完成的交易時段時標記為過時。守護程序繼續提供最後良好值，而不會發佈部分的替代值；`canary status --json` 在 `subsystems` 下帶有原因。
 
-在新的守護程序上計算很長時間是預期的。IBKR 的歷史數據節流把 503 個名稱的展開限制在每分鐘約 6 個名稱，所以首次構建大約需要 74 分鐘。一次成份股覆蓋率低於 80% 的掃描不會發佈任何東西，每 12 分鐘重試一次，最多 15 次，這可能把等待時間拉長不少。之後狀態退回 `cold`，由正常的每日一次更新接手，在官方交易時段收市後 35 分鐘進行。
+在新的守護程序上計算很長時間是預期的。IBKR 的歷史數據節流把 503 個名稱的展開限制在每分鐘約 6 個名稱，所以首次構建大約需要 74 分鐘。一次成份股覆蓋率低於 80% 的掃描不會發佈任何東西。引擎保留它已擷取的名稱，每 12 分鐘再試一次，直到某次掃描達到 80% 為止；次數不設上限。當經紀商連線或其歷史數據農場無法使用時，它改為每 60 秒檢查一次。快照一經發佈，就由正常的每日一次更新接手，在官方交易時段收市後 35 分鐘進行。
 
 ## Gamma 顯示 `no data yet (cold cache)` 或 `computing` {#gamma-says-no-data-yet-cold-cache-or-computing}
 
@@ -172,7 +198,7 @@ IBKR 的每夜重設可以讓閘道在一段時間內對所有東西回答「no 
 
 冷表示沒有可用的結果，也沒有東西在計算。守護程序在閘道啟動後預熱 Gamma，並在美國期權常規交易時間內，於 15 分鐘的軟性 TTL 之後在已提供的值背後更新。在這些時間以外，自動更新根本不到期，所以非交易時間的冷快取會刻意保持冷，而不是對已收市的市場運行沉重的期權鏈展開。
 
-`canary status --json` 和應用程式會顯示計算中的狀態、進度和型別化的故障，沒有已停用的強制/不等待指令控制。
+`canary status --json` 和應用程式會顯示計算中的狀態、其進度，以及故障的原因。
 
 在美國期權常規交易時間內，SPY 或 SPX 上的 IBKR 354 會為該標的觸發一次延遲重試。成功的結果在文字中顯示 `15m delayed`，在 JSON 中帶有 `data_type: "delayed"`。Canary 只在現貨和期權模型的 tick 共用該延遲時鐘時才接受它；它不會把延遲報價變成即時數據。如果延遲的期權模型 tick 也失敗， Gamma 保持不可用，而錯誤仍會指出 IBKR 354。
 

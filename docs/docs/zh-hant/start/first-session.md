@@ -12,13 +12,27 @@ description: Canary 首次使用的七步導覽：閘道健康、帳戶、持倉
 
 本導覽只使用唯讀指令。它假設 Canary 已安裝，並且有一個本機 IB Gateway 或 TWS 工作階段可用。[安裝與首次運行](install.md)涵蓋設定。
 
-## 1. 證明授權來源 {#1-prove-the-authority}
+## 1. 檢查連線 {#1-check-the-connection}
 
 ```sh
 canary status
 ```
 
-先看已連線的帳戶模式和閘道端點，然後讀取儲存、子系統、數據農場和背景工作的健康狀況。閒置的守護程序是中性的；普通指令會按需啟動它。缺失或過時的來源證據會保持為警告或不可用狀態，而不會變成乾淨的結果。`Executions` 行說明你在 TWS 輸入的成交是否會到達 Canary：只有當 TWS 的 Master API client ID 是 Canary 的客戶端 ID 時才會，詳見[安裝與首次運行](install.md#check-it-worked-canary-status)。
+第一行是 Canary 的整體判斷，其下的 `Trading` 行說明你能否交易：
+
+```text
+Canary  READY
+Trading        disabled
+
+Broker
+  Session        DU0000000 (PAPER) via 127.0.0.1:4002, client 15
+
+Trading
+  Executions     other-client fills not yet observed · required TWS Master API
+                 client ID: 15
+```
+
+`disabled` 是預設值：Canary 讀取你的帳戶，不會落任何訂單。`Session` 行指出帳戶、它是模擬還是真實帳戶，以及 Canary 找到的通訊埠。守護程序是保持經紀商連線的背景程序，在某個指令第一次需要它時會自行啟動。`OFFLINE` 連同 `Reason` 行表示經紀商連線尚未建立；[故障排除](troubleshooting.md)解釋每一則訊息。`Executions` 行說明你在 TWS 輸入的成交是否會到達 Canary：只有當 TWS 的 Master API client ID 是 Canary 的客戶端 ID 時才會，詳見[安裝與首次運行](install.md#check-it-worked-canary-status)。
 
 一個就緒的 Gateway 並不會設定 IBKR 結單。在依賴對帳、按結單推算的權益或 Canary Edge 之前，請先完成[設定經紀商報表](reporting.md)。它為這三個使用方建立一個共用的 Activity Flex Query。然後核對獨立的報表通道：
 

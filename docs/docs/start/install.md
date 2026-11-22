@@ -1,6 +1,6 @@
 # Install and first run
 
-Updated: 2026-11-20 07:59 CET
+Updated: 2026-11-22 09:20 CET
 
 `canary` is one Go binary. It carries the terminal CLI, a local stdio MCP server, and the background daemon that holds the connection to your own IB Gateway or TWS session. Nothing is hosted, and no Python or Java runtime is involved.
 
@@ -74,7 +74,7 @@ Prefer to read it first: `curl -fsSL https://raw.githubusercontent.com/osauer/ca
 
 ## Check it worked: `canary status`
 
-`canary status` is the one command worth memorising. It answers whether the daemon is up, whether the gateway handshake completed, which endpoint and account it landed on, and which subsystem is still warming.
+`canary status` is the one command worth memorising. It answers whether the daemon is up, whether the gateway handshake completed, which endpoint and account it landed on, and which service is still warming.
 
 ```sh
 canary status
@@ -84,7 +84,7 @@ A healthy install prints something close to this. The values below are synthetic
 
 ```text
 Canary  READY
-Trading        paper ready
+Trading        disabled
 
 Broker
   Session        DU0000000 (PAPER) via 127.0.0.1:4002, client 15
@@ -97,22 +97,24 @@ Trading
 
 Canary
   Version        v3.42.0, up 30m42s
+  Services       all 3 ready
+  Data health    12 of 12 sources current
   S&P 500 list   cache:2026-05-22, 503 names
 
 Amber rows need attention. Broker settings: canary status --details
 ```
 
-The badge on the first line is `READY`, `STARTING`, `ATTENTION`, or `OFFLINE`. When it is not `READY`, a `Reason` row directly below it names the cause. The `Trading` row under it says whether you can trade and, if not, what blocks it. The rest is in three groups: the broker connection, trading, and Canary itself. Rows for data farms, market access, background work, services, and data quality appear only when they have something to say. `canary status --details` adds the broker's API settings and how the port was chosen: `discovered` means it came from the probe, `pinned` from your config file.
+The badge on the first line is `READY`, `STARTING`, `ATTENTION`, or `OFFLINE`. When it is not `READY`, a `Reason` row directly below it names the cause. The `Trading` row under it says whether you can trade and, if not, what blocks it. It reads `disabled`, the default, until you set `[trading].mode`. The rest is in three groups: the broker connection, trading, and Canary itself. The `Services` row names only the services that are not ready and counts the rest. Rows for data farms, market access, background work, and data quality appear only when they have something to say. `canary status --details` adds the broker's API settings and how the port was chosen: `discovered` means it came from the probe, `pinned` from your config file.
 
 The `Executions` row reports evidence of fills from other clients. Before one is observed, visibility is unproven even if TWS is already configured correctly. TWS reports fills entered by hand or by other API clients only to its master client, so the execution cost report and the decision scorecard see them only after you set **Global Configuration → API → Settings → Master API client ID** in TWS to Canary's client ID; the row reads `all clients (proven HH:MM)` once the first such fill has been seen, and `canary status --json` carries the same facts under `executions`.
 
 The `Market access` row is the one place a missing IBKR market-data subscription shows up by name, instead of surfacing separately in each feature that needed the data:
 
 ```text
-Market access  SPX not subscribed (IBKR 354, seen 14:03, retry 14:33)
+  Market access  CHECK · SPX not subscribed (IBKR 354, seen 14:03, retry 14:33)
 ```
 
-It lists what the gateway refused, when, and when Canary will ask again — IBKR code 354 means the account is not subscribed to that data. Nothing is switched off because of it: a listed symbol only means a fresh fetch would be refused right now, and features holding a cached result keep serving it. The row is an observation with a 30-minute window, not a record of your entitlements, so a symbol nothing asked for during the window never appears, and a farm outage can put a symbol there that your account does hold. Subscriptions are managed in IBKR Client Portal, not in Canary.
+It lists what the gateway refused, when, and when Canary will ask again. IBKR code 354 means the account is not subscribed to that data. `CHECK` marks a refusal with no delayed data in its place. `INFO` marks one where delayed data arrived instead. Nothing is switched off because of it: a listed symbol only means a fresh fetch would be refused right now, and features holding a cached result keep serving it. The row is an observation with a 30-minute window, not a record of your entitlements, so a symbol nothing asked for during the window never appears, and a farm outage can put a symbol there that your account does hold. Subscriptions are managed in IBKR Client Portal, not in Canary.
 
 On a first run with no IBKR app open, the badge is `OFFLINE` and the `Last attempt` row says what the daemon found and what to do next. The values below are synthetic:
 
@@ -124,9 +126,9 @@ Broker
   Session        auto-detect via 127.0.0.1 (tls=false), client 15
   Market data    unavailable until connected
   TWS            not connected
-  Last attempt   no IBKR listener found on 127.0.0.1 ports [4001 4002 7496
-                 7497] (probe timeout 200ms); no TWS / IB Gateway / IBKR
-                 Desktop process found — start one and Canary will reconnect
+  Last attempt   no IBKR listener found on 127.0.0.1 ports [4001 4002 7496 7497]
+                 (probe timeout 200ms); no TWS / IB Gateway / IBKR Desktop
+                 process found — start one and Canary will reconnect
                  automatically
 
 Canary

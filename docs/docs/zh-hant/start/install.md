@@ -1,6 +1,6 @@
 ---
 translation-of: docs/docs/start/install.md
-source-revision: b2211b4bca2bd59bd138c40d6d0bb2ebb8a78893
+source-revision: 38a7b7d536bc5f241e3a7c1f77dffc50062c97f6
 nav-title: 安裝與首次運行
 summary: 先決條件、各種安裝方式，以及證明閘道可達的第一批指令。
 description: 把 Canary 接上盈透證券（Interactive Brokers）帳戶：連線前必須運行甚麼、在 macOS 或 Linux 上選擇哪種安裝方式、如何解讀狀態健康檢查，以及二進位檔、設定、狀態和日誌寫到哪裏。
@@ -8,7 +8,7 @@ description: 把 Canary 接上盈透證券（Interactive Brokers）帳戶：連�
 
 # 安裝與首次運行 {#install-and-first-run}
 
-更新：2026-11-04 09:23 CET
+更新：2026-11-22 09:40 CET
 
 `canary` 是一個 Go 二進位檔。它包含終端機 CLI、本機 stdio MCP 伺服器，以及保持與你自己的 IB Gateway 或 TWS 工作階段連線的背景守護程序（daemon）。沒有任何部分是託管的，也不涉及 Python 或 Java 執行環境。
 
@@ -25,11 +25,7 @@ description: 把 Canary 接上盈透證券（Interactive Brokers）帳戶：連�
 
 在 Linux 上，`canary stop`、`canary restart` 以及 `canary update` 之後的重啟都從 `/proc` 讀取程序身份，所以不需要 `ps`，在 Alpine 等 BusyBox 系統上也一樣運作。Canary 向程序發送訊號之前，會檢查守護程序鎖定檔中的 PID 是否正在運行 `canary daemon`，對於無關或無法讀取的程序會拒絕而不發送任何訊號。透過 qemu-user 模擬在 arm64 主機上運行的 amd64 二進位檔會按其解譯器被識別。其他模擬器，例如 Rosetta for Linux、FEX 或 box64，則不會：`stop` 會列出它所看到的指令並讓守護程序繼續運行，請自行用 `kill` 停止。
 
-### 從 v3.26.2 或更早版本升級 {#upgrading-from-v3262-or-earlier}
-
-如果你的應用程式使用含空格的路徑，或者你運行獨立的 HOME/XDG 設定檔，請先使用 `canary update --no-restart`。然後從應用程式原本的設定檔環境呼叫新安裝的 `canary restart`。較舊的更新程式即使替換了檔案，仍以自己的舊重啟程式碼執行啟用，所以其 `--restart` 無法套用這些修正。交易版本的使用者應先透過現有的安裝程序安裝新的交易版本構件，再重啟。
-
-從 v3.26.3 起，應用程式生命週期指令在停止它之前會核對應用程式實際生效的 HOME、socket、設定和狀態路徑。不同或無法讀取的設定檔環境會被拒絕而不停止任何程序；請使用應用程式原本的環境。相對的設定檔路徑和相對的應用程式 `--state-dir`/`--log` 值需要改為絕對路徑。帶有自訂環境或工作目錄的自訂 launchd 工作需要明確的監督程式管理；自動生命週期指令不會觸碰它們。較舊的已儲存監督程式復原記錄沒有設定檔身份：請從其原本的設定檔環境以 `canary setup app` 復原，而不是在目前環境下自動恢復。
+升級現有安裝的做法見[更新](updating.md)。
 
 ## 選擇安裝方式 {#pick-an-install-path}
 
@@ -45,11 +41,11 @@ description: 把 Canary 接上盈透證券（Interactive Brokers）帳戶：連�
 
 [Claude Desktop 安裝頁面](../../claude-desktop-interactive-brokers/index.html)逐步講解套件的安裝。[打包與發佈](../internals/packaging.md)描述每個構件包含甚麼。
 
-產品 v3 及之後的版本使用已簽署的安裝程式、MCPB 或發行版 tarball。自 v3.38.0 起，公開 Go 模組為 `github.com/osauer/canary/v3`，所以每個發行版標籤同時也是 Go 模組版本。`/v2` 路徑止於 v2.8.5；使用 `/v2` 的程式只有改變匯入路徑才會轉換。
+版本 3 透過已簽署的安裝程式、MCPB 或發行版 tarball 安裝。自 v3.38.0 起，公開 Go 模組為 `github.com/osauer/canary/v3`，所以每個發行版標籤同時也是 Go 模組版本。`/v2` 路徑止於 v2.8.5；使用 `/v2` 的程式只有改變匯入路徑才會轉換。
 
 ## 目前原始碼與已簽署的發行版 {#current-source-and-signed-releases}
 
-說明文件和 MCP 探索目錄跟隨 `main`。FX 貢獻和借出費用報表已包含在 v3.16.0 的已簽署二進位檔和 MCPB 中。未來的指令和工具可能在已簽署的發行版之前出現在這裏。請核對你已安裝的 `canary --help` 和[最新發行版](https://github.com/osauer/canary/releases/latest)。
+說明文件和 MCP 探索目錄跟隨 `main`，所以某個指令或工具可能在已簽署的發行版包含它之前就出現在這裏。請核對你已安裝的 `canary --help` 和[最新發行版](https://github.com/osauer/canary/releases/latest)。
 
 要以唯讀版本試用目前的原始碼：
 
@@ -66,8 +62,8 @@ make build GO_TAGS=""
 
 1. 偵測你的作業系統和架構，並拒絕 Darwin 或 Linux 上 arm64 或 amd64 以外的任何組合。
 2. 透過跟隨 `/releases/latest` 的重新導向解析最新發行版，所以它不會呼叫 API，也不可能觸及速率限制。
-3. 下載 tarball、`SHA256SUMS` 和 `SHA256SUMS.asc`。從 v1.0.0 起，缺少簽章會中止安裝，而不會退回到只核對校驗和的路徑。
-4. 從已加標籤的原始碼樹把發行版簽署金鑰匯入一個臨時鑰匙圈，對照 `D98426D48FED85EFA33904694D922A4F922B7D7D` 核對其指紋，並核對簽章。指紋或簽章不符會中止。v1.0.0 及之後的版本需要 `gpg`。
+3. 下載 tarball、`SHA256SUMS` 和 `SHA256SUMS.asc`。缺少簽章會中止安裝，而不會退回到只核對校驗和的路徑。
+4. 從已加標籤的原始碼樹把發行版簽署金鑰匯入一個臨時鑰匙圈，對照 `D98426D48FED85EFA33904694D922A4F922B7D7D` 核對其指紋，並核對簽章。指紋或簽章不符會中止。需要 `gpg`。
 5. 核對 SHA-256 校驗和。
 6. 在解壓前列出壓縮檔內容。`canary`、`LICENSE` 和 `README.md` 以外的任何東西都會被拒絕，符號連結形式的 `canary` 也會被拒絕。
 7. 以 0755 模式把二進位檔安裝到 `~/.local/bin`，或者你設定了 `CANARY_INSTALL_DIR` 的話，安裝到那裏。
@@ -79,7 +75,7 @@ make build GO_TAGS=""
 
 ## 檢查是否成功：`canary status` {#check-it-worked-canary-status}
 
-`canary status` 是唯一值得記住的指令。它回答守護程序是否已啟動、閘道握手是否已完成、它連上了哪個端點和帳戶，以及哪個子系統仍在預熱。
+`canary status` 是唯一值得記住的指令。它回答守護程序是否已啟動、閘道握手是否已完成、它連上了哪個端點和帳戶，以及哪項服務仍在預熱。
 
 ```sh
 canary status
@@ -88,48 +84,63 @@ canary status
 一個健康的安裝會印出接近以下的內容。以下數值皆為虛構：
 
 ```text
-IBKR Gateway  READY
+Canary  READY
+Trading        disabled
 
-Session        DU0000000 via 127.0.0.1:4001 (tls=false, discovered), client 15
-Market data    Live
-Daemon         v1.0.0, up 30m42s
-TWS            API server 178
-Gateway setup  as expected · read 09:02
-Executions     other-client fills not yet observed · check TWS Master API client
-               ID is 15
-SPX members    cache:2026-05-22, 503 names
+Broker
+  Session        DU0000000 (PAPER) via 127.0.0.1:4002, client 15
+  Market data    Live
+  Gateway setup  as expected · read 09:02
+
+Trading
+  Executions     other-client fills not yet observed · required TWS Master API
+                 client ID: 15
+
+Canary
+  Version        v3.42.0, up 30m42s
+  Services       all 3 ready
+  Data health    12 of 12 sources current
+  S&P 500 list   cache:2026-05-22, 503 names
+
+Amber rows need attention. Broker settings: canary status --details
 ```
 
-第一行的標記是 `READY`、`STARTING`、`ATTENTION` 或 `OFFLINE`。Session 行上的 `discovered` 表示通訊埠來自探測；`pinned` 表示它來自你的設定檔。數據農場、市場存取、背景工作、子系統、交易和數據品質的行只在有話要說時才出現，而 `Next concern` 行只在有事項時才出現。
+第一行的標記是 `READY`、`STARTING`、`ATTENTION` 或 `OFFLINE`。不是 `READY` 時，緊接其下的 `Reason` 行會指出原因。再下面的 `Trading` 行說明你能否交易；不能的話，說明是甚麼阻擋。在你設定 `[trading].mode` 之前，它顯示預設值 `disabled`。其餘內容分為三組：經紀商連線、交易，以及 Canary 本身。`Services` 行只列出尚未就緒的服務，其餘的只計數。數據農場、市場存取、背景工作和數據品質的行只在有話要說時才出現。`canary status --details` 會加上經紀商的 API 設定，以及通訊埠是怎樣選定的：`discovered` 表示它來自探測，`pinned` 表示它來自你的設定檔。
 
 `Executions` 行回報來自其他客戶端的成交證據。在觀察到一筆之前，即使 TWS 已正確設定，可見性仍未被證明。TWS 只向其主客戶端回報手動輸入或由其他 API 客戶端輸入的成交，所以執行成本報表和決策記分卡只有在你把 TWS 的 **Global Configuration → API → Settings → Master API client ID** 設為 Canary 的客戶端 ID 之後才會看到它們；看到第一筆這類成交後，該行會顯示 `all clients (proven HH:MM)`，而 `canary status --json` 在 `executions` 下帶有相同的事實。
 
 `Market access` 行是缺少 IBKR 市場數據訂閱唯一會按名稱顯示的地方，而不是在每個需要該數據的功能中分別浮現：
 
 ```text
-Market access  SPX not subscribed (IBKR 354, seen 14:03, retry 14:33)
+  Market access  CHECK · SPX not subscribed (IBKR 354, seen 14:03, retry 14:33)
 ```
 
-它列出閘道拒絕了甚麼、何時拒絕，以及 Canary 何時會再次請求——IBKR 代碼 354 表示帳戶未訂閱該數據。沒有任何東西會因此被關閉：列出的代號只表示此刻重新擷取會被拒絕，而持有快取結果的功能會繼續提供它。該行是一個 30 分鐘視窗內的觀察，不是你訂閱權限的記錄，所以視窗內沒有任何功能請求過的代號永遠不會出現，而數據農場故障也可能把你帳戶確實持有的代號放到那裏。訂閱在 IBKR Client Portal 管理，不在 Canary 內。
+它列出閘道拒絕了甚麼、何時拒絕，以及 Canary 何時會再次請求。IBKR 代碼 354 表示帳戶未訂閱該數據。`CHECK` 標示沒有延遲數據代替的拒絕。`INFO` 標示有延遲數據代替的拒絕。沒有任何東西會因此被關閉：列出的代號只表示此刻重新擷取會被拒絕，而持有快取結果的功能會繼續提供它。該行是一個 30 分鐘視窗內的觀察，不是你訂閱權限的記錄，所以視窗內沒有任何功能請求過的代號永遠不會出現，而數據農場故障也可能把你帳戶確實持有的代號放到那裏。訂閱在 IBKR Client Portal 管理，不在 Canary 內。
 
 首次運行而沒有開啟任何 IBKR 應用程式時，標記是 `OFFLINE`，而 `Last attempt` 行說明守護程序發現了甚麼以及接下來該做甚麼。以下數值皆為虛構：
 
 ```text
-IBKR Gateway  OFFLINE
+Canary  OFFLINE
+Reason         Broker data connection unavailable
 
-Session        auto-detect via 127.0.0.1 (tls=false), client 15
-Market data    unavailable until connected
-Daemon         v1.0.0, just started
-TWS            not connected
-Last attempt   no IBKR listener found on 127.0.0.1 ports [4001 4002 7496 7497]
-               (probe timeout 200ms); no TWS / IB Gateway / IBKR Desktop process
-               found — start one and Canary will reconnect automatically
-Next concern   Broker data connection unavailable
+Broker
+  Session        auto-detect via 127.0.0.1 (tls=false), client 15
+  Market data    unavailable until connected
+  TWS            not connected
+  Last attempt   no IBKR listener found on 127.0.0.1 ports [4001 4002 7496 7497]
+                 (probe timeout 200ms); no TWS / IB Gateway / IBKR Desktop
+                 process found — start one and Canary will reconnect
+                 automatically
+
+Canary
+  Version        v3.42.0, just started
 
   Daemon log: ~/.local/state/ibkr/ibkr-daemon.log
+
+Amber rows need attention. Broker settings: canary status --details
 ```
 
-`Last attempt` 行是守護程序對其上一次連線嘗試的判斷，原文照印：沒有運行中的 IBKR 應用程式、應用程式運行中但通訊埠拒絕連線（附上要檢查的設定，或要在 `config.toml` 中固定的 `[gateway]` 通訊埠）、沒有完成的握手，或者接受連線後又中斷的通訊埠。[故障排除](troubleshooting.md)解釋每一則訊息。`Next concern` 行保留守護程序的整體判斷。
+`Last attempt` 行是守護程序對其上一次連線嘗試的判斷，原文照印：沒有運行中的 IBKR 應用程式、應用程式運行中但通訊埠拒絕連線（附上要檢查的設定，或要在 `config.toml` 中固定的 `[gateway]` 通訊埠）、沒有完成的握手，或者接受連線後又中斷的通訊埠。[故障排除](troubleshooting.md)解釋每一則訊息。`Reason` 行保留守護程序的整體判斷。
 
 當守護程序尚未從閘道得到判斷時，`status` 會每 500 毫秒輪詢一次，最多 25 秒後放棄，然後印出守護程序日誌路徑，以及在守護程序尚未說明握手為何停滯時印出 API 檢查清單。閘道未連線時，指令以 1 退出；`canary status --json` 在 `verdict` 下帶有相同的判斷，在 `last_error` 下帶有連線錯誤，所以可在指令碼中使用。
 
@@ -137,9 +148,9 @@ Next concern   Broker data connection unavailable
 
 ## 兩件令人意外的事 {#two-things-that-surprise-people}
 
-**守護程序會自行啟動。** 任何由守護程序支援的指令都會撥接 Unix socket，而當 socket 不存在時，會在自己的工作階段中啟動 `canary daemon`，最多等待 5 秒讓它出現。你永遠不需要手動啟動它。一個守護程序同時服務 CLI 和每個 MCP 主機，所以它們共用一個閘道連線和客戶端 ID。當 15 分鐘內沒有客戶端連線且沒有進行中的背景工作時它會退出，由 `[daemon].idle_timeout` 控制。
+**守護程序會自行啟動。** 任何由守護程序支援的指令都會撥接 Unix socket，而當 socket 不存在時，會在自己的工作階段中啟動 `canary daemon`。它等待 socket 出現的時間是 5 秒，另加 `daemon.db` 每 40 MiB 6 秒，上限四小時，因為守護程序在接受連線之前會檢查整個資料庫，並可能升級它。在啟動期間退出的守護程序會即時回報。你永遠不需要手動啟動它。一個守護程序同時服務 CLI 和每個 MCP 主機，所以它們共用一個閘道連線和客戶端 ID。當 15 分鐘內沒有客戶端連線且沒有進行中的背景工作時它會退出，由 `[daemon].idle_timeout` 控制。
 
-**首次市場廣度構建大約需要 74 分鐘。** 標普 500 市場廣度在本機由成份股的每日 K 線計算，因為 IBKR 不會在零售訂閱中轉發 S&P DJI 的廣度指數。共用的歷史數據限速器允許最初 60 個請求，然後以每秒 0.1 個的速度補充，所以其餘 443 個名稱在冷快取上大約需要 74 分鐘。這段期間沒有任何東西壞了：`canary status` 顯示 `breadth:computing`，而 `Background` 行顯示 `refreshing rolling SPX breadth`。快照只有在覆蓋率達到成份股數目的 80% 時才會發佈；低於此值時，引擎保留它已擷取的各名稱視窗，每 12 分鐘重試一次，15 次後放棄，直到下一次收市後更新。閒置計時器不會中斷構建：市場廣度計為背景工作，所以守護程序會保持運行，直到更新完成或重試預算用盡。之後的更新很快，而且快取在重啟後仍然保留。
+**首次市場廣度構建大約需要 74 分鐘。** 標普 500 市場廣度在本機由成份股的每日 K 線計算，因為 IBKR 不會在零售訂閱中轉發 S&P DJI 的廣度指數。共用的歷史數據限速器允許最初 60 個請求，然後以每秒 0.1 個的速度補充，所以其餘 443 個名稱在冷快取上大約需要 74 分鐘。這段期間沒有任何東西壞了：`canary status` 顯示 `breadth:computing`，而 `Background` 行顯示 `refreshing rolling SPX breadth`。快照只有在覆蓋率達到成份股數目的 80% 時才會發佈；低於此值時，引擎保留它已擷取的各名稱視窗，每 12 分鐘再試一次，直到某次掃描達到 80% 為止，次數不設上限。閒置計時器不會中斷構建：掃描進行期間以及有重試待辦時，市場廣度都計為背景工作，所以守護程序會保持運行，直到快照發佈為止。之後的更新很快，而且快取在重啟後仍然保留。
 
 ## 檔案放在哪裏 {#where-things-land}
 

@@ -1,6 +1,6 @@
 # Updating
 
-Updated: 2026-11-07 07:52 CET
+Updated: 2026-11-22 09:20 CET
 
 Four things can go out of date: the **binary** (`canary` itself), the **Claude Desktop MCPB** when installed through Desktop Extensions, the **S&P 500 constituent list** the breadth indicator uses, and the embedded **official market calendars**. They update independently because they have different sources and cadences.
 
@@ -265,9 +265,9 @@ When pinned, `canary status` shows the reason, `refresh disabled (env)` vs `refr
 `canary status` always carries a one-line summary of the members source and refresh health:
 
 ```
-S&P 500 list  cache:2026-05-22, 503 names                            # healthy
-S&P 500 list  embedded:2026-05-22, 503 names, refresh parse_failed   # Wikipedia changed its page layout
-S&P 500 list  embedded:2026-05-22, 503 names, refresh network_failed  # offline / DNS down
+  S&P 500 list   cache:2026-05-22, 503 names                             # healthy
+  S&P 500 list   embedded:2026-05-22, 503 names, refresh parse_failed    # Wikipedia changed its page layout
+  S&P 500 list   embedded:2026-05-22, 503 names, refresh network_failed  # offline / DNS down
 ```
 
 The `cache:DATE` vs `embedded:DATE` source token tells you whether the in-process list is from the auto-refresh path or the binary's compiled-in fallback. The trailing `refresh <state>` suffix appears only when something needs attention.

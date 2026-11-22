@@ -1,6 +1,6 @@
 # Your first session
 
-Updated: 2026-11-07 08:23 CET
+Updated: 2026-11-22 09:20 CET
 
 This walkthrough uses only read-only commands. It assumes Canary is installed
 and a local IB Gateway or TWS session is available. [Install and first
@@ -13,18 +13,23 @@ excerpts of real output with synthetic values; your rows will differ.
 canary status
 ```
 
-The first line is Canary's overall verdict:
+The first line is Canary's overall verdict, and the `Trading` row under it
+says whether you can trade:
 
 ```text
 Canary  READY
+Trading        disabled
 
-Session        DU0000000 (PAPER) via 127.0.0.1:4002 (tls=false, discovered),
-               client 15
-Executions     other-client fills not yet observed · required TWS Master API
-               client ID: 15
+Broker
+  Session        DU0000000 (PAPER) via 127.0.0.1:4002, client 15
+
+Trading
+  Executions     other-client fills not yet observed · required TWS Master API
+                 client ID: 15
 ```
 
-The `Session` row names the account, whether it is paper or live, and the port
+`disabled` is the default: Canary reads your account and places no orders. The
+`Session` row names the account, whether it is paper or live, and the port
 Canary found. A daemon, the background process that holds the broker
 connection, starts on its own the first time a command needs it. `OFFLINE`
 with a `Reason` row means the broker connection is not up; [Troubleshooting](troubleshooting.md)
