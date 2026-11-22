@@ -49,7 +49,9 @@ func TestStrategyPositionBindingFollowsTheOperation(t *testing.T) {
 		_, err := srv.captureBoundStrategyPositionAuthority(t.Context(), nil, ibkrlib.ConnectorSessionBinding{}, status, d)
 		return err
 	}
-	admitted := func(err error) bool { return err != nil && !strings.Contains(err.Error(), "invalid strategy position binding") }
+	admitted := func(err error) bool {
+		return err != nil && !strings.Contains(err.Error(), "invalid strategy position binding")
+	}
 	for _, tc := range []struct {
 		name  string
 		draft rpc.StrategyOrderDraft
