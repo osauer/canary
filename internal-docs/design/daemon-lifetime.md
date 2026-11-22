@@ -43,8 +43,9 @@ rest of this note is the design as written at 08:05 CET the same day.
 - The installed agent is read through `plutil`, so a file rewritten by a
   macOS tool, to other escaping or to the binary format, is still
   recognised.
-- `canary daemon --remove-agent` stops the daemon, unloads the agent and
-  deletes the file.
+- `canary daemon --remove-agent` unloads the agent and deletes the file. It
+  refuses while the daemon runs: stopping a daemon is `canary stop`, which
+  guards a working order.
 - The job runs as `ProcessType Interactive`. As a `Background` job the
   daemon took 2m15s to start serving where it takes half a minute.
 

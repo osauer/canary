@@ -387,3 +387,49 @@ func TestAnotherSocketNeverReachesTheAgent(t *testing.T) {
 		t.Fatalf("a start on another socket reached launchd: %v", fake.calls)
 	}
 }
+
+// A starter whose time ran out while it read the agent knows nothing about
+// it: it neither replaces nor removes the file, and reports its own error
+// instead of starting a daemon beside the agent.
+func TestCancelledStartLeavesTheAgentAlone(t *testing.T) {
+	fake, home, warnings := agentFixture(t)
+	const bin = "/opt/canary/bin/canary"
+	if _, _, err := startDaemonViaAgent(t.Context(), bin, DefaultSocketPath(), true); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(agentPlistPath(home))
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	fake.calls = nil
+	for _, install := range []bool{false, true} {
+		if _, handled, err := startDaemonViaAgent(cancelled, bin, DefaultSocketPath(), install); !handled || err == nil {
+			t.Fatalf("cancelled start (install=%v): handled=%v err=%v, want the caller's own error", install, handled, err)
+		}
+	}
+	if after, err := os.ReadFile(agentPlistPath(home)); err != nil || string(after) != string(before) || !fake.loaded || fake.called("bootout") || len(*warnings) != 0 {
+		t.Fatalf("a cancelled start touched the agent: err=%v loaded=%v calls=%v warnings=%v", err, fake.loaded, fake.calls, *warnings)
+	}
+}
+
+// The agent's binary and the starter's are the same file also when one of
+// them is reached through a symlink.
+func TestAgentBinaryMatchesThroughASymlink(t *testing.T) {
+	fake, _, _ := agentFixture(t)
+	ctx := t.Context()
+	dir := t.TempDir()
+	real := filepath.Join(dir, "canary-real")
+	link := filepath.Join(dir, "canary")
+	if err := os.WriteFile(real, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := startDaemonViaAgent(ctx, link, DefaultSocketPath(), true); err != nil {
+		t.Fatal(err)
+	}
+	fake.calls = nil
+	if _, handled, err := startDaemonViaAgent(ctx, real, DefaultSocketPath(), false); !handled || err != nil || !fake.called("kickstart") {
+		t.Fatalf("the resolved path did not match the agent installed through the symlink: handled=%v err=%v calls=%v", handled, err, fake.calls)
+	}
+}

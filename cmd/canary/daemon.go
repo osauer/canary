@@ -28,18 +28,29 @@ func runDaemon(args []string) {
 	logPath := fs.String("log", "", fmt.Sprintf("log file path (default %s; 'stderr' for stderr)", dial.DisplayPath(dial.DefaultLogPath())))
 	foreground := fs.Bool("foreground", false, "run in foreground; do not idle-shutdown")
 	showVer := fs.Bool("version", false, "print version and exit")
-	removeAgent := fs.Bool("remove-agent", false, "macOS: stop the daemon and remove its launchd agent; the daemon then starts directly again")
+	removeAgent := fs.Bool("remove-agent", false, "macOS: remove the daemon's launchd agent (stop the daemon first); the daemon then starts directly again")
 	if err := fs.Parse(args); err != nil {
 		os.Exit(2)
 	}
 	if *removeAgent {
+		// Removing the agent stops the daemon it runs. Stopping a daemon is
+		// `canary stop`'s business: it refuses while an order works unless
+		// told otherwise, and this flag must not be a way around that.
+		if dial.SocketPathOverridden() {
+			fmt.Fprintf(os.Stderr, "%s daemon: the launchd agent belongs to the default daemon; unset CANARY_SOCKET to remove it\n", productidentity.Executable)
+			os.Exit(1)
+		}
+		if pid := dial.LockHolderPID(dial.LockPath(dial.DefaultSocketPath())); pid > 0 && dial.IsProcessAlive(pid) {
+			fmt.Fprintf(os.Stderr, "%s daemon: the daemon is running (pid %d); stop it with `%s stop` first, then remove the agent\n", productidentity.Executable, pid, productidentity.Executable)
+			os.Exit(1)
+		}
 		removed, err := dial.RemoveDaemonAgent(context.Background())
 		switch {
 		case err != nil:
 			fmt.Fprintf(os.Stderr, "%s daemon: remove launchd agent: %v\n", productidentity.Executable, err)
 			os.Exit(1)
 		case removed:
-			fmt.Println("Stopped the daemon and removed its launchd agent. The next command starts the daemon directly; `canary restart` installs the agent again.")
+			fmt.Println("Removed the daemon's launchd agent. The next command starts the daemon directly; `canary restart` installs the agent again.")
 		default:
 			fmt.Println("No launchd agent for the daemon is installed.")
 		}

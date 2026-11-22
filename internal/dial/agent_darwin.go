@@ -368,6 +368,17 @@ func RemoveDaemonAgent(ctx context.Context) (bool, error) {
 	return loaded || statErr == nil, unloadErr
 }
 
+// sameExecutable reports whether two paths name one binary, also when one of
+// them reaches it through a symlink.
+func sameExecutable(a, b string) bool {
+	if a == b {
+		return true
+	}
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	return errA == nil && errB == nil && ra == rb
+}
+
 // agentWarn tells the person at the terminal that the daemon is not under
 // the agent although it should be. Silence here would leave the daemon in
 // its starter's coalition with nobody knowing.
@@ -418,6 +429,12 @@ func startDaemonViaAgent(ctx context.Context, bin, socketPath string, install bo
 		return 0, false, nil
 	}
 	file := installedAgent(ctx, home)
+	// A caller whose time ran out while the file was being read knows
+	// nothing about the agent. It must not replace it, remove it or start a
+	// daemon beside it.
+	if err := ctx.Err(); err != nil {
+		return 0, true, err
+	}
 	mine := file.scopeID == agentScopeID(agentScope(home))
 	// A file under Canary's label that names no scope is not another
 	// scope's agent: a restart replaces it, any other start goes direct.
@@ -433,12 +450,15 @@ func startDaemonViaAgent(ctx context.Context, bin, socketPath string, install bo
 		return 0, false, nil
 	case install:
 		if err := installDaemonAgent(ctx, home, bin); err != nil {
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return 0, true, ctxErr
+			}
 			_, _ = RemoveDaemonAgent(ctx)
 			agentWarn("could not install the daemon's launchd agent (%v); the daemon starts directly and stops when the app that started it quits", err)
 			return 0, false, nil
 		}
 	default:
-		if !file.present || !file.isDaemon || file.program != bin {
+		if !file.present || !file.isDaemon || !sameExecutable(file.program, bin) {
 			return 0, false, nil
 		}
 		loaded, err := agentLoaded(ctx)
@@ -464,7 +484,13 @@ func startDaemonViaAgent(ctx context.Context, bin, socketPath string, install bo
 			return pid, true, nil
 		}
 		if time.Now().After(deadline) || ctx.Err() != nil {
-			return 0, true, errors.New("the launchd agent did not start the daemon; see `launchctl print " + agentTarget() + "`")
+			// The usual reason is a daemon that chose to exit at once: a
+			// stop intent, or a config it refuses. Its log says which.
+			msg := "the daemon launchd started did not stay up; see `launchctl print " + agentTarget() + "`"
+			if tail := TailLastLine(DefaultLogPath(), 0); tail != "" {
+				msg += "\n  last daemon log: " + tail
+			}
+			return 0, true, errors.New(msg)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
