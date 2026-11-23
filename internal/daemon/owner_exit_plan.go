@@ -135,7 +135,7 @@ func exitPlanTermsProblem(t rpc.QueuedAuthTerms) string {
 		plan.WaitMinutes < 1 || plan.WaitMinutes > queuedPlanMaxWaitMinutes {
 		return "invalid exit plan link"
 	}
-	if t.Contract.ConID <= 0 || t.Contract.SecType != "OPT" || t.AccountID == "" || !slices.Contains([]string{"paper", "live"}, t.AccountMode) ||
+	if t.Contract.ConID <= 0 || t.Contract.SecType != "OPT" || t.Contract.Right != "C" || t.AccountID == "" || !slices.Contains([]string{"paper", "live"}, t.AccountMode) ||
 		t.Action != rpc.OrderActionSell || t.Currency == "" || t.Currency != t.Contract.Currency || t.ArmDeadline.IsZero() || t.TIF != rpc.OrderTIFDay ||
 		t.MaxQuantity <= 0 || t.MaxQuantity > 1000000 || !positiveFinite(t.PositionQuantity) || math.Trunc(t.PositionQuantity) != t.PositionQuantity ||
 		float64(t.MaxQuantity) > t.PositionQuantity {
@@ -279,6 +279,12 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 	}
 	if contract.SecType != "OPT" || contract.ConID <= 0 {
 		return block("queue_contract_inexact", "An exit plan covers one held single-leg option.")
+	}
+	// The trail sells when the stock falls to its line, which protects a
+	// call; a put gains as the stock falls, so the same line would sell it
+	// at its best, not protect it.
+	if !strings.EqualFold(contract.Right, "C") {
+		return block("queue_right_unsupported", "An exit plan's trail protects a long call; a put is not covered.")
 	}
 	if _, index := rpc.IndexUnderlyingContract(contract.Symbol); index {
 		return block("queue_underlying_unsupported", "An exit plan trails a stock; this option's underlying is an index.")

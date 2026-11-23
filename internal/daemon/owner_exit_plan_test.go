@@ -110,6 +110,7 @@ func TestExitPlanTermsValidation(t *testing.T) {
 		"trail midpoint style":     func(f, tr *rpc.QueuedAuthTerms) { tr.Style = "midpoint_bounded" },
 		"trail concession":         func(f, tr *rpc.QueuedAuthTerms) { tr.Concession = 0.5 },
 		"fractional line":          func(f, tr *rpc.QueuedAuthTerms) { tr.PositionQuantity = 20.5 },
+		"put":                      func(f, tr *rpc.QueuedAuthTerms) { tr.Contract.Right = "P" },
 	} {
 		f, tr := clone(first), clone(trail)
 		edit(&f, &tr)
@@ -220,5 +221,48 @@ func TestBoundedLimitNoWorstPriceIsExplicit(t *testing.T) {
 	q.Ask = &wide
 	if _, err := boundedLimitPrice("SELL", &rpc.OrderBoundedLimit{MaxSpreadPctOfMid: 25, NoWorstPrice: true}, nil, c, q); err == nil {
 		t.Fatal("a spread above the limit priced")
+	}
+}
+
+// The loop checks a trail at least every ten seconds while it is inside its
+// window, sooner while a read at or below the line awaits confirmation, and
+// not at all otherwise: no trail, before not_before, after not_after, or an
+// ended record.
+func TestQueuedTrailTickOnlyInsideTheWindow(t *testing.T) {
+	rig := newQueueTestRig(t)
+	e := rig.engine
+	if _, ok := e.queuedTrailTick(exitPlanTestOpen); ok {
+		t.Fatal("ticks with no trail")
+	}
+	_, trail := exitPlanTestTerms()
+	trail.QueueID = "trail1"
+	digest, _ := queuedTermsDigest(trail)
+	if err := e.queued.update(t.Context(), exitPlanTestOpen, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := &queuedAuthRecord{Version: queuedDocumentVersion, Terms: trail, TermsDigest: digest, CreatedAt: exitPlanTestOpen}
+		records[trail.QueueID] = r
+		return []queuedAuthEvent{r.transition(queuedEventArmed, rpc.QueuedAuthArmed, exitPlanTestOpen)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for name, at := range map[string]time.Time{"before not_before": trail.NotBefore.Add(-time.Second), "at not_after": trail.NotAfter} {
+		if _, ok := e.queuedTrailTick(at); ok {
+			t.Fatalf("ticks %s", name)
+		}
+	}
+	in := trail.NotBefore.Add(time.Minute)
+	if d, ok := e.queuedTrailTick(in); !ok || d != queuedTrailCheckEvery {
+		t.Fatalf("inside the window: %s %v", d, ok)
+	}
+	e.setTrailLive(trail.QueueID, queuedTrailLive{breachAt: in.Add(-2 * time.Second)})
+	if d, ok := e.queuedTrailTick(in); !ok || d != 3*time.Second {
+		t.Fatalf("awaiting confirmation: %s %v", d, ok)
+	}
+	if err := e.queued.update(t.Context(), in, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		return []queuedAuthEvent{records[trail.QueueID].resolve(queuedEventCancelled, rpc.QueuedAuthCancelled, queuedReasonOwnerCancelled, "", in)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.queuedTrailTick(in); ok {
+		t.Fatal("ticks for an ended trail")
 	}
 }

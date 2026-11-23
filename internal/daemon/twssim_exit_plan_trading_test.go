@@ -121,12 +121,12 @@ func planTrail(stop float64) *rpc.QueuedPlanTrail {
 }
 
 // stock moves SYNA and wakes the executor, as the next tick would.
-func (d *simDesk) stock(price float64) {
+func (d *simDesk) planStock(price float64) {
 	d.sim.Book().SetPrice(planSYNA, price)
 	d.srv.tradeProposals.Kick()
 }
 
-func (d *simDesk) waitRecord(what string, id string, budget time.Duration, ok func(queuedAuthRecord) bool) queuedAuthRecord {
+func (d *simDesk) planWaitRecord(what string, id string, budget time.Duration, ok func(queuedAuthRecord) bool) queuedAuthRecord {
 	d.t.Helper()
 	deadline := time.Now().Add(budget)
 	for {
@@ -152,7 +152,7 @@ func (d *simDesk) waitRecord(what string, id string, budget time.Duration, ok fu
 }
 
 // sells are the transmitted option sells, in order.
-func (d *simDesk) sells(conID int) []twssim.PlaceOrder {
+func (d *simDesk) planSells(conID int) []twssim.PlaceOrder {
 	var out []twssim.PlaceOrder
 	for _, o := range d.realPlaces() {
 		if o.ConID == conID && o.Action == "SELL" {
@@ -162,7 +162,7 @@ func (d *simDesk) sells(conID int) []twssim.PlaceOrder {
 	return out
 }
 
-func (d *simDesk) brokerOrderFor(conID int, qty float64) twssim.Order {
+func (d *simDesk) planBrokerOrder(conID int, qty float64) twssim.Order {
 	d.t.Helper()
 	for _, o := range d.sim.Book().Orders() {
 		if o.ConID == conID && o.Action == "SELL" && o.Quantity == qty {
@@ -180,7 +180,7 @@ func requirePlainLimitSell(t *testing.T, o twssim.PlaceOrder, conID int, qty flo
 	}
 }
 
-func (d *simDesk) watchView(id string) rpc.QueuedTrailWatch {
+func (d *simDesk) planWatchView(id string) rpc.QueuedTrailWatch {
 	d.t.Helper()
 	st := d.srv.tradeProposals.QueueStatus(rpc.TradeProposalQueueStatusParams{QueueID: id})
 	if st.Queue == nil || st.Queue.Watch == nil {
@@ -198,14 +198,14 @@ func TestSimulatedTWSExitPlanRallyThenGiveBack(t *testing.T) {
 	minPrice := roundPrice(d.optionPrice(opt.ConID) * 0.9)
 	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: minPrice}, Trail: planTrail(48.50)})
 	first, trail := ids[0], ids[1]
-	if w := d.watchView(trail); w.State != rpc.QueuedWatchWaiting || w.StopPrice != 48.50 {
+	if w := d.planWatchView(trail); w.State != rpc.QueuedWatchWaiting || w.StopPrice != 48.50 {
 		t.Fatalf("before the start: %+v", w)
 	}
-	d.waitRecord("the first sale to be sent", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	d.planWaitRecord("the first sale to be sent", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
 	if time.Now().Before(start) {
 		t.Fatal("sent before the wait ended")
 	}
-	sells := d.sells(opt.ConID)
+	sells := d.planSells(opt.ConID)
 	if len(sells) != 1 {
 		t.Fatalf("first sale: %d sells", len(sells))
 	}
@@ -213,24 +213,24 @@ func TestSimulatedTWSExitPlanRallyThenGiveBack(t *testing.T) {
 	if sells[0].LimitPrice < minPrice {
 		t.Fatalf("first sale below its minimum: %+v", sells[0])
 	}
-	if err := d.sim.Fill(d.brokerOrderFor(opt.ConID, 10).OrderID, 0, 0); err != nil {
+	if err := d.sim.Fill(d.planBrokerOrder(opt.ConID, 10).OrderID, 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	d.waitRecord("the first sale to fill", first, 30*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthFilled })
-	d.waitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater >= 50 })
-	d.stock(52)
-	d.waitRecord("the stop to rise with the stock", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 52 && r.Watch.StopPrice == 50.44 })
-	d.stock(53)
-	rec := d.waitRecord("the stop to rise again", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.StopPrice == 51.41 })
-	if w := d.watchView(trail); w.State != rpc.QueuedWatchWatching || w.HighWater != 53 || w.StockPrice != 53 {
+	d.planWaitRecord("the first sale to fill", first, 30*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthFilled })
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater >= 50 })
+	d.planStock(52)
+	d.planWaitRecord("the stop to rise with the stock", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 52 && r.Watch.StopPrice == 50.44 })
+	d.planStock(53)
+	rec := d.planWaitRecord("the stop to rise again", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.StopPrice == 51.41 })
+	if w := d.planWatchView(trail); w.State != rpc.QueuedWatchWatching || w.HighWater != 53 || w.StockPrice != 53 {
 		t.Fatalf("watching: %+v", w)
 	}
-	if n := len(d.sells(opt.ConID)); n != 1 || rec.State != rpc.QueuedAuthArmed {
+	if n := len(d.planSells(opt.ConID)); n != 1 || rec.State != rpc.QueuedAuthArmed {
 		t.Fatalf("the rally sold: %d sells, %s", n, rec.State)
 	}
-	d.stock(51.40)
-	rec = d.waitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
-	sells = d.sells(opt.ConID)
+	d.planStock(51.40)
+	rec = d.planWaitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	sells = d.planSells(opt.ConID)
 	if len(sells) != 2 {
 		t.Fatalf("give-back: %d sells", len(sells))
 	}
@@ -238,11 +238,11 @@ func TestSimulatedTWSExitPlanRallyThenGiveBack(t *testing.T) {
 	if rec.Watch.TriggerPrice != 51.40 || rec.Watch.TriggeredAt.IsZero() || rec.QuantitySent != 10 {
 		t.Fatalf("trigger: %+v sent %d", rec.Watch, rec.QuantitySent)
 	}
-	if w := d.watchView(trail); w.State != rpc.QueuedWatchTriggered || w.TriggerPrice != 51.40 {
+	if w := d.planWatchView(trail); w.State != rpc.QueuedWatchTriggered || w.TriggerPrice != 51.40 {
 		t.Fatalf("triggered view: %+v", w)
 	}
 	time.Sleep(12 * time.Second)
-	if n := len(d.sells(opt.ConID)); n != 2 {
+	if n := len(d.planSells(opt.ConID)); n != 2 {
 		t.Fatalf("the trail sold %d times", n-1)
 	}
 }
@@ -254,11 +254,11 @@ func TestSimulatedTWSExitPlanRedOpen(t *testing.T) {
 	planStartIn(t, 6*time.Second, 0)
 	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: 0.05}, Trail: planTrail(50.50)})
 	first, trail := ids[0], ids[1]
-	rec := d.waitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	rec := d.planWaitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
 	if f := d.queuedRecord(first); f.State != rpc.QueuedAuthCancelled || f.ReasonCode != queuedReasonPlanStopTriggered || f.PreviewTokenID != "" {
 		t.Fatalf("first sale: %s %s", f.State, f.ReasonCode)
 	}
-	sells := d.sells(opt.ConID)
+	sells := d.planSells(opt.ConID)
 	if len(sells) != 1 {
 		t.Fatalf("red open: %d sells", len(sells))
 	}
@@ -275,19 +275,19 @@ func TestSimulatedTWSExitPlanSteadyRiseToTheClose(t *testing.T) {
 	planStartIn(t, 6*time.Second, 40*time.Second)
 	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: 0.05}, Trail: planTrail(48.50)})
 	first, trail := ids[0], ids[1]
-	d.waitRecord("the first sale to be sent", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	d.planWaitRecord("the first sale to be sent", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
 	for _, p := range []float64{50.5, 51, 51.5} {
-		d.stock(p)
-		d.waitRecord("the high to follow", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == p })
+		d.planStock(p)
+		d.planWaitRecord("the high to follow", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == p })
 	}
-	rec := d.waitRecord("the trail to expire at the close", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	rec := d.planWaitRecord("the trail to expire at the close", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
 	if rec.State != rpc.QueuedAuthExpired || rec.ReasonCode != queuedReasonWindowEnded || rec.Watch.HighWater != 51.5 || !rec.Watch.TriggeredAt.IsZero() {
 		t.Fatalf("at the close: %s %s %+v", rec.State, rec.ReasonCode, rec.Watch)
 	}
-	if n := len(d.sells(opt.ConID)); n != 1 {
+	if n := len(d.planSells(opt.ConID)); n != 1 {
 		t.Fatalf("%d sells", n)
 	}
-	if w := d.watchView(trail); w.HighWater != 51.5 || w.State != rpc.QueuedWatchUnwatched || w.ReasonCode != queuedReasonWindowEnded {
+	if w := d.planWatchView(trail); w.HighWater != 51.5 || w.State != rpc.QueuedWatchUnwatched || w.ReasonCode != queuedReasonWindowEnded {
 		t.Fatalf("ended view %+v", w)
 	}
 }
@@ -300,20 +300,20 @@ func TestSimulatedTWSExitPlanCancelsTheRestingFirstSale(t *testing.T) {
 	planStartIn(t, 6*time.Second, 0)
 	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: 0.05}, Trail: planTrail(48.50)})
 	first, trail := ids[0], ids[1]
-	d.waitRecord("the first sale to be sent", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
-	resting := d.brokerOrderFor(opt.ConID, 10)
-	d.stock(48)
-	d.waitRecord("the trail to hold for the cancel", trail, 60*time.Second, func(r queuedAuthRecord) bool {
+	d.planWaitRecord("the first sale to be sent", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	resting := d.planBrokerOrder(opt.ConID, 10)
+	d.planStock(48)
+	d.planWaitRecord("the trail to hold for the cancel", trail, 60*time.Second, func(r queuedAuthRecord) bool {
 		return !r.Watch.TriggeredAt.IsZero() && (r.HoldCode == queuedHoldFirstSaleCancelling || r.State == rpc.QueuedAuthSent)
 	})
-	rec := d.waitRecord("the trail to sell", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	rec := d.planWaitRecord("the trail to sell", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
 	if f := d.queuedRecord(first); f.State != rpc.QueuedAuthExpiredUnfilled {
 		t.Fatalf("first sale %s %s", f.State, f.ReasonCode)
 	}
 	if o := brokerOrder(t, d.sim, resting.OrderID); o.Status != "Cancelled" {
 		t.Fatalf("resting first sale %s", o.Status)
 	}
-	sells := d.sells(opt.ConID)
+	sells := d.planSells(opt.ConID)
 	if len(sells) != 2 || d.cancels() != 1 || rec.QuantitySent != 20 {
 		t.Fatalf("%d sells, %d cancels, sent %d", len(sells), d.cancels(), rec.QuantitySent)
 	}
@@ -337,7 +337,7 @@ func TestSimulatedTWSExitPlanFirstSaleMinimumNeverMet(t *testing.T) {
 	high := roundPrice(d.optionPrice(opt.ConID) * 3)
 	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: high}, Trail: planTrail(48.50)})
 	first, trail := ids[0], ids[1]
-	d.waitRecord("the first sale to wait for its minimum", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.HoldCode == queuedHoldWorstPrice })
+	d.planWaitRecord("the first sale to wait for its minimum", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.HoldCode == queuedHoldWorstPrice })
 	// Its signed window ends early in the fixture, as at its hour's end.
 	end := time.Now().Add(3 * time.Second)
 	if err := d.srv.tradeProposals.queued.update(t.Context(), time.Now(), func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
@@ -348,13 +348,13 @@ func TestSimulatedTWSExitPlanFirstSaleMinimumNeverMet(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	d.waitRecord("the first sale to expire unsent", first, 40*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthExpired })
-	if n := len(d.sells(opt.ConID)); n != 0 {
+	d.planWaitRecord("the first sale to expire unsent", first, 40*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthExpired })
+	if n := len(d.planSells(opt.ConID)); n != 0 {
 		t.Fatalf("%d sells before the trail", n)
 	}
-	d.stock(48)
-	rec := d.waitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
-	sells := d.sells(opt.ConID)
+	d.planStock(48)
+	rec := d.planWaitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	sells := d.planSells(opt.ConID)
 	if len(sells) != 1 || rec.QuantitySent != 20 {
 		t.Fatalf("%d sells, sent %d", len(sells), rec.QuantitySent)
 	}
@@ -382,13 +382,13 @@ func TestSimulatedTWSExitPlanUnusableStockQuote(t *testing.T) {
 			t.Fatal(err)
 		}
 		d.srv.tradeProposals.Kick()
-		rec := d.waitRecord("the trail held unwatched ("+feed+")", trail, 40*time.Second, func(r queuedAuthRecord) bool { return r.HoldCode == queuedHoldStockQuote })
+		rec := d.planWaitRecord("the trail held unwatched ("+feed+")", trail, 40*time.Second, func(r queuedAuthRecord) bool { return r.HoldCode == queuedHoldStockQuote })
 		time.Sleep(12 * time.Second)
 		rec = d.queuedRecord(trail)
-		if w := d.watchView(trail); w.State != rpc.QueuedWatchUnwatched || w.ReasonCode != queuedHoldStockQuote || rec.State != rpc.QueuedAuthHeld || !rec.Watch.TriggeredAt.IsZero() {
+		if w := d.planWatchView(trail); w.State != rpc.QueuedWatchUnwatched || w.ReasonCode != queuedHoldStockQuote || rec.State != rpc.QueuedAuthHeld || !rec.Watch.TriggeredAt.IsZero() {
 			t.Fatalf("%s: %+v %s", feed, w, rec.State)
 		}
-		if n := len(d.sells(opt.ConID)); n != 0 {
+		if n := len(d.planSells(opt.ConID)); n != 0 {
 			t.Fatalf("%s: sold on an unusable quote", feed)
 		}
 		live, _ := d.srv.tradeProposals.trailLiveFor(trail)
@@ -398,9 +398,9 @@ func TestSimulatedTWSExitPlanUnusableStockQuote(t *testing.T) {
 		t.Fatal(err)
 	}
 	d.srv.tradeProposals.Kick()
-	rec := d.waitRecord("the trail to resume and sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
-	if rec.Watch.TriggerPrice != 47 || len(d.sells(opt.ConID)) != 1 {
-		t.Fatalf("resumed: %+v, %d sells", rec.Watch, len(d.sells(opt.ConID)))
+	rec := d.planWaitRecord("the trail to resume and sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	if rec.Watch.TriggerPrice != 47 || len(d.planSells(opt.ConID)) != 1 {
+		t.Fatalf("resumed: %+v, %d sells", rec.Watch, len(d.planSells(opt.ConID)))
 	}
 }
 
@@ -409,7 +409,7 @@ func TestSimulatedTWSExitPlanOneBadPrint(t *testing.T) {
 	d, opt := planDesk(t, 50, 20)
 	planStartIn(t, -10*time.Minute, 0)
 	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
-	d.waitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
 	d.sim.Book().SetPrice(planSYNA, 47)
 	d.srv.tradeProposals.Kick()
 	d.waitFor("one read below the line", 30*time.Second, func() bool {
@@ -420,22 +420,22 @@ func TestSimulatedTWSExitPlanOneBadPrint(t *testing.T) {
 	time.Sleep(15 * time.Second)
 	rec := d.queuedRecord(trail)
 	live, _ := d.srv.tradeProposals.trailLiveFor(trail)
-	if n := len(d.sells(opt.ConID)); n != 0 || !rec.Watch.TriggeredAt.IsZero() || !live.breachAt.IsZero() || rec.State != rpc.QueuedAuthArmed {
+	if n := len(d.planSells(opt.ConID)); n != 0 || !rec.Watch.TriggeredAt.IsZero() || !live.breachAt.IsZero() || rec.State != rpc.QueuedAuthArmed {
 		t.Fatalf("a single bad print: %d sells, %+v, breach %s, %s", n, rec.Watch, live.breachAt, rec.State)
 	}
 }
 
 // restartSimDesk stops d's daemon and starts another on the same state, as
 // a daemon restart does, against the same simulator.
-func restartSimDesk(t *testing.T, d *simDesk, stop func(), db string) (*simDesk, func()) {
+func restartExitPlanDesk(t *testing.T, d *simDesk, stop func(), db string) (*simDesk, func()) {
 	t.Helper()
 	stop()
-	return startSimDaemon(t, d.sim, db)
+	return startExitPlanDaemon(t, d.sim, db)
 }
 
 // startSimDaemon starts a daemon on an existing simulator and state
 // database, as startSimDeskPolicies does, and returns its stop.
-func startSimDaemon(t *testing.T, sim *twssim.Server, db string) (*simDesk, func()) {
+func startExitPlanDaemon(t *testing.T, sim *twssim.Server, db string) (*simDesk, func()) {
 	t.Helper()
 	port := sim.Port()
 	cfg, err := (&config.Config{
@@ -502,7 +502,10 @@ func startSimDaemon(t *testing.T, sim *twssim.Server, db string) (*simDesk, func
 
 // X8. A daemon restart mid-watch: the high water and the stop survive, the
 // stop is not lowered, and nothing is sent twice.
-func TestSimulatedTWSExitPlanSurvivesARestart(t *testing.T) {
+// restartablePlanDesk is planDesk (20 calls at 50, sessions in the plan's
+// window) with the state database's path, for restarts.
+func restartablePlanDesk(t *testing.T) (*simDesk, func(), string, rpc.ContractParams) {
+	t.Helper()
 	requireSimTier(t)
 	planStartIn(t, -10*time.Minute, 0)
 	now := time.Now()
@@ -520,30 +523,34 @@ func TestSimulatedTWSExitPlanSurvivesARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	db := filepath.Join(dir, "daemon.db")
-	d, stop := startSimDaemon(t, sim, db)
-	opt := rpc.ContractParams{ConID: id, Symbol: "SYNA", SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: exps[3], Strike: 50, Right: "C", Multiplier: 100, TradingClass: "SYNA"}
+	d, stop := startExitPlanDaemon(t, sim, db)
+	return d, stop, db, rpc.ContractParams{ConID: id, Symbol: "SYNA", SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: exps[3], Strike: 50, Right: "C", Multiplier: 100, TradingClass: "SYNA"}
+}
+
+func TestSimulatedTWSExitPlanSurvivesARestart(t *testing.T) {
+	d, stop, db, opt := restartablePlanDesk(t)
 	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
-	d.stock(53)
-	d.waitRecord("the stop to rise", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.StopPrice == 51.41 })
-	d, stop = restartSimDesk(t, d, stop, db)
+	d.planStock(53)
+	d.planWaitRecord("the stop to rise", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.StopPrice == 51.41 })
+	d, stop = restartExitPlanDesk(t, d, stop, db)
 	if rec := d.queuedRecord(trail); rec.Watch.HighWater != 53 || rec.Watch.StopPrice != 51.41 || !rec.waiting() {
 		t.Fatalf("after the restart: %+v %s", rec.Watch, rec.State)
 	}
 	// Below the high, above the line: the stop the high set stands, not one
 	// from this lower price.
-	d.stock(52)
+	d.planStock(52)
 	d.waitFor("a read after the restart", 30*time.Second, func() bool {
 		live, ok := d.srv.tradeProposals.trailLiveFor(trail)
 		return ok && live.price == 52
 	})
-	if rec := d.queuedRecord(trail); rec.Watch.StopPrice != 51.41 || rec.Watch.HighWater != 53 || len(d.sells(opt.ConID)) != 0 {
+	if rec := d.queuedRecord(trail); rec.Watch.StopPrice != 51.41 || rec.Watch.HighWater != 53 || len(d.planSells(opt.ConID)) != 0 {
 		t.Fatalf("after a lower read: %+v", rec.Watch)
 	}
-	d.stock(51)
-	d.waitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
-	d, _ = restartSimDesk(t, d, stop, db)
+	d.planStock(51)
+	d.planWaitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	d, _ = restartExitPlanDesk(t, d, stop, db)
 	time.Sleep(15 * time.Second)
-	if n := len(d.sells(opt.ConID)); n != 1 {
+	if n := len(d.planSells(opt.ConID)); n != 1 {
 		t.Fatalf("sent %d times across restarts", n)
 	}
 	if rec := d.queuedRecord(trail); rec.State != rpc.QueuedAuthSent && rec.State != rpc.QueuedAuthFilled && rec.State != rpc.QueuedAuthExpiredUnfilled {
@@ -560,22 +567,22 @@ func TestSimulatedTWSExitPlanWideSpreadAtTheTrigger(t *testing.T) {
 	if err := d.sim.SetSpread(opt.ConID, 60); err != nil {
 		t.Fatal(err)
 	}
-	d.stock(48)
-	d.waitRecord("the trail to hold on the spread", trail, 60*time.Second, func(r queuedAuthRecord) bool {
+	d.planStock(48)
+	d.planWaitRecord("the trail to hold on the spread", trail, 60*time.Second, func(r queuedAuthRecord) bool {
 		return !r.Watch.TriggeredAt.IsZero() && r.HoldCode == rpc.ReadinessSpreadTooWide
 	})
-	d.stock(51)
+	d.planStock(51)
 	time.Sleep(12 * time.Second)
 	rec := d.queuedRecord(trail)
-	if len(d.sells(opt.ConID)) != 0 || rec.Watch.TriggeredAt.IsZero() || !rec.waiting() {
-		t.Fatalf("recovered stock: %+v %s, %d sells", rec.Watch, rec.State, len(d.sells(opt.ConID)))
+	if len(d.planSells(opt.ConID)) != 0 || rec.Watch.TriggeredAt.IsZero() || !rec.waiting() {
+		t.Fatalf("recovered stock: %+v %s, %d sells", rec.Watch, rec.State, len(d.planSells(opt.ConID)))
 	}
 	if err := d.sim.SetSpread(opt.ConID, 0); err != nil {
 		t.Fatal(err)
 	}
 	d.srv.tradeProposals.Kick()
-	rec = d.waitRecord("the trail to sell once the spread narrows", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
-	sells := d.sells(opt.ConID)
+	rec = d.planWaitRecord("the trail to sell once the spread narrows", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	sells := d.planSells(opt.ConID)
 	if len(sells) != 1 || rec.QuantitySent != 20 {
 		t.Fatalf("%d sells, sent %d", len(sells), rec.QuantitySent)
 	}
@@ -626,18 +633,18 @@ func TestSimulatedTWSExitPlanHandOrderHolds(t *testing.T) {
 	}
 	d.waitStatus(placed.OrderRef, func(v rpc.OrderView) bool { return v.LifecycleStatus == rpc.OrderLifecycleSubmitted })
 	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
-	d.stock(48)
-	d.waitRecord("the trail to hold behind the hand order", trail, 60*time.Second, func(r queuedAuthRecord) bool {
+	d.planStock(48)
+	d.planWaitRecord("the trail to hold behind the hand order", trail, 60*time.Second, func(r queuedAuthRecord) bool {
 		return !r.Watch.TriggeredAt.IsZero() && r.HoldCode == queuedHoldHandOrder
 	})
-	if n := len(d.sells(opt.ConID)); n != 1 {
+	if n := len(d.planSells(opt.ConID)); n != 1 {
 		t.Fatalf("%d sells beside the hand order", n)
 	}
 	if _, rerr := dispatchJSON[rpc.OrderCancelResult](t, d.srv, rpc.MethodOrderCancel, rpc.OrderCancelParams{ID: placed.OrderRef, Origin: rpc.OrderOriginAgent}); rerr != nil {
 		t.Fatalf("hand cancel: %+v", rerr)
 	}
-	rec := d.waitRecord("the trail to sell", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
-	sells := d.sells(opt.ConID)
+	rec := d.planWaitRecord("the trail to sell", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	sells := d.planSells(opt.ConID)
 	if len(sells) != 2 || rec.QuantitySent != 20 {
 		t.Fatalf("%d sells, sent %d", len(sells), rec.QuantitySent)
 	}
@@ -662,20 +669,20 @@ func TestSimulatedTWSExitPlanLargeLine(t *testing.T) {
 	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
 	d.sim.Book().SetPosition(planSYNA, -12000, 48)
 	d.sim.PushAccount()
-	d.stock(48)
-	rec := d.waitRecord("the trail to hold under the cap", trail, 60*time.Second, func(r queuedAuthRecord) bool {
+	d.planStock(48)
+	rec := d.planWaitRecord("the trail to hold under the cap", trail, 60*time.Second, func(r queuedAuthRecord) bool {
 		return !r.Watch.TriggeredAt.IsZero() && r.HoldCode == "order_risk_limit"
 	})
 	t.Logf("held: %s", rec.HoldReason)
 	time.Sleep(15 * time.Second)
-	if rec = d.queuedRecord(trail); !rec.waiting() || len(d.sells(opt.ConID)) != 0 {
-		t.Fatalf("under the cap: %s %s, %d sells", rec.State, rec.ReasonCode, len(d.sells(opt.ConID)))
+	if rec = d.queuedRecord(trail); !rec.waiting() || len(d.planSells(opt.ConID)) != 0 {
+		t.Fatalf("under the cap: %s %s, %d sells", rec.State, rec.ReasonCode, len(d.planSells(opt.ConID)))
 	}
 	d.sim.Book().SetPosition(planSYNA, 2000, 48)
 	d.sim.PushAccount()
 	d.srv.tradeProposals.Kick()
-	rec = d.waitRecord("the trail to sell the line", trail, 120*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent || r.final() })
-	sells := d.sells(opt.ConID)
+	rec = d.planWaitRecord("the trail to sell the line", trail, 120*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent || r.final() })
+	sells := d.planSells(opt.ConID)
 	if rec.State != rpc.QueuedAuthSent || len(sells) != 1 || rec.QuantitySent != 200 {
 		t.Fatalf("%s %s %s: %d sells, sent %d", rec.State, rec.ReasonCode, rec.Reason, len(sells), rec.QuantitySent)
 	}
@@ -692,9 +699,9 @@ func TestSimulatedTWSExitPlanPositionChangedByHand(t *testing.T) {
 		d.sim.Book().SetPosition(opt.ConID, 12, 250)
 		d.sim.PushAccount()
 		time.Sleep(2 * time.Second)
-		d.stock(48)
-		rec := d.waitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent || r.final() })
-		sells := d.sells(opt.ConID)
+		d.planStock(48)
+		rec := d.planWaitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent || r.final() })
+		sells := d.planSells(opt.ConID)
 		if rec.State != rpc.QueuedAuthSent || len(sells) != 1 || rec.QuantitySent != 12 {
 			t.Fatalf("%s %s: %d sells, sent %d", rec.State, rec.ReasonCode, len(sells), rec.QuantitySent)
 		}
@@ -707,7 +714,7 @@ func TestSimulatedTWSExitPlanPositionChangedByHand(t *testing.T) {
 		d.sim.Book().ClosePosition(opt.ConID)
 		d.sim.PushAccount()
 		for _, id := range ids {
-			rec := d.waitRecord("the plan to end", id, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+			rec := d.planWaitRecord("the plan to end", id, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
 			if rec.State != rpc.QueuedAuthCancelled || rec.ReasonCode != queuedReasonPositionChanged {
 				t.Fatalf("%s: %s %s", id, rec.State, rec.ReasonCode)
 			}
@@ -788,5 +795,35 @@ func TestSimulatedTWSExitPlanArmIsAllOrNothing(t *testing.T) {
 	short := d.preparePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: 10, Trail: planTrail(48.50)})
 	if short.Accepted || short.Blockers[0].Code != "queue_wait_invalid" {
 		t.Fatalf("a wait below the opening offset: %+v", short)
+	}
+}
+
+// X8b. The latch survives a restart: a trail that fired and is held on a wide
+// option spread restarts still triggered, sells nothing while the stock
+// recovers, and sells once the spread narrows.
+func TestSimulatedTWSExitPlanLatchSurvivesARestart(t *testing.T) {
+	d, stop, db, opt := restartablePlanDesk(t)
+	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
+	if err := d.sim.SetSpread(opt.ConID, 60); err != nil {
+		t.Fatal(err)
+	}
+	d.planStock(48)
+	d.planWaitRecord("the trail to hold on the spread", trail, 60*time.Second, func(r queuedAuthRecord) bool {
+		return !r.Watch.TriggeredAt.IsZero() && r.HoldCode == rpc.ReadinessSpreadTooWide
+	})
+	d, _ = restartExitPlanDesk(t, d, stop, db)
+	d.planStock(52)
+	time.Sleep(15 * time.Second)
+	rec := d.queuedRecord(trail)
+	if rec.Watch.TriggeredAt.IsZero() || !rec.waiting() || len(d.planSells(opt.ConID)) != 0 {
+		t.Fatalf("after the restart: %+v %s, %d sells", rec.Watch, rec.State, len(d.planSells(opt.ConID)))
+	}
+	if err := d.sim.SetSpread(opt.ConID, 0); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.tradeProposals.Kick()
+	rec = d.planWaitRecord("the latched trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	if sells := d.planSells(opt.ConID); len(sells) != 1 || rec.QuantitySent != 20 {
+		t.Fatalf("%d sells, sent %d", len(sells), rec.QuantitySent)
 	}
 }

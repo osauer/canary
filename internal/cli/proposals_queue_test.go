@@ -124,3 +124,53 @@ func TestRenderQueuedAuthSaysWhatMaySendAndWhen(t *testing.T) {
 		}
 	}
 }
+
+// An exit plan arms all its records from one object; mixing the two forms,
+// or half of the plan form, never reaches the daemon.
+func TestQueueArmExitPlanInput(t *testing.T) {
+	var out bytes.Buffer
+	c := &preparedProposalCLIConn{}
+	stdin := `{"queued_refs":["canaryqa1.a.x","canaryqa1.b.y"],"plan_digest":"abc","desk_action_id":"act-1","credential":"passkey","envelope":"sig"}`
+	env := &Env{Conn: c, Stdin: strings.NewReader(stdin), Stdout: &out, Stderr: &out, Origin: rpc.OrderOriginAgent}
+	if exit := Run(t.Context(), env, "proposals", []string{"queue", "arm", "--stdin", "--json"}); exit != 0 || c.calls != 1 {
+		t.Fatalf("plan arm exit=%d calls=%d output=%s", exit, c.calls, &out)
+	}
+	p, ok := c.params.(rpc.TradeProposalQueueArmParams)
+	if !ok || len(p.QueuedRefs) != 2 || p.PlanDigest != "abc" || p.QueuedRef != "" || p.Origin != rpc.OrderOriginAgent {
+		t.Fatalf("plan arm params = %+v", c.params)
+	}
+	for _, stdin := range []string{
+		`{"queued_refs":["r"]}`,
+		`{"plan_digest":"d"}`,
+		`{"queued_refs":["r"],"plan_digest":"d","queued_ref":"r"}`,
+		`{"queued_refs":["r"],"plan_digest":"d","terms_digest":"d"}`,
+	} {
+		c := &preparedProposalCLIConn{}
+		env := &Env{Conn: c, Stdin: strings.NewReader(stdin), Stdout: &out, Stderr: &out}
+		if Run(t.Context(), env, "proposals", []string{"queue", "arm", "--stdin"}) == 0 || c.calls != 0 {
+			t.Fatalf("%s reached RPC", stdin)
+		}
+	}
+}
+
+// A trail record says it has no minimum and where its line stands, never a
+// floor of zero.
+func TestRenderQueuedAuthTrail(t *testing.T) {
+	var out bytes.Buffer
+	q := rpc.QueuedAuth{State: rpc.QueuedAuthArmed,
+		Terms: rpc.QueuedAuthTerms{QueueID: "q2", Version: 3, Action: rpc.OrderActionSell, MaxQuantity: 20, Currency: "USD",
+			Contract:  rpc.ContractParams{Symbol: "SYNA", SecType: "OPT", Expiry: "20261218", Strike: 55, Right: "C"},
+			NotBefore: time.Date(2026, 11, 24, 14, 50, 0, 0, time.UTC), NotAfter: time.Date(2026, 11, 24, 21, 0, 0, 0, time.UTC),
+			OwnerOrder: &rpc.QueuedOwnerOrder{StockTrail: &rpc.QueuedStockTrail{Underlying: rpc.ContractParams{Symbol: "SYNA", Currency: "USD"}, TrailPercent: 3, InitialStopPrice: 49.5}}},
+		Watch: &rpc.QueuedTrailWatch{State: rpc.QueuedWatchWatching, StopPrice: 50.83, HighWater: 52.4, StockPrice: 52.1}}
+	renderQueuedAuth(&out, q)
+	got := out.String()
+	if strings.Contains(got, "not below") {
+		t.Fatalf("a trail rendered a floor: %q", got)
+	}
+	for _, want := range []string{"sell at most 20 SYNA 20261218 55 C, no minimum, once SYNA is at or below its line (from 49.5 USD, trailing 3%)", "Exit line: watching 50.83 USD, high 52.4 USD, stock 52.1 USD"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered %q, want %q", got, want)
+		}
+	}
+}

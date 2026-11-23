@@ -1,6 +1,10 @@
 package daemon
 
-import "github.com/osauer/canary/v3/internal/rpc"
+import (
+	"slices"
+
+	"github.com/osauer/canary/v3/internal/rpc"
+)
 
 type ownerQueueAdmissionKey struct{}
 type ownerQueueAdmission struct {
@@ -31,7 +35,9 @@ func (s *Server) stockAddQueueRecords(scope brokerStateScope, a *ownerQueueAdmis
 	if s.tradeProposals == nil {
 		return nil
 	}
-	records := s.tradeProposals.queued.list()
+	// An exit plan only sells a held option line: it commits no cash and
+	// never holds a stock Add, though its trail lives all session.
+	records := slices.DeleteFunc(s.tradeProposals.queued.list(), func(r queuedAuthRecord) bool { return queuedPlanOf(r.Terms) != nil })
 	if !s.ownerQueueAdmissionCurrent(scope, a) {
 		return records
 	}

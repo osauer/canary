@@ -304,7 +304,7 @@ func (e *proposalEngine) waitForRefresh(ctx context.Context, wait time.Duration)
 		if !trail {
 			return refreshWaitElapsed
 		}
-		e.runQueuedCycle(ctx)
+		e.runQueuedCycleFor(ctx, func(r queuedAuthRecord) bool { return queuedPlanOf(r.Terms) != nil })
 	}
 }
 

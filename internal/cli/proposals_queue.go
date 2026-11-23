@@ -250,13 +250,32 @@ func renderQueueResult(env *Env, verb string, res *rpc.TradeProposalQueueResult)
 // stands, in local time.
 func renderQueuedAuth(out io.Writer, q rpc.QueuedAuth) {
 	t := q.Terms
-	bound := "not below"
+	bound := "not below " + formatQueuedPrice(t.WorstPrice, t.Currency)
 	if strings.EqualFold(t.Action, rpc.OrderActionBuy) {
-		bound = "not above"
+		bound = "not above " + formatQueuedPrice(t.WorstPrice, t.Currency)
 	}
-	fmt.Fprintf(out, "%s  %s  %s at most %d %s, %s %s, %s–%s\n", t.QueueID, strings.ReplaceAll(q.State, "_", " "),
-		strings.ToLower(t.Action), t.MaxQuantity, queuedContractLabel(t.Contract), bound, formatQueuedPrice(t.WorstPrice, t.Currency),
+	var st *rpc.QueuedStockTrail
+	if t.OwnerOrder != nil {
+		st = t.OwnerOrder.StockTrail
+	}
+	if st != nil {
+		// An exit plan's trail: what is held, no minimum, once the stock is
+		// at or below its line.
+		bound = fmt.Sprintf("no minimum, once %s is at or below its line (from %s, trailing %g%%)", st.Underlying.Symbol, formatQueuedPrice(st.InitialStopPrice, st.Underlying.Currency), st.TrailPercent)
+	}
+	fmt.Fprintf(out, "%s  %s  %s at most %d %s, %s, %s–%s\n", t.QueueID, strings.ReplaceAll(q.State, "_", " "),
+		strings.ToLower(t.Action), t.MaxQuantity, queuedContractLabel(t.Contract), bound,
 		t.NotBefore.Local().Format("Mon 2 Jan 15:04"), t.NotAfter.Local().Format("15:04 MST"))
+	if w := q.Watch; w != nil {
+		line := fmt.Sprintf("      Exit line: %s %s, high %s", strings.ReplaceAll(w.State, "_", " "), formatQueuedPrice(w.StopPrice, t.Currency), formatQueuedPrice(w.HighWater, t.Currency))
+		if w.StockPrice > 0 {
+			line += ", stock " + formatQueuedPrice(w.StockPrice, t.Currency)
+		}
+		if w.TriggerPrice > 0 {
+			line += ", crossed at " + formatQueuedPrice(w.TriggerPrice, t.Currency)
+		}
+		fmt.Fprintln(out, line)
+	}
 	if q.HoldReason != "" {
 		fmt.Fprintf(out, "      Held: %s (%s)\n", q.HoldReason, q.HoldCode)
 	}

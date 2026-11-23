@@ -109,6 +109,14 @@ func queuedDisposition(blockers []rpc.TradingBlocker) (hold bool, code, reason s
 // process left in flight, expire what can no longer send, follow sent orders
 // to their outcome, then send or hold what is due.
 func (e *proposalEngine) runQueuedCycle(ctx context.Context) {
+	e.runQueuedCycleFor(ctx, nil)
+}
+
+// runQueuedCycleFor is runQueuedCycle executing only the waiting records
+// that only accepts (all when nil); the bookkeeping before it always runs. The
+// exit plan's trail tick runs its plans' records alone, so every other
+// record keeps the loop's own cadence.
+func (e *proposalEngine) runQueuedCycleFor(ctx context.Context, only func(queuedAuthRecord) bool) {
 	if e == nil || !e.queued.attached() || ctx == nil || ctx.Err() != nil {
 		return
 	}
@@ -125,6 +133,9 @@ func (e *proposalEngine) runQueuedCycle(ctx context.Context) {
 		return boolRank(!queuedPlanTrail(a.Terms)) - boolRank(!queuedPlanTrail(b.Terms))
 	})
 	for _, rec := range records {
+		if only != nil && !only(rec) {
+			continue
+		}
 		if !rec.waiting() || now.Before(rec.Terms.NotBefore) || (!ownerQueueProtection(rec.Terms) && !now.Before(rec.Terms.NotAfter)) {
 			continue
 		}
