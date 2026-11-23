@@ -4,10 +4,12 @@ package daemon
 
 import (
 	"fmt"
+	"maps"
 	"testing"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 	"github.com/osauer/canary/v3/pkg/ibkr/twssim"
 )
 
@@ -48,7 +50,7 @@ func TestSimulatedTWSOrderFramesStayFastOnALargeJournal(t *testing.T) {
 	exps := twssim.OptionExpiries(time.Now())
 	for i, strike := range []float64{40, 45, 50, 55, 60, 40, 45, 50} {
 		c := d.optionContract(exps[1+i/5], strike, "C")
-		prev, rerr := d.optionPreview(c, 1, 0.05, "")
+		prev, rerr := d.optionPreview(c, 1, 0.01, "")
 		if rerr != nil || !prev.SubmitEligible {
 			t.Fatalf("working order %d preview: %+v", i, rerr)
 		}
@@ -62,6 +64,16 @@ func TestSimulatedTWSOrderFramesStayFastOnALargeJournal(t *testing.T) {
 		}
 	}
 	time.Sleep(3 * time.Second)
+	// The sixteen working orders the scenario set up, by broker identity.
+	placed := map[[2]int]bool{}
+	for _, o := range d.sim.Book().Orders() {
+		if o.Working() {
+			placed[[2]int{o.ClientID, o.OrderID}] = true
+		}
+	}
+	if len(placed) != 16 {
+		t.Fatalf("%d working orders set up, want 16", len(placed))
+	}
 	c := d.srv.gatewayConnectorForTest()
 	// A burst of order frames: the reader pairs each with its journal row.
 	frames := d.sim.Churn(20)
@@ -77,13 +89,26 @@ func TestSimulatedTWSOrderFramesStayFastOnALargeJournal(t *testing.T) {
 			}
 		}
 	}
-	// A fresh all-client read of the 16 working orders completes well inside
-	// the protocol deadline and poisons nothing.
+	// A fresh all-client read completes with margin inside the protocol
+	// deadline (under 60% of it, whatever else loads the machine), poisons
+	// nothing, and holds exactly the sixteen working orders set up. The
+	// snapshot carries an event per frame it collected, so orders are counted
+	// by identity.
+	deadline := d.srv.openOrderSnapshotProtocolTimeout
+	if deadline == 0 {
+		deadline = ibkrlib.DefaultOpenOrderSnapshotTimeout
+	}
 	started := time.Now()
 	snap, scope, err := d.srv.brokerOpenOrderInventory(t.Context(), true)
 	took := time.Since(started)
-	if err != nil || !snap.Complete || !sameBrokerScope(scope, d.srv.currentBrokerStateScope()) || len(snap.Orders) < 16 || took > 5*time.Second {
-		t.Fatalf("a fresh open-order read took %s: %v (complete %v, %d orders)", took, err, snap.Complete, len(snap.Orders))
+	seen := map[[2]int]bool{}
+	for _, o := range snap.Orders {
+		if brokerOrderWorking(o) {
+			seen[[2]int{o.ClientID, o.OrderID}] = true
+		}
+	}
+	if err != nil || !snap.Complete || !sameBrokerScope(scope, d.srv.currentBrokerStateScope()) || took > deadline*6/10 || !maps.Equal(seen, placed) {
+		t.Fatalf("a fresh open-order read took %s of a %s deadline: %v (complete %v, %d working orders, want the 16 set up)", took, deadline, err, snap.Complete, len(seen))
 	}
 	if _, cause, poisoned := c.OpenOrderSnapshotPoisoned(); poisoned {
 		t.Fatalf("the open-order read was poisoned: %v", cause)

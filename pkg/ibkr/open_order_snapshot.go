@@ -10,6 +10,11 @@ import (
 
 const defaultOpenOrderSnapshotProtocolTimeout = 15 * time.Second
 
+// DefaultOpenOrderSnapshotTimeout is the protocol deadline an open-order
+// snapshot's openOrderEnd must arrive within, unless ConnectorConfig sets
+// another, before the socket generation is poisoned.
+const DefaultOpenOrderSnapshotTimeout = defaultOpenOrderSnapshotProtocolTimeout
+
 // ErrOpenOrderSnapshotPoisoned means a reqAllOpenOrders request was sent but
 // its uncorrelated openOrderEnd terminator was not proven on the same socket.
 // No second request is safe on that socket generation because late callbacks
