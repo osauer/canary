@@ -68,6 +68,7 @@ type Server struct {
 	rejectLegOpenClose bool
 	done               chan struct{}
 	closeOne           sync.Once
+	feeds              quoteFeeds
 
 	mu       sync.Mutex
 	sessions []*session
@@ -596,9 +597,16 @@ func (ss *session) marketData(reqID int, cq contractQuery, snapshot bool) {
 		ss.fail(reqID, 200, noSecurityDefinition)
 		return
 	}
-	q := quoteOf(found[0])
+	q, feed := ss.srv.feedFor(found[0], quoteOf(found[0]))
+	if feed == FeedNone {
+		return
+	}
 	id := itoa(reqID)
-	out := [][]byte{textMessage(msgMarketDataType, "1", id, "1")}
+	dataType := "1"
+	if feed == FeedDelayed {
+		dataType = "3"
+	}
+	out := [][]byte{textMessage(msgMarketDataType, "1", id, dataType)}
 	price := func(tick int, v float64) {
 		if v > 0 {
 			out = append(out, textMessage(msgTickPrice, "6", id, itoa(tick), num(v), "100", "0"))
@@ -617,7 +625,7 @@ func (ss *session) marketData(reqID int, cq contractQuery, snapshot bool) {
 	}
 	size(tickLastSz, 100)
 	size(tickVolume, 1_000_000)
-	if in := found[0]; in.SecType == "OPT" {
+	if in := found[0]; in.SecType == "OPT" && feed != FeedNoGreeks {
 		m, spot := ss.srv.book.greeks(in)
 		size(tickOptionCallOI, 500)
 		size(tickOptionPutOI, 500)

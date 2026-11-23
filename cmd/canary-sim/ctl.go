@@ -25,10 +25,20 @@ import (
 const ctlUsage = `canary-sim ctl -dir DIR COMMAND [ARGS]
 
 Commands (against a running canary-sim in DIR):
-  quote SYMBOL LAST [BID ASK]     set a listed stock's quote
+  quote SYMBOL LAST [BID ASK]     set a listed stock's quote; its listed options reprice
+                                  from the new price at once (move the stock over time by
+                                  repeating it)
+  feed SYM|CONID MODE             answer a contract's market data as MODE from now on:
+                                  live (default), delayed, none (nothing arrives),
+                                  one-sided (bid only) or no-greeks (an option's quote
+                                  without its delta)
+  spread CONID PCT                quote a contract PCT percent of its price wide (an
+                                  option keeps following its stock); 0 restores it
   session MARKET open             open a market now (us_equity, us_options, de_xetra, uk_lse, hk_hkex)
   session MARKET closed           close it
   session MARKET opens-in SECS    closed now, opens SECS seconds from now
+  session MARKET opened-ago SECS  open now, opened SECS seconds ago (so a wait after the
+                                  open ends seconds from now), closes 6.5 hours after it
   session MARKET closes-in SECS   open now, closes SECS seconds from now
   fault KIND [CODE] [QTY] [MSG]   script the broker's answer to the next order:
                                   reject, reject-child, reject-after-ack, presubmitted,
@@ -114,6 +124,25 @@ func control(sim *twssim.Server, args []string, now time.Time) (any, error) {
 			return nil, err
 		}
 		return nil, setSession(sim, args[1], args[2:], now)
+	case "feed", "spread":
+		if err := need(3); err != nil {
+			return nil, err
+		}
+		conID, err := strconv.Atoi(args[1])
+		if err != nil {
+			var ok bool
+			if conID, ok = sim.Book().StockConID(args[1]); !ok {
+				return nil, fmt.Errorf("%s is not a listed stock", args[1])
+			}
+		}
+		if args[0] == "feed" {
+			return nil, sim.SetFeed(conID, args[2])
+		}
+		pct, err := strconv.ParseFloat(args[2], 64)
+		if err != nil {
+			return nil, err
+		}
+		return nil, sim.SetSpread(conID, pct)
 	case "fault":
 		if err := need(2); err != nil {
 			return nil, err
@@ -255,7 +284,7 @@ func setSession(sim *twssim.Server, market string, spec []string, now time.Time)
 	case "closed":
 		marketcal.SimulateSession(cal, marketcal.Window{})
 		sim.SetSession(market, false)
-	case "opens-in", "closes-in":
+	case "opens-in", "closes-in", "opened-ago":
 		if len(spec) < 2 {
 			return fmt.Errorf("%s needs seconds", spec[0])
 		}
@@ -264,6 +293,12 @@ func setSession(sim *twssim.Server, market string, spec []string, now time.Time)
 			return fmt.Errorf("seconds %q", spec[1])
 		}
 		at := now.Add(time.Duration(secs) * time.Second)
+		if spec[0] == "opened-ago" {
+			opened := now.Add(-time.Duration(secs) * time.Second)
+			marketcal.SimulateSession(cal, marketcal.Window{Open: opened, Close: opened.Add(day)})
+			sim.SetSession(market, true)
+			return nil
+		}
 		if spec[0] == "opens-in" {
 			marketcal.SimulateSession(cal, marketcal.Window{Open: at, Close: at.Add(day)})
 			sim.SetSession(market, false)
@@ -274,7 +309,7 @@ func setSession(sim *twssim.Server, market string, spec []string, now time.Time)
 		sim.SetSession(market, true)
 		time.AfterFunc(time.Until(at), func() { sim.SetSession(market, false) })
 	default:
-		return fmt.Errorf("session %q: open, closed, opens-in SECS or closes-in SECS", spec[0])
+		return fmt.Errorf("session %q: open, closed, opens-in SECS, opened-ago SECS or closes-in SECS", spec[0])
 	}
 	return nil
 }
