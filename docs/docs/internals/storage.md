@@ -365,8 +365,11 @@ replaces the file only when all of these hold:
 
 The daemon log then names what was dropped and where the damaged copy is.
 Anything else, including a damaged order, receipt or decision record, keeps
-the daemon stopped and follows the steps below. The damaged copies are not
-cleaned up automatically.
+the daemon stopped and follows the steps below. After each successful start
+the daemon keeps the newest two folders in `damaged/` and any younger than
+seven days, and only the newest schema-upgrade set in `backups/` (none are
+removed while an upgrade is pending); older copies are removed and the log
+says how many. Folders and files you put there by hand are never touched.
 
 What you see: CLI commands report `daemon pid N exited during startup without
 opening PATH`, followed by the `start:` line from the daemon log, and the daemon log (`~/.local/state/ibkr/ibkr-daemon.log`, or under
@@ -385,8 +388,12 @@ Steps:
    Gateway directly.
 2. Read the failed check:
    `grep 'start:' ~/.local/state/ibkr/ibkr-daemon.log | tail -n 3`
-3. Preserve the evidence before touching anything:
-   `cp -Rp ~/.local/state/ibkr ~/.local/state/ibkr.failed-$(date +%Y%m%d-%H%M)`
+3. Preserve the evidence before touching anything. Copy only the live store
+   and its logs; `backups/`, `damaged/` and `statements/` stay where they are
+   and are not changed by recovery:
+   `d=~/.local/state/ibkr.failed-$(date +%Y%m%d-%H%M); mkdir -p "$d" && cp -p ~/.local/state/ibkr/daemon.db{,-wal,-shm,.head} ~/.local/state/ibkr/*.log ~/.local/state/ibkr/order-preview-key-v2 "$d"/`
+   A missing `daemon.db-shm` is normal. Remove the copy once the incident is
+   closed; it is as large as `daemon.db`.
 4. List the recovery material:
    `ls -la ~/.local/state/ibkr ~/.local/state/ibkr/backups ~/.local/state/ibkr/legacy-sealed`
 5. If the check names a transient cause (a full disk, wrong file permissions,

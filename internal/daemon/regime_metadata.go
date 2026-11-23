@@ -369,6 +369,9 @@ func gatewayAsOf(now time.Time, status, dataType, source string, qs ...*rpc.Qual
 	case rpc.MarketDataFrozen:
 		label = "frozen"
 		freshness = rpc.FreshnessFrozen
+	case rpc.MarketDataPrevClose:
+		label = "previous close"
+		freshness = rpc.FreshnessFrozen
 	case rpc.MarketDataLive, "":
 		if status == rpc.RegimeStatusStale {
 			label = "stale"
