@@ -830,3 +830,44 @@ func TestPoisonedSnapshotRecoversOnTheRedialledSession(t *testing.T) {
 func attentionLines(logged string) []string {
 	return append(logLinesAt(logged, "WARN"), logLinesAt(logged, "INFO")...)
 }
+
+// Inside the hour after a poison redial, a redialled session poisoned again
+// is redialled again while a sale waits on the open orders, at most once a
+// minute; with no sale waiting the hour holds.
+func TestPoisonedOpenOrderSnapshotRedialsWhileASaleWaits(t *testing.T) {
+	f := startFakeTWS(t)
+	s, out := sessionLossServer(t, f, "2026-10-07T18:00:00Z")
+	old := s.gatewayConnectorForTest()
+	now := s.now()
+	s.snapshotPoisonedFn = func(*ibkrlib.Connector) (time.Time, error, bool) {
+		return now.Add(-40 * time.Second), errors.New("synthetic: no openOrderEnd"), true
+	}
+	waits := false
+	s.saleWaitsFn = func(time.Time) bool { return waits }
+	s.redialPoisonedOpenOrderSnapshot(old, now)
+	waitSessionLost(t, old)
+	reconnectForTest(t, s)
+	fresh := s.gatewayConnectorForTest()
+	if fresh == nil || fresh == old {
+		t.Fatal("the first poison was not redialled")
+	}
+	// No sale waits: the hour holds.
+	s.redialPoisonedOpenOrderSnapshot(fresh, now.Add(2*time.Minute))
+	time.Sleep(50 * time.Millisecond)
+	if !fresh.IsReady() {
+		t.Fatal("redialled inside the hour with no sale waiting")
+	}
+	// A sale waits, but the last redial is under a minute old.
+	waits = true
+	s.redialPoisonedOpenOrderSnapshot(fresh, now.Add(30*time.Second))
+	time.Sleep(50 * time.Millisecond)
+	if !fresh.IsReady() {
+		t.Fatal("redialled again within a minute")
+	}
+	mark := len(out.String())
+	s.redialPoisonedOpenOrderSnapshot(fresh, now.Add(2*time.Minute))
+	waitSessionLost(t, fresh)
+	if lines := settledLog(out, mark); !strings.Contains(lines, "a sale waits on the open orders, so it is redialled again") {
+		t.Fatalf("the sale's redial was not logged:\n%s", lines)
+	}
+}

@@ -305,14 +305,14 @@ type TradeProposalQueuePrepareParams struct {
 // an optional first sale WaitMinutes after the regular open, and the trail
 // on the underlying stock that sells the rest when the stock gives back.
 type QueuedExitPlanParams struct {
-	Contract    ContractParams       `json:"contract"`
-	WaitMinutes int                  `json:"wait_minutes"`
+	Contract    ContractParams `json:"contract"`
+	WaitMinutes int            `json:"wait_minutes"`
 	// StartInMinutes starts a plan signed during the session that many
 	// minutes from now (0 at once, at most 120), in place of WaitMinutes,
 	// which applies to a plan signed before the open.
-	StartInMinutes *int `json:"start_in_minutes,omitempty"`
-	FirstSale   *QueuedPlanFirstSale `json:"first_sale,omitempty"`
-	Trail       *QueuedPlanTrail     `json:"trail,omitempty"`
+	StartInMinutes *int                 `json:"start_in_minutes,omitempty"`
+	FirstSale      *QueuedPlanFirstSale `json:"first_sale,omitempty"`
+	Trail          *QueuedPlanTrail     `json:"trail,omitempty"`
 }
 
 // QueuedPlanFirstSale sells Quantity near the mid, never below MinPrice;

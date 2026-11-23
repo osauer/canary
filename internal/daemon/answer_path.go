@@ -20,7 +20,10 @@ import (
 const (
 	answerPathRedialAfter = 10 * time.Minute
 	answerPathRedialQuiet = time.Hour
-	answerPathCheckEvery  = 30 * time.Second
+	// answerPathSaleRedialEvery spaces the redials of a poisoned open-order
+	// read while a sale waits on it, inside the hour's quiet.
+	answerPathSaleRedialEvery = time.Minute
+	answerPathCheckEvery      = 30 * time.Second
 )
 
 // answerPathLane is the supervisor's memory of one lane across sessions.
@@ -208,6 +211,13 @@ func (s *Server) redialPoisonedOpenOrderSnapshot(c *ibkrlib.Connector, now time.
 		linkFn = s.backendLinkFn
 	}
 	link := linkFn(c)
+	// Read before the lane's lock: the queued and pre-authorised stores have
+	// their own.
+	waitsFn := s.saleWaitsOnOpenOrders
+	if s.saleWaitsFn != nil {
+		waitsFn = s.saleWaitsFn
+	}
+	saleWaits := waitsFn(now)
 	s.answerPath.mu.Lock()
 	lane := s.answerPath.lane(rpc.AnswerPathLanePrimary)
 	if c == lane.snapshotDropped {
@@ -233,7 +243,17 @@ func (s *Server) redialPoisonedOpenOrderSnapshot(c *ibkrlib.Connector, now time.
 	// last redial: a session dialled during the outage starts with the latch
 	// up and hears only 2110, so its restore never moves ChangedAt.
 	restored := lane.snapshotOutageSeen || (!link.ChangedAt.IsZero() && link.ChangedAt.After(lane.snapshotRedialedAt))
-	if !restored && !lane.snapshotRedialedAt.IsZero() && now.Sub(lane.snapshotRedialedAt) < answerPathRedialQuiet {
+	// A sale waiting on the open orders is not left an hour: the redial is
+	// made again, at most once a minute, while one waits.
+	waiting := !restored && !lane.snapshotRedialedAt.IsZero() && now.Sub(lane.snapshotRedialedAt) < answerPathRedialQuiet &&
+		now.Sub(lane.snapshotRedialedAt) >= answerPathSaleRedialEvery && saleWaits
+	if waiting {
+		redialedAt := lane.snapshotRedialedAt
+		s.answerPath.mu.Unlock()
+		logf("IBKR Gateway's open-order snapshot is poisoned again on the connection redialled at %s; a sale waits on the open orders, so it is redialled again", localTimeOnly(redialedAt))
+		s.answerPath.mu.Lock()
+	}
+	if !waiting && !restored && !lane.snapshotRedialedAt.IsZero() && now.Sub(lane.snapshotRedialedAt) < answerPathRedialQuiet {
 		warn := !lane.snapshotQuietWarned
 		lane.snapshotQuietWarned = true
 		redialedAt := lane.snapshotRedialedAt
@@ -317,4 +337,38 @@ func (s *Server) redialStalledLane(name string, c *ibkrlib.Connector, since, now
 		// breadthConnectFlow stops the stalled connector before it dials.
 		s.triggerBreadthConnect()
 	}
+}
+
+// While a sale waits on the open orders, a session poisoned again inside the
+// hour is redialled again, at most once a minute. Worst case: one reconnect a
+// minute for as long as a fired trail or a due sale waits and the Gateway
+// keeps poisoning the read (each reconnect drops the market-data and order
+// subscriptions for a few seconds); outside such a wait the hour holds.
+//
+// saleWaitsOnOpenOrders reports a sale that cannot be sent without a fresh
+// open-order read: a fired exit-plan trail that has not sold, an armed queued
+// record inside its window, or a pre-authorised submission that is due.
+func (s *Server) saleWaitsOnOpenOrders(now time.Time) bool {
+	e := s.tradeProposals
+	if e == nil {
+		return false
+	}
+	for _, rec := range e.queued.list() {
+		if !rec.waiting() || now.Before(rec.Terms.NotBefore) || !ownerQueueProtection(rec.Terms) && !now.Before(rec.Terms.NotAfter) {
+			continue
+		}
+		if queuedPlanTrail(rec.Terms) && rec.Watch.TriggeredAt.IsZero() {
+			continue // a trail that has not fired reads the stock, not the orders
+		}
+		return true
+	}
+	if e.automatic.attached() {
+		frozen := s.tradingFrozen()
+		for _, rec := range e.automatic.list() {
+			if rec.due(now, frozen) {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -113,8 +113,12 @@ func TestExitPlanTermsValidation(t *testing.T) {
 		"fractional line":          func(f, tr *rpc.QueuedAuthTerms) { tr.PositionQuantity = 20.5 },
 		"put":                      func(f, tr *rpc.QueuedAuthTerms) { tr.Contract.Right = "P" },
 		"wait and start both":      func(f, tr *rpc.QueuedAuthTerms) { tr.OwnerOrder.Plan.StartInMinutes = new(5) },
-		"start above 120":          func(f, tr *rpc.QueuedAuthTerms) { tr.OwnerOrder.Plan.WaitMinutes, tr.OwnerOrder.Plan.StartInMinutes = 0, new(121) },
-		"start negative":           func(f, tr *rpc.QueuedAuthTerms) { tr.OwnerOrder.Plan.WaitMinutes, tr.OwnerOrder.Plan.StartInMinutes = 0, new(-1) },
+		"start above 120": func(f, tr *rpc.QueuedAuthTerms) {
+			tr.OwnerOrder.Plan.WaitMinutes, tr.OwnerOrder.Plan.StartInMinutes = 0, new(121)
+		},
+		"start negative": func(f, tr *rpc.QueuedAuthTerms) {
+			tr.OwnerOrder.Plan.WaitMinutes, tr.OwnerOrder.Plan.StartInMinutes = 0, new(-1)
+		},
 	} {
 		f, tr := clone(first), clone(trail)
 		edit(&f, &tr)
@@ -478,5 +482,39 @@ func TestExitPlanStartInTerms(t *testing.T) {
 	raw, _ := json.Marshal(first)
 	if strings.Contains(string(raw), "start_in_minutes") {
 		t.Fatal("a plan signed before the open changed bytes")
+	}
+}
+
+// A fired trail that has not sold, or another armed record inside its
+// window, waits on the open orders; a trail that has not fired does not.
+func TestSaleWaitsOnOpenOrders(t *testing.T) {
+	rig := newQueueTestRig(t)
+	rig.server.tradeProposals = rig.engine
+	_, trail := exitPlanTestTerms()
+	trail.QueueID = "trail1"
+	digest, _ := queuedTermsDigest(trail)
+	in := trail.NotBefore.Add(time.Minute)
+	if err := rig.engine.queued.update(t.Context(), in, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := &queuedAuthRecord{Version: queuedDocumentVersion, Terms: trail, TermsDigest: digest, CreatedAt: in}
+		records[trail.QueueID] = r
+		return []queuedAuthEvent{r.transition(queuedEventArmed, rpc.QueuedAuthArmed, in)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rig.server.saleWaitsOnOpenOrders(in) {
+		t.Fatal("a trail that has not fired waits on the open orders")
+	}
+	if err := rig.engine.queued.update(t.Context(), in, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[trail.QueueID]
+		r.Watch.TriggeredAt = in
+		return []queuedAuthEvent{r.note(queuedEventTriggered, r.State, in)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if !rig.server.saleWaitsOnOpenOrders(in) {
+		t.Fatal("a fired trail does not wait on the open orders")
+	}
+	if rig.server.saleWaitsOnOpenOrders(trail.NotAfter) {
+		t.Fatal("a trail past its window waits on the open orders")
 	}
 }

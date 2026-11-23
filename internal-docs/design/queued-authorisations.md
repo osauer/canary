@@ -220,6 +220,12 @@ its window nothing extra runs.
   2,300 broker messages over a 6.5-hour afternoon. The price stays bounded by
   the signed spread limit and the fresh, live, two-sided quote each attempt
   needs.
+- **Open orders unreadable.** When the Gateway's open-order read is
+  poisoned again inside the hour after a redial, it is redialled again, at
+  most once a minute, while a fired trail, an armed record in its window or
+  a due pre-authorised sale waits on it. Worst case, one reconnect a minute
+  for as long as the Gateway keeps poisoning the read; otherwise the hour's
+  quiet holds.
 - **End.** Untriggered at its window's end, the trail expires
   (`window_ended`) and nothing is sent.
 
