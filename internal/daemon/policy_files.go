@@ -1189,6 +1189,10 @@ func writeCashSweepTemplate(b *strings.Builder) {
 # than a bill earns) or a currency's cash is unknown; redemptions still sell.
 # Canary never converts: convert or deposit to repay.
 # no_buy_while_borrowed = %s
+# A stock add may borrow its own currency when the account's free cash in
+# other currencies covers it after the reserve; the order warns with the
+# amount. IBKR charges interest until you convert. Absent means false.
+# buy_stock_on_borrowed_currency = false
 # min_net_gain = 25.0   # incremental purchase gain in base, including cash interest forgone
 # tax_reviewed_at = 2026-01-01   # when you reviewed the tax on bill rolls; advisory, blocks nothing
 #

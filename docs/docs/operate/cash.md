@@ -134,6 +134,7 @@ order_step_base = 1000.0     # order grid: buys round down, redemptions up
 keep_cash = 5000.0           # settlement float in each currency's own unit
 bills_exempt_from_trading_max_notional = true
 no_buy_while_borrowed = true # no bill buys while any currency is borrowed
+# buy_stock_on_borrowed_currency = true # a stock add may borrow its own currency against other cash
 # tax_reviewed_at = 2026-01-01   # advisory: until written, rows say the tax treatment is not yet confirmed
 ```
 
@@ -246,6 +247,17 @@ All figures are in the account's base currency at the ledger rate.
   order cap in force. The row's order terms carry the limit as
   `trading_cap_exempt_up_to_base`, and both preview and submit check it.
   Without the key, the exemption is off.
+
+- **Stock adds on borrowed currency.** With
+  `buy_stock_on_borrowed_currency = true` (owner decision 2026-11-23 06:15
+  CET), a stock add in a currency the account holds too little of, or none,
+  may borrow the shortfall in that currency while the account's free cash in
+  every currency, at the ledger rates, covers the purchase after each
+  currency's float, open purchases and the reserve. The order carries a
+  warning naming the borrowed amount, which you confirm with it. Canary never
+  converts: IBKR charges interest on the debit until you convert, and the
+  sweep's bill buys wait meanwhile under `no_buy_while_borrowed`. Absent
+  means false.
 
 - **No buys while borrowed.** With
   `no_buy_while_borrowed = true`, the sweep buys no bill in any currency while
