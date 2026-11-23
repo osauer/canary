@@ -161,9 +161,55 @@ func TestSimulatedTWSHongKongAddWhileClosedRests(t *testing.T) {
 	}
 }
 
-// H6. Search and lot rules need the add-search branch (add.search, the
-// add_lot_size blocker); the simulator already answers both.
+// H6. Listing search and board lots: add.search returns both SYNH
+// listings (the NYSE ADR on SMART in USD, the SEHK line on SEHK in HKD);
+// add.market reports the lot; one share is held on the lot; a maximum
+// rounds down to a whole lot. The book carries the guide's index
+// protection (600 SYNA, one SYNX 540 put) so the Rulebook lets a maximum
+// size, and HKD cash, since a maximum never borrows.
 func TestSimulatedTWSHongKongSearchAndLot(t *testing.T) {
-	requireSimTier(t)
-	t.Skip("needs branch add-search (add.search and add_lot_size); the simulator side is in pkg/ibkr/twssim")
+	book := twssim.Default()
+	book.SetPosition(900001, 600, 48)
+	exps := twssim.OptionExpiries(time.Now())
+	if err := book.ListOptions(900601, exps, []float64{520, 540, 560}); err != nil {
+		t.Fatal(err)
+	}
+	put, ok := book.OptionConIDFor(900601, exps[3], 540, "P")
+	if !ok {
+		t.Fatal("no SYNX 540 put")
+	}
+	book.SetPosition(put, 1, 700)
+	book.SetCash("HKD", 50_000)
+	setSessions(t, true)
+	hkOpen(t, true)
+	d := startSimDeskPolicies(t, twssim.Options{Book: book}, true, borrowOn(t))
+	found, rerr := dispatchJSON[rpc.AddSearchResult](t, d.srv, rpc.MethodAddSearch, rpc.AddSearchParams{Pattern: "SYNH"})
+	if rerr != nil {
+		t.Fatalf("add.search: %+v", rerr)
+	}
+	var lines []string
+	for _, l := range found.Listings {
+		lines = append(lines, l.Symbol+" "+l.Exchange+"/"+l.Currency+" "+l.PrimaryExchange)
+	}
+	slices.Sort(lines)
+	if got := strings.Join(lines, "; "); got != "SYNH SEHK/HKD SEHK; SYNH SMART/USD NYSE" {
+		t.Fatalf("search listings: %s (%+v)", got, found.Listings)
+	}
+	m, rerr := dispatchJSON[rpc.AddMarketResult](t, d.srv, rpc.MethodAddMarket, rpc.AddMarketParams{Underlying: rpc.ContractParams{Symbol: "SYNH", SecType: "STK", Exchange: "SEHK", Currency: "HKD"}})
+	if rerr != nil || m.Underlying.MinSize != 100 || m.Underlying.SizeIncrement != 100 || m.Underlying.ConID != 900701 {
+		t.Fatalf("add.market underlying %+v %+v", m.Underlying, rerr)
+	}
+	one := synhAdd
+	one.Quantity = 1
+	plan := d.plan(one)
+	if msg, ok := planCode(plan, "add_lot_size"); !ok || msg != "SYNH trades in lots of 100 shares; choose a multiple of 100." || plan.Quantity != 0 {
+		t.Fatalf("one share: %+v", plan.Blockers)
+	}
+	most := synhAdd
+	most.Quantity, most.Max = 0, true
+	plan = d.plan(most)
+	if len(plan.Blockers) > 0 || plan.Quantity <= 0 || plan.Quantity%100 != 0 {
+		t.Fatalf("max: quantity %d blockers %+v", plan.Quantity, plan.Blockers)
+	}
+	t.Logf("max sized %d SYNH", plan.Quantity)
 }
