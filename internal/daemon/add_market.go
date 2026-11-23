@@ -87,7 +87,9 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 			release(cleanup)
 		}()
 	}
-	out := &rpc.AddMarketResult{Version: 1, Underlying: setupOptionContract(exact.Contract), OptionsSession: session.current, OptionsLastSession: session.last, OptionMode: session.mode, OptionCap: s.addOptionCap()}
+	lotMin, lotIncrement := exact.StockLot()
+	underlying := rpc.AddUnderlying{ContractParams: setupOptionContract(exact.Contract), MinSize: lotMin, SizeIncrement: lotIncrement}
+	out := &rpc.AddMarketResult{Version: 1, Underlying: underlying, OptionsSession: session.current, OptionsLastSession: session.last, OptionMode: session.mode, OptionCap: s.addOptionCap()}
 	out.PriceIncrements = addPriceRules(ctx, c, binding, exact)
 	lap("rules")
 	var expiries []rpc.SetupOptionExpiry
@@ -102,7 +104,7 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	lap("listing")
 	// Read after metadata so callbacks received during those broker round trips
 	// reach strike ranking instead of retaining an earlier empty snapshot.
-	raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: out.Underlying, TimeoutMs: 3000})
+	raw, _ := json.Marshal(rpc.QuoteSnapshotParams{Contract: out.Underlying.ContractParams, TimeoutMs: 3000})
 	out.Quote, err = s.handleQuoteSnapshot(ctx, &rpc.Request{Params: raw})
 	lap("spot")
 	if err != nil {
@@ -197,7 +199,7 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	if side.right == "P" {
 		// Discovery can take several broker round trips. Read remaining cover
 		// after them so earlier capacity is not returned as current.
-		out.PutCover = s.readAddPutCover(ctx, out.Underlying)
+		out.PutCover = s.readAddPutCover(ctx, out.Underlying.ContractParams)
 	}
 	if !c.HistoricalSessionCurrent(binding) || !s.orderPreviewBrokerAuthorityCurrent(authority) {
 		return nil, fmt.Errorf("broker session changed during Add discovery")

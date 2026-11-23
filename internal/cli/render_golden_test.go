@@ -259,6 +259,10 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "portfolio_plan", argv: []string{"portfolio", "plan"}, conn: goldenConn{rpc.MethodPortfolioPlan: goldenPortfolioPlan()}},
 		{name: "portfolio_plan_held", argv: []string{"portfolio", "plan"}, conn: goldenConn{rpc.MethodPortfolioPlan: rpc.PortfolioPlanResult{State: "held", Reason: "Current portfolio evidence is incomplete.", Blockers: []rpc.TradingBlocker{{Code: "portfolio_book_unavailable", Message: "A complete same-session account and portfolio are required."}}}}},
 		{name: "add_plan", argv: []string{"add", "plan", "SYNA", "--currency", "USD", "--limit", "100", "--max"}, conn: goldenConn{rpc.MethodAddPlan: goldenStockAdd()}},
+		{name: "add_search", argv: []string{"add", "search", "9988"}, conn: goldenConn{rpc.MethodAddSearch: rpc.AddSearchResult{Query: "9988", Truncated: true, Listings: []rpc.AddSearchListing{
+			{Symbol: "9988", ConID: 880011, Name: "SYNTHETIC GROUP HOLDINGS", SecType: "STK", Currency: "HKD", PrimaryExchange: "SEHK", Exchange: "SEHK", Market: "hk_hkex"},
+			{Symbol: "SYNAX", ConID: 880010, Name: "SYNAX CORP", SecType: "STK", Currency: "USD", PrimaryExchange: "NYSE", Exchange: "SMART", Market: "us_equity"},
+		}}}},
 		{name: "add_borrowed_currency", render: func(env *Env) {
 			p := goldenStockAdd()
 			p.Currency, p.BaseCurrency, p.Sizing, p.MaximumKnown, p.RequestedQuantity = "HKD", "EUR", "quantity", false, 9

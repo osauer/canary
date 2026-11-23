@@ -23,6 +23,8 @@ Flags
 
 plan checks a stock addition or opening; preview creates an exact order review
 for separate owner confirmation. Neither places an order.
+search PATTERN finds stock listings by symbol or name and says which exchange
+and currency Add uses for each.
 market reads stock quotes and discovers or refreshes calls; call-plan sizes an
 exact call using broker fee evidence. Both read one JSON object from stdin. Run
 canary add market --help or canary add call-plan --help for request fields and
@@ -52,6 +54,8 @@ Usage: \x1b[36mcanary add plan|preview SYMBOL --currency CCY --limit PRICE (--qu
 
 plan checks a stock addition or opening; preview creates an exact order review
 for separate owner confirmation. Neither places an order.
+search PATTERN finds stock listings by symbol or name and says which exchange
+and currency Add uses for each.
 market reads stock quotes and discovers or refreshes calls; call-plan sizes an
 exact call using broker fee evidence. Both read one JSON object from stdin. Run
 canary add market --help or canary add call-plan --help for request fields and

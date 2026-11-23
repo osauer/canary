@@ -90,3 +90,25 @@ func (a *Adapter) Resolve(ctx context.Context, b broker.SessionBinding, in broke
 	}
 	return Instrument(resolved.Contract), nil
 }
+
+// SearchListings is IBKR's symbol search (reqMatchingSymbols) within the
+// session b names.
+func (a *Adapter) SearchListings(ctx context.Context, b broker.SessionBinding, pattern string) ([]broker.Listing, error) {
+	cb, ok := a.concreteFor(b)
+	if !ok || !a.conn.SessionCurrent(cb) {
+		return nil, errSessionChanged
+	}
+	samples, err := a.conn.MatchingSymbols(ctx, cb, pattern)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]broker.Listing, 0, len(samples))
+	for _, s := range samples {
+		in := broker.Instrument{Broker: broker.KindIBKR, Symbol: s.Symbol, SecType: s.SecType, Primary: s.PrimaryExch, Currency: s.Currency}
+		if s.ConID > 0 {
+			in.ID = strconv.Itoa(s.ConID)
+		}
+		out = append(out, broker.Listing{Instrument: in, Name: s.Description})
+	}
+	return out, nil
+}

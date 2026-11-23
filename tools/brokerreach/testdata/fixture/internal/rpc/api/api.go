@@ -15,4 +15,5 @@ var (
 	Seamed   = Define[struct{}, int]("seamed")
 	Order    = Define[struct{}, int]("order")
 	Lookup   = Define[struct{}, int]("lookup")
+	Send     = Define[struct{}, int]("send")
 )

@@ -106,26 +106,36 @@ func (s *Server) orderPreviewBrokerAuthorityCurrent(authority *orderPreviewBroke
 }
 
 func (s *Server) resolvePreviewOrderContract(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration) (rpc.ContractParams, error) {
+	resolved, _, err := s.resolvePreviewOrderContractLot(ctx, authority, contract, timeout)
+	return resolved, err
+}
+
+// resolvePreviewOrderContractLot is resolvePreviewOrderContract with the
+// broker's stock lot; a test seam's contract has lots of one share.
+func (s *Server) resolvePreviewOrderContractLot(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration) (rpc.ContractParams, stockLot, error) {
+	one := stockLot{min: 1, increment: 1}
 	if s.orderContractResolverForTest != nil {
 		resolved, err := s.orderContractResolverForTest(ctx, contract, timeout)
 		if err != nil {
-			return rpc.ContractParams{}, err
+			return rpc.ContractParams{}, one, err
 		}
 		if resolved.ConID <= 0 {
-			return rpc.ContractParams{}, fmt.Errorf("%w: contract resolver returned no positive ConID", ErrTradingDisabled)
+			return rpc.ContractParams{}, one, fmt.Errorf("%w: contract resolver returned no positive ConID", ErrTradingDisabled)
 		}
-		return resolved, nil
+		return resolved, one, nil
 	}
 	// Existing unit tests may replace the complete quote/position/WhatIf
 	// authority without constructing a socket. Production never takes this
 	// path because no test seam is installed.
 	if authority == nil {
-		return contract, nil
+		return contract, one, nil
 	}
 	resolved, err := authority.connector.ResolveOrderContractForSession(ctx, authority.session, *previewIBKRContract(contract), timeout)
 	if err != nil {
-		return rpc.ContractParams{}, orderContractResolutionError(err)
+		return rpc.ContractParams{}, one, orderContractResolutionError(err)
 	}
+	lotMin, lotIncrement := resolved.StockLot()
+	lot := stockLot{min: lotMin, increment: lotIncrement}
 	result := contract
 	result.ConID = resolved.Contract.ConID
 	result.Symbol = resolved.Contract.Symbol
@@ -141,9 +151,9 @@ func (s *Server) resolvePreviewOrderContract(ctx context.Context, authority *ord
 	result.TradingClass = resolved.Contract.TradingClass
 	result.MinTick = resolved.MinTick
 	if result.ConID <= 0 || !s.orderPreviewBrokerAuthorityCurrent(authority) {
-		return rpc.ContractParams{}, fmt.Errorf("%w: broker session changed during contract resolution", ErrTradingDisabled)
+		return rpc.ContractParams{}, one, fmt.Errorf("%w: broker session changed during contract resolution", ErrTradingDisabled)
 	}
-	return result, nil
+	return result, lot, nil
 }
 
 // orderContractResolutionError is the refusal of a failed exact-contract

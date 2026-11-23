@@ -1385,32 +1385,41 @@ func snapshotUnderlyingForGamma(ctx context.Context, c *ibkrlib.Connector, sym s
 		return 0, "", ibkrlib.ErrIBKRUnavailable
 	}
 	sym = normSym(sym)
-	var bid, ask, last, mark, closePx float64
+	var quote ibkrlib.MarketData
 	pollErr = pollMarketData(ctx, c, sym, time.Now().Add(timeout), func(d *ibkrlib.MarketData) bool {
-		bid, ask, last, mark, closePx = d.Bid, d.Ask, d.Last, d.MarkPrice, d.Close
-		if dataType == "" && (bid > 0 || ask > 0 || last > 0 || mark > 0 || closePx > 0) {
+		quote = *d
+		if dataType == "" && gammaSpotFromQuote(quote) > 0 {
 			dataType = marketDataTypeName(c.MarketDataTypeForSymbol(sym))
 		}
-		return bid > 0 || ask > 0 || last > 0 || mark > 0
+		return d.Bid > 0 || d.Ask > 0 || d.Last > 0 || d.MarkPrice > 0
 	})
-	switch {
-	case last > 0:
-		spot = last
-	case bid > 0 && ask > 0:
-		spot = (bid + ask) / 2
-	case bid > 0:
-		spot = bid
-	case ask > 0:
-		spot = ask
-	case mark > 0:
-		spot = mark
-	case closePx > 0:
-		spot = closePx
-	}
+	spot = gammaSpotFromQuote(quote)
 	if dataType == "" && spot > 0 {
 		dataType = "live"
 	}
 	return spot, dataType, pollErr
+}
+
+// gammaSpotFromQuote picks the underlying price the gamma profile is anchored
+// on: last, then the mid, then one side, then the broker's mark. The close
+// tick is never a spot: it is the previous regular session's close, a full
+// session old in the minutes after the bell, and a profile anchored on it is
+// kept as the closed-session reading until the next open. With no current
+// price the result is zero and the caller refuses the phase.
+func gammaSpotFromQuote(d ibkrlib.MarketData) float64 {
+	switch {
+	case d.Last > 0:
+		return d.Last
+	case d.Bid > 0 && d.Ask > 0:
+		return (d.Bid + d.Ask) / 2
+	case d.Bid > 0:
+		return d.Bid
+	case d.Ask > 0:
+		return d.Ask
+	case d.MarkPrice > 0:
+		return d.MarkPrice
+	}
+	return 0
 }
 
 type gammaSpotError struct {

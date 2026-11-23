@@ -54,7 +54,6 @@ reporting.costs
 rules.snapshot
 settings.get
 settings.update
-setups.evaluate
 setups.options
 status.health
 strategy.one

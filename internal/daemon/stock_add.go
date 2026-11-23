@@ -29,6 +29,44 @@ type stockAddEvidence struct {
 	ordersGeneration    uint64
 	portfolioGeneration uint64
 	accountFingerprint  string
+	// lot is the broker's lot for the resolved stock.
+	lot stockLot
+}
+
+// stockLot is a stock's order size rule in whole shares: at least min and a
+// whole number of increments above it. Zero values read as one share.
+type stockLot struct{ min, increment int }
+
+func (l stockLot) normal() stockLot {
+	return stockLot{min: max(l.min, 1), increment: max(l.increment, 1)}
+}
+
+// fits reports whether q shares is a whole lot.
+func (l stockLot) fits(q int) bool {
+	return q >= l.min && (q-l.min)%l.increment == 0
+}
+
+// shares is n whole lots in shares (0 for none).
+func (l stockLot) shares(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return l.min + (n-1)*l.increment
+}
+
+// within is the most whole lots in q shares.
+func (l stockLot) within(q int) int {
+	if q < l.min {
+		return 0
+	}
+	return (q-l.min)/l.increment + 1
+}
+
+func (l stockLot) sentence(symbol string) string {
+	if l.min == l.increment {
+		return fmt.Sprintf("%s trades in lots of %d shares; choose a multiple of %d.", symbol, l.increment, l.increment)
+	}
+	return fmt.Sprintf("%s trades from %d shares in steps of %d; choose %d shares plus a multiple of %d.", symbol, l.min, l.increment, l.min, l.increment)
 }
 
 // stockAddProblem preserves the reason category across daemon evidence collection.
@@ -129,6 +167,15 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 	if p.Quantity > upper {
 		return held("capacity", "add_quantity_above_max", "The requested addition exceeds the current order allowance before broker costs.")
 	}
+	lot := ev.lot.normal()
+	if !p.Max && !lot.fits(p.Quantity) {
+		return held("capacity", "add_lot_size", lot.sentence(ev.contract.Symbol))
+	}
+	// The maximum is searched over whole lots: n lots is lot.shares(n).
+	upperLots := lot.within(upper)
+	if p.Max && upper > 0 && upperLots == 0 {
+		return held("capacity", "add_lot_size", lot.sentence(ev.contract.Symbol))
+	}
 	type candidate struct {
 		plan risk.StockAddPlan
 		fee  float64
@@ -181,24 +228,25 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 		}
 		return finish(c, false)
 	}
-	q, best := upper, 0
+	// n counts whole lots; with lots of one share, n is the share count.
+	n, best := upperLots, 0
 	for range stockAddQuoteBudget {
 		if err := ctx.Err(); err != nil {
 			return held("evidence", "add_search_incomplete", "The planning time budget ended before a maximum was established.")
 		}
-		c, err := quote(q)
+		c, err := quote(lot.shares(n))
 		if err != nil {
 			return held("evidence", "add_broker_evidence_unavailable", err.Error())
 		}
-		if c.plan.Quantity > best && len(c.plan.Blockers) == 0 {
-			best = q
+		if c.plan.Quantity > lot.shares(best) && len(c.plan.Blockers) == 0 {
+			best = n
 		}
-		out.SupportedQuantity = best
+		out.SupportedQuantity = lot.shares(best)
 		// Certification is exhaustive above the best accepted quantity. Even a
 		// discontinuous fee schedule cannot make an untested larger lot disappear.
-		next := upper
+		next := upperLots
 		for next > best {
-			if _, seen := checked[next]; !seen {
+			if _, seen := checked[lot.shares(next)]; !seen {
 				break
 			}
 			next--
@@ -207,32 +255,32 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 			if best == 0 {
 				return held("capacity", "add_no_capacity", "Every quantity within the order allowance failed its exact cash or margin check.")
 			}
-			return finish(checked[best], true)
+			return finish(checked[lot.shares(best)], true)
 		}
 		if best == 0 {
 			// Find one affordable witness early, but never use its fee to certify
 			// a different quantity. The untested upper interval is still checked.
-			affordable := max(0, int(math.Floor((ev.input.FreeCash-c.fee)/ev.input.Price)))
+			affordable := lot.within(max(0, int(math.Floor((ev.input.FreeCash-c.fee)/ev.input.Price))))
 			next = min(next, affordable)
-			if next >= q {
-				next = q / 2
+			if next >= n {
+				next = n / 2
 			}
 			if next == 0 {
 				next = 1
 			}
-			if _, seen := checked[next]; seen {
-				next = upper
+			if _, seen := checked[lot.shares(next)]; seen {
+				next = upperLots
 				for next > 0 {
-					if _, seen := checked[next]; !seen {
+					if _, seen := checked[lot.shares(next)]; !seen {
 						break
 					}
 					next--
 				}
 			}
 		}
-		q = next
+		n = next
 	}
-	return held("evidence", "add_search_incomplete", fmt.Sprintf("Maximum not established within the bounded broker search. %d additional shares passed an exact check; use an explicit quantity for a fresh review.", best))
+	return held("evidence", "add_search_incomplete", fmt.Sprintf("Maximum not established within the bounded broker search. %d additional shares passed an exact check; use an explicit quantity for a fresh review.", lot.shares(best)))
 }
 
 // stockAddWhatIfMargin applies only this draft's simulated margin change. The
@@ -375,10 +423,11 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		return ev, fmt.Errorf("current broker session unavailable")
 	}
 	ev.broker = broker
-	contract, err := s.resolvePreviewOrderContract(ctx, broker, p.Contract, previewMinTickTimeout)
+	contract, lot, err := s.resolvePreviewOrderContractLot(ctx, broker, p.Contract, previewMinTickTimeout)
 	if err != nil {
 		return ev, err
 	}
+	ev.lot = lot
 	if contract.SecType != "STK" || contract.ConID <= 0 || contract.Symbol != p.Contract.Symbol || contract.Currency != p.Contract.Currency || (p.Contract.ConID > 0 && contract.ConID != p.Contract.ConID) {
 		return ev, fmt.Errorf("resolved stock identity differs from the selected instrument")
 	}

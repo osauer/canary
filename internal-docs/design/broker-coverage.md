@@ -4,7 +4,7 @@
 
 Canary reads one brokerage account through IBKR (TWS or IB Gateway) or through OpenD (moomoo, Futu). Most of what it shows is computed by Canary from what the broker supplies: the regime, portfolio stress, Edge and gamma are Canary's, not the broker's. So this page has two tables. The first says what each broker supplies. The second says how each capability runs on each broker and, where OpenD falls short, why. The same table decides what the daemon refuses under OpenD.
 
-On OpenD, of 43 capabilities: 1 served, 8 partial, 19 unverified, 2 refused, 13 not served. Of those not fully served, 7 need data OpenD does not supply, 0 wait on a check of what OpenD supplies, and 8 have what they need from OpenD but are not yet read there.
+On OpenD, of 44 capabilities: 1 served, 8 partial, 19 unverified, 2 refused, 14 not served. Of those not fully served, 7 need data OpenD does not supply, 0 wait on a check of what OpenD supplies, and 9 have what they need from OpenD but are not yet read there.
 
 ## What each broker supplies
 
@@ -66,6 +66,7 @@ Statuses: *served* works and a test or live check shows it; *partial* works with
 | strategy | account and positions, quotes, price bars | served | unverified |   |   |
 | setups | quotes, price bars | served | unverified |   |   |
 | stock add plans | account and positions, quotes | served | unverified |   |   |
+| listing search | contract lookup | unverified | not served | Canary | only IBKR's symbol search is read; OpenD's search is not |
 | rules, mandate and risk policy | account and positions, quotes | served | unverified |   | a holding in another currency without a sound rate counts as not measured |
 | alerts | account and positions, quotes | served | unverified |   |   |
 | proposals | account and positions, quotes | served | unverified |   |   |
@@ -116,6 +117,7 @@ Tests run without a live broker; the wire smoke reads a live IBKR gateway (`scri
 | strategy |   |   | `strategy.one`, `strategy.replay`, `strategy.target` |
 | setups |   |   | `setups.coverage`, `setups.evaluate`, `setups.markouts` |
 | stock add plans |   |   | `add.call-plan`, `add.plan` |
+| listing search |   |   | `add.search` |
 | rules, mandate and risk policy |   | `TestOpenDVerdictWords` | `mandate.risk`, `policy.capital_event`, `policy.correct_peak`, `policy.override`, `policy.reset_drawdown`, `policy.snapshot`, `rules.history`, `rules.snapshot`, `scorecard.read` |
 | alerts |   |   | `alerts.candidates`, `alerts.delivery_proof`, `alerts.status` |
 | proposals |   |   | `auto_trade.status`, `trade.proposals.prepare`, `trade.proposals.prepare_bundle`, `trade.proposals.prepared_bundle_status`, `trade.proposals.prepared_status`, `trade.proposals.queue_arm`, `trade.proposals.queue_cancel`, `trade.proposals.queue_list`, `trade.proposals.queue_prepare`, `trade.proposals.queue_status`, `trade_proposals.ignore`, `trade_proposals.refresh`, `trade_proposals.snapshot`, `trade_proposals.veto`, `trade_proposals.veto_window` |

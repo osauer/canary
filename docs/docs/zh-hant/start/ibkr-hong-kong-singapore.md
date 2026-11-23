@@ -1,6 +1,6 @@
 ---
 translation-of: docs/docs/start/ibkr-hong-kong-singapore.md
-source-revision: c17879e46594ac20d273837d7f671c636060ffeb
+source-revision: 4e8fe259ce89627be08c8f4f2690ffc7ea38d5ce
 nav-title: 香港及新加坡帳戶
 summary: 相同的閘道步驟、以港元、新加坡元或日圓計的基礎貨幣、亞洲交易所日曆，以及何時執行簡報。
 description: 盈透證券（Interactive Brokers）帳戶設於香港、新加坡、日本或澳洲，持有港股或其他亞洲股票時有何不同：IB Gateway 步驟完全相同、港元、新加坡元與日圓數字如何顯示、港交所、新交所、東京、ASX 與滬深港通的日曆，以及亞洲早上的簡報時段。
@@ -62,7 +62,7 @@ canary market --symbol D05 --exchange SGX --currency SGD --range 1M
 
 ## 訂單 {#orders}
 
-SEHK 或 SGX 股份的訂單會送往該股份本身的交易所，因為盈透證券不會經 SMART 為這些上市股份傳送訂單。預覽會列明交易所，並按該市場的交易時段（包括午休）判斷。盈透證券的 Adaptive 演算法只在 SMART 上運作，所以這些訂單以普通限價單傳送：減倉訂單會在條款中說明，手動要求 Adaptive 則會被拒絕並列明原因。其餘事項，例如每手股數和最小價格變動，由盈透證券在預覽回覆中決定。確認前請先閱讀該回覆。
+SEHK 或 SGX 股份的訂單會送往該股份本身的交易所，因為盈透證券不會經 SMART 為這些上市股份傳送訂單。預覽會列明交易所，並按該市場的交易時段（包括午休）判斷。盈透證券的 Adaptive 演算法只在 SMART 上運作，所以這些訂單以普通限價單傳送：減倉訂單會在條款中說明，手動要求 Adaptive 則會被拒絕並列明原因。若盈透證券列明某股份的最少股數和股數級距，加倉必須是完整的整手：較少或不成整手的數量會被暫停並列明每手股數，最大數量亦以完整整手計算。其餘事項，例如最小價格變動，由盈透證券在預覽回覆中決定。確認前請先閱讀該回覆。
 
 Canary 會以 IDEALPRO（盈透證券的外匯市場）的即時報價，衡量跨貨幣訂單是否超出每筆訂單上限。港元有與 EUR、GBP、AUD、USD、CAD、JPY 和 SGD 的貨幣對，新加坡元有與 EUR、GBP、AUD、USD、JPY 和 HKD 的貨幣對。盈透證券沒有港元或新加坡元對 NZD 或 CHF 的貨幣對，也沒有新加坡元對 CAD 的貨幣對，所以需要這些貨幣對的訂單會被拒絕，預覽會列明原因。Canary 讀取這些貨幣對只為檢查訂單，不會替你兌換港元或新加坡元：貨幣兌換只涵蓋 EUR、GBP、AUD、NZD、USD、CAD、CHF 和 JPY。
 
