@@ -72,6 +72,22 @@ const (
 	// crossed (the trigger is latched).
 	queuedEventStopRaised = "queued_auth.stop_raised"
 	queuedEventTriggered  = "queued_auth.triggered"
+	// queuedEventSaleCancel journals a fired trail cancelling its own
+	// working sale to send again at the bid.
+	queuedEventSaleCancel = "queued_auth.sale_cancel"
+
+	// queuedTrailRepriceAfter is how long a fired trail's sale works
+	// unfilled before it is cancelled and sent again at the fresh bid; at
+	// most one re-price per this interval.
+	queuedTrailRepriceAfter = 30 * time.Second
+	// Hold codes of a fired trail between attempts: its order ended at the
+	// broker and is sent again, or its end could not be confirmed and it is
+	// never resent.
+	queuedHoldTrailSaleEnded = "trail_sale_ended"
+	// View reasons of a fired trail whose sale is at the broker.
+	queuedTrailSaleWorking         = "trail_sale_working"
+	queuedTrailSaleCancelling      = "trail_sale_cancelling"
+	queuedHoldTrailSaleUnconfirmed = "trail_sale_unconfirmed"
 )
 
 // queuedTrailState is a trail record's durable watch: the high water, the
@@ -87,6 +103,12 @@ type queuedTrailState struct {
 	// FirstSaleCancelAt is when the trail last asked the broker to cancel
 	// its plan's first sale, still working when it fired.
 	FirstSaleCancelAt time.Time `json:"first_sale_cancel_at,omitzero"`
+	// SaleAttempts counts the fired trail's sends; SaleFilled is what its
+	// ended orders sold; SaleCancelAt is when it last cancelled its own
+	// working sale to send again at the bid.
+	SaleAttempts int       `json:"sale_attempts,omitempty"`
+	SaleFilled   int       `json:"sale_filled,omitempty"`
+	SaleCancelAt time.Time `json:"sale_cancel_at,omitzero"`
 }
 
 // IsZero reports a record with no watch (omitzero).
@@ -611,7 +633,14 @@ func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
 		return v
 	}
 	now := e.clock()
-	w := &rpc.QueuedTrailWatch{HighWater: r.Watch.HighWater, StopPrice: r.Watch.StopPrice, TriggeredAt: r.Watch.TriggeredAt, TriggerPrice: r.Watch.TriggerPrice}
+	w := &rpc.QueuedTrailWatch{HighWater: r.Watch.HighWater, StopPrice: r.Watch.StopPrice, TriggeredAt: r.Watch.TriggeredAt, TriggerPrice: r.Watch.TriggerPrice,
+		SaleAttempts: r.Watch.SaleAttempts, SaleFilled: r.Watch.SaleFilled}
+	if r.State == rpc.QueuedAuthSent || r.State == rpc.QueuedAuthSending || r.OrderRef != "" {
+		w.SaleLimit = r.LimitPrice
+		if r.State == rpc.QueuedAuthSent {
+			w.SaleFilled += int(math.Round(r.FilledQuantity))
+		}
+	}
 	if w.StopPrice == 0 && r.Terms.OwnerOrder.StockTrail != nil {
 		w.StopPrice = r.Terms.OwnerOrder.StockTrail.InitialStopPrice
 	}
@@ -622,8 +651,13 @@ func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
 	switch {
 	case !r.Watch.TriggeredAt.IsZero():
 		w.State = rpc.QueuedWatchTriggered
-		if r.HoldCode != "" {
+		switch {
+		case r.HoldCode != "":
 			w.ReasonCode, w.Reason = r.HoldCode, r.HoldReason
+		case r.State == rpc.QueuedAuthSent && r.Watch.SaleCancelAt.After(r.SentAt):
+			w.ReasonCode, w.Reason = queuedTrailSaleCancelling, "the sale did not fill at its limit; it is being cancelled at the broker to send again at the bid once it has ended"
+		case r.State == rpc.QueuedAuthSent:
+			w.ReasonCode, w.Reason = queuedTrailSaleWorking, "the sale is working at the broker at the bid; it is sent again at the fresh bid if it has not filled within 30 seconds"
 		}
 	case r.State == rpc.QueuedAuthPrepared || now.Before(r.Terms.NotBefore):
 		w.State = rpc.QueuedWatchWaiting

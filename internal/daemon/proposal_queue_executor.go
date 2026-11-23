@@ -125,6 +125,7 @@ func (e *proposalEngine) runQueuedCycleFor(ctx context.Context, only func(queued
 	e.endFlatProtectionQueues(ctx)
 	e.expireQueued(ctx)
 	e.followQueuedSent(ctx)
+	e.repriceTrailSales(ctx)
 	now := e.clock()
 	records := e.queued.list()
 	// An exit plan's trail goes before its first sale: a trail that fires
@@ -214,7 +215,7 @@ func (e *proposalEngine) expireQueued(ctx context.Context) {
 func (e *proposalEngine) followQueuedSent(ctx context.Context) {
 	var sent []queuedAuthRecord
 	for _, rec := range e.queued.list() {
-		if (rec.State == rpc.QueuedAuthSent || ownerQueueProtection(rec.Terms) && rec.State == rpc.QueuedAuthHeld) && rec.OrderRef != "" {
+		if (rec.State == rpc.QueuedAuthSent || queuedFollowsHeldAttempt(rec.Terms) && rec.State == rpc.QueuedAuthHeld) && rec.OrderRef != "" {
 			sent = append(sent, rec)
 		}
 	}
@@ -237,11 +238,22 @@ func (e *proposalEngine) followQueuedSent(ctx context.Context) {
 		var events []queuedAuthEvent
 		for _, s := range sent {
 			r := records[s.Terms.QueueID]
-			if r == nil || (r.State != rpc.QueuedAuthSent && !(ownerQueueProtection(r.Terms) && r.State == rpc.QueuedAuthHeld)) {
+			if r == nil || (r.State != rpc.QueuedAuthSent && !(queuedFollowsHeldAttempt(r.Terms) && r.State == rpc.QueuedAuthHeld)) {
 				continue
 			}
 			v, ok := byRef[r.OrderRef]
 			if !ok || !orderViewMatchesBrokerScope(v, r.scope()) || queuedOwnerOrder(r.Terms) && (v.ConID != r.Terms.Contract.ConID || v.PreviewTokenID != r.PreviewTokenID) {
+				continue
+			}
+			if queuedPlanTrail(r.Terms) {
+				// A trail's sale is followed attempt by attempt: it ends the
+				// record only when the line is sold or the window is over.
+				if ev, ok := trailSaleProgress(r, v, now); ok {
+					events = append(events, ev)
+					if r.final() {
+						done = append(done, *r)
+					}
+				}
 				continue
 			}
 			if ownerQueueProtection(r.Terms) && r.BrokerAcceptedAt.IsZero() {
@@ -427,7 +439,7 @@ func (e *proposalEngine) recoverQueuedAfterRestart(ctx context.Context) {
 				ev = r.transition(queuedEventRecovered, rpc.QueuedAuthSent, now)
 				ev.Reason = "the order reached the broker; confirmed from the order journal " + across
 			case outcome == orderSendUnclear:
-				if ownerQueueProtection(r.Terms) {
+				if queuedFollowsHeldAttempt(r.Terms) {
 					r.HoldCode, r.HoldReason = queuedReasonSendUnclear, "Broker acceptance is unconfirmed; checking the existing attempt, never resending it."
 					ev = r.transition(queuedEventHeld, rpc.QueuedAuthHeld, now)
 					break
@@ -716,7 +728,7 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 			case queuedPlanTrail(terms):
 				// A trail sells what is held, never more, at a positive limit
 				// and with no minimum price.
-				if float64(preview.Draft.Quantity) > preview.Position.Before || !positiveFinite(preview.Draft.LimitPrice) {
+				if float64(preview.Draft.Quantity) > preview.Position.Before || preview.Draft.Quantity > terms.MaxQuantity-current.Watch.SaleFilled || !positiveFinite(preview.Draft.LimitPrice) {
 					mismatch = "the preview would sell more than is held, or without a price"
 				}
 			case queuedOwnerOrder(terms) && !ownerQueueProtection(terms) && preview.Draft.Quantity != terms.MaxQuantity:
@@ -755,6 +767,9 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 					events = append(events, r.transition(queuedEventResumed, rpc.QueuedAuthArmed, at))
 				}
 				r.SendingAt, r.PreviewTokenID, r.OrderRef = at.UTC(), preview.PreviewTokenID, preview.Draft.OrderRef
+				if queuedPlanTrail(r.Terms) {
+					r.Watch.SaleAttempts++
+				}
 				r.QuantitySent, r.LimitPrice, r.SendQuote = preview.Draft.Quantity, preview.Draft.LimitPrice, queuedSendQuote(preview.Quote)
 				lateFrom := r.Terms.NotBefore
 				if !r.Watch.TriggeredAt.IsZero() {
@@ -859,7 +874,7 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 			ev = r.transition(queuedEventHeld, rpc.QueuedAuthHeld, finish)
 			ev.ReasonCode, ev.Reason = code, r.HoldReason
 		default:
-			if ownerQueueProtection(r.Terms) {
+			if queuedFollowsHeldAttempt(r.Terms) {
 				r.HoldCode, r.HoldReason = queuedReasonSendUnclear, "Broker acceptance is unconfirmed; checking the existing attempt, never resending it."
 				ev = r.transition(queuedEventHeld, rpc.QueuedAuthHeld, finish)
 				break
@@ -936,7 +951,10 @@ func (s *Server) daemonOwnerQueuedOriginBlockers() []rpc.TradingBlocker {
 		return unauthorised
 	}
 	rec, ok := s.tradeProposals.queued.get(grant.QueueID)
-	if !ok || !rec.liveIntent() || rec.Terms.Key != grant.Key || rec.Terms.Bucket != grant.Bucket || rec.CancelRequested || !rec.MandateEndedAt.IsZero() {
+	// A triggered trail re-pricing its sale cancels its own working order,
+	// and only that one (queuedGrantCoversCancel).
+	ownSale := ok && grant.CancelOrderRef != "" && queuedPlanTrail(rec.Terms) && rec.State == rpc.QueuedAuthSent && rec.OrderRef == grant.CancelOrderRef
+	if !ok || !rec.liveIntent() && !ownSale || rec.Terms.Key != grant.Key || rec.Terms.Bucket != grant.Bucket || rec.CancelRequested || !rec.MandateEndedAt.IsZero() {
 		return unauthorised
 	}
 	now := s.tradeProposals.clock()

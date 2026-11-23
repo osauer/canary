@@ -302,3 +302,52 @@ func TestExitPlanSalesNeverAddRisk(t *testing.T) {
 		}
 	}
 }
+
+// A fired trail's sale is followed attempt by attempt: an ended order adds
+// what it sold and returns the trail to send the rest, the line sold ends
+// it, the window's end ends it, and an order gone without a recorded end is
+// held and never resent.
+func TestTrailSaleProgress(t *testing.T) {
+	_, trail := exitPlanTestTerms()
+	at := trail.NotBefore.Add(time.Hour)
+	sent := func() *queuedAuthRecord {
+		return &queuedAuthRecord{Terms: trail, State: rpc.QueuedAuthSent, OrderRef: "ref1", PreviewTokenID: "tok1", QuantitySent: 20, LimitPrice: 1.60,
+			Watch: queuedTrailState{TriggeredAt: trail.NotBefore, SaleAttempts: 1}}
+	}
+	r := sent()
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 8}, at); !ok ||
+		r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleEnded || r.Watch.SaleFilled != 8 || r.OrderRef != "" || r.PreviewTokenID != "" {
+		t.Fatalf("a cancelled attempt: %+v", r)
+	}
+	r = sent()
+	r.Watch.SaleFilled = 8
+	r.QuantitySent = 12
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleFilled, Filled: 12}, at); !ok || r.State != rpc.QueuedAuthFilled || r.Watch.SaleFilled != 20 {
+		t.Fatalf("the line sold: %+v", r)
+	}
+	r = sent()
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleRejected}, at); !ok || r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleEnded {
+		t.Fatalf("a rejected attempt: %+v", r)
+	}
+	r = sent()
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 5}, trail.NotAfter); !ok || r.State != rpc.QueuedAuthPartiallyFilled || r.ReasonCode != queuedReasonWindowEnded {
+		t.Fatalf("at the window's end: %+v", r)
+	}
+	r = sent()
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled}, at); !ok || r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleUnconfirmed || r.OrderRef != "ref1" {
+		t.Fatalf("an end not recorded: %+v", r)
+	}
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled}, at); ok {
+		t.Fatal("an unconfirmed attempt was handled twice")
+	}
+	r = sent()
+	r.State, r.HoldCode = rpc.QueuedAuthHeld, queuedReasonSendUnclear
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleSubmitted}, at); !ok || r.State != rpc.QueuedAuthSent || r.HoldCode != "" {
+		t.Fatalf("an unclear attempt the broker shows: %+v", r)
+	}
+	r = sent()
+	r.CancelRequested = true
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 3}, at); !ok || r.State != rpc.QueuedAuthCancelled || r.Watch.SaleFilled != 3 {
+		t.Fatalf("an owner cancel: %+v", r)
+	}
+}

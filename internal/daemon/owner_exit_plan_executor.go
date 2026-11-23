@@ -95,6 +95,9 @@ func (e *proposalEngine) advanceExitPlan(ctx context.Context, rec queuedAuthReco
 			}
 			rec = current
 		}
+		if e.finishSoldTrail(ctx, rec) {
+			return rec, false
+		}
 		return rec, e.planFirstSaleOutOfTheWay(ctx, rec)
 	}
 	return rec, true
@@ -108,6 +111,14 @@ func (e *proposalEngine) watchQueuedTrail(ctx context.Context, rec queuedAuthRec
 	id := rec.Terms.QueueID
 	if e.endFlatPlan(ctx, rec) {
 		return false
+	}
+	// Before it fires, a trail keeps the queue's rule: a protection policy
+	// changed since signing holds it. Once fired, it sells on its signed terms.
+	if s := e.server; s.protectionPolicies != nil {
+		if _, status := s.protectionPolicies.Active(); status.EffectiveFingerprint != rec.Terms.PolicyFingerprint {
+			e.holdQueued(ctx, rec, "queue_policy_changed", "the protection policy changed after the owner signed; the trail is held and cannot fire until the plan is signed again")
+			return false
+		}
 	}
 	price, at, code, reason := e.readTrailStock(ctx, rec)
 	live, _ := e.trailLiveFor(id)
@@ -336,7 +347,7 @@ func (s *Server) queuedGrantCoversCancel(origin string, view rpc.OrderView) erro
 }
 
 // queuedTrailTick is how long the run loop may wait before a trail inside
-// its window is read again: at most queuedTrailCheckEvery, sooner when a
+// its window is read again (or its working sale followed): at most queuedTrailCheckEvery, sooner when a
 // read at or below the line awaits its confirmation. ok is false when no
 // trail is inside its window, so nothing spins.
 func (e *proposalEngine) queuedTrailTick(now time.Time) (time.Duration, bool) {
@@ -345,7 +356,9 @@ func (e *proposalEngine) queuedTrailTick(now time.Time) (time.Duration, bool) {
 	}
 	tick, ok := time.Duration(0), false
 	for _, rec := range e.queued.list() {
-		if !queuedPlanTrail(rec.Terms) || !rec.waiting() || now.Before(rec.Terms.NotBefore) || !now.Before(rec.Terms.NotAfter) {
+		// A fired trail's working sale is followed and re-priced on the same
+		// tick.
+		if !queuedPlanTrail(rec.Terms) || !rec.waiting() && rec.State != rpc.QueuedAuthSent || now.Before(rec.Terms.NotBefore) || !now.Before(rec.Terms.NotAfter) {
 			continue
 		}
 		next := queuedTrailCheckEvery
@@ -377,4 +390,155 @@ func trailSendQuantity(held float64, maxQuantity int) (int, bool) {
 		return 0, false
 	}
 	return min(int(held), maxQuantity), true
+}
+
+// queuedFollowsHeldAttempt reports records whose attempt, once its send
+// outcome is unclear, is held and followed in the order journal rather than
+// failed: a full-position stop, and an exit plan's trail. Neither is resent
+// while that attempt is unresolved.
+func queuedFollowsHeldAttempt(t rpc.QueuedAuthTerms) bool {
+	return ownerQueueProtection(t) || queuedPlanTrail(t)
+}
+
+// trailSaleProgress folds the broker's view of a fired trail's current order
+// into the record. While it works: an attempt held unclear that the broker
+// shows becomes sent, and fill progress is noted. Once it has ended: what it
+// sold is added up; the record ends filled once the line is sold, ends with
+// the window, and otherwise waits to send again at the bid (an owner cancel
+// meanwhile ends it). An order the broker reconciled as gone without a
+// recorded end is held for reconciliation and never resent.
+func trailSaleProgress(r *queuedAuthRecord, v rpc.OrderView, now time.Time) (queuedAuthEvent, bool) {
+	if !orderLifecycleStatusIsTerminal(v.LifecycleStatus) {
+		if v.PermID != 0 {
+			r.PermID = v.PermID
+		}
+		if r.State == rpc.QueuedAuthHeld {
+			r.HeldAt, r.HoldCode, r.HoldReason, r.SentAt = time.Time{}, "", "", now.UTC()
+			ev := r.transition(queuedEventSent, rpc.QueuedAuthSent, now)
+			ev.Reason = "the broker shows the attempt whose outcome was unclear; it is followed as sent"
+			return ev, true
+		}
+		if v.Filled == r.FilledQuantity {
+			return queuedAuthEvent{}, false
+		}
+		r.FilledQuantity, r.AvgFillPrice = v.Filled, v.AvgFillPrice
+		ev := r.note(queuedEventPartiallyFilled, r.State, now)
+		ev.PermID, ev.FillQty, ev.AvgPrice = r.PermID, r.FilledQuantity, r.AvgFillPrice
+		return ev, true
+	}
+	if v.LifecycleStatus == rpc.OrderLifecycleClosedReconciled {
+		if r.HoldCode == queuedHoldTrailSaleUnconfirmed {
+			return queuedAuthEvent{}, false
+		}
+		r.HeldAt, r.HoldCode = now.UTC(), queuedHoldTrailSaleUnconfirmed
+		r.HoldReason = "the sale's order closed at the broker without a recorded end, so what it sold is not known; it is never resent until that is reconciled"
+		ev := r.transition(queuedEventHeld, rpc.QueuedAuthHeld, now)
+		ev.ReasonCode, ev.Reason = r.HoldCode, r.HoldReason
+		return ev, true
+	}
+	sold := int(math.Round(max(v.Filled, 0)))
+	r.Watch.SaleFilled += sold
+	r.FilledQuantity, r.AvgFillPrice = v.Filled, v.AvgFillPrice
+	total, signed := r.Watch.SaleFilled, r.Terms.MaxQuantity
+	end := queuedOrderEnd(v)
+	var ev queuedAuthEvent
+	switch {
+	case total >= signed:
+		ev = r.resolve(queuedEventFilled, rpc.QueuedAuthFilled, "", fmt.Sprintf("the trail sold the line: %d of %d", total, signed), now)
+	case r.CancelRequested:
+		ev = r.resolve(queuedEventCancelled, rpc.QueuedAuthCancelled, queuedReasonOwnerCancelled, fmt.Sprintf("cancelled by the owner; the trail had sold %d of %d", total, signed), now)
+	case !now.Before(r.Terms.NotAfter) && total > 0:
+		ev = r.resolve(queuedEventPartiallyFilled, rpc.QueuedAuthPartiallyFilled, queuedReasonWindowEnded, fmt.Sprintf("the window ended with %d of %d sold: %s", total, signed, end), now)
+	case !now.Before(r.Terms.NotAfter):
+		ev = r.resolve(queuedEventExpiredUnfilled, rpc.QueuedAuthExpiredUnfilled, queuedReasonWindowEnded, "the window ended unsold: "+end, now)
+	default:
+		r.SendingAt, r.PreviewTokenID, r.OrderRef, r.QuantitySent, r.LimitPrice, r.SendQuote, r.Late, r.SentAt = time.Time{}, "", "", 0, 0, nil, false, time.Time{}
+		r.FilledQuantity, r.AvgFillPrice, r.PermID = 0, 0, 0
+		r.HeldAt, r.HoldCode = now.UTC(), queuedHoldTrailSaleEnded
+		r.HoldReason = boundedQueuedReason(fmt.Sprintf("the sale's order ended at the broker (%s) with %d of %d sold; the rest is sent again at the bid", end, total, signed))
+		ev = r.transition(queuedEventHeld, rpc.QueuedAuthHeld, now)
+		ev.ReasonCode, ev.Reason = r.HoldCode, r.HoldReason
+	}
+	ev.FillQty, ev.AvgPrice = v.Filled, v.AvgFillPrice
+	return ev, true
+}
+
+// repriceTrailSales cancels a fired trail's own sale that has worked
+// unfilled for queuedTrailRepriceAfter since it was sent or last cancelled,
+// so it is sent again at the fresh bid once the journal shows it ended. It
+// stops at the window's end; at most one cancel per interval.
+func (e *proposalEngine) repriceTrailSales(ctx context.Context) {
+	now := e.clock()
+	for _, rec := range e.queued.list() {
+		if !queuedPlanTrail(rec.Terms) || rec.State != rpc.QueuedAuthSent || rec.OrderRef == "" || rec.CancelRequested || !now.Before(rec.Terms.NotAfter) {
+			continue
+		}
+		last := rec.SentAt
+		if rec.Watch.SaleCancelAt.After(last) {
+			last = rec.Watch.SaleCancelAt
+		}
+		if now.Sub(last) < queuedTrailRepriceAfter {
+			continue
+		}
+		e.cancelTrailSale(ctx, rec)
+	}
+}
+
+// cancelTrailSale cancels the trail's working sale under brokerWriteMu and a
+// grant that names that order alone, and journals the attempt with its limit
+// and the quote it was priced from.
+func (e *proposalEngine) cancelTrailSale(ctx context.Context, rec queuedAuthRecord) {
+	s := e.server
+	s.brokerWriteMu.Lock()
+	defer s.brokerWriteMu.Unlock()
+	current, ok := e.queued.get(rec.Terms.QueueID)
+	if !ok || current.State != rpc.QueuedAuthSent || current.OrderRef == "" || current.OrderRef != rec.OrderRef || current.CancelRequested {
+		return
+	}
+	s.queuedGrant.Store(&queuedWriteGrant{QueueID: current.Terms.QueueID, Key: current.Terms.Key, Bucket: current.Terms.Bucket, CancelOrderRef: current.OrderRef})
+	err := s.proposalCancelOrder(ctx, current.OrderRef)
+	s.queuedGrant.Store(nil)
+	now := e.clock()
+	if err != nil {
+		s.warnf("exit plan trail %s: re-price cancel of %s: %v", current.Terms.QueueID, current.OrderRef, err)
+	} else {
+		s.infof("exit plan trail %s: cancelled its unfilled sale %s at %g to send again at the bid", current.Terms.QueueID, current.OrderRef, current.LimitPrice)
+	}
+	if uerr := e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[current.Terms.QueueID]
+		if r == nil || r.State != rpc.QueuedAuthSent || r.OrderRef != current.OrderRef {
+			return nil
+		}
+		r.Watch.SaleCancelAt = now.UTC()
+		ev := r.note(queuedEventSaleCancel, r.State, now)
+		ev.QtySent, ev.Limit, ev.Quote, ev.FillQty, ev.ExecutorTickAt = r.QuantitySent, r.LimitPrice, r.SendQuote, r.FilledQuantity, now
+		if err != nil {
+			ev.Reason = boundedQueuedReason("the broker cancel was refused: " + err.Error())
+		}
+		return []queuedAuthEvent{ev}
+	}); uerr != nil {
+		s.warnf("exit plan trail %s: record re-price cancel: %v", current.Terms.QueueID, uerr)
+	}
+}
+
+// finishSoldTrail ends a fired trail that has sold and whose line the
+// broker now shows closed: filled, with what it sold.
+func (e *proposalEngine) finishSoldTrail(ctx context.Context, rec queuedAuthRecord) bool {
+	if rec.Watch.SaleFilled <= 0 {
+		return false
+	}
+	s := e.server
+	position, err := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), rec.Terms.Contract, rpc.OrderActionSell, 1)
+	if err != nil || position.Impact.Before > 0 {
+		return false
+	}
+	now := e.clock()
+	_ = e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[rec.Terms.QueueID]
+		if r == nil || !r.waiting() || r.OrderRef != "" {
+			return nil
+		}
+		return []queuedAuthEvent{r.resolve(queuedEventFilled, rpc.QueuedAuthFilled, "", fmt.Sprintf("the line is closed; the trail sold %d", r.Watch.SaleFilled), now)}
+	})
+	return true
 }

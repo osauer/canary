@@ -169,16 +169,35 @@ its window nothing extra runs.
   trail has fired, and a trail never stages beside a live or working first
   sale. While a read at or below the line awaits confirmation, the first
   sale waits that cycle.
-- **Sale.** What is held when the trail sells, never more than its maximum,
-  through the ordinary owner path: a bounded limit at the option's midpoint
-  with no minimum price, stated as such to the pricer (a zero worst price
-  alone is still refused), inside the option spread limit. Every hold the
+- **Sale.** What is held when the trail sells, never more than its maximum
+  less what the trail has already sold, through the ordinary owner path: a
+  bounded limit at the option's bid (full concession) to fill, with no
+  minimum price, stated as such to the pricer (a zero worst price alone is
+  still refused), inside the option spread limit as signed, from a fresh,
+  live, two-sided quote. The first sale stays at the mid. Every hold the
   queue knows applies: freeze, paused configuration, broker link, session,
-  spread, quote, a working order on the contract, the order caps (a sale
-  that fails the delta-reducing exemption holds and retries) and a changed
-  protection policy. None cancels the trail inside its window. A closed line
-  ends the plan (`position_changed`). Neither the drawdown brake nor a
+  spread, quote, a working order on the contract and the order caps (a sale
+  that fails the delta-reducing exemption holds and retries). None cancels
+  the trail inside its window. A protection policy changed since signing
+  holds a trail that has not fired, which then cannot fire; a fired trail
+  sells on its signed terms. A closed line ends the plan (`position_changed`;
+  `filled` once the trail has sold). Neither the drawdown brake nor a
   sell-only state holds a sale that only closes or reduces the line.
+- **Re-price.** A sale still working, not fully filled, 30 seconds after it
+  was sent or last cancelled is cancelled through the same granted cancel
+  path (`queued_auth.sale_cancel`, with its limit and quote); once the order
+  journal shows it ended, the trail sends what is still held at the fresh
+  bid, until the line is sold or the window ends. Partial fills count toward
+  what it sold. One trail order works at a time, never beyond the held line.
+  A broker reject or a broker-side cancel returns the trail to fired
+  (`trail_sale_ended`, with the broker's words) and it sends again next
+  cycle. A send whose outcome is unclear is held for reconciliation
+  (`send_outcome_unclear`, or `trail_sale_unconfirmed` once the broker shows
+  it gone without a recorded end) and never resent.
+  Worst case: one cancel, one WhatIf and one order every 30 seconds, about
+  2,300 broker messages over a 6.5-hour afternoon. The price stays bounded by
+  the signed spread limit and the fresh, live, two-sided quote each attempt
+  needs.
 - **End.** Untriggered at its window's end, the trail expires
   (`window_ended`) and nothing is sent.
 
@@ -191,11 +210,9 @@ Each trail record's `queue list` and `queue status` view carries `watch`:
 `state` (`waiting` before its window, `watching` while a usable read is at
 most 30 seconds old, `unwatched` otherwise, `triggered` once fired), the
 last stock price and its time, the high, the stop, the trigger's time and
-price, and the reason it is unwatched or held.
-
-Not in version 3: once the trail's order is at the broker it is not
-re-priced; a limit that the market moves away from works until the session
-ends.
+price, the sale's attempts, working limit and contracts sold
+(`sale_attempts`, `sale_limit`, `sale_filled`), and the reason it is
+unwatched, or why a fired trail has not sold yet.
 
 ## Version 1 terms
 
@@ -435,8 +452,9 @@ Each transition appends a `trade_proposal_queued_event` in the same daemon.db
 transaction as the record document. Types are `queued_auth.prepared`, `armed`,
 `held`, `resumed`, `sending`, `sent`, `filled`, `partially_filled`,
 `expired_unfilled`, `cancelled`, `expired`, `failed`, `recovered`,
-`cancel_requested`, and for an exit plan's trail `stop_raised`, `triggered`
-and `first_sale_cancel`; these carry the stock price, high and stop. `signed` is Desk's event.
+`cancel_requested`, and for an exit plan's trail `stop_raised`, `triggered`,
+`first_sale_cancel` and `sale_cancel`; the first two carry the stock price,
+high and stop. `signed` is Desk's event.
 
 An event carries:
 

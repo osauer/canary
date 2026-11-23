@@ -323,7 +323,7 @@ func (e *proposalEngine) resolveOwnerQueue(ctx context.Context, rec queuedAuthRe
 		if current <= 0 {
 			return p, nil, queuedReasonPositionChanged, "the option position closed; the exit plan ends"
 		}
-		qty, ok := trailSendQuantity(current, t.MaxQuantity)
+		qty, ok := trailSendQuantity(current, t.MaxQuantity-rec.Watch.SaleFilled)
 		if !ok {
 			return p, preparedBlocker("queue_position_unavailable", "Whole-contract coverage cannot be verified."), "", ""
 		}
@@ -332,7 +332,10 @@ func (e *proposalEngine) resolveOwnerQueue(ctx context.Context, rec queuedAuthRe
 		return p, nil, queuedReasonPositionChanged, "the position changed after confirmation; prepare the exact order again"
 	}
 	_, policy := e.server.protectionPolicies.Active()
-	if policy.EffectiveFingerprint != t.PolicyFingerprint {
+	// A trail that has fired sells on the terms the owner signed (their spread
+	// limit included): the line was crossed, and a policy edit since must not
+	// stop the exit. Before it fires, a changed policy holds it.
+	if policy.EffectiveFingerprint != t.PolicyFingerprint && !(queuedPlanTrail(t) && !rec.Watch.TriggeredAt.IsZero()) {
 		return p, preparedBlocker("queue_policy_changed", "The policy changed after confirmation; the queue is held."), "", ""
 	}
 	return p, nil, "", ""
@@ -360,8 +363,10 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 		p.Strategy = rpc.OrderStrategyBrokerTrail
 	case queuedPlanTrail(t):
 		// The trail sells with no minimum price, said so explicitly.
+		// A fired trail sells at the bid (full concession) to fill, inside
+		// the signed spread limit, with no minimum price.
 		p.Strategy = rpc.OrderStrategyBoundedLimit
-		p.Bounded = &rpc.OrderBoundedLimit{Concession: 0, NoWorstPrice: true, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
+		p.Bounded = &rpc.OrderBoundedLimit{Concession: 1, NoWorstPrice: true, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
 	default:
 		p.Strategy = rpc.OrderStrategyBoundedLimit
 		p.Bounded = &rpc.OrderBoundedLimit{Concession: 0, WorstPrice: t.WorstPrice, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}

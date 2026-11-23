@@ -190,8 +190,13 @@ type QueuedTrailWatch struct {
 	StopPrice    float64   `json:"stop_price,omitempty"`
 	TriggeredAt  time.Time `json:"triggered_at,omitzero"`
 	TriggerPrice float64   `json:"trigger_price,omitempty"`
-	ReasonCode   string    `json:"reason_code,omitempty"`
-	Reason       string    `json:"reason,omitempty"`
+	// SaleAttempts counts the fired trail's sends, SaleLimit is the working
+	// order's limit, SaleFilled what the trail has sold so far.
+	SaleAttempts int     `json:"sale_attempts,omitempty"`
+	SaleLimit    float64 `json:"sale_limit,omitempty"`
+	SaleFilled   int     `json:"sale_filled,omitempty"`
+	ReasonCode   string  `json:"reason_code,omitempty"`
+	Reason       string  `json:"reason,omitempty"`
 }
 
 // Trail watch states.
