@@ -33,6 +33,11 @@ Commands (against a running canary-sim in DIR):
                                   without its delta)
   spread CONID PCT                quote a contract PCT percent of its price wide (an
                                   option keeps following its stock); 0 restores it
+  outside-order CONID BUY|SELL QTY LIMIT
+                                  list a working limit order placed outside the client (a
+                                  hand order in TWS); all-client open-order reads report it
+  churn N                         re-send openOrder and orderStatus for every working order to
+                                  every client N times (a burst of order frames)
   session MARKET open             open a market now (us_equity, us_options, de_xetra, uk_lse, hk_hkex)
   session MARKET closed           close it
   session MARKET opens-in SECS    closed now, opens SECS seconds from now
@@ -143,6 +148,30 @@ func control(sim *twssim.Server, args []string, now time.Time) (any, error) {
 			return nil, err
 		}
 		return nil, sim.SetSpread(conID, pct)
+	case "outside-order":
+		if err := need(5); err != nil {
+			return nil, err
+		}
+		conID, err := strconv.Atoi(args[1])
+		if err != nil {
+			return nil, err
+		}
+		qty, err1 := number(args, 3)
+		limit, err2 := number(args, 4)
+		if err := errors.Join(err1, err2); err != nil {
+			return nil, err
+		}
+		id, err := sim.AddOutsideOrder(conID, strings.ToUpper(args[2]), qty, limit)
+		return map[string]int{"order_id": id}, err
+	case "churn":
+		if err := need(2); err != nil {
+			return nil, err
+		}
+		n, err := strconv.Atoi(args[1])
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("churn needs a positive count")
+		}
+		return map[string]int{"frames": sim.Churn(n)}, nil
 	case "fault":
 		if err := need(2); err != nil {
 			return nil, err

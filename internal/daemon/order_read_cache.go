@@ -19,6 +19,16 @@ type orderReadCache struct {
 	store      *corestore.Store
 	head       corestore.AuthorityHead
 	projection *orderReadProjection
+	// events are the decoded order events through eventsSeq, for the store
+	// and authority epoch the cache read them in: a newer journal decodes
+	// only what was appended since, never the whole journal again (a broker
+	// order frame appends one event and the next frame reads the journal).
+	events    []orderJournalEvent
+	eventsSeq int64
+	epoch     string
+	// state is the fold of events, kept so appended events fold into their
+	// own orders (orderReadState).
+	state *orderReadState
 }
 
 type orderReadProjection struct {
@@ -55,9 +65,24 @@ func (s *Server) loadOrderReadProjection() (*orderReadProjection, error) {
 			}
 		}
 		if !reuse {
-			events, err := s.orderJournal.LoadEvents(0)
-			if err != nil {
-				return nil, err
+			var events, added []orderJournalEvent
+			incremental := c.store == store && c.epoch == before.AuthorityEpoch && c.events != nil && c.state != nil
+			if incremental {
+				// The journal is append-only within one authority epoch.
+				var seq int64
+				added, seq, err = s.orderJournal.loadEventsAfter(c.eventsSeq)
+				if err != nil {
+					return nil, err
+				}
+				events = append(c.events, added...)
+				c.events, c.eventsSeq = events, seq
+			} else {
+				all, seq, err := s.orderJournal.loadEventsAfter(0)
+				if err != nil {
+					return nil, err
+				}
+				events = all
+				c.events, c.eventsSeq, c.epoch = all, seq, before.AuthorityEpoch
 			}
 			after, err := store.AuthorityHead(ctx)
 			if err != nil {
@@ -72,11 +97,20 @@ func (s *Server) loadOrderReadProjection() (*orderReadProjection, error) {
 				return nil, err
 			}
 			if current != store || !stable {
+				c.events, c.eventsSeq, c.state = nil, 0, nil
 				continue
 			}
 			before = after
 			c.store = store
-			c.projection = &orderReadProjection{views: buildOrderViews(events), eventsByKey: buildOrderEventsByKey(events)}
+			next, ok := (*orderReadState)(nil), false
+			if incremental {
+				next, ok = c.state.apply(added)
+			}
+			if !ok {
+				next = newOrderReadState(events)
+			}
+			c.state = next
+			c.projection = &orderReadProjection{views: next.views, eventsByKey: next.eventsBy}
 			if len(events) > 0 {
 				last := events[len(events)-1]
 				if !last.At.IsZero() {

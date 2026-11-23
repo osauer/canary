@@ -75,7 +75,9 @@ type Server struct {
 	faults   []Fault
 	closed   map[string]bool
 	nextID   int // order ids handed out by nextValidId
-	accepted int
+	// outsideID numbers the orders AddOutsideOrder lists.
+	outsideID int
+	accepted  int
 }
 
 // Listen starts a simulator on a loopback address. It refuses any other

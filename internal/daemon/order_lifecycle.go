@@ -220,11 +220,13 @@ func (s *Server) enrichOrderLifecycleEventFromJournal(ev *orderJournalEvent) (ma
 	if s == nil || ev == nil || s.orderJournal == nil {
 		return false, false
 	}
-	views, _, err := s.loadOrderViews()
+	// The views alone: a broker frame never needs the event history, whose
+	// copy grows with the journal.
+	projection, err := s.loadOrderReadProjection()
 	if err != nil {
 		return false, false
 	}
-	if view, ok := orderJournalViewForLifecycleEvent(*ev, views); ok {
+	if view, ok := orderJournalViewForLifecycleEvent(*ev, projection.viewsAt(s.orderNow())); ok {
 		// A callback arrives keyed to the current socket. Key it to the
 		// order's own route, the socket it was placed through, as a write's
 		// events are (orderJournalStatusFor): one order, one journal row.

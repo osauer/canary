@@ -300,35 +300,46 @@ func (s *orderJournalStore) AuthorityHead() (corestore.AuthorityHead, error) {
 }
 
 func (s *orderJournalStore) LoadEvents(limit int) ([]orderJournalEvent, error) {
-	store, err := s.coreStore()
+	events, _, err := s.loadEventsAfter(0)
 	if err != nil {
 		return nil, err
-	}
-	var records []corestore.OrderEventRecord
-	var after int64
-	for {
-		page, err := store.LoadOrderEvents(context.Background(), corestore.OrderQuery{AfterEventSeq: after, Limit: 10_000})
-		if err != nil {
-			return nil, fmt.Errorf("load authoritative order events: %w", err)
-		}
-		records = append(records, page...)
-		if len(page) < 10_000 {
-			break
-		}
-		after = page[len(page)-1].EventSeq
-	}
-	events := make([]orderJournalEvent, 0, len(records))
-	for _, record := range records {
-		ev, err := decodeCoreOrderEvent(record)
-		if err != nil {
-			return nil, err
-		}
-		events = append(events, ev)
 	}
 	if limit > 0 && len(events) > limit {
 		events = append([]orderJournalEvent(nil), events[len(events)-limit:]...)
 	}
 	return events, nil
+}
+
+// loadEventsAfter decodes the order events after event sequence after, in
+// order, and returns the last sequence read (after itself when none).
+func (s *orderJournalStore) loadEventsAfter(after int64) ([]orderJournalEvent, int64, error) {
+	store, err := s.coreStore()
+	if err != nil {
+		return nil, after, err
+	}
+	var records []corestore.OrderEventRecord
+	for {
+		page, err := store.LoadOrderEvents(context.Background(), corestore.OrderQuery{AfterEventSeq: after, Limit: 10_000})
+		if err != nil {
+			return nil, after, fmt.Errorf("load authoritative order events: %w", err)
+		}
+		records = append(records, page...)
+		if len(page) > 0 {
+			after = page[len(page)-1].EventSeq
+		}
+		if len(page) < 10_000 {
+			break
+		}
+	}
+	events := make([]orderJournalEvent, 0, len(records))
+	for _, record := range records {
+		ev, err := decodeCoreOrderEvent(record)
+		if err != nil {
+			return nil, after, err
+		}
+		events = append(events, ev)
+	}
+	return events, after, nil
 }
 
 // StagePreTransmit atomically consumes the global preview-token tombstone (if

@@ -1872,6 +1872,26 @@ func orderJournalCanonicalKey(ev orderJournalEvent, aliases map[string]string) s
 
 func orderJournalKeyAliases(events []orderJournalEvent) map[string]string {
 	aliases := map[string]string{}
+	// pointers is the reverse of aliases: the keys whose alias is a given
+	// key. Merging an event's keys into its canonical key moves only the
+	// keys that point at them, so the pass is linear in the journal rather
+	// than in journal times aliases (a journal of 50,000 events took seconds
+	// on the broker reader, once per order frame).
+	pointers := map[string]map[string]struct{}{}
+	point := func(key, to string) {
+		if prev, ok := aliases[key]; ok {
+			if set := pointers[prev]; set != nil {
+				delete(set, key)
+			}
+		}
+		aliases[key] = to
+		set := pointers[to]
+		if set == nil {
+			set = map[string]struct{}{}
+			pointers[to] = set
+		}
+		set[key] = struct{}{}
+	}
 	ambiguousOrderIDs := ambiguousReservedOrderIDs(events)
 	prelinkedOrderIDs := reservedOrderIDsWithPrelinkedBrokerOnlyEvents(events)
 	for _, ev := range events {
@@ -1894,14 +1914,16 @@ func orderJournalKeyAliases(events []orderJournalEvent) map[string]string {
 			canonical = keys[0]
 		}
 		for _, key := range keys {
-			aliases[key] = canonical
+			point(key, canonical)
 		}
-		for key, resolved := range aliases {
-			if resolved == canonical {
+		// Every alias that named one of these keys now names the canonical
+		// one, as each did when the pass rewrote the whole map.
+		for _, key := range keys {
+			if key == canonical {
 				continue
 			}
-			if slices.Contains(keys, resolved) {
-				aliases[key] = canonical
+			for other := range pointers[key] {
+				point(other, canonical)
 			}
 		}
 	}
