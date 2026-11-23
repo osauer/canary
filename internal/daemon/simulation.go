@@ -157,7 +157,7 @@ func WriteSimulatorPolicies(dir, base string) error {
 	risk[0][1] = fmt.Sprintf(risk[0][1], base)
 	files := map[string]string{
 		"risk-policy.toml":       withPolicyKeys(string(ConstitutionPolicyTemplate("simulator")), risk),
-		"rulebook-policy.toml":   string(RulebookPolicyTemplate("simulator")),
+		"rulebook-policy.toml":   withSimulatorHedgeSymbol(string(RulebookPolicyTemplate("simulator"))),
 		"protection-policy.toml": withPolicyKeys(string(ProtectionPolicyTemplate("simulator")), simulatorCashKeys),
 	}
 	for name, body := range files {
@@ -167,6 +167,18 @@ func WriteSimulatorPolicies(dir, base string) error {
 		}
 	}
 	return nil
+}
+
+// simulatorHedgeIndex is the simulator's synthetic index fund (twssim's
+// SYNX): the synthetic Rulebook lists it beside Canary's hedge indices, so a
+// long SYNX put counts as index protection without a caller naming a real
+// index ticker.
+const simulatorHedgeIndex = "SYNX"
+
+// withSimulatorHedgeSymbol adds SYNX to the Rulebook template's
+// hedge_symbols.
+func withSimulatorHedgeSymbol(template string) string {
+	return strings.Replace(template, "hedge_symbols = [", `hedge_symbols = ["`+simulatorHedgeIndex+`", `, 1)
 }
 
 // withPolicyKeys writes each section's key lines under its header in a

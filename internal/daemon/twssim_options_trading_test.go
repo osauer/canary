@@ -269,11 +269,12 @@ func TestSimulatedTWSOptionRefusals(t *testing.T) {
 // make of the default book (the Desk harness's recipe):
 //
 //	canary-sim ctl -dir D position SYNA 600 48
-//	canary-sim ctl -dir D options SPY 520 540 560
-//	canary-sim ctl -dir D position <the SPY 540 put of the 60-day expiry> 1 700
+//	canary-sim ctl -dir D options SYNX 520 540 560
+//	canary-sim ctl -dir D position 910603 1 700   (the SYNX 540 put, 57-63 days out)
 //
 // 600 SYNA is 30,000 USD of gross long, 20 percent of the account (rule 1
-// watches at 30); one SPY 540 put is about 0.17 delta, about 10,000 USD of
+// watches at 30); one put on SYNX (the synthetic index fund at 600, a hedge
+// symbol in the simulator's Rulebook) at 540 is about 0.17 delta, about 10,000 USD of
 // index short: 33 percent, inside the calm band of 25-35 percent, so rule 12
 // passes and --max sizes up to the band's bottom.
 func TestSimulatedTWSMaxSizesWithIndexProtection(t *testing.T) {
@@ -281,12 +282,12 @@ func TestSimulatedTWSMaxSizesWithIndexProtection(t *testing.T) {
 	book := twssim.Default()
 	book.SetPosition(900001, 600, 48)
 	exps := twssim.OptionExpiries(now)
-	if err := book.ListOptions(756733, exps, []float64{520, 540, 560}); err != nil {
+	if err := book.ListOptions(900601, exps, []float64{520, 540, 560}); err != nil {
 		t.Fatal(err)
 	}
-	put, ok := book.OptionConIDFor(756733, exps[3], 540, "P")
-	if !ok {
-		t.Fatal("no SPY 540 put")
+	put, ok := book.OptionConIDFor(900601, exps[3], 540, "P")
+	if !ok || put != 910603 {
+		t.Fatalf("SYNX 540 put: %d", put)
 	}
 	book.SetPosition(put, 1, 700)
 	setSessions(t, true)

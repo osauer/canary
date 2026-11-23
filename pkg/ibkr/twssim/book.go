@@ -144,6 +144,10 @@ func Default() *Book {
 		// public contract ids, which the daemon seeds its contract cache with.
 		{ConID: 756733, Symbol: "SPY", SecType: "STK", Exchange: "SMART", PrimaryExch: "ARCA", Currency: "USD", TradingClass: "SPY", LongName: "SYNTHETIC INDEX FUND", MinTick: 0.01, Price: 600, Spread: 0.02},
 		{ConID: 43652089, Symbol: "HYG", SecType: "STK", Exchange: "SMART", PrimaryExch: "ARCA", Currency: "USD", TradingClass: "HYG", LongName: "SYNTHETIC HIGH YIELD FUND", MinTick: 0.01, Price: 80, Spread: 0.02},
+		// A synthetic index fund for index protection (the simulator's
+		// Rulebook lists it as a hedge symbol), at the price the hedge recipe
+		// in the guide assumes.
+		{ConID: 900601, Symbol: "SYNX", SecType: "STK", Exchange: "SMART", PrimaryExch: "ARCA", Currency: "USD", TradingClass: "SYNX", LongName: "SYNTHETIC INDEX FUND X", MinTick: 0.01, Price: 600, Spread: 0.02},
 		{ConID: 13455763, Symbol: "VIX", SecType: "IND", Exchange: "CBOE", Currency: "USD", LongName: "SYNTHETIC VOLATILITY INDEX", MinTick: 0.01, Price: 15},
 		{ConID: 47511905, Symbol: "VIX3M", SecType: "IND", Exchange: "CBOE", Currency: "USD", LongName: "SYNTHETIC 3M VOLATILITY INDEX", MinTick: 0.01, Price: 19.4},
 		{ConID: 416904, Symbol: "SPX", SecType: "IND", Exchange: "CBOE", Currency: "USD", LongName: "SYNTHETIC 500 INDEX", MinTick: 0.01, Price: 6000},
