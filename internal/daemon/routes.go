@@ -87,6 +87,7 @@ func (s *Server) routeTable() map[string]route {
 		api.Technical.Name:          serve(api.Technical, "technical analysis", s.handleTechnical),
 		api.AddCallPlan.Name:        serve(api.AddCallPlan, "stock add plans", s.handleAddCallPlan),
 		api.AddMarket.Name:          serve(api.AddMarket, "option chains", s.handleAddMarket),
+		api.AddSearch.Name:          serve(api.AddSearch, "listing search", s.handleAddSearch),
 		api.AddPlan.Name:            serve(api.AddPlan, "stock add plans", s.handleAddPlan),
 		api.AddPreview.Name:         serve(api.AddPreview, "orders", s.handleAddPreview),
 		api.SetupsEvaluate.Name:     serve(api.SetupsEvaluate, "setups", s.handleSetupsEvaluate),

@@ -49,6 +49,22 @@ submission. A watchlist membership or research signal grants no authority.
 An optional `--exchange` selects the resolving venue; ambiguous stock identity
 holds. The price ceiling and currency must be explicit. No FX trade is created.
 
+Finding the listing and its lot (2026-11-23 06:26 CET, owner: "typing 9988
+should offer the HKD title, add this function to Add"): `canary add search
+PATTERN` (`add.search`, read-only) asks the broker's symbol search and lists
+stock listings, exact symbol matches first, at most 12, each with the exchange
+Add asks on (SMART for a US dollar listing, the listing's own exchange where
+orders in its currency leave SMART, SMART otherwise) and its calendar key.
+Searches are serialised and paced to one a second; a search that cannot start
+now is refused with "try again in a moment". The resolved stock keeps the
+broker's minimum size and size increment from its contract details; `add
+market` reports them as `underlying.min_size` and `size_increment` (1 and 1
+when the broker sends none or a fraction of a share). An add plan or preview
+whose quantity is below the minimum or off the increment holds with
+`add_lot_size`, and `--max` sizes in whole lots. No exchange's lot is written
+into Canary; whether IBKR fills these fields for a Hong Kong board lot is read
+from the live answer.
+
 ## Approved inputs and arithmetic
 
 The existing owner-reviewed risk, Rulebook and cash policies must be current.

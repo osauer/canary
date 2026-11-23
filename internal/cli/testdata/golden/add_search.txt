@@ -1,0 +1,8 @@
+# canary add search 9988 · COLUMNS=80 · colour off
+9988  SYNTHETIC GROUP HOLDINGS  HKD SEHK on SEHK  con_id 880011
+SYNAX  SYNAX CORP  USD NYSE on SMART  con_id 880010
+More listings match; type more of the name or symbol.
+# canary add search 9988 · COLUMNS=80 · colour on, ESC written as \x1b
+9988  SYNTHETIC GROUP HOLDINGS  HKD SEHK on SEHK  con_id 880011
+SYNAX  SYNAX CORP  USD NYSE on SMART  con_id 880010
+More listings match; type more of the name or symbol.

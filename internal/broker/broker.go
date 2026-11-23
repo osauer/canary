@@ -465,6 +465,19 @@ func (e *NoQuoteRightError) Error() string {
 // Unwrap is the broker's own refusal.
 func (e *NoQuoteRightError) Unwrap() error { return e.Err }
 
+// Listing is one listing a broker's symbol search found: its identity and
+// the broker's name for it.
+type Listing struct {
+	Instrument
+	Name string
+}
+
+// ListingSearch is a broker's symbol search for a session. Only a broker that
+// serves the search implements it; a binding that is no longer current fails.
+type ListingSearch interface {
+	SearchListings(ctx context.Context, binding SessionBinding, pattern string) ([]Listing, error)
+}
+
 // Instruments resolves a requested instrument to the broker's exact one for
 // a session. A binding that is no longer current fails.
 type Instruments interface {

@@ -57,6 +57,9 @@ type Connector struct {
 	marketRulesMu sync.Mutex
 	marketRules   map[marketRuleKey][]PriceIncrement
 
+	// symbolSearch serialises and paces listing searches.
+	symbolSearch symbolSearchPacing
+
 	// A failed cancellation retains the read subscription until the session
 	// changes; repeated refreshes must not accumulate live broker streams.
 	positionsRefreshMu          sync.Mutex
@@ -3063,6 +3066,9 @@ type ContractDetailsLite struct {
 	LiquidHours    string
 	// MinTick is the venue's minimum price increment for the contract.
 	MinTick float64
+	// MinSize and SizeIncrement are the broker's order size rules, 0 when
+	// the frame carries none.
+	MinSize, SizeIncrement float64
 }
 
 // ResolvedOrderContract is an unambiguous broker contract-details identity
@@ -3082,6 +3088,22 @@ type ResolvedOrderContract struct {
 	// Add reads an option class's own close from them.
 	TradingHours string
 	LiquidHours  string
+	// MinSize and SizeIncrement are the broker's order size rules from the
+	// contract details, 0 when it sent none (StockLot reads them).
+	MinSize, SizeIncrement float64
+}
+
+// StockLot is the whole-share lot a stock order on this contract must use:
+// the broker's minimum size and size increment, each 1 where the broker sent
+// none or a value that is not a whole number of shares of at least one.
+func (r ResolvedOrderContract) StockLot() (minimum, increment int) {
+	whole := func(v float64) int {
+		if v >= 1 && v == math.Trunc(v) && v <= 1e9 {
+			return int(v)
+		}
+		return 1
+	}
+	return whole(r.MinSize), whole(r.SizeIncrement)
 }
 
 // SessionWindows reads the contract's liquid hours, else its trading hours.
@@ -3321,7 +3343,7 @@ func exactOrderContract(request Contract, details []ContractDetailsLite) (Resolv
 	if route := listingRouteFromDetail(*selected); resolved.SecType == "STK" && strings.EqualFold(resolved.Exchange, "SMART") && route.refusesSMART {
 		resolved.Exchange, resolved.PrimaryExch = route.primary, route.primary
 	}
-	return ResolvedOrderContract{ValidExchanges: selected.ValidExchanges, MarketRuleIDs: selected.MarketRuleIDs, Contract: resolved, UnderConID: selected.UnderConID, MinTick: selected.MinTick, TimeZoneID: selected.TimeZoneID, TradingHours: selected.TradingHours, LiquidHours: selected.LiquidHours, Industry: selected.Industry, Category: selected.Category, StockType: selected.StockType}, nil
+	return ResolvedOrderContract{ValidExchanges: selected.ValidExchanges, MarketRuleIDs: selected.MarketRuleIDs, Contract: resolved, UnderConID: selected.UnderConID, MinTick: selected.MinTick, TimeZoneID: selected.TimeZoneID, TradingHours: selected.TradingHours, LiquidHours: selected.LiquidHours, Industry: selected.Industry, Category: selected.Category, StockType: selected.StockType, MinSize: selected.MinSize, SizeIncrement: selected.SizeIncrement}, nil
 }
 
 // exactOrderContractRouteMatches applies caller-supplied routing as an
@@ -3411,6 +3433,12 @@ func mergeContractDetailsLite(base, incoming ContractDetailsLite) ContractDetail
 	}
 	if base.MinTick == 0 && incoming.MinTick > 0 {
 		base.MinTick = incoming.MinTick
+	}
+	if base.MinSize == 0 && incoming.MinSize > 0 {
+		base.MinSize = incoming.MinSize
+	}
+	if base.SizeIncrement == 0 && incoming.SizeIncrement > 0 {
+		base.SizeIncrement = incoming.SizeIncrement
 	}
 	return base
 }
@@ -4424,12 +4452,14 @@ func parseContractDetailsLite(fields []string, expectedReqID int, serverVersion 
 
 	industry, category, subcategory, stockType := "", "", "", ""
 	validExchanges, marketRuleIDs := "", ""
+	minSize, sizeIncrement := 0.0, 0.0
 	if classification, ok := parseContractDetailsClassification(fields, serverVersion); ok {
 		validExchanges, marketRuleIDs = classification.validExchanges, classification.marketRuleIDs
 		industry = classification.industry
 		category = classification.category
 		subcategory = classification.subcategory
 		stockType = classification.stockType
+		minSize, sizeIncrement = classification.minSize, classification.sizeIncrement
 	}
 
 	return &ContractDetailsLite{
@@ -4456,6 +4486,7 @@ func parseContractDetailsLite(fields []string, expectedReqID int, serverVersion 
 		TradingHours: tradingHours,
 		LiquidHours:  liquidHours,
 		MinTick:      minTick,
+		MinSize:      minSize, SizeIncrement: sizeIncrement,
 	}, true
 }
 
@@ -4466,6 +4497,9 @@ type contractDetailsClassification struct {
 	category       string
 	subcategory    string
 	stockType      string
+	// minSize and sizeIncrement are the broker's size rules (server 164+),
+	// 0 when absent.
+	minSize, sizeIncrement float64
 }
 
 // parseContractDetailsClassification follows the official contractData
@@ -4579,11 +4613,13 @@ func parseContractDetailsClassification(fields []string, serverVersion int) (con
 		}
 	}
 	if serverVersion >= minServerVerSizeRules {
-		for range 3 { // minSize, sizeIncrement, suggestedSizeIncrement
-			if !cursor.number() {
-				return contractDetailsClassification{}, false
-			}
+		// minSize, sizeIncrement, suggestedSizeIncrement
+		minSize, ok1 := cursor.numberValue()
+		sizeIncrement, ok2 := cursor.numberValue()
+		if !ok1 || !ok2 || !cursor.number() {
+			return contractDetailsClassification{}, false
 		}
+		classification.minSize, classification.sizeIncrement = minSize, sizeIncrement
 	}
 	if serverVersion >= minServerVerFundDataFields && strings.EqualFold(strings.TrimSpace(secType), "FUND") {
 		for range 7 { // name through management fee
@@ -4642,6 +4678,19 @@ func (c *contractDetailsWireCursor) number() bool {
 	}
 	parsed, err := strconv.ParseFloat(value, 64)
 	return err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0)
+}
+
+// numberValue is number with the value read: 0 for an empty field.
+func (c *contractDetailsWireCursor) numberValue() (float64, bool) {
+	value := strings.TrimSpace(c.string())
+	if !c.ok || value == "" {
+		return 0, c.ok
+	}
+	parsed, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(parsed) || math.IsInf(parsed, 0) {
+		return 0, false
+	}
+	return parsed, true
 }
 
 func (c *contractDetailsWireCursor) boolean() bool {

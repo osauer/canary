@@ -35,6 +35,7 @@ var (
 	Technical                            = rpc.Define[rpc.TechnicalParams, rpc.TechnicalResult](rpc.MethodTechnical)
 	AddCallPlan                          = rpc.Define[rpc.AddCallPlanParams, rpc.AddCallPlanResult](rpc.MethodAddCallPlan)
 	AddMarket                            = rpc.Define[rpc.AddMarketParams, rpc.AddMarketResult](rpc.MethodAddMarket)
+	AddSearch                            = rpc.Define[rpc.AddSearchParams, rpc.AddSearchResult](rpc.MethodAddSearch)
 	AddPlan                              = rpc.Define[rpc.AddParams, rpc.AddPlanResult](rpc.MethodAddPlan)
 	AddPreview                           = rpc.Define[rpc.AddParams, rpc.OrderPreviewResult](rpc.MethodAddPreview)
 	SetupsEvaluate                       = rpc.Define[rpc.SetupEvaluateParams, rpc.SetupResult](rpc.MethodSetupsEvaluate)

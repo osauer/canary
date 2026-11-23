@@ -65,10 +65,19 @@ type AddCallPlanning struct {
 	DeltaStatus string    `json:"delta_status"` // in_range | unavailable | out_of_range
 }
 
+// AddUnderlying is the resolved stock with the broker's lot: an order's
+// shares are at least MinSize and a multiple of SizeIncrement, each 1 where
+// the broker gives none.
+type AddUnderlying struct {
+	ContractParams
+	MinSize       int `json:"min_size"`
+	SizeIncrement int `json:"size_increment"`
+}
+
 // AddMarketResult contains observations, never order authority or risk capacity.
 type AddMarketResult struct {
 	Version         int                         `json:"version"`
-	Underlying      ContractParams              `json:"underlying"`
+	Underlying      AddUnderlying               `json:"underlying"`
 	Quote           *Quote                      `json:"quote,omitempty"`
 	PriceIncrements []SetupOptionPriceIncrement `json:"price_increments,omitempty"`
 	Calls           []AddCallCandidate          `json:"calls,omitempty"`
