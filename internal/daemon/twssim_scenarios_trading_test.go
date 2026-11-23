@@ -183,7 +183,8 @@ func (d *simDesk) cancels() int {
 // E3. --max is held in the simulated book: it carries no index protection
 // and a Rulebook watch holds automated sizing, while a stated quantity only
 // warns (risk/stock_add.go:236-241, 355-360). A quantity plan whose account
-// moves during its WhatIf is told to calculate again.
+// ticks inside the tolerance during its WhatIf returns its size; one whose
+// cash moves beyond it, or gains a cash row, is told to calculate again.
 func TestSimulatedTWSSizingAndAccountChanges(t *testing.T) {
 	d := startSimDesk(t, twssim.Options{WhatIfDelay: 300 * time.Millisecond}, true)
 	held := d.plan(rpc.AddParams{Contract: synaAdd.Contract, LimitPrice: 50.10, Max: true})
@@ -195,14 +196,31 @@ func TestSimulatedTWSSizingAndAccountChanges(t *testing.T) {
 		t.Fatalf("quantity plan: %+v", plan.Blockers)
 	}
 	t.Logf("a quantity plan with one 300 ms WhatIf took %s", time.Since(start))
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		d.sim.Book().SetCash("USD", d.sim.Book().Cash("USD")+0.01)
-		d.sim.PushAccount()
-	}()
-	plan := d.plan(synaAdd)
-	if len(plan.Blockers) == 0 || !strings.Contains(plan.Blockers[0].Message, "changed while sizing") {
-		t.Fatalf("plan across an account tick: %+v", plan.Blockers)
+	during := func(change func()) rpc.AddPlanResult {
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			change()
+			d.sim.PushAccount()
+		}()
+		return d.plan(synaAdd)
+	}
+	// An account tick inside the tolerance during the WhatIf changes nothing
+	// the plan sized from: it returns its size.
+	if plan := during(func() { d.sim.Book().SetCash("USD", d.sim.Book().Cash("USD")+0.01) }); len(plan.Blockers) != 0 || plan.Quantity != synaAdd.Quantity {
+		t.Fatalf("plan across an account tick: %+v (quantity %d)", plan.Blockers, plan.Quantity)
+	}
+	// Cash moving beyond the tolerance, or a cash row appearing, during the
+	// WhatIf is what the plan sized from changing: it is told to calculate
+	// again.
+	for name, change := range map[string]func(){
+		"cash spent":          func() { d.sim.Book().SetCash("USD", d.sim.Book().Cash("USD")-40000) },
+		"a cash row appeared": func() { d.sim.Book().SetCash("GBP", 1500) },
+	} {
+		plan := during(change)
+		if len(plan.Blockers) == 0 || !strings.Contains(plan.Blockers[0].Message, "changed while sizing") {
+			t.Fatalf("plan across %s: %+v", name, plan.Blockers)
+		}
+		t.Logf("%s: %s %s", name, plan.Blockers[0].Code, plan.Blockers[0].Message)
 	}
 }
 
