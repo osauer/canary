@@ -265,12 +265,22 @@ func stockAddWhatIfMargin(in risk.StockAddInput, w rpc.OrderWhatIfResult, quanti
 
 // stockAddCashFunding leaves the account reserve funded once across measured
 // cash currencies, after every currency's float and fee-inclusive commitments.
-// Only the selected currency can pay for the stock; no FX or borrowing is created.
-func stockAddCashFunding(bucket *protectionCashSweepPolicy, ledger map[string]cashSweepLedgerRow, commitments cashSweepCommitments, currency string, reserve, rate float64) (*risk.StockAddCash, error) {
+// Spendable is paid from the selected currency only; no FX or borrowing is
+// created. With borrow (buy_stock_on_borrowed_currency) it also measures
+// BorrowSpendable = own free cash + (other free cash in base - reserve) /
+// rate: what the selected currency may spend going negative while the other
+// currencies' free cash beyond the reserve covers it. It is never below
+// Spendable and never lets the account's cash in base fall below the
+// reserve. A debit counts against the other currencies' cash; a debit
+// currency, or the selected one, with no float written keeps none.
+func stockAddCashFunding(bucket *protectionCashSweepPolicy, ledger map[string]cashSweepLedgerRow, commitments cashSweepCommitments, currency string, reserve, rate float64, borrow bool) (*risk.StockAddCash, error) {
 	out := &risk.StockAddCash{AccountReserveBase: reserve}
 	for _, ccy := range slices.Sorted(maps.Keys(ledger)) {
 		row := ledger[ccy]
 		keep, known := bucket.keepCash(ccy)
+		if !known && borrow && row.Observed && (ccy == currency || row.TradeDate < 0 || row.Settled != nil && *row.Settled < 0) {
+			keep, known = 0, true
+		}
 		if !known || !row.Observed || row.Settled == nil || !finiteProtectionOptionPolicyValue(*row.Settled) || !finiteProtectionOptionPolicyValue(row.TradeDate) || !positiveFinite(row.ExchangeRate) {
 			return nil, fmt.Errorf("settled cash, currency float and conversion are required for account reserve funding in %s", ccy)
 		}
@@ -288,7 +298,47 @@ func stockAddCashFunding(bucket *protectionCashSweepPolicy, ledger map[string]ca
 	}
 	out.ReserveInCurrency = max(0, reserve-out.OtherReserveFundingBase) / rate
 	out.Spendable = out.Available - out.Committed - out.CurrencyFloat - out.ReserveInCurrency
+	if borrow {
+		out.BorrowSpendable = max(out.Spendable, out.Available-out.Committed-out.CurrencyFloat+(out.OtherReserveFundingBase-reserve)/rate)
+	}
 	return out, nil
+}
+
+// stockAddNativeCash checks the stock's own currency row. With borrowing
+// allowed, a currency the account has never held has no ledger row: it reads
+// as observed zero (absent), for the stock's own currency only and only while
+// the base currency row is observed.
+func stockAddNativeCash(borrow bool, base string, ledger map[string]cashSweepLedgerRow, currency string) (absent bool, err error) {
+	row, ok := ledger[currency]
+	baseRow, baseOK := ledger[base]
+	absent = !ok && borrow && baseOK && baseRow.Observed && baseRow.Settled != nil && finiteProtectionOptionPolicyValue(*baseRow.Settled)
+	if !absent && (!ok || !row.Observed || row.Settled == nil || !finiteProtectionOptionPolicyValue(*row.Settled)) {
+		return false, fmt.Errorf("native settled cash is unavailable for %s", currency)
+	}
+	return absent, nil
+}
+
+// stockAddBorrowingHolds applies no_buy_while_borrowed to a stock add. With
+// borrowing allowed a debit no longer holds the add by itself: the funding
+// counts it against the other currencies' cash. Unknown cash still holds.
+func stockAddBorrowingHolds(borrow bool, b *rpc.CashSweepBorrowing) bool {
+	return b.HoldsBuys && (!borrow || len(b.Unknown) > 0)
+}
+
+// stockAddFunding is the add's cash: the native rule, unless a stated
+// purchase the currency's own cash cannot pay without going negative may
+// borrow it (buy_stock_on_borrowed_currency); the plan then warns with the
+// amount. Every other add, and every maximum, keeps the native rule.
+func stockAddFunding(bucket *protectionCashSweepPolicy, ledger map[string]cashSweepLedgerRow, commitments cashSweepCommitments, currency string, reserve, rate float64, p rpc.AddParams) (*risk.StockAddCash, error) {
+	borrow := bucket.buyStockOnBorrowedCurrency()
+	cash, err := stockAddCashFunding(bucket, ledger, commitments, currency, reserve, rate, borrow)
+	if err != nil {
+		return nil, err
+	}
+	if borrow && p.Quantity > 0 && float64(p.Quantity)*p.LimitPrice > max(0, cash.Available-cash.Committed) {
+		cash.Spendable, cash.Currency, cash.BorrowAllowed = cash.BorrowSpendable, currency, true
+	}
+	return cash, nil
 }
 
 func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAddEvidence, error) {
@@ -355,11 +405,12 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 	if why != "" {
 		return ev, fmt.Errorf("%s", why)
 	}
-	row, ok := ledger[contract.Currency]
-	if !ok || !row.Observed || row.Settled == nil || !finiteProtectionOptionPolicyValue(*row.Settled) {
-		return ev, fmt.Errorf("native settled cash is unavailable for %s", contract.Currency)
-	}
 	bucket := cashPolicy.Cash.Sweep
+	borrow := bucket.buyStockOnBorrowedCurrency()
+	absent, err := stockAddNativeCash(borrow, base, ledger, contract.Currency)
+	if err != nil {
+		return ev, err
+	}
 	if bucket == nil || bucket.ReserveFloorBase == nil || bucket.ReservePctNLV == nil || bucket.NoBuyWhileBorrowed == nil {
 		return ev, &stockAddProblem{kind: "policy", message: "account cash reserve is unapproved"}
 	}
@@ -367,12 +418,22 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		return ev, fmt.Errorf("net liquidation, base currency and margin headroom must be measured")
 	}
 	borrowing := cashSweepBorrowingFor(bucket, cashSweepInput{Ledger: ledger}, slices.Sorted(maps.Keys(ledger)))
-	if borrowing.HoldsBuys {
+	// With borrowing allowed, a debit no longer holds the add by itself: the
+	// funding below counts it against the other currencies' cash. Unknown cash
+	// still holds.
+	if stockAddBorrowingHolds(borrow, borrowing) {
 		return ev, fmt.Errorf("the approved cash policy holds new purchases while any currency is borrowed or unknown")
 	}
 	n, err := s.captureOrderNotionalAuthority(ctx, broker, p.LimitPrice, contract.Currency, base, orderPreviewDefaultWait)
 	if err != nil {
 		return ev, err
+	}
+	if absent {
+		if !positiveFinite(n.BasePerContract) {
+			return ev, fmt.Errorf("native settled cash is unavailable for %s", contract.Currency)
+		}
+		ledger = maps.Clone(ledger)
+		ledger[contract.Currency] = cashSweepLedgerRow{Observed: true, Settled: new(0.), ExchangeRate: n.BasePerContract}
 	}
 	reserve := max(*bucket.ReserveFloorBase, acct.NetLiquidation*(*bucket.ReservePctNLV)/100)
 	inventory, orderScope, err := s.brokerOpenOrderInventory(ctx, true)
@@ -404,7 +465,7 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		}
 		committedBase += amount * rate
 	}
-	cash, err := stockAddCashFunding(bucket, ledger, commitments, contract.Currency, reserve, n.BasePerContract)
+	cash, err := stockAddFunding(bucket, ledger, commitments, contract.Currency, reserve, n.BasePerContract, p)
 	if err != nil {
 		return ev, err
 	}
