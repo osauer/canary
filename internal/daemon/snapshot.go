@@ -7,6 +7,7 @@ import (
 
 	"github.com/osauer/canary/v3/internal/broker"
 	brokerIBKR "github.com/osauer/canary/v3/internal/broker/ibkr"
+	"github.com/osauer/canary/v3/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
@@ -101,7 +102,9 @@ func priceWithClose(t snapshotTicks) snapshotQuote {
 	case t.mark > 0:
 		price = t.mark
 	case t.closePx > 0:
-		price = t.closePx
+		// The close tick is the previous regular session's close. It may
+		// stand in for a missing print, but never under the feed's label.
+		price, t.dataType = t.closePx, rpc.MarketDataPrevClose
 	default:
 		return snapshotQuote{refusal: t.refusal}
 	}
@@ -157,7 +160,7 @@ func briefWith52WHigh(ctx context.Context, look briefLook, symbol string, timeou
 	case mark > 0:
 		out.price = mark
 	case out.prevClose > 0:
-		out.price = out.prevClose
+		out.price, out.dataType = out.prevClose, rpc.MarketDataPrevClose
 	}
 	return out
 }

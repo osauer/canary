@@ -852,8 +852,8 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 	// active SPX option flow; pre-open it routinely emits no live ticks
 	// at all and the snapshot helper falls back to the previous
 	// regular-session close (tick 9) so the ratio still ranks. The
-	// data-type field honestly reports "frozen" in that case so the
-	// renderer dims the row instead of pretending it's live.
+	// data-type field then reports "prev_close", whatever the feed, so
+	// the row is ranked and shown as an old value, never as a live one.
 	vixQ := boundedSnapshot(ctx, deps, "VIX", 5*time.Second)
 	// VIX day-change anchor. Trading dates: populate as soon as tick 9
 	// lands alongside a live print — independent of whether VIX3M
@@ -871,6 +871,9 @@ func fetchRegimeVIXTerm(ctx context.Context, deps *regimeDeps) rpc.RegimeVIXTerm
 		} else {
 			out.FieldsMissing = append(out.FieldsMissing, "vix_day_change")
 		}
+	} else if vixQ.dataType == rpc.MarketDataPrevClose {
+		// The price is the anchor itself: there is no change to state.
+		out.FieldsMissing = append(out.FieldsMissing, "vix_day_change")
 	} else if vixQ.price > 0 && vixQ.prevClose > 0 {
 		out.VIXPrevClose = new(vixQ.prevClose)
 		chg := (vixQ.price - vixQ.prevClose) / vixQ.prevClose * 100
@@ -1030,6 +1033,9 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 		} else {
 			out.FieldsMissing = append(out.FieldsMissing, "spy_day_change")
 		}
+	} else if spyQ.dataType == rpc.MarketDataPrevClose {
+		// The price is the anchor itself: there is no change to state.
+		out.FieldsMissing = append(out.FieldsMissing, "spy_day_change")
 	} else if spy > 0 && spyPrev > 0 {
 		out.SPYPrevClose = new(spyPrev)
 		diff := spy - spyPrev
@@ -1115,6 +1121,9 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 	}
 	out.Status = rpc.RegimeStatusOK
 	if hygSpotMissing || (out.HYGDataType != "close" && !rpc.IsLiveDataType(hygQ.dataType)) {
+		out.Status = rpc.RegimeStatusStale
+	}
+	if spyQ.dataType == rpc.MarketDataPrevClose {
 		out.Status = rpc.RegimeStatusStale
 	}
 	if out.HYG50DMA != nil && !regimeHistoryCurrent(bars, now) {
