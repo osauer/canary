@@ -213,7 +213,7 @@ func (b *Book) matchingStocks(pattern string) []Instrument {
 
 // EuropeanBook is [Default] with a EUR line on Xetra (SYNE, IBIS) and a GBP
 // line on the LSE (SYNG, quoted in pence: price magnifier 100), native cash
-// in both and their USD rates, with the IDEALPRO pairs listed.
+// in both and their USD rates; SetFX lists the IDEALPRO pairs.
 func EuropeanBook() *Book {
 	b := Default()
 	b.SetCash("EUR", 20_000)
@@ -222,8 +222,6 @@ func EuropeanBook() *Book {
 	b.SetFX("GBP", 1.27)
 	b.AddInstrument(Instrument{ConID: 900401, Symbol: "SYNE", SecType: "STK", Exchange: "SMART", PrimaryExch: "IBIS", Currency: "EUR", TradingClass: "XETR", LongName: "SYNTHETIC E AG", MinTick: 0.01, Price: 40, Spread: 0.02})
 	b.AddInstrument(Instrument{ConID: 900402, Symbol: "SYNG", SecType: "STK", Exchange: "SMART", PrimaryExch: "LSE", Currency: "GBP", TradingClass: "SYNG", LongName: "SYNTHETIC G PLC", MinTick: 0.1, Price: 250, Spread: 0.5, PriceMagnifier: 100})
-	b.AddInstrument(Instrument{ConID: 900501, Symbol: "EUR", SecType: "CASH", Exchange: "IDEALPRO", Currency: "USD", LocalSymbol: "EUR.USD", TradingClass: "EUR.USD", MinTick: 0.00005, Price: 1.08, Spread: 0.0001})
-	b.AddInstrument(Instrument{ConID: 900502, Symbol: "GBP", SecType: "CASH", Exchange: "IDEALPRO", Currency: "USD", LocalSymbol: "GBP.USD", TradingClass: "GBP.USD", MinTick: 0.00005, Price: 1.27, Spread: 0.0001})
 	return b
 }
 
@@ -272,11 +270,49 @@ func (b *Book) SetCash(currency string, amount float64) {
 	}
 }
 
-// SetFX sets a currency's rate to the base currency (base per unit).
+// SetFX sets a currency's rate to the base currency (base per unit) and lists
+// the IDEALPRO pair of the currency and the base at that rate, in the pair's
+// market orientation, as the daemon asks for it when it prices an order in
+// that currency against its cap in the base currency. A pair already listed
+// is repriced.
 func (b *Book) SetFX(currency string, rate float64) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.fx[currency] = rate
+	b.listFXPairLocked(currency)
+}
+
+// fxPairOrder is IDEALPRO's orientation: of two currencies, the earlier one
+// is the pair's symbol (EUR.USD, USD.JPY, USD.HKD, SGD.HKD), as the daemon's
+// orderFXBasePriority and its listed HKD and SGD pairs name them.
+var fxPairOrder = []string{"EUR", "GBP", "AUD", "NZD", "USD", "CAD", "CHF", "SGD", "HKD", "JPY"}
+
+// fxPairModelled reports whether the simulator lists an IDEALPRO pair of the
+// two currencies.
+func fxPairModelled(a, b string) bool {
+	return a != b && slices.Contains(fxPairOrder, a) && slices.Contains(fxPairOrder, b)
+}
+
+func (b *Book) listFXPairLocked(currency string) {
+	if !fxPairModelled(currency, b.base) {
+		return
+	}
+	symbol, quoted := currency, b.base
+	if slices.Index(fxPairOrder, symbol) > slices.Index(fxPairOrder, quoted) {
+		symbol, quoted = quoted, symbol
+	}
+	// quoted per unit of symbol: base per symbol over base per quoted.
+	price := math.Round(b.fx[symbol]/b.fx[quoted]*1e6) / 1e6
+	for _, in := range b.instr {
+		if in.SecType == "CASH" && in.Symbol == symbol && in.Currency == quoted {
+			in.Price = price
+			return
+		}
+	}
+	id := 905000 + 16*slices.Index(fxPairOrder, symbol) + slices.Index(fxPairOrder, quoted)
+	pair := symbol + "." + quoted
+	b.instr[id] = &Instrument{ConID: id, Symbol: symbol, SecType: "CASH", Exchange: "IDEALPRO", Currency: quoted, LocalSymbol: pair, TradingClass: pair,
+		LongName: "SYNTHETIC " + pair, MinTick: 0.00005, Price: price, Spread: max(0.0001, roundTo(price*0.0001, 0.00005))}
 }
 
 // SetPosition sets a holding of a listed contract.

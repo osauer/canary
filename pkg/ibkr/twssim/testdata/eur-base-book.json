@@ -1,0 +1,13 @@
+{
+  "account": "U1234567",
+  "base_currency": "EUR",
+  "cash": {"EUR": 40000, "USD": 10000},
+  "fx": {"USD": 0.92},
+  "positions": [
+    {"con_id": 900003, "symbol": "SYNC", "sec_type": "STK", "currency": "USD", "exchange": "SMART", "primary_exchange": "NASDAQ", "quantity": 0, "avg_cost": 0, "last": 32},
+    {"con_id": 930003, "symbol": "SYNC", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNC", "underlying_con_id": 900003, "right": "C", "strike": 35, "expiry": "+4w", "multiplier": 100, "quantity": 3, "avg_cost": 120, "last": 1.1, "bid": 1.05, "ask": 1.15},
+    {"con_id": 900002, "symbol": "SYNB", "sec_type": "STK", "currency": "USD", "exchange": "SMART", "primary_exchange": "NYSE", "quantity": 0, "avg_cost": 0, "last": 120},
+    {"con_id": 930009, "symbol": "SYNB", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNB", "underlying_con_id": 900002, "right": "P", "strike": 120, "expiry": "+8w", "multiplier": 100, "quantity": 15, "avg_cost": 740, "last": 7.8, "bid": 7.7, "ask": 7.9},
+    {"con_id": 930010, "symbol": "SYNB", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNB", "underlying_con_id": 900002, "right": "P", "strike": 110, "expiry": "+8w", "multiplier": 100, "quantity": -15, "avg_cost": 360, "last": 3.9, "bid": 3.8, "ask": 4.0}
+  ]
+}
