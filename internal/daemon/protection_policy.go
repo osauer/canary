@@ -1165,6 +1165,8 @@ type protectionCashSweepPolicy struct {
 	BillsExemptFromTradingMaxNotional *bool `toml:"bills_exempt_from_trading_max_notional" json:"bills_exempt_from_trading_max_notional,omitempty"`
 	// NoBuyWhileBorrowed holds every sweep buy, in every currency, while any currency's cash balance is negative (a margin loan) or a currency's cash is unknown; redemptions still sell. Canary never converts, so the owner repays by converting or depositing. Read from this file only: until it is written the sweep holds at needs_your_number (policy ensure writes true; owner decision 2026-10-05 21:24 CEST).
 	NoBuyWhileBorrowed *bool `toml:"no_buy_while_borrowed" json:"no_buy_while_borrowed,omitempty"`
+	// BuyStockOnBorrowedCurrency lets a stock add in a currency the account holds too little of, or none, borrow the shortfall in that currency, while the account's own free cash in every currency, converted at the ledger rates, still covers the purchase after each currency's float, open purchases and the account reserve; the order carries a warning naming the borrowed amount, which you confirm with it, and a debit other cash covers no longer holds the next add. Canary never converts: IBKR charges interest on the debit until you convert. Absent means false: a stock add pays only from its own currency's cash, as before (owner decision 2026-11-23 06:15 CET: "yes, allow on borrowed currency").
+	BuyStockOnBorrowedCurrency *bool `toml:"buy_stock_on_borrowed_currency" json:"buy_stock_on_borrowed_currency,omitempty"`
 	// MinNetGain is an advisory benchmark for incremental purchase gain in base currency through maturity. Below-benchmark or unavailable benefit never blocks or resizes an order; zero omits the benchmark.
 	MinNetGain float64 `toml:"min_net_gain" json:"min_net_gain"`
 	// TaxReviewedAt is the date you reviewed how bill rolls are taxed (a TOML date such as 2026-09-30); until it is written every row carries the advisory line "tax treatment not yet confirmed" and blocks nothing.
@@ -1369,6 +1371,12 @@ func (p *protectionCashSweepPolicy) keepCash(ccy string) (float64, bool) {
 // absent is false.
 func (p *protectionCashSweepPolicy) billsExempt() bool {
 	return p != nil && p.BillsExemptFromTradingMaxNotional != nil && *p.BillsExemptFromTradingMaxNotional
+}
+
+// buyStockOnBorrowedCurrency reports whether a stock add may borrow its own
+// currency against the account's other cash; absent is false.
+func (p *protectionCashSweepPolicy) buyStockOnBorrowedCurrency() bool {
+	return p != nil && p.BuyStockOnBorrowedCurrency != nil && *p.BuyStockOnBorrowedCurrency
 }
 
 // noBuyWhileBorrowed reports whether the file holds sweep buys while a

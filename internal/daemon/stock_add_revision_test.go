@@ -16,17 +16,17 @@ func TestStockAddCashReserveFundedOnceWithoutCurrencyPooling(t *testing.T) {
 		"EUR": {Observed: true, TradeDate: 1000, Settled: new(900.), ExchangeRate: 2},
 	}
 	commitments := cashSweepCommitments{Known: true, ByCurrency: map[string]float64{"USD": 200, "EUR": 100}}
-	got, err := stockAddCashFunding(bucket, ledger, commitments, "EUR", 1000, 2)
+	got, err := stockAddCashFunding(bucket, ledger, commitments, "EUR", 1000, 2, false)
 	if err != nil || got.Spendable != 700 || got.ReserveInCurrency != 0 || got.OtherReserveFundingBase != 1700 {
 		t.Fatalf("reserve duplicated or native cash pooled: %+v %v", got, err)
 	}
 	ledger["USD"] = cashSweepLedgerRow{Observed: true, TradeDate: 600, Settled: new(600.), ExchangeRate: 1}
-	got, err = stockAddCashFunding(bucket, ledger, commitments, "EUR", 1000, 2)
+	got, err = stockAddCashFunding(bucket, ledger, commitments, "EUR", 1000, 2, false)
 	if err != nil || got.ReserveInCurrency != 350 || got.Spendable != 350 {
 		t.Fatalf("reserve shortfall lost: %+v %v", got, err)
 	}
 	ledger["USD"] = cashSweepLedgerRow{Observed: true, TradeDate: 2000, ExchangeRate: 1}
-	if _, err := stockAddCashFunding(bucket, ledger, commitments, "EUR", 1000, 2); err == nil {
+	if _, err := stockAddCashFunding(bucket, ledger, commitments, "EUR", 1000, 2, false); err == nil {
 		t.Fatal("unsettled foreign funds financed the reserve")
 	}
 }

@@ -94,6 +94,30 @@ settled native cash: reserve funding never creates an FX trade or borrowing.
 The existing `no_buy_while_borrowed` cash policy also applies. Missing reserve or
 borrowing policy values hold the feature.
 
+Borrowed currency (owner decision 2026-11-23 06:15 CET: "yes, allow on
+borrowed currency"; written 2026-11-23 06:26 CET). With
+`[cash.sweep] buy_stock_on_borrowed_currency = true` a stated purchase that
+its currency's own cash (observed cash less open purchases) cannot pay may
+borrow the rest in that currency. Its spendable cash is the currency's own
+free cash plus the other currencies' free cash in base beyond the account
+reserve, at the stock currency's rate: own free cash + (other free cash in
+base - reserve) / rate. It is never below the native figure and never leaves
+the account's cash in base below the reserve, so no net margin loan arises:
+the debit in one currency is backed by credit in others. A currency the
+account has never held reads as observed zero, for the stock's own currency
+only and only while the base currency row is observed; a debit currency
+without a written float keeps none. The plan carries the warning
+`add_borrowed_currency` naming the debit the purchase creates ("This
+purchase borrows 80,030 HKD; your cash in other currencies covers it. IBKR
+charges interest on the borrowed HKD until you convert."), confirmed with the
+order like any other; the plan's cash shows `borrowed`. With the key on, a
+debit no longer holds the next add by itself (the funding counts it against
+the other cash); unknown cash still holds. A maximum (`--max`) never
+borrows, and a purchase its own currency can pay keeps the native rule. The
+cash sweep's bill buys still wait while any currency is negative under
+`no_buy_while_borrowed`, and currency leveling proposes no repayment for
+HKD or SGD, which have no pair Canary converts. Absent means false.
+
 The exact candidate needs an accepted WhatIf with a finite maximum commission
 in its own cash currency and complete before/after margin evidence. Each
 quantity is checked against **its own** fee and margin; neither is reused to

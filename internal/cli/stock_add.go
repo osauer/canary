@@ -122,7 +122,17 @@ func renderAddPlan(env *Env, p rpc.AddPlanResult) {
 	}
 	if p.Cash != nil {
 		c := p.Cash
-		riskReadLine(env, "Cash calculation", fmt.Sprintf("%.2f available − %.2f committed − %.2f currency float − %.2f account reserve = %.2f %s spendable", c.Available, c.Committed, c.CurrencyFloat, c.ReserveInCurrency, c.Spendable, p.Currency))
+		if c.BorrowAllowed {
+			// buy_stock_on_borrowed_currency: the other currencies' cash
+			// beyond the account reserve backs a debit in this currency.
+			other := c.Spendable - (c.Available - c.Committed - c.CurrencyFloat)
+			riskReadLine(env, "Cash calculation", fmt.Sprintf("%.2f available − %.2f committed − %.2f currency float + %.2f other currencies' cash beyond the account reserve = %.2f %s spendable", c.Available, c.Committed, c.CurrencyFloat, other, c.Spendable, p.Currency))
+			if c.Borrowed > 0 {
+				riskReadLine(env, "Borrowed", fmt.Sprintf("%.2f %s, a debit IBKR charges interest on until you convert", c.Borrowed, p.Currency))
+			}
+		} else {
+			riskReadLine(env, "Cash calculation", fmt.Sprintf("%.2f available − %.2f committed − %.2f currency float − %.2f account reserve = %.2f %s spendable", c.Available, c.Committed, c.CurrencyFloat, c.ReserveInCurrency, c.Spendable, p.Currency))
+		}
 		riskReadLine(env, "Account reserve", fmt.Sprintf("%.2f %s required; %.2f %s available outside this currency after floats and commitments", c.AccountReserveBase, p.BaseCurrency, c.OtherReserveFundingBase, p.BaseCurrency))
 	}
 	if p.Quantity > 0 && len(p.Blockers) == 0 {
