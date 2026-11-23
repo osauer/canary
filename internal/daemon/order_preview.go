@@ -1692,19 +1692,14 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 		return 0, errBadRequest("bounded-limit strategy is daemon-internal")
 	case explicit != nil:
 		return 0, errBadRequest("bounded-limit strategy must not carry a limit price")
-	case math.IsNaN(bound.Concession) || bound.Concession < 0 || bound.Concession > 1 || !positiveFinite(bound.WorstPrice) || !positiveFinite(bound.MaxSpreadPctOfMid):
+	case math.IsNaN(bound.Concession) || bound.Concession < 0 || bound.Concession > 1 || !positiveFinite(bound.MaxSpreadPctOfMid),
+		bound.NoWorstPrice && (bound.WorstPrice != 0 || bound.ClampToWorst), !bound.NoWorstPrice && !positiveFinite(bound.WorstPrice):
 		return 0, errBadRequest("bounded-limit bound is invalid")
 	}
-	if err := requireFreshPreviewQuote(quote, "bounded-limit"); err != nil {
+	bid, ask, err := liveTwoSidedQuote(quote, "bounded-limit")
+	if err != nil {
 		return 0, err
 	}
-	if !rpc.IsLiveDataType(quote.DataType) {
-		return 0, refusePreviewCode(previewQuoteNotLiveCode, errBadRequest("bounded-limit requires live bid/ask data"))
-	}
-	if quote.Bid == nil || quote.Ask == nil || *quote.Bid <= 0 || *quote.Ask <= *quote.Bid {
-		return 0, refusePreviewCode(previewQuoteNotTwoSidedCode, errBadRequest("bounded-limit requires a positive two-sided bid/ask"))
-	}
-	bid, ask := *quote.Bid, *quote.Ask
 	mid := (bid + ask) / 2
 	wide := false
 	if spread := (ask - bid) / mid * 100; spread > bound.MaxSpreadPctOfMid {
@@ -1721,7 +1716,7 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 		if wide {
 			limit = max(limit, roundPrice(min(ceilPriceToTick(mid-bound.MaxGive, tick), ask)))
 		}
-		if limit+1e-9 < bound.WorstPrice {
+		if !bound.NoWorstPrice && limit+1e-9 < bound.WorstPrice {
 			if !bound.ClampToWorst {
 				return 0, refusePreviewCode(previewBoundedWorstCode, errBadRequest(fmt.Sprintf("bounded-limit price %.4f would be below the worst price %.4f", limit, bound.WorstPrice)))
 			}
@@ -1732,7 +1727,7 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 		if wide {
 			limit = min(limit, roundPrice(max(floorPriceToTick(mid+bound.MaxGive, tick), bid)))
 		}
-		if limit > bound.WorstPrice+1e-9 {
+		if !bound.NoWorstPrice && limit > bound.WorstPrice+1e-9 {
 			if !bound.ClampToWorst {
 				return 0, refusePreviewCode(previewBoundedWorstCode, errBadRequest(fmt.Sprintf("bounded-limit price %.4f would be above the worst price %.4f", limit, bound.WorstPrice)))
 			}
@@ -1742,6 +1737,23 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 		return 0, errBadRequest("action must be buy or sell")
 	}
 	return limit, nil
+}
+
+// liveTwoSidedQuote is the quote a price is taken from the sides of: fresh,
+// in an open session, live, and two-sided with the ask above the bid. The
+// bounded limit prices from it, and an exit plan's trail reads its stock by
+// it.
+func liveTwoSidedQuote(quote rpc.OrderQuoteSnapshot, useCase string) (bid, ask float64, err error) {
+	if err := requireFreshPreviewQuote(quote, useCase); err != nil {
+		return 0, 0, err
+	}
+	if !rpc.IsLiveDataType(quote.DataType) {
+		return 0, 0, refusePreviewCode(previewQuoteNotLiveCode, errBadRequest(useCase+" requires live bid/ask data"))
+	}
+	if quote.Bid == nil || quote.Ask == nil || *quote.Bid <= 0 || *quote.Ask <= *quote.Bid {
+		return 0, 0, refusePreviewCode(previewQuoteNotTwoSidedCode, errBadRequest(useCase+" requires a positive two-sided bid/ask"))
+	}
+	return *quote.Bid, *quote.Ask, nil
 }
 
 // allowanceLimitPrice prices an allowance-limit draft from the live quote

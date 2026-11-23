@@ -49,8 +49,8 @@ func commandActions(name string) []actionHelp {
 		}
 	case "proposals queue":
 		return []actionHelp{
-			{"prepare", "Prepare a private queued-order handoff; no submission", "canary proposals queue prepare KEY REVISION --json [--quantity N]\ncanary proposals queue prepare --stdin --json"},
-			{"arm", "Arm an approved queued order from standard input", "canary proposals queue arm --stdin [--json]"},
+			{"prepare", "Prepare a private queued-order handoff; no submission", "canary proposals queue prepare KEY REVISION --json [--quantity N]\ncanary proposals queue prepare --stdin --json   (an exact order, or an exit_plan)"},
+			{"arm", "Arm an approved queued order or exit plan from standard input", "canary proposals queue arm --stdin [--json]"},
 			{"cancel", "Cancel a queued authorisation", "canary proposals queue cancel QUEUE_ID [--json]\ncanary proposals queue cancel --all [--json]"},
 			{"list", "Read queued authorisations", "canary proposals queue list [--live] [--json]"},
 			{"status", "Read one queued authorisation", "canary proposals queue status QUEUE_ID [--json]"},

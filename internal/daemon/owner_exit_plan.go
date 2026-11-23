@@ -1,0 +1,631 @@
+package daemon
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"fmt"
+	"math"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/rpc"
+)
+
+// Exit plans (queued authorisations, version 3; see
+// internal-docs/design/queued-authorisations.md, "Exit plans").
+//
+// The owner signs one plan on a held long single-leg option: an optional
+// first sale of part of the line once the session has been open for the
+// plan's wait, near the mid and never below a signed minimum; and a trail on
+// the underlying stock from the same moment. The trail's exit line starts at
+// the signed starting stop and rises with the stock's high; when the stock's
+// midpoint is at or below it on two checks at least five seconds apart, the
+// trail sells what is still held of the option, never more than its signed
+// maximum, near the mid, inside the option spread limit, with no minimum. It
+// lasts for that session.
+//
+// The plan is two ordinary single-send records linked by a plan id, so the
+// executor's state machine, its holds and its restart recovery apply to each
+// unchanged. They are prepared in one store update and armed together or not
+// at all. They may coexist on one contract and side; everything else stays
+// one live intent per contract and side. The trail withdraws an unsent first
+// sale when it fires, and cancels one still working at the broker before it
+// sells, so two sells never together exceed the position.
+
+const (
+	queuedPlanTermsVersion = 3
+	// queuedPlanMaxWaitMinutes bounds the signed wait after the open.
+	queuedPlanMaxWaitMinutes = 120
+	// queuedPlanMaxTrailPercent bounds the trail's give-back.
+	queuedPlanMaxTrailPercent = 50
+	// queuedTrailWindowMax bounds a trail's window: one regular session.
+	queuedTrailWindowMax = 24 * time.Hour
+	// queuedTrailCheckEvery is the longest the executor waits between two
+	// reads of the stock while a trail is inside its window.
+	queuedTrailCheckEvery = 10 * time.Second
+	// queuedTrailConfirmAfter is how far apart two reads at or below the line
+	// must be before the trail fires: one bad print never sells.
+	queuedTrailConfirmAfter = 5 * time.Second
+	// queuedTrailQuoteTimeout bounds one read of the stock.
+	queuedTrailQuoteTimeout = 3 * time.Second
+	// queuedTrailWatchFresh is how recent the last usable read must be for
+	// the view to say the trail is being watched.
+	queuedTrailWatchFresh = 3 * queuedTrailCheckEvery
+	// queuedPlanCancelRetry spaces repeated broker cancels of a first sale
+	// still working when the trail fired.
+	queuedPlanCancelRetry = 30 * time.Second
+	// queuedPlanIDMaxBytes bounds a stored plan id.
+	queuedPlanIDMaxBytes = 64
+
+	// Hold codes of a plan's records.
+	queuedHoldStockQuote          = "stock_quote_unusable"
+	queuedHoldFirstSaleCancelling = "plan_first_sale_cancelling"
+	// queuedReasonPlanStopTriggered withdraws an unsent first sale when the
+	// trail fires.
+	queuedReasonPlanStopTriggered = "plan_stop_triggered"
+
+	// Journaled transitions of a trail: the stop rose, and the line was
+	// crossed (the trigger is latched).
+	queuedEventStopRaised = "queued_auth.stop_raised"
+	queuedEventTriggered  = "queued_auth.triggered"
+)
+
+// queuedTrailState is a trail record's durable watch: the high water, the
+// stop it sets, and the latched trigger. It is written whenever the stop
+// rises and when the trail fires, so a restart resumes from it and never
+// lowers the stop.
+type queuedTrailState struct {
+	HighWater    float64   `json:"high_water,omitempty"`
+	HighAt       time.Time `json:"high_at,omitzero"`
+	StopPrice    float64   `json:"stop_price,omitempty"`
+	TriggeredAt  time.Time `json:"triggered_at,omitzero"`
+	TriggerPrice float64   `json:"trigger_price,omitempty"`
+	// FirstSaleCancelAt is when the trail last asked the broker to cancel
+	// its plan's first sale, still working when it fired.
+	FirstSaleCancelAt time.Time `json:"first_sale_cancel_at,omitzero"`
+}
+
+// IsZero reports a record with no watch (omitzero).
+func (w queuedTrailState) IsZero() bool { return w == queuedTrailState{} }
+
+// queuedOwnerOrder reports owner-order terms: v2, or a v3 exit plan's record.
+// Both run through the owner path (resolveOwnerQueue, submitOwnerQueue).
+func queuedOwnerOrder(t rpc.QueuedAuthTerms) bool {
+	return t.Version == 2 || t.Version == queuedPlanTermsVersion
+}
+
+// queuedPlanOf is a record's plan link, or nil.
+func queuedPlanOf(t rpc.QueuedAuthTerms) *rpc.QueuedPlan {
+	if t.Version != queuedPlanTermsVersion || t.OwnerOrder == nil {
+		return nil
+	}
+	return t.OwnerOrder.Plan
+}
+
+func queuedPlanTrail(t rpc.QueuedAuthTerms) bool {
+	plan := queuedPlanOf(t)
+	return plan != nil && plan.Role == rpc.QueuedPlanRoleTrail
+}
+
+func queuedPlanFirstSale(t rpc.QueuedAuthTerms) bool {
+	plan := queuedPlanOf(t)
+	return plan != nil && plan.Role == rpc.QueuedPlanRoleFirstSale
+}
+
+// queuedSamePlan reports two records of one plan in one account and mode.
+func queuedSamePlan(a, b queuedAuthRecord) bool {
+	pa, pb := queuedPlanOf(a.Terms), queuedPlanOf(b.Terms)
+	return pa != nil && pb != nil && pa.PlanID == pb.PlanID && sameBrokerScope(a.scope(), b.scope())
+}
+
+// exitPlanTermsProblem validates a v3 record as strictly as ownerQueueProblem
+// validates v2: anything inconsistent is refused at prepare and ends a
+// stored record unreadable.
+func exitPlanTermsProblem(t rpc.QueuedAuthTerms) string {
+	o := t.OwnerOrder
+	if o == nil || o.Plan == nil {
+		return "an exit plan's record without its plan"
+	}
+	plan := o.Plan
+	if plan.PlanID == "" || len(plan.PlanID) > queuedPlanIDMaxBytes || strings.TrimSpace(plan.PlanID) != plan.PlanID ||
+		plan.WaitMinutes < 1 || plan.WaitMinutes > queuedPlanMaxWaitMinutes {
+		return "invalid exit plan link"
+	}
+	if t.Contract.ConID <= 0 || t.Contract.SecType != "OPT" || t.AccountID == "" || !slices.Contains([]string{"paper", "live"}, t.AccountMode) ||
+		t.Action != rpc.OrderActionSell || t.Currency == "" || t.Currency != t.Contract.Currency || t.ArmDeadline.IsZero() || t.TIF != rpc.OrderTIFDay ||
+		t.MaxQuantity <= 0 || t.MaxQuantity > 1000000 || !positiveFinite(t.PositionQuantity) || math.Trunc(t.PositionQuantity) != t.PositionQuantity ||
+		float64(t.MaxQuantity) > t.PositionQuantity {
+		return "invalid exit plan identity or quantity"
+	}
+	if o.OrderType != rpc.OrderTypeLMT || o.Trail != nil || o.TriggerMethod != 0 || o.OutsideRTH || o.AdaptivePriority != "" || o.FullPosition ||
+		o.Add || o.AddWarnings != nil || t.Concession != 0 || !positiveFinite(t.MaxSpreadPctOfMid) || t.MaxSpreadPctOfMid > 100 ||
+		!t.NotAfter.After(t.NotBefore) || t.NotBefore.IsZero() {
+		return "invalid exit plan order terms"
+	}
+	switch plan.Role {
+	case rpc.QueuedPlanRoleFirstSale:
+		if o.StockTrail != nil || t.Style != "midpoint_bounded" || !positiveFinite(t.WorstPrice) || t.PositionEffect != "reduce" ||
+			float64(t.MaxQuantity) >= t.PositionQuantity || t.NotAfter.Sub(t.NotBefore) > queuedSendWindow {
+			return "invalid exit plan first sale"
+		}
+	case rpc.QueuedPlanRoleTrail:
+		st := o.StockTrail
+		if st == nil || t.Style != rpc.QueuedAuthStyleStockTrail || t.WorstPrice != 0 || t.PositionEffect != "close" ||
+			float64(t.MaxQuantity) != t.PositionQuantity || t.NotAfter.Sub(t.NotBefore) > queuedTrailWindowMax {
+			return "invalid exit plan trail"
+		}
+		if st.Underlying.ConID <= 0 || st.Underlying.SecType != "STK" || strings.TrimSpace(st.Underlying.Symbol) == "" ||
+			st.Underlying.Currency == "" || !strings.EqualFold(st.Underlying.Symbol, t.Contract.Symbol) ||
+			!positiveFinite(st.TrailPercent) || st.TrailPercent > queuedPlanMaxTrailPercent || !positiveFinite(st.InitialStopPrice) ||
+			math.IsNaN(st.ReferencePrice) || math.IsInf(st.ReferencePrice, 0) || st.ReferencePrice < 0 {
+			return "invalid exit plan stock line"
+		}
+	default:
+		return "invalid exit plan role"
+	}
+	return ""
+}
+
+// queuedPlanStageConflict reads r's plan at the moment r's send intent is
+// staged: stop when r is a first sale whose trail has fired, busy when r is
+// a trail whose first sale is live or working at the broker.
+func queuedPlanStageConflict(records map[string]*queuedAuthRecord, r *queuedAuthRecord) (stop, busy bool) {
+	if queuedPlanOf(r.Terms) == nil {
+		return false, false
+	}
+	for _, other := range records {
+		if other == r || !queuedSamePlan(*other, *r) {
+			continue
+		}
+		switch {
+		case queuedPlanFirstSale(r.Terms) && queuedPlanTrail(other.Terms) && !other.Watch.TriggeredAt.IsZero():
+			stop = true
+		case queuedPlanTrail(r.Terms) && queuedPlanFirstSale(other.Terms) && (other.liveIntent() || other.State == rpc.QueuedAuthSent):
+			busy = true
+		}
+	}
+	return stop, busy
+}
+
+// trailStop is the exit line: the signed starting stop, raised to the high
+// less the trail percent once the stock has risen far enough, to four
+// decimals as prices are.
+func trailStop(initial, high, trailPercent float64) float64 {
+	return max(initial, roundPrice(high*(1-trailPercent/100)))
+}
+
+// trailAdvance folds one usable stock price into the durable watch: the
+// first price seeds the high, a higher one raises it, and the stop follows
+// and never falls. raised reports a stop or high that must be written.
+func trailAdvance(w queuedTrailState, st rpc.QueuedStockTrail, price float64, at time.Time) (queuedTrailState, bool) {
+	if !positiveFinite(price) {
+		return w, false
+	}
+	next := w
+	if price > next.HighWater {
+		next.HighWater, next.HighAt = price, at.UTC()
+	}
+	next.StopPrice = max(w.StopPrice, trailStop(st.InitialStopPrice, next.HighWater, st.TrailPercent))
+	return next, next.HighWater != w.HighWater || next.StopPrice != w.StopPrice
+}
+
+// exitPlanDigest is the lowercase hex SHA-256 of the records' terms digests
+// joined, first sale then trail, by one newline.
+func exitPlanDigest(digests []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(digests, "\n")))
+	return hex.EncodeToString(sum[:])
+}
+
+// planRoleOrder sorts a plan's records first sale first.
+func planRoleOrder(a, b queuedAuthRecord) int {
+	rank := func(r queuedAuthRecord) int {
+		if queuedPlanFirstSale(r.Terms) {
+			return 0
+		}
+		return 1
+	}
+	return rank(a) - rank(b)
+}
+
+// prepareExitPlan fixes the terms of an exit plan's records from the
+// broker's contract and position and returns them with their private
+// references. It sends nothing.
+func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposalQueuePrepareParams) (out rpc.TradeProposalQueuePrepareResult, err error) {
+	now, s := e.clock(), e.server
+	out.AsOf = now
+	block := func(code, message string) (rpc.TradeProposalQueuePrepareResult, error) {
+		out.Blockers = preparedBlocker(code, message)
+		return out, nil
+	}
+	plan := p.ExitPlan
+	if p.Order != nil || p.Key != "" || p.Revision != "" || p.FullPosition || p.Quantity != 0 || p.WorstPrice != 0 {
+		return block("queue_request_invalid", "An exit plan cannot be combined with an order, a proposal or a full-position mandate.")
+	}
+	switch {
+	case plan.Trail == nil:
+		return block("queue_request_invalid", "An exit plan needs its trail on the stock.")
+	case !positiveFinite(plan.Trail.TrailPercent) || plan.Trail.TrailPercent > queuedPlanMaxTrailPercent:
+		return block("queue_request_invalid", fmt.Sprintf("The trail percent must be above 0 and at most %d.", queuedPlanMaxTrailPercent))
+	case !positiveFinite(plan.Trail.InitialStopPrice):
+		return block("queue_stop_missing", "The starting stop must be a positive stock price.")
+	case plan.FirstSale != nil && (plan.FirstSale.Quantity < 1 || !positiveFinite(plan.FirstSale.MinPrice)):
+		return block("queue_request_invalid", "The first sale needs a quantity of at least 1 and a positive minimum price.")
+	case plan.WaitMinutes > queuedPlanMaxWaitMinutes || plan.WaitMinutes < 1:
+		return block("queue_wait_invalid", fmt.Sprintf("The wait after the open must be between the market's opening offset and %d minutes.", queuedPlanMaxWaitMinutes))
+	case plan.Contract.ConID <= 0 || !strings.EqualFold(strings.TrimSpace(plan.Contract.SecType), "OPT"):
+		return block("queue_contract_inexact", "An exit plan needs the exact contract id of a held option.")
+	}
+	if !e.queued.attached() || s == nil || s.protectionPolicies == nil {
+		return block("queue_unavailable", "Queued authorisations are unavailable.")
+	}
+	scope := e.currentScope()
+	if !brokerScopeConcrete(scope) || p.AccountID != scope.Account || p.AccountMode != scope.Mode {
+		return block("queued_scope_mismatch", "Confirm the connected account and mode before queueing.")
+	}
+	if s.tradingFrozen() {
+		return block(rpc.ReadinessTradingFrozen, tradingFrozenBlockerMessage)
+	}
+	authority, err := s.captureOrderPreviewBrokerAuthority()
+	if err != nil {
+		return block(rpc.ReadinessBrokerUnavailable, "Broker identity could not be verified.")
+	}
+	contract, err := s.resolvePreviewOrderContract(ctx, authority, plan.Contract, previewMinTickTimeout)
+	if err != nil {
+		return block(previewContractUnresolvedCode, err.Error())
+	}
+	if contract.SecType != "OPT" || contract.ConID <= 0 {
+		return block("queue_contract_inexact", "An exit plan covers one held single-leg option.")
+	}
+	if _, index := rpc.IndexUnderlyingContract(contract.Symbol); index {
+		return block("queue_underlying_unsupported", "An exit plan trails a stock; this option's underlying is an index.")
+	}
+	market, known := quoteSessionMarketForContract(contract)
+	session, ok := s.previewSession(market, now)
+	if !known || !ok || session.State == marketcal.StateUnknown {
+		return block("queue_session_unknown", "The current exchange session cannot be verified.")
+	}
+	offset, _ := s.readinessOpeningOffset(market, "owner_order", now)
+	if time.Duration(plan.WaitMinutes)*time.Minute < offset {
+		return block("queue_wait_invalid", fmt.Sprintf("The wait after the open must be at least the market's opening offset of %d minutes.", int(offset/time.Minute)))
+	}
+	var opens time.Time
+	switch {
+	case session.IsOpen && !session.Open.IsZero():
+		opens = session.Open
+	case session.NextOpen != nil:
+		opens = *session.NextOpen
+	default:
+		return block("queue_session_unknown", "The trading calendar dates no next regular open for this market.")
+	}
+	start := opens.Add(time.Duration(plan.WaitMinutes) * time.Minute).UTC()
+	if session.IsOpen && !now.Before(start) {
+		if plan.FirstSale != nil {
+			return block("queue_not_offered", "The market is open past the plan's wait; sell now by the ordinary path.")
+		}
+		start = now.UTC()
+	}
+	day, ok := s.previewSession(market, start)
+	if !ok || !day.IsOpen || day.Close.IsZero() {
+		return block("queue_session_unknown", "The trading calendar does not show the regular session open at the plan's start.")
+	}
+	underlying, err := s.resolvePreviewOrderContract(ctx, authority, mandateOptionUnderlyingContract(strings.ToUpper(strings.TrimSpace(contract.Symbol)), contract.Currency), previewMinTickTimeout)
+	if err != nil || underlying.ConID <= 0 || underlying.SecType != "STK" {
+		return block("queue_underlying_unresolved", "The option's underlying stock could not be resolved at the broker.")
+	}
+	stockMarket, known := quoteSessionMarketForContract(underlying)
+	stockDay, ok := s.previewSession(stockMarket, start)
+	if !known || !ok || !stockDay.IsOpen || stockDay.Close.IsZero() {
+		return block("queue_session_unknown", "The stock's regular session cannot be verified for the plan's day.")
+	}
+	trailEnd := day.Close.UTC()
+	if stockDay.Close.Before(trailEnd) {
+		trailEnd = stockDay.Close.UTC()
+	}
+	if !trailEnd.After(start) || !trailEnd.After(now) {
+		return block("queue_session_unknown", "The plan's window would be empty.")
+	}
+	position, err := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), contract, rpc.OrderActionSell, 1)
+	if err != nil {
+		return block(previewPositionUnavailableCode, err.Error())
+	}
+	held := position.Impact.Before
+	if held < 1 || math.Trunc(held) != held || held > 1000000 {
+		return block("queue_position_invalid", "An exit plan covers a held long option line of whole contracts.")
+	}
+	if plan.FirstSale != nil && float64(plan.FirstSale.Quantity) >= held {
+		return block("queue_quantity", "The first sale must be below the held quantity; the trail covers the rest.")
+	}
+	reference, referenceAt := e.exitPlanReferencePrice(ctx, underlying, now)
+	policy, status := s.protectionPolicies.Active()
+	planID, err := randomTokenID()
+	if err != nil {
+		return out, err
+	}
+	base := rpc.TradeProposal{Contract: contract, Action: rpc.OrderActionSell, Bucket: "owner_order", OrderType: rpc.OrderTypeLMT, TIF: rpc.OrderTIFDay}
+	terms := func(role string, qty int, effect string) rpc.QueuedAuthTerms {
+		prop := base
+		prop.Key, prop.Quantity, prop.PositionEffect, prop.PositionQuantity = fmt.Sprintf("owner:%d:SELL:%s", contract.ConID, role), qty, effect, held
+		return rpc.QueuedAuthTerms{
+			Version: queuedPlanTermsVersion, Broker: scope.brokerField(), AccountID: scope.Account, AccountMode: scope.Mode, Key: prop.Key, Bucket: prop.Bucket,
+			RevisionAtQueue: "owner", Contract: contract, Action: rpc.OrderActionSell, PositionEffect: effect, PositionQuantity: held, MaxQuantity: qty,
+			ReferenceMarkAt: now.UTC(), MaxSpreadPctOfMid: queuedSpreadLimit(policy, prop), Currency: contract.Currency, Market: string(market),
+			SessionDate: day.Date, NotBefore: start, TIF: rpc.OrderTIFDay, ArmDeadline: now.Add(queuedArmWindow).UTC(),
+			RowTermsDigest: queuedRowTermsDigest(prop), PolicyFingerprint: status.EffectiveFingerprint,
+			OwnerOrder: &rpc.QueuedOwnerOrder{OrderType: rpc.OrderTypeLMT, Plan: &rpc.QueuedPlan{PlanID: planID, Role: role, WaitMinutes: plan.WaitMinutes}},
+		}
+	}
+	var all []rpc.QueuedAuthTerms
+	if fs := plan.FirstSale; fs != nil {
+		t := terms(rpc.QueuedPlanRoleFirstSale, fs.Quantity, "reduce")
+		t.Style, t.WorstPrice, t.ReferenceMark, t.NotAfter = "midpoint_bounded", fs.MinPrice, fs.MinPrice, start.Add(queuedSendWindow)
+		if t.NotAfter.After(day.Close) {
+			t.NotAfter = day.Close.UTC()
+		}
+		all = append(all, t)
+	}
+	trail := terms(rpc.QueuedPlanRoleTrail, int(held), "close")
+	trail.Style, trail.NotAfter = rpc.QueuedAuthStyleStockTrail, trailEnd
+	trail.OwnerOrder.StockTrail = &rpc.QueuedStockTrail{Underlying: underlying, TrailPercent: plan.Trail.TrailPercent, InitialStopPrice: plan.Trail.InitialStopPrice,
+		ReferencePrice: reference, ReferenceAt: referenceAt}
+	all = append(all, trail)
+	for _, t := range all {
+		if problem := ownerQueueProblem(t); problem != "" {
+			return block("queue_terms_invalid", problem)
+		}
+	}
+	if blockers := e.automaticIntentBlockersFor("", sameContractSide(base), scope); len(blockers) > 0 {
+		out.Blockers = blockers
+		return out, nil
+	}
+	recs := make([]*queuedAuthRecord, 0, len(all))
+	refs := make([]string, 0, len(all))
+	digests := make([]string, 0, len(all))
+	for _, t := range all {
+		id, reference, err := mintQueuedReference()
+		if err != nil {
+			return out, err
+		}
+		t.QueueID = id
+		digest, err := queuedTermsDigest(t)
+		if err != nil {
+			return out, err
+		}
+		recs = append(recs, &queuedAuthRecord{Version: queuedDocumentVersion, ReferenceHash: sha256.Sum256([]byte(reference)), Terms: t, TermsDigest: digest,
+			ContractSide: sameContractSide(base), CreatedAt: now.UTC()})
+		refs, digests = append(refs, reference), append(digests, digest)
+	}
+	side := recs[0].ContractSide
+	var refused []rpc.TradingBlocker
+	err = e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		var events []queuedAuthEvent
+		for _, other := range records {
+			if other.ContractSide != side || !sameBrokerScope(other.scope(), scope) {
+				continue
+			}
+			switch {
+			case other.liveIntent():
+				refused = queuedIntentExistsBlocker(other.Terms.Key)
+				return nil
+			case other.State == rpc.QueuedAuthSent:
+				refused = queuedOrderWorkingBlocker(other.Terms.Key)
+				return nil
+			case other.State == rpc.QueuedAuthPrepared:
+				// A newer sheet for the contract replaces an unarmed one, a
+				// plan's records included; none of them carried authority.
+				events = append(events, other.resolve(queuedEventCancelled, rpc.QueuedAuthCancelled, queuedReasonSuperseded, "replaced before confirmation", now))
+			}
+		}
+		for _, rec := range recs {
+			records[rec.Terms.QueueID] = rec
+			events = append(events, rec.transition(queuedEventPrepared, rpc.QueuedAuthPrepared, now))
+		}
+		return events
+	})
+	if err != nil {
+		out.Blockers = preparedBlocker("queue_not_persisted", "The exit plan could not be stored; nothing was queued.")
+		return out, err
+	}
+	if len(refused) > 0 {
+		out.Blockers = refused
+		return out, nil
+	}
+	prepared := &rpc.QueuedPlanPrepared{PlanID: planID, PlanDigest: exitPlanDigest(digests), QueuedRefs: refs}
+	for _, rec := range recs {
+		prepared.Queues = append(prepared.Queues, e.queuedView(*rec))
+	}
+	out.Accepted, out.Plan = true, prepared
+	return out, nil
+}
+
+// exitPlanReferencePrice is the stock price shown with the plan for the
+// owner's review only: the live midpoint, else the last or the close. Zero
+// when none is known; nothing executes on it.
+func (e *proposalEngine) exitPlanReferencePrice(ctx context.Context, underlying rpc.ContractParams, now time.Time) (float64, time.Time) {
+	q, err := e.server.previewQuote(ctx, underlying, queuedTrailQuoteTimeout)
+	if err != nil {
+		return 0, now.UTC()
+	}
+	at := q.AsOf
+	if at.IsZero() {
+		at = now
+	}
+	for _, v := range []*float64{q.Midpoint, q.Last, q.Mark} {
+		if v != nil && positiveFinite(*v) {
+			return roundPrice(*v), at.UTC()
+		}
+	}
+	return 0, at.UTC()
+}
+
+// armExitPlan arms every record of one plan in one store update, or none.
+// The plan digest binds the set of terms the owner signed.
+func (e *proposalEngine) armExitPlan(ctx context.Context, p rpc.TradeProposalQueueArmParams, out rpc.TradeProposalQueueResult) (rpc.TradeProposalQueueResult, error) {
+	now := e.clock()
+	block := func(code, message string) (rpc.TradeProposalQueueResult, error) {
+		out.Blockers = preparedBlocker(code, message)
+		return out, nil
+	}
+	if p.QueuedRef != "" || p.TermsDigest != "" || len(p.QueuedRefs) > 4 {
+		return block("queue_request_invalid", "Arm a plan with its references and plan digest only.")
+	}
+	var recs []queuedAuthRecord
+	for _, ref := range p.QueuedRefs {
+		rec, ok := e.loadQueuedByReference(ref)
+		if !ok {
+			return block("queued_reference_unavailable", "A queued authorisation reference cannot be resolved safely; nothing was armed.")
+		}
+		if slices.ContainsFunc(recs, func(r queuedAuthRecord) bool { return r.Terms.QueueID == rec.Terms.QueueID }) {
+			return block("queue_request_invalid", "A plan reference was given twice; nothing was armed.")
+		}
+		recs = append(recs, rec)
+	}
+	if len(recs) == 0 || queuedPlanOf(recs[0].Terms) == nil {
+		return block("queued_plan_invalid", "These references do not name an exit plan; nothing was armed.")
+	}
+	planID := queuedPlanOf(recs[0].Terms).PlanID
+	members := 0
+	for _, r := range e.queued.list() {
+		if queuedSamePlan(r, recs[0]) {
+			members++
+		}
+	}
+	for _, r := range recs {
+		if !queuedSamePlan(r, recs[0]) {
+			return block("queued_plan_invalid", "The references name records of different plans; nothing was armed.")
+		}
+	}
+	if members != len(recs) {
+		return block("queued_plan_incomplete", "Every record of the plan must be armed together; nothing was armed.")
+	}
+	slices.SortFunc(recs, planRoleOrder)
+	digests := make([]string, 0, len(recs))
+	for _, r := range recs {
+		if problem := queuedRecordProblem(r); problem != "" {
+			return block("queued_record_invalid", "This exit plan cannot be armed: "+problem+"; nothing was armed.")
+		}
+		digests = append(digests, r.TermsDigest)
+	}
+	signed := strings.ToLower(strings.TrimSpace(p.PlanDigest))
+	if subtle.ConstantTimeCompare([]byte(signed), []byte(exitPlanDigest(digests))) != 1 {
+		return block("queued_terms_mismatch", "The signed plan digest does not match the prepared terms; nothing was armed.")
+	}
+	for _, r := range recs {
+		if r.State != rpc.QueuedAuthPrepared {
+			return block("queued_not_prepared", "A record of this plan is already "+r.State+"; nothing was armed.")
+		}
+		if !now.Before(r.Terms.ArmDeadline) {
+			for _, r := range recs {
+				e.expireUnarmed(ctx, r.Terms.QueueID, now)
+			}
+			return block("queued_arm_deadline_passed", "The owner's signature arrived after the ten-minute arm deadline; prepare the plan again.")
+		}
+	}
+	scope := e.currentScope()
+	if !brokerScopeConcrete(scope) || !sameBrokerScope(scope, recs[0].scope()) {
+		return block("queued_scope_mismatch", "The connected account or paper/live mode differs from the one the plan was prepared for.")
+	}
+	for _, r := range recs {
+		if blockers := e.automaticIntentBlockersFor(r.Terms.Key, r.ContractSide, scope); len(blockers) > 0 {
+			out.Blockers = blockers
+			return out, nil
+		}
+	}
+	book := e.automaticSettlingBook(ctx, scope, false)
+	var refused []rpc.TradingBlocker
+	var armed []queuedAuthRecord
+	err := e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		var events []queuedAuthEvent
+		for _, rec := range recs {
+			r := records[rec.Terms.QueueID]
+			if r == nil || r.State != rpc.QueuedAuthPrepared || !now.Before(r.Terms.ArmDeadline) || r.TermsDigest != rec.TermsDigest {
+				refused = preparedBlocker("queued_not_prepared", "The exit plan changed while it was being armed; nothing was armed.")
+				return nil
+			}
+			for _, other := range records {
+				if other == r || other.ContractSide != r.ContractSide || !sameBrokerScope(other.scope(), r.scope()) || queuedSamePlan(*other, *r) {
+					continue
+				}
+				switch {
+				case other.liveIntent():
+					refused = queuedIntentExistsBlocker(other.Terms.Key)
+					return nil
+				case other.State == rpc.QueuedAuthSent:
+					refused = queuedOrderWorkingBlocker(other.Terms.Key)
+					return nil
+				}
+			}
+		}
+		armed = armed[:0]
+		for _, rec := range recs {
+			r := records[rec.Terms.QueueID]
+			r.ArmedAt, r.DeskActionID, r.Credential, r.Envelope = now.UTC(), strings.TrimSpace(p.DeskActionID), strings.TrimSpace(p.Credential), p.Envelope
+			r.ArmOrigin = normalizedWriteOrigin(p.Origin)
+			r.SettlingBaseline, r.SettlingBaselineKnown = book.marks(), book.ok
+			ev := r.transition(queuedEventArmed, rpc.QueuedAuthArmed, now)
+			ev.Origin, ev.Credential = r.ArmOrigin, r.Credential
+			events = append(events, ev)
+			armed = append(armed, *r)
+		}
+		return events
+	})
+	if err != nil {
+		return block("queue_not_persisted", "The arm could not be stored; nothing was armed.")
+	}
+	if len(refused) > 0 {
+		out.Blockers = refused
+		return out, nil
+	}
+	for _, r := range armed {
+		out.Queues = append(out.Queues, e.queuedView(r))
+	}
+	out.Accepted = true
+	out.Message = fmt.Sprintf("armed: exit plan %s starts at %s and ends at %s if every gate still passes", planID,
+		armed[0].Terms.NotBefore.Format(time.RFC3339), armed[len(armed)-1].Terms.NotAfter.Format(time.RFC3339))
+	e.server.infof("exit plan %s armed (%d records); starts %s", planID, len(armed), armed[0].Terms.NotBefore.Format(time.RFC3339))
+	e.Kick()
+	return out, nil
+}
+
+// queuedView is a record's read view; a trail record carries its watch.
+func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
+	v := r.view()
+	if !queuedPlanTrail(r.Terms) {
+		return v
+	}
+	now := e.clock()
+	w := &rpc.QueuedTrailWatch{HighWater: r.Watch.HighWater, StopPrice: r.Watch.StopPrice, TriggeredAt: r.Watch.TriggeredAt, TriggerPrice: r.Watch.TriggerPrice}
+	if w.StopPrice == 0 && r.Terms.OwnerOrder.StockTrail != nil {
+		w.StopPrice = r.Terms.OwnerOrder.StockTrail.InitialStopPrice
+	}
+	live, seen := e.trailLiveFor(r.Terms.QueueID)
+	if seen && live.usableAt.After(time.Time{}) {
+		w.StockPrice, w.StockPriceAt = live.price, live.usableAt
+	}
+	switch {
+	case !r.Watch.TriggeredAt.IsZero():
+		w.State = rpc.QueuedWatchTriggered
+		if r.HoldCode != "" {
+			w.ReasonCode, w.Reason = r.HoldCode, r.HoldReason
+		}
+	case r.State == rpc.QueuedAuthPrepared || now.Before(r.Terms.NotBefore):
+		w.State = rpc.QueuedWatchWaiting
+	case r.waiting() && seen && live.code == "" && now.Sub(live.usableAt) <= queuedTrailWatchFresh:
+		w.State = rpc.QueuedWatchWatching
+	default:
+		w.State = rpc.QueuedWatchUnwatched
+		switch {
+		case r.final():
+			w.ReasonCode, w.Reason = nonEmptyString(r.ReasonCode, r.State), nonEmptyString(r.Reason, "the trail has ended")
+		case seen && live.code != "":
+			w.ReasonCode, w.Reason = live.code, live.reason
+		default:
+			w.ReasonCode, w.Reason = queuedHoldStockQuote, "no usable stock price has been read recently; nothing can fire until one is"
+		}
+	}
+	v.Watch = w
+	return v
+}

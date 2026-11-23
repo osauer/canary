@@ -23,7 +23,7 @@ func ownerQueueProtection(t rpc.QueuedAuthTerms) bool {
 // V2 never interprets a legacy error without a send disposition as proof
 // that nothing went out. An acknowledgement always takes precedence.
 func queuedJournalSendOutcome(events []orderJournalEvent, rec queuedAuthRecord) (orderSendOutcome, string) {
-	if rec.Terms.Version != 2 {
+	if !queuedOwnerOrder(rec.Terms) {
 		return orderJournalSendOutcome(events, rec.PreviewTokenID)
 	}
 	var attempted, unsent, unknown bool
@@ -58,11 +58,17 @@ func queuedJournalSendOutcome(events []orderJournalEvent, rec queuedAuthRecord) 
 }
 
 func ownerQueueProblem(t rpc.QueuedAuthTerms) string {
+	if t.Version == queuedPlanTermsVersion {
+		return exitPlanTermsProblem(t)
+	}
 	o := t.OwnerOrder
 	if t.Version != 2 || o == nil || t.Contract.ConID <= 0 || !slices.Contains([]string{"STK", "OPT"}, t.Contract.SecType) ||
 		t.AccountID == "" || !slices.Contains([]string{"paper", "live"}, t.AccountMode) || t.MaxQuantity <= 0 || t.MaxQuantity > 1000000 ||
 		!slices.Contains([]string{"BUY", "SELL"}, t.Action) || t.Currency != t.Contract.Currency || t.ArmDeadline.IsZero() {
 		return "invalid owner-order identity or quantity"
+	}
+	if o.Plan != nil || o.StockTrail != nil {
+		return "an exit plan's terms in a version-2 record"
 	}
 	if o.FullPosition {
 		if t.Contract.SecType != "STK" || t.Action != "SELL" || !isTrailOrderType(o.OrderType) || o.Trail == nil ||
@@ -310,6 +316,18 @@ func (e *proposalEngine) resolveOwnerQueue(ctx context.Context, rec queuedAuthRe
 			return p, preparedBlocker("queue_position_unavailable", "Whole-share coverage cannot be verified."), "", ""
 		}
 		p.Quantity, p.PositionQuantity = int(current), current
+	} else if queuedPlanTrail(t) {
+		// A trail signs up to the whole line and sells what is held when it
+		// fires: a smaller line (the first sale filled, or a hand sale) is
+		// expected, and a closed one ends it.
+		if current <= 0 {
+			return p, nil, queuedReasonPositionChanged, "the option position closed; the exit plan ends"
+		}
+		qty, ok := trailSendQuantity(current, t.MaxQuantity)
+		if !ok {
+			return p, preparedBlocker("queue_position_unavailable", "Whole-contract coverage cannot be verified."), "", ""
+		}
+		p.Quantity, p.PositionQuantity = qty, current
 	} else if current != t.PositionQuantity {
 		return p, nil, queuedReasonPositionChanged, "the position changed after confirmation; prepare the exact order again"
 	}
@@ -337,9 +355,14 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 	}
 	t, o := rec.Terms, rec.Terms.OwnerOrder
 	p := rpc.OrderPreviewParams{Action: t.Action, Contract: t.Contract, Quantity: prop.Quantity, OrderType: o.OrderType, TIF: t.TIF, Trail: cloneTrailSpec(o.Trail), TriggerMethod: o.TriggerMethod, OutsideRTH: o.OutsideRTH, AdaptivePriority: o.AdaptivePriority, Add: o.Add, Source: "owner-queue", TimeoutMs: int(queuedSubmitTimeout / time.Millisecond)}
-	if o.FullPosition {
+	switch {
+	case o.FullPosition:
 		p.Strategy = rpc.OrderStrategyBrokerTrail
-	} else {
+	case queuedPlanTrail(t):
+		// The trail sells with no minimum price, said so explicitly.
+		p.Strategy = rpc.OrderStrategyBoundedLimit
+		p.Bounded = &rpc.OrderBoundedLimit{Concession: 0, NoWorstPrice: true, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
+	default:
 		p.Strategy = rpc.OrderStrategyBoundedLimit
 		p.Bounded = &rpc.OrderBoundedLimit{Concession: 0, WorstPrice: t.WorstPrice, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
 	}

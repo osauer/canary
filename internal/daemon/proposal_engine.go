@@ -60,6 +60,10 @@ type proposalEngine struct {
 	cutStepMu     sync.Mutex
 	cutStepNext   map[string]time.Time
 	cutStepLogged map[string]string
+	// trailLive is what this process last read for each exit plan trail, by
+	// queue id (owner_exit_plan_executor.go); never persisted.
+	trailMu   sync.Mutex
+	trailLive map[string]queuedTrailLive
 	// ignored is keyed by scopedIgnoreKey (account|mode|proposal key):
 	ignored map[string]struct{}
 	// refreshFailStreak counts consecutive refreshes that ended on a
@@ -250,10 +254,10 @@ func (e *proposalEngine) Run(ctx context.Context) {
 		if next, ok := e.queuedWake(e.clock()); ok {
 			wait = min(wait, next)
 		}
-		select {
-		case <-ctx.Done():
+		switch e.waitForRefresh(ctx, wait) {
+		case refreshWaitDone:
 			return
-		case <-e.kickCh():
+		case refreshWaitKicked:
 			// A fresh gateway handshake invalidates the escalated wait:
 			// restart the quick-retry ladder so a transient failure on the
 			// immediate post-reconnect refresh waits 30s, not the
@@ -262,8 +266,45 @@ func (e *proposalEngine) Run(ctx context.Context) {
 			// "recovered after N blocked attempts" line still closes the
 			// outage trail.
 			failures = 0
-		case <-time.After(wait):
 		}
+	}
+}
+
+type refreshWaitOutcome int
+
+const (
+	refreshWaitElapsed refreshWaitOutcome = iota
+	refreshWaitKicked
+	refreshWaitDone
+)
+
+// waitForRefresh waits up to wait for the next refresh. While an exit plan's
+// trail is inside its window, the queued executor alone runs on the trail's
+// own tick meanwhile (at most every ten seconds), so the stock is watched
+// without refreshing proposals that often; with no trail in its window it
+// only waits.
+func (e *proposalEngine) waitForRefresh(ctx context.Context, wait time.Duration) refreshWaitOutcome {
+	deadline := time.Now().Add(wait)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return refreshWaitElapsed
+		}
+		step, trail := e.queuedTrailTick(e.clock())
+		if !trail || step >= remaining {
+			step, trail = remaining, false
+		}
+		select {
+		case <-ctx.Done():
+			return refreshWaitDone
+		case <-e.kickCh():
+			return refreshWaitKicked
+		case <-time.After(step):
+		}
+		if !trail {
+			return refreshWaitElapsed
+		}
+		e.runQueuedCycle(ctx)
 	}
 }
 

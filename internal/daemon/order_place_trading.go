@@ -403,6 +403,9 @@ func (s *Server) cancelOrderForAction(ctx context.Context, p rpc.OrderCancelPara
 	if err := s.protectiveStopGuardGrantCovers(p.Origin, protectiveStopGuardCancel, view, 0); err != nil {
 		return nil, err
 	}
+	if err := s.queuedGrantCoversCancel(p.Origin, view); err != nil {
+		return nil, err
+	}
 	if bindingErr != nil {
 		return nil, bindingErr
 	}

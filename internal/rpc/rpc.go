@@ -3024,12 +3024,17 @@ type OrderAllowanceLimit struct {
 // a spread beyond MaxSpreadPctOfMid is not refused: the price then lies at
 // most MaxGive from the mid. With ClampToWorst, a price beyond WorstPrice
 // lands on it instead of being refused. WorstPrice holds either way.
+//
+// NoWorstPrice states that the order has no worst price (an exit plan's
+// trail sells with no minimum): WorstPrice must then be zero and ClampToWorst
+// false. Without it a zero WorstPrice is refused, never read as "no bound".
 type OrderBoundedLimit struct {
 	Concession        float64
 	WorstPrice        float64
 	MaxSpreadPctOfMid float64
 	MaxGive           float64
 	ClampToWorst      bool
+	NoWorstPrice      bool
 }
 
 // StrategyPreviewParams requests one constrained group close or reduction.

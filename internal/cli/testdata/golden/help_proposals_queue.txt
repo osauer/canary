@@ -6,7 +6,8 @@ Usage: canary proposals queue <action> [flags]
 
 Actions
   prepare           Prepare a private queued-order handoff; no submission
-  arm               Arm an approved queued order from standard input
+  arm               Arm an approved queued order or exit plan from standard
+                    input
   cancel            Cancel a queued authorisation
   list              Read queued authorisations
   status            Read one queued authorisation
@@ -21,7 +22,8 @@ Usage: \x1b[36mcanary proposals queue <action> [flags]\x1b[0m
 
 \x1b[1mActions\x1b[0m
   \x1b[36mprepare           \x1b[0mPrepare a private queued-order handoff; no submission
-  \x1b[36marm               \x1b[0mArm an approved queued order from standard input
+  \x1b[36marm               \x1b[0mArm an approved queued order or exit plan from standard
+                    input
   \x1b[36mcancel            \x1b[0mCancel a queued authorisation
   \x1b[36mlist              \x1b[0mRead queued authorisations
   \x1b[36mstatus            \x1b[0mRead one queued authorisation

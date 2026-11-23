@@ -47,6 +47,9 @@ type queuedWriteGrant struct {
 	QueueID string
 	Key     string
 	Bucket  string
+	// CancelOrderRef is the one order a triggered trail may cancel: its own
+	// plan's first sale, still working at the broker. Empty for a send.
+	CancelOrderRef string
 }
 
 // Refusal codes a send can wait out, beyond the readiness groups: transient
@@ -115,7 +118,13 @@ func (e *proposalEngine) runQueuedCycle(ctx context.Context) {
 	e.expireQueued(ctx)
 	e.followQueuedSent(ctx)
 	now := e.clock()
-	for _, rec := range e.queued.list() {
+	records := e.queued.list()
+	// An exit plan's trail goes before its first sale: a trail that fires
+	// this cycle withdraws the sale before it could send.
+	slices.SortStableFunc(records, func(a, b queuedAuthRecord) int {
+		return boolRank(!queuedPlanTrail(a.Terms)) - boolRank(!queuedPlanTrail(b.Terms))
+	})
+	for _, rec := range records {
 		if !rec.waiting() || now.Before(rec.Terms.NotBefore) || (!ownerQueueProtection(rec.Terms) && !now.Before(rec.Terms.NotAfter)) {
 			continue
 		}
@@ -221,7 +230,7 @@ func (e *proposalEngine) followQueuedSent(ctx context.Context) {
 				continue
 			}
 			v, ok := byRef[r.OrderRef]
-			if !ok || !orderViewMatchesBrokerScope(v, r.scope()) || r.Terms.Version == 2 && (v.ConID != r.Terms.Contract.ConID || v.PreviewTokenID != r.PreviewTokenID) {
+			if !ok || !orderViewMatchesBrokerScope(v, r.scope()) || queuedOwnerOrder(r.Terms) && (v.ConID != r.Terms.Contract.ConID || v.PreviewTokenID != r.PreviewTokenID) {
 				continue
 			}
 			if ownerQueueProtection(r.Terms) && r.BrokerAcceptedAt.IsZero() {
@@ -442,7 +451,7 @@ func (e *proposalEngine) executeQueued(ctx context.Context, rec queuedAuthRecord
 	if s == nil {
 		return
 	}
-	if rec.Terms.Version == 2 && rec.OrderRef != "" {
+	if queuedOwnerOrder(rec.Terms) && rec.OrderRef != "" {
 		return
 	}
 	now := e.clock()
@@ -462,7 +471,16 @@ func (e *proposalEngine) executeQueued(ctx context.Context, rec queuedAuthRecord
 		}
 		e.cancelQueued(ctx, rec, queuedReasonAccountChanged, "the connected account or paper/live mode changed after the owner signed")
 		return
-	case s.tradingFrozen():
+	}
+	// An exit plan's trail watches the stock (under a freeze too) and sells
+	// only once it fires; its first sale stands aside once it has.
+	if queuedPlanOf(rec.Terms) != nil {
+		var proceed bool
+		if rec, proceed = e.advanceExitPlan(ctx, rec); !proceed {
+			return
+		}
+	}
+	if s.tradingFrozen() {
 		e.holdQueued(ctx, rec, rpc.ReadinessTradingFrozen, tradingFrozenBlockerMessage)
 		return
 	}
@@ -509,7 +527,7 @@ func (e *proposalEngine) executeQueued(ctx context.Context, rec queuedAuthRecord
 // churn never cancels. It returns the current row and the blockers it
 // carries, or the reason code and reason to cancel with.
 func (e *proposalEngine) queuedResolve(ctx context.Context, rec queuedAuthRecord) (rpc.TradeProposal, []rpc.TradingBlocker, string, string) {
-	if rec.Terms.Version == 2 {
+	if queuedOwnerOrder(rec.Terms) {
 		return e.resolveOwnerQueue(ctx, rec)
 	}
 	var snap rpc.TradeProposalSnapshot
@@ -559,7 +577,7 @@ func (e *proposalEngine) queuedResolve(ctx context.Context, rec queuedAuthRecord
 // nothing.
 func (e *proposalEngine) settleQueuedRefusal(ctx context.Context, rec queuedAuthRecord, blockers []rpc.TradingBlocker) {
 	hold, code, reason := queuedDisposition(blockers)
-	if rec.Terms.Version == 2 && code != "" {
+	if queuedOwnerOrder(rec.Terms) && code != "" {
 		hold = true
 	}
 	switch {
@@ -641,7 +659,7 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 	s.queuedGrant.Store(&queuedWriteGrant{QueueID: id, Key: current.Terms.Key, Bucket: current.Terms.Bucket})
 	defer s.queuedGrant.Store(nil)
 	terms := current.Terms
-	if terms.Version == 2 {
+	if queuedOwnerOrder(terms) {
 		fresh, blockers, code, reason := e.resolveOwnerQueue(ctx, current)
 		if code != "" {
 			e.cancelQueued(ctx, current, code, reason)
@@ -660,9 +678,10 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 	// signed terms, or the record cannot be read as signed. outside means the
 	// window ended before staging; expiry ends the record.
 	mismatch, problem, outside := "", "", false
+	planStop, planBusy := false, false
 	var placeErr error
 	submit := func(opts proposalSubmitOptions) (rpc.TradeProposalSubmitResult, error) {
-		if terms.Version == 2 {
+		if queuedOwnerOrder(terms) {
 			return e.submitOwnerQueue(ctx, current, prop, opts)
 		}
 		return e.submit(ctx, params, opts)
@@ -683,7 +702,13 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 				mismatch = "the preview quantity is outside the signed maximum"
 			case ownerQueueProtection(terms) && (float64(preview.Draft.Quantity) != preview.Position.Before || !trailSpecsEquivalent(preview.Draft.Trail, terms.OwnerOrder.Trail)):
 				mismatch = "the preview changed full-position coverage or the approved trail"
-			case terms.Version == 2 && !ownerQueueProtection(terms) && preview.Draft.Quantity != terms.MaxQuantity:
+			case queuedPlanTrail(terms):
+				// A trail sells what is held, never more, at a positive limit
+				// and with no minimum price.
+				if float64(preview.Draft.Quantity) > preview.Position.Before || !positiveFinite(preview.Draft.LimitPrice) {
+					mismatch = "the preview would sell more than is held, or without a price"
+				}
+			case queuedOwnerOrder(terms) && !ownerQueueProtection(terms) && preview.Draft.Quantity != terms.MaxQuantity:
 				mismatch = "the preview changed the approved quantity"
 			case !ownerQueueProtection(terms) && !queuedLimitInside(terms.Action, preview.Draft.LimitPrice, terms.WorstPrice):
 				mismatch = "the preview limit is beyond the signed worst price"
@@ -706,6 +731,13 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 					outside = true
 					return nil
 				}
+				// The plan is read again at the moment the intent is staged,
+				// in the store update the trail latches in too: a first sale
+				// never stages once its trail fired, and a trail never stages
+				// beside a first sale that is live or working.
+				if planStop, planBusy = queuedPlanStageConflict(records, r); planStop || planBusy {
+					return nil
+				}
 				var events []queuedAuthEvent
 				if r.State == rpc.QueuedAuthHeld {
 					r.HeldAt, r.HoldCode, r.HoldReason = time.Time{}, "", ""
@@ -713,7 +745,11 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 				}
 				r.SendingAt, r.PreviewTokenID, r.OrderRef = at.UTC(), preview.PreviewTokenID, preview.Draft.OrderRef
 				r.QuantitySent, r.LimitPrice, r.SendQuote = preview.Draft.Quantity, preview.Draft.LimitPrice, queuedSendQuote(preview.Quote)
-				r.Late = at.Sub(r.Terms.NotBefore) > queuedLateAfter
+				lateFrom := r.Terms.NotBefore
+				if !r.Watch.TriggeredAt.IsZero() {
+					lateFrom = r.Watch.TriggeredAt
+				}
+				r.Late = at.Sub(lateFrom) > queuedLateAfter
 				ev := r.transition(queuedEventSending, rpc.QueuedAuthSending, at)
 				ev.QtySent, ev.Limit, ev.Quote, ev.Late, ev.Origin = r.QuantitySent, r.LimitPrice, r.SendQuote, r.Late, rpc.OrderOriginDaemonOwnerQueued
 				ev.DaemonStartedAt, ev.ExecutorTickAt = e.startedAt, at
@@ -740,6 +776,12 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 			e.cancelQueued(ctx, current, queuedReasonRecordUnreadable, problem)
 			return
 		case outside:
+			return
+		case planStop:
+			e.cancelQueued(ctx, current, queuedReasonPlanStopTriggered, "the plan's trail fired before this sale was sent; it was withdrawn unsent")
+			return
+		case planBusy:
+			e.holdQueued(ctx, current, queuedHoldFirstSaleCancelling, "the plan's first sale is live or working at the broker; the trail sells what is held once it has ended")
 			return
 		}
 		if err == nil && len(res.Blockers) == 0 {

@@ -81,7 +81,7 @@ func runProposalsQueuePrepare(ctx context.Context, env *Env, args []string) int 
 		}
 		var extra any
 		if dec.Decode(&extra) != io.EOF || !p.OwnerOrder {
-			return fail(env, "queue prepare requires one v2 owner-order object")
+			return fail(env, "queue prepare requires one owner-order object (an exact order, a proposal, or an exit_plan)")
 		}
 	}
 	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsQueuePrepare, p, &res); err != nil {
@@ -93,11 +93,14 @@ func runProposalsQueuePrepare(ctx context.Context, env *Env, args []string) int 
 // queueArmInput is the one JSON object `proposals queue arm --stdin` reads;
 // none of it travels in argv.
 type queueArmInput struct {
-	QueuedRef    string `json:"queued_ref"`
-	TermsDigest  string `json:"terms_digest"`
-	DeskActionID string `json:"desk_action_id,omitempty"`
-	Credential   string `json:"credential,omitempty"`
-	Envelope     string `json:"envelope,omitempty"`
+	QueuedRef   string `json:"queued_ref,omitempty"`
+	TermsDigest string `json:"terms_digest,omitempty"`
+	// QueuedRefs and PlanDigest arm an exit plan: every record at once.
+	QueuedRefs   []string `json:"queued_refs,omitempty"`
+	PlanDigest   string   `json:"plan_digest,omitempty"`
+	DeskActionID string   `json:"desk_action_id,omitempty"`
+	Credential   string   `json:"credential,omitempty"`
+	Envelope     string   `json:"envelope,omitempty"`
 }
 
 func readQueueArmInput(env *Env) (queueArmInput, error) {
@@ -112,9 +115,16 @@ func readQueueArmInput(env *Env) (queueArmInput, error) {
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&in); err != nil {
-		return in, fmt.Errorf("queue arm reads one JSON object {queued_ref, terms_digest, desk_action_id, credential, envelope}")
+		return in, fmt.Errorf("queue arm reads one JSON object {queued_ref, terms_digest, desk_action_id, credential, envelope}, or {queued_refs, plan_digest, ...} for an exit plan")
 	}
-	if strings.TrimSpace(in.QueuedRef) == "" || strings.TrimSpace(in.TermsDigest) == "" {
+	single := strings.TrimSpace(in.QueuedRef) != "" || strings.TrimSpace(in.TermsDigest) != ""
+	plan := len(in.QueuedRefs) > 0 || strings.TrimSpace(in.PlanDigest) != ""
+	switch {
+	case single && plan:
+		return in, fmt.Errorf("queue arm takes queued_ref and terms_digest, or queued_refs and plan_digest, not both")
+	case plan && (len(in.QueuedRefs) == 0 || strings.TrimSpace(in.PlanDigest) == ""):
+		return in, fmt.Errorf("an exit plan arm requires queued_refs and plan_digest")
+	case !plan && (strings.TrimSpace(in.QueuedRef) == "" || strings.TrimSpace(in.TermsDigest) == ""):
 		return in, fmt.Errorf("queue arm requires queued_ref and terms_digest")
 	}
 	return in, nil
@@ -135,7 +145,7 @@ func runProposalsQueueArm(ctx context.Context, env *Env, args []string) int {
 		return fail(env, "%v", err)
 	}
 	var res rpc.TradeProposalQueueResult
-	p := rpc.TradeProposalQueueArmParams{QueuedRef: in.QueuedRef, TermsDigest: in.TermsDigest, DeskActionID: in.DeskActionID,
+	p := rpc.TradeProposalQueueArmParams{QueuedRef: in.QueuedRef, TermsDigest: in.TermsDigest, QueuedRefs: in.QueuedRefs, PlanDigest: in.PlanDigest, DeskActionID: in.DeskActionID,
 		Credential: in.Credential, Envelope: in.Envelope, Origin: env.Origin}
 	if err := rpc.Call(ctx, env.Conn, api.TradeProposalsQueueArm, p, &res); err != nil {
 		return fail(env, "proposals queue arm: %v", err)

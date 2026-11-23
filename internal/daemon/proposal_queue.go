@@ -174,6 +174,10 @@ type queuedAuthRecord struct {
 	// being placed: an attempt that proves unsent ends cancelled.
 	CancelRequested bool `json:"cancel_requested,omitempty"`
 
+	// Watch is an exit plan trail's durable high water, stop and latched
+	// trigger (owner_exit_plan.go).
+	Watch queuedTrailState `json:"watch,omitzero"`
+
 	// problem names why this build cannot execute the record as loaded; it
 	// is never persisted, and the executor ends such a record first.
 	problem string
@@ -191,14 +195,16 @@ func queuedRecordProblem(rec queuedAuthRecord) string {
 	switch {
 	case rec.problem != "":
 		return rec.problem
-	case rec.Version != queuedDocumentVersion || (rec.Terms.Version != queuedTermsVersion && rec.Terms.Version != 2):
+	case rec.Version != queuedDocumentVersion || (rec.Terms.Version != queuedTermsVersion && !queuedOwnerOrder(rec.Terms)):
 		return "the stored record has a version this build of Canary does not know"
 	case !slices.Contains(queuedKnownStates, rec.State):
 		return "the stored record is in a state this build of Canary does not know"
 	case rec.Terms.Version == 1 && (rec.Terms.OwnerOrder != nil || rec.Terms.Style != rpc.QueuedAuthStyleBoundedLimit || rec.Terms.TIF != rpc.OrderTIFDay):
 		return "the stored record has an order style this build of Canary does not execute"
+	case !rec.Watch.IsZero() && !queuedPlanTrail(rec.Terms):
+		return "the stored record carries a stock watch but is not an exit plan's trail"
 	}
-	if rec.Terms.Version == 2 {
+	if queuedOwnerOrder(rec.Terms) {
 		if problem := ownerQueueProblem(rec.Terms); problem != "" {
 			return problem
 		}
@@ -302,11 +308,16 @@ type queuedAuthEvent struct {
 	PreviewTokenID  string               `json:"preview_token_id,omitempty"`
 	OrderRef        string               `json:"order_ref,omitempty"`
 	PermID          int                  `json:"perm_id,omitempty"`
-	FillQty         float64              `json:"fill_qty,omitempty"`
-	AvgPrice        float64              `json:"avg_price,omitempty"`
-	Late            bool                 `json:"late,omitempty"`
-	DaemonStartedAt time.Time            `json:"daemon_started_at,omitzero"`
-	ExecutorTickAt  time.Time            `json:"executor_tick_at,omitzero"`
+	// StockPrice, HighWater and StopPrice are an exit plan trail's watch at
+	// the transition.
+	StockPrice      float64   `json:"stock_price,omitempty"`
+	HighWater       float64   `json:"high_water,omitempty"`
+	StopPrice       float64   `json:"stop_price,omitempty"`
+	FillQty         float64   `json:"fill_qty,omitempty"`
+	AvgPrice        float64   `json:"avg_price,omitempty"`
+	Late            bool      `json:"late,omitempty"`
+	DaemonStartedAt time.Time `json:"daemon_started_at,omitzero"`
+	ExecutorTickAt  time.Time `json:"executor_tick_at,omitzero"`
 }
 
 // transition moves r to state and returns the event that journals it.
@@ -780,10 +791,13 @@ func queuedOrderWorkingBlocker(key string) []rpc.TradingBlocker {
 // QueuePrepare fixes the terms of a queued authorisation for one row and
 // returns them with a private reference. It sends nothing and reads no quote.
 func (e *proposalEngine) QueuePrepare(ctx context.Context, p rpc.TradeProposalQueuePrepareParams) (out rpc.TradeProposalQueuePrepareResult, err error) {
+	if p.OwnerOrder && p.ExitPlan != nil {
+		return e.prepareExitPlan(ctx, p)
+	}
 	if p.OwnerOrder {
 		return e.prepareOwnerQueue(ctx, p)
 	}
-	if p.Order != nil || p.FullPosition || p.WorstPrice != 0 {
+	if p.Order != nil || p.FullPosition || p.WorstPrice != 0 || p.ExitPlan != nil {
 		return out, errBadRequest("owner-order terms require the v2 intent kind")
 	}
 	started := time.Now()
@@ -945,9 +959,15 @@ func (e *proposalEngine) QueueArm(ctx context.Context, p rpc.TradeProposalQueueA
 	if len(p.Envelope) > queuedEnvelopeMaxBytes || len(p.DeskActionID) > queuedIdentityMaxBytes || len(p.Credential) > queuedIdentityMaxBytes {
 		return out, errBadRequest("queue arm audit fields exceed their bounds")
 	}
+	if len(p.QueuedRefs) > 0 || p.PlanDigest != "" {
+		return e.armExitPlan(ctx, p, out)
+	}
 	rec, ok := e.loadQueuedByReference(p.QueuedRef)
 	if !ok {
 		return block("queued_reference_unavailable", "The queued authorisation reference cannot be resolved safely.")
+	}
+	if queuedPlanOf(rec.Terms) != nil {
+		return block("queued_plan_arm_required", "This record belongs to an exit plan; arm every record of the plan together with its plan digest.")
 	}
 	view := rec.view()
 	out.Queue = &view
@@ -1088,7 +1108,7 @@ func (e *proposalEngine) QueueCancel(ctx context.Context, p rpc.TradeProposalQue
 			if p.PreparedOnly && r.State != rpc.QueuedAuthPrepared {
 				continue
 			}
-			if r.Terms.Version == 2 && r.State == rpc.QueuedAuthHeld && (r.OrderRef != "" || r.PreviewTokenID != "") {
+			if queuedOwnerOrder(r.Terms) && r.State == rpc.QueuedAuthHeld && (r.OrderRef != "" || r.PreviewTokenID != "") {
 				if !r.CancelRequested {
 					r.CancelRequested, r.CancelOrigin, r.MandateEndedAt = true, origin, now
 					ev := r.note(queuedEventCancelRequested, r.State, now)
@@ -1247,7 +1267,7 @@ func (e *proposalEngine) QueueList(p rpc.TradeProposalQueueListParams) rpc.Trade
 		if p.LiveOnly && r.final() {
 			continue
 		}
-		out.Queues = append(out.Queues, r.view())
+		out.Queues = append(out.Queues, e.queuedView(r))
 	}
 	return out
 }
@@ -1260,7 +1280,7 @@ func (e *proposalEngine) QueueStatus(p rpc.TradeProposalQueueStatusParams) rpc.T
 		out.Blockers = preparedBlocker("queued_not_found", "No queued authorisation has this ID.")
 		return out
 	}
-	view := rec.view()
+	view := e.queuedView(rec)
 	out.Accepted, out.Queue = true, &view
 	return out
 }

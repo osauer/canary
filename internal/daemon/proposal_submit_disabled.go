@@ -12,6 +12,10 @@ func (s *Server) proposalPlaceOrder(context.Context, rpc.OrderPlaceParams) (*rpc
 	return nil, ErrTradingDisabled
 }
 
+func (s *Server) proposalCancelOrder(context.Context, string) error {
+	return ErrTradingDisabled
+}
+
 func (s *Server) proposalSubmitWriteBlockers(origin string) []rpc.TradingBlocker {
 	auth := s.brokerWriteAuthorization(s.currentTradingStatus())
 	for _, blocker := range s.brokerWriteOriginBlockers(auth.Status, origin) {

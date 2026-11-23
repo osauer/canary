@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/risk"
@@ -103,6 +104,21 @@ type QueuedAuthTerms struct {
 	RulebookFingerprint Fingerprint `json:"rulebook_fingerprint,omitzero"`
 }
 
+// MarshalJSON encodes the terms as their fields read, except that a v3
+// record without a worst price (an exit plan's trail, which has no minimum)
+// omits worst_price. Every v1 and v2 record keeps its stored bytes, a zero
+// worst price included, so its digest never moves.
+func (t QueuedAuthTerms) MarshalJSON() ([]byte, error) {
+	type plain QueuedAuthTerms
+	if t.Version < 3 || t.WorstPrice != 0 {
+		return json.Marshal(plain(t))
+	}
+	return json.Marshal(struct {
+		plain
+		WorstPrice float64 `json:"worst_price,omitempty"`
+	}{plain: plain(t)})
+}
+
 // QueuedOwnerOrder carries the exact v2 execution terms signed by the owner,
 // including the optional mandate to follow a stock position's full size.
 type QueuedOwnerOrder struct {
@@ -119,7 +135,72 @@ type QueuedOwnerOrder struct {
 	// written before 2026-11-22, or a plan that could not be computed) means
 	// none were signed, and any warning at the send stops it.
 	AddWarnings []risk.StockAddBlocker `json:"add_warnings,omitempty"`
+	// Plan and StockTrail are present only in v3, an exit plan: two records
+	// on one held long option that share a plan id. StockTrail is the trail
+	// record's line on the underlying stock.
+	Plan       *QueuedPlan       `json:"plan,omitempty"`
+	StockTrail *QueuedStockTrail `json:"stock_trail,omitempty"`
 }
+
+// Exit-plan roles: the optional first sale after the open, and the trail on
+// the underlying stock that sells what is still held once the stock gives
+// back to its line.
+const (
+	QueuedPlanRoleFirstSale = "first_sale"
+	QueuedPlanRoleTrail     = "trail"
+)
+
+// QueuedAuthStyleStockTrail is the trail record's style: nothing is sent
+// until the underlying stock's midpoint is at or below the exit line on two
+// checks at least five seconds apart; then what is still held is sold at the
+// option's midpoint, inside the spread limit, with no minimum price.
+const QueuedAuthStyleStockTrail = "stock_trail"
+
+// QueuedPlan links the records of one exit plan. WaitMinutes is how long
+// after the regular open the plan starts, a signed term of this plan only.
+type QueuedPlan struct {
+	PlanID      string `json:"plan_id"`
+	Role        string `json:"role"`
+	WaitMinutes int    `json:"wait_minutes"`
+}
+
+// QueuedStockTrail is the exit line on the underlying stock: it starts at
+// InitialStopPrice and rises with the stock's high, never falls:
+// stop = max(initial_stop_price, high * (1 - trail_percent/100)).
+// ReferencePrice is the stock price read at prepare, for review only.
+type QueuedStockTrail struct {
+	Underlying       ContractParams `json:"underlying"`
+	TrailPercent     float64        `json:"trail_percent"`
+	InitialStopPrice float64        `json:"initial_stop_price"`
+	ReferencePrice   float64        `json:"reference_price"`
+	ReferenceAt      time.Time      `json:"reference_at"`
+}
+
+// QueuedTrailWatch is a trail record's runtime view, outside its terms:
+// waiting before not_before; watching while a usable stock price was read in
+// the last cycle; unwatched inside the window without one (nothing can fire
+// then); triggered once the line was crossed (the sale is being worked or
+// held). HighWater and StopPrice are durable; StockPrice is the last usable
+// read.
+type QueuedTrailWatch struct {
+	State        string    `json:"state"`
+	StockPrice   float64   `json:"stock_price,omitempty"`
+	StockPriceAt time.Time `json:"stock_price_at,omitzero"`
+	HighWater    float64   `json:"high_water,omitempty"`
+	StopPrice    float64   `json:"stop_price,omitempty"`
+	TriggeredAt  time.Time `json:"triggered_at,omitzero"`
+	TriggerPrice float64   `json:"trigger_price,omitempty"`
+	ReasonCode   string    `json:"reason_code,omitempty"`
+	Reason       string    `json:"reason,omitempty"`
+}
+
+// Trail watch states.
+const (
+	QueuedWatchWaiting   = "waiting"
+	QueuedWatchWatching  = "watching"
+	QueuedWatchUnwatched = "unwatched"
+	QueuedWatchTriggered = "triggered"
+)
 
 // QueuedAuthQuote is the quote an order was priced from when it was sent.
 type QueuedAuthQuote struct {
@@ -167,6 +248,8 @@ type QueuedAuth struct {
 	// being placed: if the attempt proves unsent, the record ends cancelled
 	// instead of waiting again.
 	CancelRequested bool `json:"cancel_requested,omitempty"`
+	// Watch is a trail record's runtime view (exit plans only).
+	Watch *QueuedTrailWatch `json:"watch,omitempty"`
 }
 
 // TradeProposalQueued is the live queued authorisation a served proposal row
@@ -196,6 +279,42 @@ type TradeProposalQueuePrepareParams struct {
 	Key          string              `json:"key"`
 	Revision     string              `json:"revision"`
 	Quantity     int                 `json:"quantity,omitempty"`
+	// ExitPlan prepares an exit plan (v3) instead of one order; it cannot be
+	// combined with Order, Key or FullPosition.
+	ExitPlan *QueuedExitPlanParams `json:"exit_plan,omitempty"`
+}
+
+// QueuedExitPlanParams is the owner's exit plan for one held long option:
+// an optional first sale WaitMinutes after the regular open, and the trail
+// on the underlying stock that sells the rest when the stock gives back.
+type QueuedExitPlanParams struct {
+	Contract    ContractParams       `json:"contract"`
+	WaitMinutes int                  `json:"wait_minutes"`
+	FirstSale   *QueuedPlanFirstSale `json:"first_sale,omitempty"`
+	Trail       *QueuedPlanTrail     `json:"trail,omitempty"`
+}
+
+// QueuedPlanFirstSale sells Quantity near the mid, never below MinPrice.
+type QueuedPlanFirstSale struct {
+	Quantity int     `json:"quantity"`
+	MinPrice float64 `json:"min_price"`
+}
+
+// QueuedPlanTrail is the exit line on the underlying stock.
+type QueuedPlanTrail struct {
+	TrailPercent     float64 `json:"trail_percent"`
+	InitialStopPrice float64 `json:"initial_stop_price"`
+}
+
+// QueuedPlanPrepared is a prepared exit plan: its records' views and private
+// references in the same order (first sale when present, then trail), and
+// PlanDigest, the lowercase hex SHA-256 of their terms digests joined in that
+// order by one newline.
+type QueuedPlanPrepared struct {
+	PlanID     string       `json:"plan_id"`
+	PlanDigest string       `json:"plan_digest"`
+	Queues     []QueuedAuth `json:"queues"`
+	QueuedRefs []string     `json:"queued_refs"`
 }
 
 // TradeProposalQueuePrepareResult keeps the authorizing reference
@@ -205,6 +324,7 @@ type TradeProposalQueuePrepareResult struct {
 	Accepted  bool                    `json:"accepted"`
 	QueuedRef string                  `json:"queued_ref,omitempty"`
 	Queue     *QueuedAuth             `json:"queue,omitempty"`
+	Plan      *QueuedPlanPrepared     `json:"plan,omitempty"`
 	Proposal  *TradeProposal          `json:"proposal,omitempty"`
 	Readiness *TradeProposalReadiness `json:"readiness,omitempty"`
 	Blockers  []TradingBlocker        `json:"blockers,omitempty"`
@@ -216,12 +336,16 @@ type TradeProposalQueuePrepareResult struct {
 // the owner's signature envelope, kept for audit only; DeskActionID and
 // Credential name Desk's action and the credential that signed it.
 type TradeProposalQueueArmParams struct {
-	QueuedRef    string `json:"queued_ref"`
-	TermsDigest  string `json:"terms_digest"`
-	DeskActionID string `json:"desk_action_id,omitempty"`
-	Credential   string `json:"credential,omitempty"`
-	Envelope     string `json:"envelope,omitempty"`
-	Origin       string `json:"origin,omitempty"`
+	QueuedRef   string `json:"queued_ref"`
+	TermsDigest string `json:"terms_digest"`
+	// QueuedRefs and PlanDigest arm every record of one exit plan in place
+	// of QueuedRef and TermsDigest: all or none.
+	QueuedRefs   []string `json:"queued_refs,omitempty"`
+	PlanDigest   string   `json:"plan_digest,omitempty"`
+	DeskActionID string   `json:"desk_action_id,omitempty"`
+	Credential   string   `json:"credential,omitempty"`
+	Envelope     string   `json:"envelope,omitempty"`
+	Origin       string   `json:"origin,omitempty"`
 }
 
 // TradeProposalQueueCancelParams cancels one record by QueueID, or with All
