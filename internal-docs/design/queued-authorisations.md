@@ -139,7 +139,10 @@ running only the plans' records between proposal refreshes; with no trail in
 its window nothing extra runs.
 
 - **Price.** The midpoint of a fresh, live, two-sided quote whose spread is
-  within the protection policy's stock spread limit. A stale, delayed,
+  within the protection policy's stock spread limit. Fresh is the test the
+  bounded limit prices by: a live feed in an open session, with a bid and an
+  ask both received on the read's own request after it began (one read waits
+  at most three seconds), so the quote is at most seconds old. A stale, delayed,
   one-sided or missing quote, a broker link that is down, or an active halt
   or limit-up-limit-down pause on the stock leaves the trail unwatched
   (hold `stock_quote_unusable`): it never fires on such a price, nor because
@@ -149,8 +152,10 @@ its window nothing extra runs.
   decimals, and the stop never falls. The high and the stop are written to
   the record whenever the stop rises (`queued_auth.stop_raised`), so a restart
   resumes from them.
-- **Fire.** A read at or below the line, confirmed by another at least five
-  seconds later by the quotes' own times, fires the trail
+- **Fire.** A read at or below the line, confirmed by a later read at or
+  below it at least five seconds after it by the executor's clock, fires the
+  trail (a stock resting under the line with an unchanged quote confirms;
+  the quote's own time decides only whether a read is fresh)
   (`queued_auth.triggered`); any read above the line, or an unusable one,
   in between starts over, so one bad print never sells. The trigger is
   latched with its time and price and the trail keeps trying to sell until

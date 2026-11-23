@@ -27,10 +27,13 @@ type queuedTrailLive struct {
 	// code and reason say why the latest read was unusable; empty when it
 	// was usable.
 	code, reason string
-	// breachAt is the quote time of the first read at or below the line in
-	// the current run of such reads; zero when the latest read was above it
-	// or unusable. The trail fires on a second read at or below the line at
-	// least queuedTrailConfirmAfter later.
+	// breachAt is when, by the executor's clock, the first read at or below
+	// the line in the current run of such reads was taken; zero when the
+	// latest read was above it or unusable. The trail fires on a later read,
+	// itself usable and at or below the line, at least
+	// queuedTrailConfirmAfter after it. The quote's own time decides only
+	// whether a read is fresh, so a stock resting under the line with an
+	// unchanged quote still confirms.
 	breachAt time.Time
 }
 
@@ -115,21 +118,21 @@ func (e *proposalEngine) watchQueuedTrail(ctx context.Context, rec queuedAuthRec
 		return false
 	}
 	st := *rec.Terms.OwnerOrder.StockTrail
+	now := e.clock()
 	live.price, live.usableAt, live.code, live.reason = price, at, "", ""
 	next, _ := trailAdvance(rec.Watch, st, price, at)
 	fire := false
 	if price <= next.StopPrice {
 		switch {
 		case live.breachAt.IsZero():
-			live.breachAt = at
-		case at.Sub(live.breachAt) >= queuedTrailConfirmAfter:
+			live.breachAt = now
+		case now.Sub(live.breachAt) >= queuedTrailConfirmAfter:
 			fire = true
 		}
 	} else {
 		live.breachAt = time.Time{}
 	}
 	e.setTrailLive(id, live)
-	now := e.clock()
 	var withdrawn []queuedAuthRecord
 	fired := false
 	err := e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {

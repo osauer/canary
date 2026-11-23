@@ -1001,3 +1001,28 @@ func queuedEventsFor(t *testing.T, d *simDesk, id string) []queuedAuthEvent {
 	}
 	return out
 }
+
+// X18. The stock drops under the line once and its quote then stays as it
+// is: the trail fires on the second read, five seconds or more after the
+// first by the executor's clock.
+func TestSimulatedTWSExitPlanStockRestsUnderTheLine(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -10*time.Minute, 0)
+	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+	d.planStock(48)
+	var first time.Time
+	d.waitFor("the first read under the line", 30*time.Second, func() bool {
+		live, ok := d.srv.tradeProposals.trailLiveFor(trail)
+		first = live.breachAt
+		return ok && !first.IsZero()
+	})
+	rec := d.planWaitRecord("the trail to fire on the unchanged quote", trail, 60*time.Second, func(r queuedAuthRecord) bool { return !r.Watch.TriggeredAt.IsZero() })
+	if gap := rec.Watch.TriggeredAt.Sub(first); gap < queuedTrailConfirmAfter || rec.Watch.TriggerPrice != 48 {
+		t.Fatalf("fired %s after the first read, at %g", gap, rec.Watch.TriggerPrice)
+	}
+	d.planWaitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	if n := len(d.planSells(opt.ConID)); n != 1 {
+		t.Fatalf("%d sells", n)
+	}
+}
