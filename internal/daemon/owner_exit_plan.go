@@ -109,6 +109,34 @@ type queuedTrailState struct {
 	SaleAttempts int       `json:"sale_attempts,omitempty"`
 	SaleFilled   int       `json:"sale_filled,omitempty"`
 	SaleCancelAt time.Time `json:"sale_cancel_at,omitzero"`
+	// SaleStep is the price step of the next or working attempt: the mid,
+	// halfway to the bid, the bid (trailSaleSteps). LastLimit, LastBid and
+	// LastAsk are the ended attempt's limit and quote, for skipping a step
+	// that would not change the price.
+	SaleStep  int     `json:"sale_step,omitempty"`
+	LastLimit float64 `json:"last_limit,omitempty"`
+	LastBid   float64 `json:"last_bid,omitempty"`
+	LastAsk   float64 `json:"last_ask,omitempty"`
+}
+
+// trailSaleSteps are a fired trail's price steps: each attempt starts at
+// the next, from the mid (concession 0) to halfway to the bid (0.5) to the
+// bid (1); every later attempt stays at the bid.
+var trailSaleSteps = []struct {
+	name       string
+	concession float64
+}{{"mid", 0}, {"half", 0.5}, {"bid", 1}}
+
+func trailStep(step int) int { return min(max(step, 0), len(trailSaleSteps)-1) }
+
+// trailStepWorks is how long an attempt at a step works unfilled before it
+// is cancelled for the next: the trail's tick on the way down, the
+// re-price interval at the bid.
+func trailStepWorks(step int) time.Duration {
+	if trailStep(step) < len(trailSaleSteps)-1 {
+		return queuedTrailCheckEvery
+	}
+	return queuedTrailRepriceAfter
 }
 
 // IsZero reports a record with no watch (omitzero).
@@ -635,6 +663,9 @@ func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
 	now := e.clock()
 	w := &rpc.QueuedTrailWatch{HighWater: r.Watch.HighWater, StopPrice: r.Watch.StopPrice, TriggeredAt: r.Watch.TriggeredAt, TriggerPrice: r.Watch.TriggerPrice,
 		SaleAttempts: r.Watch.SaleAttempts, SaleFilled: r.Watch.SaleFilled}
+	if !r.Watch.TriggeredAt.IsZero() {
+		w.SaleStep = trailSaleSteps[trailStep(r.Watch.SaleStep)].name
+	}
 	if r.State == rpc.QueuedAuthSent || r.State == rpc.QueuedAuthSending || r.OrderRef != "" {
 		w.SaleLimit = r.LimitPrice
 		if r.State == rpc.QueuedAuthSent {

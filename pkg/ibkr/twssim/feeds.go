@@ -24,6 +24,48 @@ type quoteFeeds struct {
 	mu     sync.Mutex
 	mode   map[int]string
 	spread map[int]float64
+	touch  map[int][2]float64
+	mid    map[int]bool
+}
+
+// SetTouch quotes a contract at exactly bid and ask from now on; zeros
+// restore its own quote.
+func (s *Server) SetTouch(conID int, bid, ask float64) error {
+	if bid < 0 || ask < 0 || ask > 0 && ask < bid {
+		return fmt.Errorf("twssim: touch %g/%g is not a market", bid, ask)
+	}
+	if _, ok := s.book.instrument(conID); !ok {
+		return fmt.Errorf("twssim: contract %d is not listed", conID)
+	}
+	s.feeds.mu.Lock()
+	defer s.feeds.mu.Unlock()
+	if s.feeds.touch == nil {
+		s.feeds.touch = map[int][2]float64{}
+	}
+	if bid == 0 && ask == 0 {
+		delete(s.feeds.touch, conID)
+		return nil
+	}
+	s.feeds.touch[conID] = [2]float64{bid, ask}
+	return nil
+}
+
+// SetMidFill makes a contract's limit orders at or through the midpoint
+// fill at their limit, as a market with buyers inside the spread does; off
+// (the default) they rest until they reach the touch.
+func (s *Server) SetMidFill(conID int, on bool) {
+	s.feeds.mu.Lock()
+	defer s.feeds.mu.Unlock()
+	if s.feeds.mid == nil {
+		s.feeds.mid = map[int]bool{}
+	}
+	s.feeds.mid[conID] = on
+}
+
+func (s *Server) midFills(conID int) bool {
+	s.feeds.mu.Lock()
+	defer s.feeds.mu.Unlock()
+	return s.feeds.mid[conID]
 }
 
 // SetFeed sets how a contract's market data is answered from now on.
@@ -76,10 +118,14 @@ func (s *Server) SetSpread(conID int, pct float64) error {
 func (s *Server) feedFor(in Instrument, q quote) (quote, string) {
 	s.feeds.mu.Lock()
 	mode, pct := s.feeds.mode[in.ConID], s.feeds.spread[in.ConID]
+	touch, fixed := s.feeds.touch[in.ConID]
 	s.feeds.mu.Unlock()
 	if pct > 0 && in.Price > 0 {
 		q.bid = roundTo(in.Price*(1-pct/200), in.MinTick)
 		q.ask = roundTo(in.Price*(1+pct/200), in.MinTick)
+	}
+	if fixed {
+		q.bid, q.ask = touch[0], touch[1]
 	}
 	if mode == FeedOneSided {
 		q.ask = 0

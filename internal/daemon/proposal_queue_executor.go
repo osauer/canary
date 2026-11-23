@@ -542,7 +542,13 @@ func (e *proposalEngine) executeQueued(ctx context.Context, rec queuedAuthRecord
 		e.holdQueued(ctx, rec, queuedHoldHandOrder, queuedHoldHandOrderReason)
 		return
 	}
-	e.sendQueued(ctx, rec, prop)
+	// A fired trail whose next price step would repeat the ended attempt's
+	// limit on the same quote moves to the following step at once.
+	for range len(trailSaleSteps) {
+		if !e.sendQueued(ctx, rec, prop) {
+			break
+		}
+	}
 }
 
 // queuedResolve revalidates a record's row by key, not revision: the row
@@ -669,7 +675,7 @@ func (e *proposalEngine) cancelQueued(ctx context.Context, rec queuedAuthRecord,
 // after the bounded preview passes every gate and before the broker call, so
 // a crash in between is resolved from the order journal and never produces a
 // second order.
-func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, prop rpc.TradeProposal) {
+func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, prop rpc.TradeProposal) (skipped bool) {
 	s := e.server
 	s.brokerWriteMu.Lock()
 	defer s.brokerWriteMu.Unlock()
@@ -701,7 +707,7 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 	// signed terms, or the record cannot be read as signed. outside means the
 	// window ended before staging; expiry ends the record.
 	mismatch, problem, outside := "", "", false
-	planStop, planBusy := false, false
+	planStop, planBusy, stepSkip := false, false, false
 	var placeErr error
 	submit := func(opts proposalSubmitOptions) (rpc.TradeProposalSubmitResult, error) {
 		if queuedOwnerOrder(terms) {
@@ -738,6 +744,10 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 			}
 			if mismatch != "" {
 				return errors.New(mismatch)
+			}
+			if trailStepRepeats(current, preview) {
+				stepSkip = true
+				return errors.New("the price step would repeat the ended attempt's limit on the same quote")
 			}
 			at := e.clock()
 			stageErr := e.queued.update(ctx, at, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
@@ -778,6 +788,9 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 				r.Late = at.Sub(lateFrom) > queuedLateAfter
 				ev := r.transition(queuedEventSending, rpc.QueuedAuthSending, at)
 				ev.QtySent, ev.Limit, ev.Quote, ev.Late, ev.Origin = r.QuantitySent, r.LimitPrice, r.SendQuote, r.Late, rpc.OrderOriginDaemonOwnerQueued
+				if queuedPlanTrail(r.Terms) {
+					ev.SaleStep = trailSaleSteps[trailStep(r.Watch.SaleStep)].name
+				}
 				ev.DaemonStartedAt, ev.ExecutorTickAt = e.startedAt, at
 				return append(events, ev)
 			})
@@ -809,6 +822,8 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 		case planBusy:
 			e.holdQueued(ctx, current, queuedHoldFirstSaleCancelling, "the plan's first sale is live or working at the broker; the trail sells what is held once it has ended")
 			return
+		case stepSkip:
+			return e.skipTrailStep(ctx, current)
 		}
 		if err == nil && len(res.Blockers) == 0 {
 			return
@@ -912,6 +927,7 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 		s.warnf("queued authorisation %s for %s failed (%s): %s", id, terms.Key, final.ReasonCode, final.Reason)
 		e.recordQueuedOutcome(final, decisionFailed, final.ReasonCode, final.Reason)
 	}
+	return false
 }
 
 // queuedSubmitBlockers is the proposal-side half of the origin gate: the

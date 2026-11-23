@@ -363,10 +363,11 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 		p.Strategy = rpc.OrderStrategyBrokerTrail
 	case queuedPlanTrail(t):
 		// The trail sells with no minimum price, said so explicitly.
-		// A fired trail sells at the bid (full concession) to fill, inside
-		// the signed spread limit, with no minimum price.
+		// A fired trail works its price down, attempt by attempt, from the
+		// mid to halfway to the bid to the bid (trailSaleSteps), inside the
+		// signed spread limit, with no minimum price.
 		p.Strategy = rpc.OrderStrategyBoundedLimit
-		p.Bounded = &rpc.OrderBoundedLimit{Concession: 1, NoWorstPrice: true, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
+		p.Bounded = &rpc.OrderBoundedLimit{Concession: trailSaleSteps[trailStep(rec.Watch.SaleStep)].concession, NoWorstPrice: true, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
 	default:
 		p.Strategy = rpc.OrderStrategyBoundedLimit
 		p.Bounded = &rpc.OrderBoundedLimit{Concession: 0, WorstPrice: t.WorstPrice, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}

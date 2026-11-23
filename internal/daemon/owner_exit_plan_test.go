@@ -316,7 +316,8 @@ func TestTrailSaleProgress(t *testing.T) {
 	}
 	r := sent()
 	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 8}, at); !ok ||
-		r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleEnded || r.Watch.SaleFilled != 8 || r.OrderRef != "" || r.PreviewTokenID != "" {
+		r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleEnded || r.Watch.SaleFilled != 8 || r.OrderRef != "" || r.PreviewTokenID != "" ||
+		r.Watch.SaleStep != 1 || r.Watch.LastLimit != 1.60 {
 		t.Fatalf("a cancelled attempt: %+v", r)
 	}
 	r = sent()
@@ -349,5 +350,34 @@ func TestTrailSaleProgress(t *testing.T) {
 	r.CancelRequested = true
 	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 3}, at); !ok || r.State != rpc.QueuedAuthCancelled || r.Watch.SaleFilled != 3 {
 		t.Fatalf("an owner cancel: %+v", r)
+	}
+}
+
+// The price steps: the mid, halfway to the bid, the bid, and the bid after
+// that; each works one tick on the way down and the re-price interval at the
+// bid.
+func TestTrailSaleSteps(t *testing.T) {
+	for step, want := range []float64{0, 0.5, 1, 1, 1} {
+		if got := trailSaleSteps[trailStep(step)].concession; got != want {
+			t.Fatalf("step %d concession %g, want %g", step, got, want)
+		}
+	}
+	if trailStepWorks(0) != queuedTrailCheckEvery || trailStepWorks(1) != queuedTrailCheckEvery || trailStepWorks(2) != queuedTrailRepriceAfter || trailStepWorks(7) != queuedTrailRepriceAfter {
+		t.Fatal("step durations")
+	}
+	bid, ask := 1.60, 1.61
+	_, trail := exitPlanTestTerms()
+	rec := queuedAuthRecord{Terms: trail, Watch: queuedTrailState{SaleStep: 1, LastLimit: 1.61, LastBid: 1.60, LastAsk: 1.61}}
+	same := &rpc.OrderPreviewResult{Draft: rpc.OrderDraft{LimitPrice: 1.61}, Quote: rpc.OrderQuoteSnapshot{Bid: &bid, Ask: &ask}}
+	if !trailStepRepeats(rec, same) {
+		t.Fatal("a repeated limit on the same quote was not skipped")
+	}
+	moved := 1.59
+	if trailStepRepeats(rec, &rpc.OrderPreviewResult{Draft: rpc.OrderDraft{LimitPrice: 1.61}, Quote: rpc.OrderQuoteSnapshot{Bid: &moved, Ask: &ask}}) {
+		t.Fatal("skipped on a moved quote")
+	}
+	rec.Watch.SaleStep = 2
+	if trailStepRepeats(rec, same) {
+		t.Fatal("skipped past the bid")
 	}
 }

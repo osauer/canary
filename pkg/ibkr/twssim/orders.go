@@ -363,7 +363,21 @@ func (s *Server) fillIfMarketable(id int) {
 	if !ok || o.Status != "Submitted" || o.OrderType != "LMT" {
 		return
 	}
-	q := quoteOf(s.instrumentOf(o.PlaceOrder))
+	in := s.instrumentOf(o.PlaceOrder)
+	q, _ := s.feedFor(in, quoteOf(in))
+	if s.midFills(in.ConID) && q.bid > 0 && q.ask > q.bid {
+		// A contract set to fill inside the spread fills a limit at or
+		// through the midpoint at its limit.
+		mid := (q.bid + q.ask) / 2
+		switch {
+		case o.Action == "SELL" && o.LimitPrice <= mid+1e-9:
+			s.fill(id, 0, o.LimitPrice)
+			return
+		case o.Action == "BUY" && o.LimitPrice+1e-9 >= mid:
+			s.fill(id, 0, o.LimitPrice)
+			return
+		}
+	}
 	switch {
 	case o.Action == "BUY" && q.ask > 0 && o.LimitPrice >= q.ask:
 		s.fill(id, 0, q.ask)

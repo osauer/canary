@@ -313,6 +313,7 @@ type queuedAuthEvent struct {
 	StockPrice      float64   `json:"stock_price,omitempty"`
 	HighWater       float64   `json:"high_water,omitempty"`
 	StopPrice       float64   `json:"stop_price,omitempty"`
+	SaleStep        string    `json:"sale_step,omitempty"`
 	FillQty         float64   `json:"fill_qty,omitempty"`
 	AvgPrice        float64   `json:"avg_price,omitempty"`
 	Late            bool      `json:"late,omitempty"`

@@ -452,6 +452,13 @@ func trailSaleProgress(r *queuedAuthRecord, v rpc.OrderView, now time.Time) (que
 	case !now.Before(r.Terms.NotAfter):
 		ev = r.resolve(queuedEventExpiredUnfilled, rpc.QueuedAuthExpiredUnfilled, queuedReasonWindowEnded, "the window ended unsold: "+end, now)
 	default:
+		// The next attempt starts one step nearer the bid; the ended one's
+		// limit and quote decide whether that step would change the price.
+		r.Watch.LastLimit, r.Watch.LastBid, r.Watch.LastAsk = r.LimitPrice, 0, 0
+		if q := r.SendQuote; q != nil && q.Bid != nil && q.Ask != nil {
+			r.Watch.LastBid, r.Watch.LastAsk = *q.Bid, *q.Ask
+		}
+		r.Watch.SaleStep = trailStep(r.Watch.SaleStep + 1)
 		r.SendingAt, r.PreviewTokenID, r.OrderRef, r.QuantitySent, r.LimitPrice, r.SendQuote, r.Late, r.SentAt = time.Time{}, "", "", 0, 0, nil, false, time.Time{}
 		r.FilledQuantity, r.AvgFillPrice, r.PermID = 0, 0, 0
 		r.HeldAt, r.HoldCode = now.UTC(), queuedHoldTrailSaleEnded
@@ -477,7 +484,7 @@ func (e *proposalEngine) repriceTrailSales(ctx context.Context) {
 		if rec.Watch.SaleCancelAt.After(last) {
 			last = rec.Watch.SaleCancelAt
 		}
-		if now.Sub(last) < queuedTrailRepriceAfter {
+		if now.Sub(last) < trailStepWorks(rec.Watch.SaleStep) {
 			continue
 		}
 		e.cancelTrailSale(ctx, rec)
@@ -542,3 +549,44 @@ func (e *proposalEngine) finishSoldTrail(ctx context.Context, rec queuedAuthReco
 	})
 	return true
 }
+
+// trailStepRepeats reports a fired trail's attempt whose price step, below
+// the bid, would send the ended attempt's limit again on an unchanged quote:
+// on a market one or two ticks wide a step can land where the last did.
+func trailStepRepeats(rec queuedAuthRecord, preview *rpc.OrderPreviewResult) bool {
+	w := rec.Watch
+	if !queuedPlanTrail(rec.Terms) || preview == nil || trailStep(w.SaleStep) >= len(trailSaleSteps)-1 || !positiveFinite(w.LastLimit) {
+		return false
+	}
+	q := preview.Quote
+	return q.Bid != nil && q.Ask != nil && *q.Bid == w.LastBid && *q.Ask == w.LastAsk && preview.Draft.LimitPrice == w.LastLimit
+}
+
+// skipTrailStep moves a fired trail to its next price step at once, for a
+// step that would not have changed the price. It reports whether the step
+// moved, so the caller sends again in the same cycle.
+func (e *proposalEngine) skipTrailStep(ctx context.Context, rec queuedAuthRecord) bool {
+	now := e.clock()
+	moved := false
+	err := e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[rec.Terms.QueueID]
+		if r == nil || !r.waiting() || r.OrderRef != "" || trailStep(r.Watch.SaleStep) >= len(trailSaleSteps)-1 {
+			return nil
+		}
+		from := trailSaleSteps[trailStep(r.Watch.SaleStep)].name
+		r.Watch.SaleStep = trailStep(r.Watch.SaleStep + 1)
+		ev := r.note(queuedEventSaleStepSkipped, r.State, now)
+		ev.SaleStep, ev.Limit, ev.ExecutorTickAt = trailSaleSteps[r.Watch.SaleStep].name, r.Watch.LastLimit, now
+		ev.Reason = "the " + from + " step would send the ended attempt's limit again on the same quote; the next step is sent at once"
+		moved = true
+		return []queuedAuthEvent{ev}
+	})
+	if err != nil {
+		e.server.warnf("exit plan trail %s: record step skip: %v", rec.Terms.QueueID, err)
+		return false
+	}
+	return moved
+}
+
+// queuedEventSaleStepSkipped journals a price step a fired trail passed over.
+const queuedEventSaleStepSkipped = "queued_auth.sale_step_skipped"

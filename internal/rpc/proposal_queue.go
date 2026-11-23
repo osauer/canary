@@ -195,8 +195,11 @@ type QueuedTrailWatch struct {
 	SaleAttempts int     `json:"sale_attempts,omitempty"`
 	SaleLimit    float64 `json:"sale_limit,omitempty"`
 	SaleFilled   int     `json:"sale_filled,omitempty"`
-	ReasonCode   string  `json:"reason_code,omitempty"`
-	Reason       string  `json:"reason,omitempty"`
+	// SaleStep is the price step of the working or next attempt: "mid",
+	// "half" (halfway to the bid) or "bid".
+	SaleStep   string `json:"sale_step,omitempty"`
+	ReasonCode string `json:"reason_code,omitempty"`
+	Reason     string `json:"reason,omitempty"`
 }
 
 // Trail watch states.

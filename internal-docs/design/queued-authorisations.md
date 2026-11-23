@@ -171,10 +171,17 @@ its window nothing extra runs.
   sale waits that cycle.
 - **Sale.** What is held when the trail sells, never more than its maximum
   less what the trail has already sold, through the ordinary owner path: a
-  bounded limit at the option's bid (full concession) to fill, with no
-  minimum price, stated as such to the pricer (a zero worst price alone is
+  bounded limit priced from the option's quote, with no minimum price, stated as such to the pricer (a zero worst price alone is
   still refused), inside the option spread limit as signed, from a fresh,
-  live, two-sided quote. The first sale stays at the mid. Every hold the
+  live, two-sided quote. The first sale stays at the mid. A fired trail
+  works its price down: the first attempt at the mid, the second halfway to
+  the bid, the third and every later one at the bid. A step works 10 seconds
+  unfilled before the next; at the bid the 30-second re-price applies. A
+  step that would send the ended attempt's limit again on an unchanged quote
+  is passed over at once (`queued_auth.sale_step_skipped`), so a market one
+  tick wide goes from the mid straight to the bid. Worst case, about 20
+  seconds from the first attempt to the bid. The step is journaled with each
+  send and shown as `sale_step` (`mid`, `half`, `bid`). Every hold the
   queue knows applies: freeze, paused configuration, broker link, session,
   spread, quote, a working order on the contract and the order caps (a sale
   that fails the delta-reducing exemption holds and retries). None cancels
@@ -183,12 +190,12 @@ its window nothing extra runs.
   sells on its signed terms. A closed line ends the plan (`position_changed`;
   `filled` once the trail has sold). Neither the drawdown brake nor a
   sell-only state holds a sale that only closes or reduces the line.
-- **Re-price.** A sale still working, not fully filled, 30 seconds after it
-  was sent or last cancelled is cancelled through the same granted cancel
-  path (`queued_auth.sale_cancel`, with its limit and quote); once the order
-  journal shows it ended, the trail sends what is still held at the fresh
-  bid, until the line is sold or the window ends. Partial fills count toward
-  what it sold. One trail order works at a time, never beyond the held line.
+- **Re-price.** A sale still working, not fully filled, when its step has
+  run (10 seconds below the bid, 30 at it) is cancelled through the same
+  granted cancel path (`queued_auth.sale_cancel`, with its limit and quote);
+  once the order journal shows it ended, the trail sends what is still held
+  at the next step's price from a fresh quote, until the line is sold or the
+  window ends. Partial fills count toward what it sold. One trail order works at a time, never beyond the held line.
   A broker reject or a broker-side cancel returns the trail to fired
   (`trail_sale_ended`, with the broker's words) and it sends again next
   cycle. A send whose outcome is unclear is held for reconciliation
@@ -210,8 +217,8 @@ Each trail record's `queue list` and `queue status` view carries `watch`:
 `state` (`waiting` before its window, `watching` while a usable read is at
 most 30 seconds old, `unwatched` otherwise, `triggered` once fired), the
 last stock price and its time, the high, the stop, the trigger's time and
-price, the sale's attempts, working limit and contracts sold
-(`sale_attempts`, `sale_limit`, `sale_filled`), and the reason it is
+price, the sale's attempts, price step, working limit and contracts sold
+(`sale_attempts`, `sale_step`, `sale_limit`, `sale_filled`), and the reason it is
 unwatched, or why a fired trail has not sold yet.
 
 ## Version 1 terms
