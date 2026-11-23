@@ -302,10 +302,12 @@ type QueuedExitPlanParams struct {
 	Trail       *QueuedPlanTrail     `json:"trail,omitempty"`
 }
 
-// QueuedPlanFirstSale sells Quantity near the mid, never below MinPrice.
+// QueuedPlanFirstSale sells Quantity near the mid, never below MinPrice;
+// omitted or zero means no minimum (the owner signs before the open, when
+// no option price may exist).
 type QueuedPlanFirstSale struct {
 	Quantity int     `json:"quantity"`
-	MinPrice float64 `json:"min_price"`
+	MinPrice float64 `json:"min_price,omitempty"`
 }
 
 // QueuedPlanTrail is the exit line on the underlying stock.

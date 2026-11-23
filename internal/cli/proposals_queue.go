@@ -258,6 +258,9 @@ func renderQueuedAuth(out io.Writer, q rpc.QueuedAuth) {
 	if t.OwnerOrder != nil {
 		st = t.OwnerOrder.StockTrail
 	}
+	if t.WorstPrice == 0 && t.OwnerOrder != nil && t.OwnerOrder.Plan != nil {
+		bound = "no minimum price"
+	}
 	if st != nil {
 		// An exit plan's trail: what is held, no minimum, once the stock is
 		// at or below its line.

@@ -739,6 +739,10 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 				}
 			case queuedOwnerOrder(terms) && !ownerQueueProtection(terms) && preview.Draft.Quantity != terms.MaxQuantity:
 				mismatch = "the preview changed the approved quantity"
+			case queuedPlanFirstSale(terms) && terms.WorstPrice == 0:
+				if !positiveFinite(preview.Draft.LimitPrice) {
+					mismatch = "the preview carries no price"
+				}
 			case !ownerQueueProtection(terms) && !queuedLimitInside(terms.Action, preview.Draft.LimitPrice, terms.WorstPrice):
 				mismatch = "the preview limit is beyond the signed worst price"
 			}

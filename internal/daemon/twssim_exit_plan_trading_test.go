@@ -1294,3 +1294,38 @@ func TestSimulatedTWSExitPlanRestartBetweenCancelAndResend(t *testing.T) {
 		t.Fatalf("after the restart: steps %v, limits %g then %g", got, sells[0].LimitPrice, sells[1].LimitPrice)
 	}
 }
+
+// X25. A plan signed before the open with no minimum on its first sale: the
+// first sale sends its 10 at the mid once its window opens, and the trail
+// then covers the remaining 10.
+func TestSimulatedTWSExitPlanFirstSaleWithoutMinimum(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, 6*time.Second, 0)
+	q := d.preparePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10}, Trail: planTrail(48.50)})
+	if !q.Accepted || len(q.Plan.Queues) != 2 {
+		t.Fatalf("prepare without a minimum: %+v", q.Blockers)
+	}
+	if ft := q.Plan.Queues[0].Terms; ft.WorstPrice != 0 || ownerQueueProblem(ft) != "" {
+		t.Fatalf("first-sale terms: %+v", ft)
+	}
+	res := d.armPlanWith(q.Plan.QueuedRefs, q.Plan.PlanDigest)
+	if !res.Accepted {
+		t.Fatalf("arm: %+v", res.Blockers)
+	}
+	first, trail := q.Plan.Queues[0].Terms.QueueID, q.Plan.Queues[1].Terms.QueueID
+	rec := d.planWaitRecord("the first sale to fill", first, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthFilled })
+	sells := d.planSells(opt.ConID)
+	if len(sells) != 1 || rec.QuantitySent != 10 {
+		t.Fatalf("first sale: %d sells, sent %d", len(sells), rec.QuantitySent)
+	}
+	requirePlainLimitSell(t, sells[0], opt.ConID, 10)
+	if b, a := rec.SendQuote.Bid, rec.SendQuote.Ask; b == nil || a == nil || sells[0].LimitPrice <= *b || sells[0].LimitPrice > *a {
+		t.Fatalf("first sale at %g, not at the mid of %+v", sells[0].LimitPrice, rec.SendQuote)
+	}
+	d.planStock(48)
+	tr := d.planWaitRecord("the trail to sell the rest", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	sells = d.planSells(opt.ConID)
+	if tr.State != rpc.QueuedAuthFilled || len(sells) != 2 || sells[1].Quantity != 10 || d.planBrokerSold(opt.ConID) != 20 {
+		t.Fatalf("trail %s: %d sells %+v, broker sold %g", tr.State, len(sells), sells, d.planBrokerSold(opt.ConID))
+	}
+}

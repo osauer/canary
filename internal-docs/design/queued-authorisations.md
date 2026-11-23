@@ -91,6 +91,9 @@ Prepare takes `exit_plan` with `owner_order: true`, account and mode:
 
 It cannot be combined with `order`, `key` or `full_position`. `trail` is
 required; `first_sale` is optional, at least 1 and below the held quantity.
+`first_sale.min_price` is optional: left out or zero, the first sale has no
+minimum, its terms carry no `worst_price`, and it sells at the mid inside
+the option spread limit, as the owner may sign before any option price exists.
 `wait_minutes` is at least the market's opening offset and at most 120; it
 is a term of this plan only. While the session is open past the wait, a
 first sale is refused (`queue_not_offered`); a trail-only plan starts at
@@ -109,7 +112,7 @@ Both records are version 3 and carry `owner_order.plan` (`plan_id`, `role`,
 holds, recovery and events apply to it unchanged.
 
 - **First sale:** a midpoint owner order as in version 2: `midpoint_bounded`,
-  plain limit (an option carries no Adaptive), `worst_price` the minimum,
+  plain limit (an option carries no Adaptive), `worst_price` the minimum (omitted when there is none),
   `max_quantity` the first-sale quantity, a one-hour window from the open
   plus the wait. Its minimum not met within the hour, it expires unsent.
 - **Trail:** style `stock_trail`, no `worst_price`, `max_quantity` and

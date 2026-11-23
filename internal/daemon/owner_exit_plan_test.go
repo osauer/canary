@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -88,7 +89,7 @@ func TestExitPlanTermsValidation(t *testing.T) {
 		"stock":                    func(f, tr *rpc.QueuedAuthTerms) { tr.Contract.SecType = "STK" },
 		"buy":                      func(f, tr *rpc.QueuedAuthTerms) { f.Action = "BUY" },
 		"first sale whole line":    func(f, tr *rpc.QueuedAuthTerms) { f.MaxQuantity = 20 },
-		"first sale no minimum":    func(f, tr *rpc.QueuedAuthTerms) { f.WorstPrice = 0 },
+		"first sale negative min":  func(f, tr *rpc.QueuedAuthTerms) { f.WorstPrice = -0.05 },
 		"first sale long window":   func(f, tr *rpc.QueuedAuthTerms) { f.NotAfter = f.NotBefore.Add(2 * time.Hour) },
 		"first sale stock line":    func(f, tr *rpc.QueuedAuthTerms) { f.OwnerOrder.StockTrail = tr.OwnerOrder.StockTrail },
 		"first sale adaptive":      func(f, tr *rpc.QueuedAuthTerms) { f.OwnerOrder.AdaptivePriority = "Normal" },
@@ -379,5 +380,43 @@ func TestTrailSaleSteps(t *testing.T) {
 	rec.Watch.SaleStep = 2
 	if trailStepRepeats(rec, same) {
 		t.Fatal("skipped past the bid")
+	}
+}
+
+// A first sale has a positive minimum or none. With one, its terms encode
+// exactly as before (worst_price present, the digest of the same bytes);
+// without one, worst_price is omitted as on the trail, and a negative or
+// unusable minimum is refused.
+func TestExitPlanFirstSaleMinimumIsOptional(t *testing.T) {
+	type plain rpc.QueuedAuthTerms
+	first, _ := exitPlanTestTerms()
+	raw, _ := json.Marshal(first)
+	before, _ := json.Marshal(plain(first))
+	sum := sha256.Sum256(before)
+	if digest, _ := queuedTermsDigest(first); string(raw) != string(before) || digest != hex.EncodeToString(sum[:]) {
+		t.Fatalf("a first sale with a minimum encodes differently:\n%s\n%s", raw, before)
+	}
+	open := first
+	open.WorstPrice, open.ReferenceMark = 0, 0
+	if p := ownerQueueProblem(open); p != "" {
+		t.Fatalf("a first sale without a minimum refused: %s", p)
+	}
+	raw, _ = json.Marshal(open)
+	if strings.Contains(string(raw), "worst_price") {
+		t.Fatalf("no minimum, yet worst_price encoded: %s", raw)
+	}
+	var back rpc.QueuedAuthTerms
+	if err := json.Unmarshal(raw, &back); err != nil || back.WorstPrice != 0 {
+		t.Fatalf("round trip: %v %g", err, back.WorstPrice)
+	}
+	if again, _ := json.Marshal(back); string(again) != string(raw) {
+		t.Fatal("a stored first sale without a minimum does not re-encode to its bytes")
+	}
+	for _, bad := range []float64{-1, math.NaN(), math.Inf(1)} {
+		b := first
+		b.WorstPrice = bad
+		if ownerQueueProblem(b) == "" {
+			t.Fatalf("worst price %g accepted", bad)
+		}
 	}
 }

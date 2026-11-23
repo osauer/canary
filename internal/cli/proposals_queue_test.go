@@ -174,3 +174,16 @@ func TestRenderQueuedAuthTrail(t *testing.T) {
 		}
 	}
 }
+
+// A first sale signed without a minimum says so, never a floor of zero.
+func TestRenderQueuedAuthFirstSaleWithoutMinimum(t *testing.T) {
+	var out bytes.Buffer
+	q := rpc.QueuedAuth{State: rpc.QueuedAuthArmed, Terms: rpc.QueuedAuthTerms{QueueID: "q3", Version: 3, Action: rpc.OrderActionSell, MaxQuantity: 10, Currency: "USD",
+		Contract:  rpc.ContractParams{Symbol: "SYNA", SecType: "OPT", Expiry: "20261218", Strike: 55, Right: "C"},
+		NotBefore: time.Date(2026, 11, 24, 14, 50, 0, 0, time.UTC), NotAfter: time.Date(2026, 11, 24, 15, 50, 0, 0, time.UTC),
+		OwnerOrder: &rpc.QueuedOwnerOrder{Plan: &rpc.QueuedPlan{PlanID: "p", Role: rpc.QueuedPlanRoleFirstSale, WaitMinutes: 20}}}}
+	renderQueuedAuth(&out, q)
+	if got := out.String(); !strings.Contains(got, "sell at most 10 SYNA 20261218 55 C, no minimum price") || strings.Contains(got, "not below") {
+		t.Fatalf("rendered %q", got)
+	}
+}

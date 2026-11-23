@@ -198,7 +198,8 @@ func exitPlanTermsProblem(t rpc.QueuedAuthTerms) string {
 	}
 	switch plan.Role {
 	case rpc.QueuedPlanRoleFirstSale:
-		if o.StockTrail != nil || t.Style != "midpoint_bounded" || !positiveFinite(t.WorstPrice) || t.PositionEffect != "reduce" ||
+		// A first sale has a positive minimum or none (worst_price omitted).
+		if o.StockTrail != nil || t.Style != "midpoint_bounded" || t.WorstPrice != 0 && !positiveFinite(t.WorstPrice) || t.PositionEffect != "reduce" ||
 			float64(t.MaxQuantity) >= t.PositionQuantity || t.NotAfter.Sub(t.NotBefore) > queuedSendWindow {
 			return "invalid exit plan first sale"
 		}
@@ -302,8 +303,8 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 		return block("queue_request_invalid", fmt.Sprintf("The trail percent must be above 0 and at most %d.", queuedPlanMaxTrailPercent))
 	case !positiveFinite(plan.Trail.InitialStopPrice):
 		return block("queue_stop_missing", "The starting stop must be a positive stock price.")
-	case plan.FirstSale != nil && (plan.FirstSale.Quantity < 1 || !positiveFinite(plan.FirstSale.MinPrice)):
-		return block("queue_request_invalid", "The first sale needs a quantity of at least 1 and a positive minimum price.")
+	case plan.FirstSale != nil && (plan.FirstSale.Quantity < 1 || plan.FirstSale.MinPrice != 0 && !positiveFinite(plan.FirstSale.MinPrice)):
+		return block("queue_request_invalid", "The first sale needs a quantity of at least 1, and a minimum price that is positive or left out.")
 	case plan.WaitMinutes > queuedPlanMaxWaitMinutes || plan.WaitMinutes < 1:
 		return block("queue_wait_invalid", fmt.Sprintf("The wait after the open must be between the market's opening offset and %d minutes.", queuedPlanMaxWaitMinutes))
 	case plan.Contract.ConID <= 0 || !strings.EqualFold(strings.TrimSpace(plan.Contract.SecType), "OPT"):

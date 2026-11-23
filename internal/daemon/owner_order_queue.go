@@ -368,6 +368,11 @@ func (e *proposalEngine) submitOwnerQueue(ctx context.Context, rec queuedAuthRec
 		// signed spread limit, with no minimum price.
 		p.Strategy = rpc.OrderStrategyBoundedLimit
 		p.Bounded = &rpc.OrderBoundedLimit{Concession: trailSaleSteps[trailStep(rec.Watch.SaleStep)].concession, NoWorstPrice: true, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
+	case queuedPlanFirstSale(t) && t.WorstPrice == 0:
+		// A first sale signed without a minimum sells at the mid with no
+		// worst price, said so explicitly.
+		p.Strategy = rpc.OrderStrategyBoundedLimit
+		p.Bounded = &rpc.OrderBoundedLimit{Concession: 0, NoWorstPrice: true, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
 	default:
 		p.Strategy = rpc.OrderStrategyBoundedLimit
 		p.Bounded = &rpc.OrderBoundedLimit{Concession: 0, WorstPrice: t.WorstPrice, MaxSpreadPctOfMid: t.MaxSpreadPctOfMid}
