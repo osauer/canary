@@ -117,7 +117,12 @@ The loader is strict and refuses unknown fields. It refuses any account but
 `U1234567`, so a book can never carry a real account id.
 
 - Top level: `account`, `base_currency`, `cash` (currency to amount), and
-  an optional `fx` (currency to base rate).
+  `fx` (currency to rate, in base per unit, as the broker's `ExchangeRate`
+  rows read). Every currency the cash or a position is in, other than the
+  base, needs its rate; the loader refuses a book without one, naming it.
+  Each rate also lists its IDEALPRO pair against the base (EUR.USD for a
+  EUR book holding USD), which the daemon quotes to price an order in that
+  currency against its cap in the base.
 - `positions[]`: `con_id`, `symbol`, `sec_type` (STK|OPT), `currency`,
   `exchange`, `primary_exchange`, `trading_class`, `quantity`, `avg_cost`,
   `last`, `bid`, `ask`.
@@ -126,6 +131,9 @@ The loader is strict and refuses unknown fields. It refuses any account but
     weeks after the first Friday after today (UTC). The committed example
     uses `+Nw` so it never expires.
   - Quantity 0 lists a contract without holding it.
+  - A stock the default catalogue already lists (SPY, SYNB) takes the
+    catalogue's `con_id`, and options naming the file's id follow it, so a
+    symbol never names two contracts.
 
 The example `pkg/ibkr/twssim/testdata/owner-mix-book.json` has the owner's
 asset mix in SYN* tickers with invented figures:

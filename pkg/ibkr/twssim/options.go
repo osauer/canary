@@ -36,6 +36,27 @@ func optionConID(chain, expiry, strike int, right string) int {
 	return id
 }
 
+// DefaultStrikes are nine distinct strikes from 80 to 120 percent of price,
+// on a grid of 0.5 below 25, 1 below 100 and 5 above, so a low-priced stock
+// gets no repeated or zero strike.
+func DefaultStrikes(price float64) []float64 {
+	step := 5.0
+	switch {
+	case price < 25:
+		step = 0.5
+	case price < 100:
+		step = 1
+	}
+	var out []float64
+	for pct := 80; pct <= 120; pct += 5 {
+		k := math.Max(step, math.Round(price*float64(pct)/100/step)*step)
+		if !slices.Contains(out, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 // ListOptions lists calls and puts of a listed stock for every expiry
 // (YYYYMMDD) and strike, with multiplier 100 on SMART.
 func (b *Book) ListOptions(underConID int, expiries []string, strikes []float64) error {
@@ -51,9 +72,19 @@ func (b *Book) ListOptions(underConID int, expiries []string, strikes []float64)
 			chain = max(chain, (in.ConID-910_000)/10_000+1)
 		}
 	}
+	listed := map[string]bool{}
+	for _, in := range b.instr {
+		if in.SecType == "OPT" && in.UnderConID == underConID {
+			listed[fmt.Sprintf("%s/%v/%s", in.Expiry, in.Strike, in.Right)] = true
+		}
+	}
 	for ei, expiry := range expiries {
 		for si, strike := range strikes {
 			for _, right := range []string{"C", "P"} {
+				// A contract already listed (a held one) is not listed twice.
+				if listed[fmt.Sprintf("%s/%v/%s", expiry, strike, right)] && b.instr[optionConID(chain, ei, si, right)] == nil {
+					continue
+				}
 				in := &Instrument{
 					ConID: optionConID(chain, ei, si, right), Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", PrimaryExch: "",
 					Currency: under.Currency, TradingClass: under.Symbol, Expiry: expiry, Strike: strike, Right: right, Multiplier: 100,

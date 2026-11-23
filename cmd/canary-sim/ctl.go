@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"net"
 	"path/filepath"
 	"strconv"
@@ -53,7 +52,8 @@ Commands (against a running canary-sim in DIR):
   account CODE                    log the broker in to another account (ends every connection)
   position SYM|CONID QTY [AVGCOST] set a holding (QTY 0 removes it; an option by its con id)
   options SYM [STRIKE...]         list a stock's option chain (Fridays near 5-120 days; default
-                                  strikes 80-120% of the price in 5% steps)`
+                                  strikes 80-120% of the price in 5% steps, distinct, on a
+                                  0.5/1/5 grid; a held contract is not listed twice)`
 
 type ctlRequest struct {
 	Args []string `json:"args"`
@@ -247,9 +247,7 @@ func control(sim *twssim.Server, args []string, now time.Time) (any, error) {
 			strikes = append(strikes, k)
 		}
 		if len(strikes) == 0 {
-			for pct := 80; pct <= 120; pct += 5 {
-				strikes = append(strikes, math.Round(in.Price*float64(pct)/100))
-			}
+			strikes = twssim.DefaultStrikes(in.Price)
 		}
 		return nil, sim.Book().ListOptions(conID, twssim.OptionExpiries(now), strikes)
 	case "account":

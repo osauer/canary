@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"math"
 	"testing"
 
 	"github.com/osauer/canary/v3/internal/rpc"
@@ -104,5 +105,32 @@ func TestSimulatedTWSUnquotedHoldingHoldsAStockAdd(t *testing.T) {
 	const want = "held SYNY has no current price or currency conversion, so the book's stock exposure cannot be measured; refresh, or reconcile that holding"
 	if len(plan.Blockers) == 0 || plan.Blockers[0].Message != want {
 		t.Fatalf("plan beside an unquoted holding: %+v", plan.Blockers)
+	}
+}
+
+// A EUR-base book file of USD options and USD cash: the vertical's added
+// unit and a USD stock add are priced through the EUR.USD pair the loader
+// lists, and both previews mint.
+func TestSimulatedTWSEURBaseBook(t *testing.T) {
+	book, err := twssim.LoadBook("../../pkg/ibkr/twssim/testdata/eur-base-book.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	setSessions(t, true)
+	d := startSimDesk(t, twssim.Options{Book: book}, true)
+	st := d.heldVertical()
+	if st.Units != 15 || !st.Actionable {
+		t.Fatalf("vertical %+v", st)
+	}
+	if pv, rerr := d.strategyPreview(st, "add", 1, new(4.2)); rerr != nil || !pv.TokenMinted {
+		t.Fatalf("strategy add on a EUR book: %+v", rerr)
+	}
+	add := rpc.AddParams{Contract: rpc.ContractParams{Symbol: "SYNB", Currency: "USD"}, LimitPrice: 120.10, Quantity: 5}
+	pv, rerr := d.preview(add)
+	if rerr != nil || !pv.TokenMinted {
+		t.Fatalf("stock add on a EUR book: %+v", rerr)
+	}
+	if pv.BaseCurrency != "EUR" || math.Abs(pv.FXRate-0.92) > 0.001 {
+		t.Fatalf("stock add priced at %v %s per USD, want the book's 0.92 EUR", pv.FXRate, pv.BaseCurrency)
 	}
 }

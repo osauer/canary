@@ -1,6 +1,7 @@
 package twssim
 
 import (
+	"slices"
 	"testing"
 	"time"
 )
@@ -43,5 +44,23 @@ func TestOptionExpiriesHoldTheirHorizonsOnEveryDay(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// A low-priced stock's default strikes are distinct and positive, and a held
+// contract the chain would repeat is listed once.
+func TestDefaultStrikesAndHeldTwin(t *testing.T) {
+	ks := DefaultStrikes(4.8)
+	if len(ks) < 5 || slices.Contains(ks, 0) || len(slices.Compact(slices.Clone(ks))) != len(ks) {
+		t.Fatalf("strikes %v", ks)
+	}
+	b := Default()
+	expiry := OptionExpiries(time.Now())[2]
+	b.AddInstrument(Instrument{ConID: 960001, Symbol: "SYNA", SecType: "OPT", Exchange: "SMART", Currency: "USD", TradingClass: "SYNA", Expiry: expiry, Strike: 50, Right: "C", Multiplier: 100, UnderConID: 900001, Price: 2})
+	if err := b.ListOptions(900001, OptionExpiries(time.Now()), []float64{45, 50, 55}); err != nil {
+		t.Fatal(err)
+	}
+	if got := b.lookupContract(contractQuery{symbol: "SYNA", secType: "OPT", expiry: expiry, strike: 50, right: "C"}); len(got) != 1 || got[0].ConID != 960001 {
+		t.Fatalf("SYNA 50 calls at %s: %+v", expiry, got)
 	}
 }

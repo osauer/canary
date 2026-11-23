@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,12 @@ import (
 // beside it; the file's positions replace Default's. The loader is strict:
 // an unknown field, a contract without its identity or an account other than
 // [DefaultAccount] is refused, so a book can never carry a real account id.
+// FX gives each currency other than the base its rate, in base per unit (as
+// the broker's ExchangeRate rows read); every currency the cash or a
+// position is in needs one, and each listed rate lists its IDEALPRO pair
+// against the base (see [Book.SetFX]). A stock the catalogue already lists
+// (same symbol and currency) takes the catalogue's contract id, and options
+// naming the file's id follow it.
 type BookFile struct {
 	Account   string             `json:"account"`
 	Base      string             `json:"base_currency"`
@@ -84,13 +92,47 @@ func ParseBook(raw []byte) (*Book, error) {
 		b.fx = map[string]float64{b.base: 1}
 		b.cash = map[string]float64{b.base: 0}
 	}
+	fx := map[string]bool{b.base: true}
 	for ccy, rate := range f.FX {
-		b.SetFX(strings.ToUpper(ccy), rate)
+		ccy = strings.ToUpper(ccy)
+		switch {
+		case ccy == b.base:
+			return nil, fmt.Errorf("twssim: book: fx names the base currency %s, whose rate is 1", b.base)
+		case !(rate > 0) || math.IsInf(rate, 0):
+			return nil, fmt.Errorf("twssim: book: fx rate for %s must be a positive number of %s per %s", ccy, b.base, ccy)
+		case !fxPairModelled(ccy, b.base):
+			return nil, fmt.Errorf("twssim: book: no IDEALPRO pair of %s and %s is modelled", ccy, b.base)
+		}
+		fx[ccy] = true
+		b.SetFX(ccy, rate)
 	}
+	var currencies []string
 	for ccy, amount := range f.Cash {
 		b.SetCash(strings.ToUpper(ccy), amount)
+		currencies = append(currencies, strings.ToUpper(ccy))
+	}
+	// A stock the catalogue already lists (a regime input, SYNB) takes the
+	// catalogue's contract id, and options on it follow, so a symbol never
+	// names two contracts.
+	listed := map[string]int{}
+	for _, in := range b.instr {
+		if in.SecType == "STK" {
+			listed[in.Symbol+"/"+in.Currency] = in.ConID
+		}
+	}
+	remap := map[int]int{}
+	for _, p := range f.Positions {
+		if id, ok := listed[strings.ToUpper(p.Symbol)+"/"+strings.ToUpper(p.Currency)]; ok && strings.EqualFold(p.SecType, "STK") && id != p.ConID {
+			remap[p.ConID] = id
+		}
 	}
 	for i, p := range f.Positions {
+		if id, ok := remap[p.ConID]; ok && strings.EqualFold(p.SecType, "STK") {
+			p.ConID = id
+		}
+		if id, ok := remap[p.UnderConID]; ok {
+			p.UnderConID = id
+		}
 		if rest, ok := strings.CutPrefix(p.Expiry, "+"); ok {
 			weeks, err := strconv.Atoi(strings.TrimSuffix(rest, "w"))
 			if err != nil || !strings.HasSuffix(rest, "w") || weeks < 0 {
@@ -118,6 +160,17 @@ func ParseBook(raw []byte) (*Book, error) {
 		}
 		b.AddInstrument(in)
 		b.SetPosition(in.ConID, p.Quantity, p.AvgCost)
+		currencies = append(currencies, in.Currency)
+	}
+	// Every currency held must have its rate: without it the account's
+	// values in the base would be wrong and the daemon, which prices an
+	// order in another currency through its IDEALPRO pair, refuses every
+	// order in it.
+	slices.Sort(currencies)
+	for _, ccy := range currencies {
+		if !fx[ccy] {
+			return nil, fmt.Errorf("twssim: book: no fx rate for %s in a %s book; state it as \"fx\": {\"%s\": <%s per %s>}", ccy, b.base, ccy, b.base, ccy)
+		}
 	}
 	return b, nil
 }

@@ -65,6 +65,9 @@
 //	  no derivative sec types
 //	a cash debit (a buy in a currency not held) reported    assumed
 //	  as a negative CashBalance and SettledCash row
+//	each currency's rate to the base listed as its IDEALPRO assumed
+//	  pair (EUR.USD, USD.HKD) at that rate, spread 1 pip
+//	  or 0.01%, contract id 905000 + the pair's place
 //	BUY orders, parentId with transmit false, BAG orders    never sent live
 //
 // Live-proven by past fills on the real account, so modelled from fact: STK

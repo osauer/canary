@@ -171,9 +171,9 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 				var err error
 				row, spent, err = selectAddCallAimed(side, *spot, stockIV, dte, quote, near)
 				timing[i] = fmt.Sprintf("%d:%s", target, spent)
-				if err == nil {
-					row.Horizon, row.DTE = target, dte
-				} else {
+				// A failed inventory still answers for its horizon.
+				row.Horizon, row.DTE = target, dte
+				if err != nil {
 					s.warnAddInventoryFailure(u.Symbol, date, target, time.Since(started), err)
 					row.Unavailable = side.Noun() + " contracts unavailable"
 				}

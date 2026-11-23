@@ -184,6 +184,11 @@ func runAddInventoryDiagnostic(t *testing.T, mode string) {
 	if err != nil || got == nil || len(got.Calls) != 4 || got.Calls[1].Unavailable != "Call contracts unavailable" {
 		t.Fatalf("fixture did not reach the inventory error boundary: result=%+v err=%v", got, err)
 	}
+	// The unavailable row still answers for its horizon (Desk refuses a
+	// discovery whose row has none).
+	if got.Calls[1].Horizon != 30 || got.Calls[1].DTE <= 0 {
+		t.Fatalf("inventory error row lost its horizon: %+v", got.Calls[1])
+	}
 	logged := logs.String()
 	for _, want := range []string{"level=WARN", "add.inventory", "symbol=SYNTH", "expiry=" + expiry, "horizon=30", "elapsed_ms=", "reason=no_definition"} {
 		if !strings.Contains(logged, want) {
