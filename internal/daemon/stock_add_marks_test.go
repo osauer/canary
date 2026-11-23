@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"maps"
 	"strings"
 	"testing"
 
@@ -32,9 +33,7 @@ func TestStockAddAccountMarkHolds(t *testing.T) {
 		"a cash row went":        func(m map[string]string) { delete(m, "SettledCash_USD") },
 	} {
 		m := map[string]string{}
-		for k, v := range raw {
-			m[k] = v
-		}
+		maps.Copy(m, raw)
 		edit(m)
 		now, _ := stockAddAccountMarkFrom(m)
 		if stockAddAccountMarkHolds(was, now) {
