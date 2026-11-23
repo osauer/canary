@@ -1,6 +1,6 @@
 # The TWS Simulator
 
-Updated: 2026-11-23 00:11 CET
+Updated: 2026-11-23 01:21 CET
 
 ## What it is
 
@@ -83,6 +83,17 @@ Control it while it runs with `canary-sim ctl -dir D COMMAND`.
 - `drop`, `account CODE`
 
 Exchange sessions start as the official calendar has them now.
+
+Index protection without a real ticker: `SYNX` is a synthetic index fund at
+600, listed as a hedge symbol in the simulator's Rulebook. On the default
+book these three commands make Rulebook rule 12 pass, and `add plan SYNA
+--currency USD --limit 50.10 --max` sizes 182 shares:
+
+```
+canary-sim ctl -dir D position SYNA 600 48
+canary-sim ctl -dir D options SYNX 520 540 560
+canary-sim ctl -dir D position 910603 1 700   # the SYNX 540 put, 57-63 days out
+```
 
 ### A book file
 
