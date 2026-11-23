@@ -10,7 +10,7 @@ down, nothing sends.
 | Operation | CLI | RPC |
 | --- | --- | --- |
 | Prepare | `canary proposals queue prepare KEY REVISION --json [--quantity N]` | `trade.proposals.queue_prepare` |
-| Arm | `canary proposals queue arm --stdin [--json]` | `trade.proposals.queue_arm` |
+| Arm | `canary proposals queue arm --stdin [--json]` (one record, or an exit plan's records together) | `trade.proposals.queue_arm` |
 | Cancel | `canary proposals queue cancel QUEUE_ID [--prepared-only]` or `--all` | `trade.proposals.queue_cancel` |
 | List | `canary proposals queue list [--live] [--json]` | `trade.proposals.queue_list` |
 | Status | `canary proposals queue status QUEUE_ID [--json]` | `trade.proposals.queue_status` |
@@ -69,6 +69,128 @@ exchange goes as a plain limit, and asking for Adaptive on one is refused
 before the broker (2026-11-22 23:23 CET: options were admitted here and then
 refused by the broker layer). Omitting it preserves existing plain-limit CLI
 behavior.
+
+## Exit plans (version 3)
+
+An exit plan is the owner's signed exit for one held long call: an optional
+first sale of part of the line once the session has been open for the plan's
+wait, and a trail on the underlying stock that sells what is still held when
+the stock gives back to its line. The broker sees only plain limit sells
+(LMT, DAY, regular hours).
+
+Prepare takes `exit_plan` with `owner_order: true`, account and mode:
+
+```json
+"exit_plan": {
+  "contract": { "con_id": 1, "symbol": "SYNA", "sec_type": "OPT", "...": "the exact option" },
+  "wait_minutes": 20,
+  "first_sale": { "quantity": 10, "min_price": 4.20 },
+  "trail": { "trail_percent": 3.0, "initial_stop_price": 49.50 }
+}
+```
+
+It cannot be combined with `order`, `key` or `full_position`. `trail` is
+required; `first_sale` is optional, at least 1 and below the held quantity.
+`wait_minutes` is at least the market's opening offset and at most 120; it
+is a term of this plan only. While the session is open past the wait, a
+first sale is refused (`queue_not_offered`); a trail-only plan starts at
+once. A put is refused (`queue_right_unsupported`): the line sells as the
+stock falls, which protects a call and would sell a put at its best.
+
+The result carries `plan`: `plan_id`, `plan_digest`, `queues` and
+`queued_refs`, first sale then trail; `queue` and `queued_ref` stay empty.
+`plan_digest` is the lowercase hex SHA-256 of the records' `terms_digest`
+values joined in that order by one newline.
+
+### Two records
+
+Both records are version 3 and carry `owner_order.plan` (`plan_id`, `role`,
+`wait_minutes`). Each stays a single-send record, so the executor's states,
+holds, recovery and events apply to it unchanged.
+
+- **First sale:** a midpoint owner order as in version 2: `midpoint_bounded`,
+  plain limit (an option carries no Adaptive), `worst_price` the minimum,
+  `max_quantity` the first-sale quantity, a one-hour window from the open
+  plus the wait. Its minimum not met within the hour, it expires unsent.
+- **Trail:** style `stock_trail`, no `worst_price`, `max_quantity` and
+  `position_quantity` the whole line at signing, the option spread limit of
+  the protection policy, a window from the open plus the wait (or now) to the
+  earlier of the stock's and the option's regular close, and
+  `owner_order.stock_trail`: the resolved stock contract, the trail percent
+  (above 0, at most 50), the starting stop and the stock price read at
+  prepare (`reference_price`, for review only; 0 when none was read).
+
+Prepare stores both records in one update. Arm takes `queued_refs` and
+`plan_digest` in place of `queued_ref` and `terms_digest` and arms every
+record of the plan in one update, or none: part of a plan, a wrong digest
+or the single-record form is refused (`queued_plan_incomplete`,
+`queued_terms_mismatch`, `queued_plan_arm_required`). Cancel is per record;
+cancelling one leaves the other as it is.
+
+Records of one plan may share the contract and side. Everything else stays
+one live intent per contract and side: another plan, a version-2 order or a
+proposal for that option is refused beside them (`queued_intent_exists`).
+A plan commits no cash, so it never holds a stock Add's sizing.
+
+### The trail
+
+Inside its window the executor reads the stock at least every ten seconds,
+running only the plans' records between proposal refreshes; with no trail in
+its window nothing extra runs.
+
+- **Price.** The midpoint of a fresh, live, two-sided quote whose spread is
+  within the protection policy's stock spread limit. A stale, delayed,
+  one-sided or missing quote, a broker link that is down, or an active halt
+  or limit-up-limit-down pause on the stock leaves the trail unwatched
+  (hold `stock_quote_unusable`): it never fires on such a price, nor because
+  a price is missing. A usable read resumes it.
+- **Line.** The first usable price seeds the high;
+  `stop = max(initial_stop_price, high × (1 − trail_percent/100))`, to four
+  decimals, and the stop never falls. The high and the stop are written to
+  the record whenever the stop rises (`queued_auth.stop_raised`), so a restart
+  resumes from them.
+- **Fire.** A read at or below the line, confirmed by another at least five
+  seconds later by the quotes' own times, fires the trail
+  (`queued_auth.triggered`); any read above the line, or an unusable one,
+  in between starts over, so one bad print never sells. The trigger is
+  latched with its time and price and the trail keeps trying to sell until
+  its window ends, even if the stock recovers.
+- **First sale.** Firing withdraws an unsent first sale in the same store
+  update (`plan_stop_triggered`). A first sale still working at the broker
+  is cancelled through the daemon's cancel path under a grant that names
+  that order alone (`queued_auth.first_sale_cancel`, repeated every 30
+  seconds while it works); the trail holds as `plan_first_sale_cancelling`
+  until the order journal shows it ended. A first sale never stages once its
+  trail has fired, and a trail never stages beside a live or working first
+  sale. While a read at or below the line awaits confirmation, the first
+  sale waits that cycle.
+- **Sale.** What is held when the trail sells, never more than its maximum,
+  through the ordinary owner path: a bounded limit at the option's midpoint
+  with no minimum price, stated as such to the pricer (a zero worst price
+  alone is still refused), inside the option spread limit. Every hold the
+  queue knows applies: freeze, paused configuration, broker link, session,
+  spread, quote, a working order on the contract, the order caps (a sale
+  that fails the delta-reducing exemption holds and retries) and a changed
+  protection policy. None cancels the trail inside its window. A closed line
+  ends the plan (`position_changed`). Neither the drawdown brake nor a
+  sell-only state holds a sale that only closes or reduces the line.
+- **End.** Untriggered at its window's end, the trail expires
+  (`window_ended`) and nothing is sent.
+
+A stress open (the latched regime stage reads confirmed stress when the
+plan is prepared) moves only the first sale, a discretionary sale: it starts
+at the later of the plan's wait and the stress open's 30 minutes. The trail
+is a protective exit and starts at the plan's own wait.
+
+Each trail record's `queue list` and `queue status` view carries `watch`:
+`state` (`waiting` before its window, `watching` while a usable read is at
+most 30 seconds old, `unwatched` otherwise, `triggered` once fired), the
+last stock price and its time, the high, the stop, the trigger's time and
+price, and the reason it is unwatched or held.
+
+Not in version 3: once the trail's order is at the broker it is not
+re-priced; a limit that the market moves away from works until the session
+ends.
 
 ## Version 1 terms
 
@@ -307,8 +429,9 @@ trails keep their plain window.
 Each transition appends a `trade_proposal_queued_event` in the same daemon.db
 transaction as the record document. Types are `queued_auth.prepared`, `armed`,
 `held`, `resumed`, `sending`, `sent`, `filled`, `partially_filled`,
-`expired_unfilled`, `cancelled`, `expired`, `failed`, `recovered` and
-`cancel_requested`. `signed` is Desk's event.
+`expired_unfilled`, `cancelled`, `expired`, `failed`, `recovered`,
+`cancel_requested`, and for an exit plan's trail `stop_raised`, `triggered`
+and `first_sale_cancel`; these carry the stock price, high and stop. `signed` is Desk's event.
 
 An event carries:
 

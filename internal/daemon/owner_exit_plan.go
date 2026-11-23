@@ -314,6 +314,14 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 		}
 		start = now.UTC()
 	}
+	// At a stress open (the latched regime stage reads confirmed stress when
+	// the plan is signed) the first sale, a discretionary sale, waits the
+	// longer of the plan's wait and the stress open's offset. The trail is a
+	// protective exit: it starts at the plan's own wait, never later.
+	firstStart := start
+	if stressStart := opens.Add(readinessStressOptionsOpeningOffset).UTC(); market == marketcal.MarketUSOptions && s.regimeStressOpen(now) && stressStart.After(firstStart) {
+		firstStart = stressStart
+	}
 	day, ok := s.previewSession(market, start)
 	if !ok || !day.IsOpen || day.Close.IsZero() {
 		return block("queue_session_unknown", "The trading calendar does not show the regular session open at the plan's start.")
@@ -367,7 +375,7 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 	var all []rpc.QueuedAuthTerms
 	if fs := plan.FirstSale; fs != nil {
 		t := terms(rpc.QueuedPlanRoleFirstSale, fs.Quantity, "reduce")
-		t.Style, t.WorstPrice, t.ReferenceMark, t.NotAfter = "midpoint_bounded", fs.MinPrice, fs.MinPrice, start.Add(queuedSendWindow)
+		t.Style, t.WorstPrice, t.ReferenceMark, t.NotBefore, t.NotAfter = "midpoint_bounded", fs.MinPrice, fs.MinPrice, firstStart, firstStart.Add(queuedSendWindow)
 		if t.NotAfter.After(day.Close) {
 			t.NotAfter = day.Close.UTC()
 		}

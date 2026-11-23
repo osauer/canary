@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -13,7 +14,9 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v3/internal/config"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
 	"github.com/osauer/canary/v3/internal/marketcal"
+	"github.com/osauer/canary/v3/internal/risk"
 	"github.com/osauer/canary/v3/internal/rpc"
 	"github.com/osauer/canary/v3/pkg/ibkr/twssim"
 )
@@ -68,6 +71,41 @@ func planDesk(t *testing.T, strike float64, qty float64) (*simDesk, rpc.Contract
 	book.SetPosition(planSYNA, 2000, 48)
 	d := startSimDesk(t, twssim.Options{Book: book}, true)
 	return d, rpc.ContractParams{ConID: id, Symbol: "SYNA", SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: exps[3], Strike: strike, Right: "C", Multiplier: 100, TradingClass: "SYNA"}
+}
+
+// planEURDesk is a desk on a EUR-base book holding the same USD line: 20
+// SYNA calls at 50 beside 2,000 SYNA shares, with USD cash.
+func planEURDesk(t *testing.T) (*simDesk, rpc.ContractParams) {
+	t.Helper()
+	setSessions(t, true)
+	book, err := twssim.ParseBook([]byte(`{"account": "U1234567", "base_currency": "EUR", "cash": {"EUR": 40000, "USD": 100000}, "fx": {"USD": 0.92},
+  "positions": [
+    {"con_id": 900001, "symbol": "SYNA", "sec_type": "STK", "currency": "USD", "exchange": "SMART", "primary_exchange": "NASDAQ", "quantity": 2000, "avg_cost": 48, "last": 50},
+    {"con_id": 930101, "symbol": "SYNA", "sec_type": "OPT", "currency": "USD", "exchange": "SMART", "trading_class": "SYNA", "underlying_con_id": 900001, "right": "C", "strike": 50, "expiry": "+8w", "multiplier": 100, "quantity": 20, "avg_cost": 250, "last": 3}
+  ]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	book.SetPrice(planSYNA, 50) // the call takes its model price from the stock
+	in, ok := book.Contract(930101)
+	if !ok || book.Base() != "EUR" {
+		t.Fatalf("EUR book: %+v", in)
+	}
+	d := startSimDesk(t, twssim.Options{Book: book}, true)
+	return d, rpc.ContractParams{ConID: in.ConID, Symbol: "SYNA", SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: in.Expiry, Strike: 50, Right: "C", Multiplier: 100, TradingClass: "SYNA"}
+}
+
+// forEachPlanBook runs a scenario on the USD-base option book and on a
+// EUR-base book holding the same USD line.
+func forEachPlanBook(t *testing.T, run func(*testing.T, *simDesk, rpc.ContractParams)) {
+	t.Run("usd-base", func(t *testing.T) {
+		d, opt := planDesk(t, 50, 20)
+		run(t, d, opt)
+	})
+	t.Run("eur-base", func(t *testing.T) {
+		d, opt := planEURDesk(t)
+		run(t, d, opt)
+	})
 }
 
 func (d *simDesk) optionPrice(conID int) float64 {
@@ -192,8 +230,9 @@ func (d *simDesk) planWatchView(id string) rpc.QueuedTrailWatch {
 // X1. Rally then give-back: the first sale sends 10 after the wait and
 // fills; the stock rises and the line rises with it; the stock falls to the
 // line and the trail sells the remaining 10, once.
-func TestSimulatedTWSExitPlanRallyThenGiveBack(t *testing.T) {
-	d, opt := planDesk(t, 50, 20)
+func TestSimulatedTWSExitPlanRallyThenGiveBack(t *testing.T) { forEachPlanBook(t, rallyThenGiveBack) }
+
+func rallyThenGiveBack(t *testing.T, d *simDesk, opt rpc.ContractParams) {
 	start := planStartIn(t, 8*time.Second, 0)
 	minPrice := roundPrice(d.optionPrice(opt.ConID) * 0.9)
 	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: minPrice}, Trail: planTrail(48.50)})
@@ -249,8 +288,9 @@ func TestSimulatedTWSExitPlanRallyThenGiveBack(t *testing.T) {
 
 // X2. A red open: the stock is under the starting stop at the first check.
 // The first sale is withdrawn unsent and one order sells all 20.
-func TestSimulatedTWSExitPlanRedOpen(t *testing.T) {
-	d, opt := planDesk(t, 50, 20)
+func TestSimulatedTWSExitPlanRedOpen(t *testing.T) { forEachPlanBook(t, redOpen) }
+
+func redOpen(t *testing.T, d *simDesk, opt rpc.ContractParams) {
 	planStartIn(t, 6*time.Second, 0)
 	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: 0.05}, Trail: planTrail(50.50)})
 	first, trail := ids[0], ids[1]
@@ -826,4 +866,138 @@ func TestSimulatedTWSExitPlanLatchSurvivesARestart(t *testing.T) {
 	if sells := d.planSells(opt.ConID); len(sells) != 1 || rec.QuantitySent != 20 {
 		t.Fatalf("%d sells, sent %d", len(sells), rec.QuantitySent)
 	}
+}
+
+// planFreeze sets the trading freeze as the owner's settings write does.
+func (d *simDesk) planFreeze(on bool) {
+	d.t.Helper()
+	if err := d.srv.platformSettings.updateWithAudit(d.t.Context(), time.Now(), rpc.OrderOriginHumanTTY, []string{"trading.freeze"}, func(s *platformSettingsData) error {
+		s.Trading.Freeze = new(on)
+		return nil
+	}); err != nil {
+		d.t.Fatal(err)
+	}
+}
+
+// X15. At a stress open the plan's signed wait stands for the trail, a
+// protective exit; the first sale, a discretionary sale, waits the longer
+// of the plan's wait and the stress open's 30 minutes.
+func TestSimulatedTWSExitPlanStressOpen(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, 10*time.Minute, 0)
+	d.srv.rulesRegimeStageMu.Lock()
+	d.srv.rulesRegimeStage = rulesRegimeStageState{Version: rulesRegimeStageStateVer, Bucket: risk.RegimeBucketConfirmed, Stage: rpc.LifecycleQuiet, AsOf: time.Now()}
+	d.srv.rulesRegimeStageMu.Unlock()
+	if !d.srv.regimeStressOpen(time.Now()) {
+		t.Fatal("the fixture does not read confirmed stress")
+	}
+	q := d.preparePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: 0.05}, Trail: planTrail(48.50)})
+	if !q.Accepted {
+		t.Fatalf("prepare at a stress open: %+v", q.Blockers)
+	}
+	session, _ := d.srv.previewSession(marketcal.MarketUSOptions, time.Now())
+	first, trail := q.Plan.Queues[0].Terms, q.Plan.Queues[1].Terms
+	if !trail.NotBefore.Equal(session.Open.Add(planWait*time.Minute).UTC()) || !first.NotBefore.Equal(session.Open.Add(readinessStressOptionsOpeningOffset).UTC()) ||
+		!first.NotAfter.Equal(first.NotBefore.Add(time.Hour)) {
+		t.Fatalf("open %s: first sale from %s to %s, trail from %s", session.Open, first.NotBefore, first.NotAfter, trail.NotBefore)
+	}
+	// A wait above the stress offset stands for both.
+	long := d.preparePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: 45, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10, MinPrice: 0.05}, Trail: planTrail(48.50)})
+	if !long.Accepted || !long.Plan.Queues[0].Terms.NotBefore.Equal(long.Plan.Queues[1].Terms.NotBefore) {
+		t.Fatalf("a 45-minute wait at a stress open: %+v", long)
+	}
+}
+
+// X16. Trading frozen, configuration pausing automation, and a protection
+// policy that changed after signing each hold a fired trail as the queue
+// rules say; the watch keeps reading the stock meanwhile and nothing is sent
+// until each clears.
+func TestSimulatedTWSExitPlanHoldsUnderFreezePauseAndPolicyChange(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -10*time.Minute, 0)
+	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
+	d.planFreeze(true)
+	d.planStock(52)
+	d.planWaitRecord("the watch to raise the stop under the freeze", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.StopPrice == 50.44 })
+	d.planStock(50)
+	d.planWaitRecord("the trail to fire and hold frozen", trail, 60*time.Second, func(r queuedAuthRecord) bool {
+		return !r.Watch.TriggeredAt.IsZero() && r.HoldCode == rpc.ReadinessTradingFrozen
+	})
+	d.srv.addConfigIssue(config.Issue{Key: "[trading]", Problem: "synthetic: runs on Canary's defaults"})
+	d.planFreeze(false)
+	d.srv.tradeProposals.Kick()
+	d.planWaitRecord("the trail to hold on the paused configuration", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.HoldCode == queuedHoldConfigPaused })
+	// The policy the trail was signed under is no longer the one in force.
+	if err := d.srv.tradeProposals.queued.update(t.Context(), time.Now(), func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[trail]
+		r.Terms.PolicyFingerprint.Key += "-before"
+		r.TermsDigest, _ = queuedTermsDigest(r.Terms)
+		return []queuedAuthEvent{r.note("fixture", r.State, time.Now())}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d.srv.configIssuesMu.Lock()
+	d.srv.configIssues = nil
+	d.srv.configIssuesMu.Unlock()
+	d.srv.tradeProposals.Kick()
+	rec := d.planWaitRecord("the trail to hold on the policy change", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.HoldCode == "queue_policy_changed" })
+	time.Sleep(12 * time.Second)
+	rec = d.queuedRecord(trail)
+	if n := len(d.planSells(opt.ConID)); n != 0 || !rec.waiting() || rec.Watch.TriggeredAt.IsZero() {
+		t.Fatalf("held: %s %s, %d sells", rec.State, rec.HoldCode, n)
+	}
+}
+
+// X17. The broker link drops and returns mid-watch, with the stock moved
+// under the line meanwhile: the trail fires only on reads after the link
+// returned and sells once.
+func TestSimulatedTWSExitPlanBrokerLinkDrops(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -10*time.Minute, 0)
+	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+	d.sim.Book().SetPrice(planSYNA, 47)
+	d.sim.DropSessions()
+	rec := d.planWaitRecord("the trail to sell after the link returned", trail, 120*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	if sells := d.planSells(opt.ConID); len(sells) != 1 || rec.QuantitySent != 20 || rec.Watch.TriggerPrice != 47 {
+		t.Fatalf("%d sells, sent %d, %+v", len(sells), rec.QuantitySent, rec.Watch)
+	}
+	// It was unwatched while the link was down, and fired only after.
+	var order []string
+	for _, ev := range queuedEventsFor(t, d, trail) {
+		switch {
+		case ev.Type == queuedEventHeld && ev.ReasonCode == queuedHoldStockQuote:
+			order = append(order, "unwatched")
+		case ev.Type == queuedEventResumed:
+			order = append(order, "resumed")
+		case ev.Type == queuedEventTriggered:
+			order = append(order, "triggered")
+		}
+	}
+	// The simulator's reconnect can beat the next read, so a read while the
+	// link is down is logged when it happens, not required; when one did, it
+	// held the trail unwatched and a later read resumed it before it fired.
+	if i := slices.Index(order, "unwatched"); i >= 0 && !slices.Contains(order[i:slices.Index(order, "triggered")], "resumed") {
+		t.Fatalf("watch transitions %v", order)
+	}
+	t.Logf("watch transitions: %v", order)
+}
+
+func queuedEventsFor(t *testing.T, d *simDesk, id string) []queuedAuthEvent {
+	t.Helper()
+	d.srv.tradeProposals.queued.mu.Lock()
+	core := d.srv.tradeProposals.queued.core
+	d.srv.tradeProposals.queued.mu.Unlock()
+	rows, err := core.LoadEvents(t.Context(), corestore.EventQuery{Type: queuedCoreEventType})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out []queuedAuthEvent
+	for _, row := range rows {
+		var ev queuedAuthEvent
+		if json.Unmarshal(row.PayloadJSON, &ev) == nil && ev.QueueID == id {
+			out = append(out, ev)
+		}
+	}
+	return out
 }

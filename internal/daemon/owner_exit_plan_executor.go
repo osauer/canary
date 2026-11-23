@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/rpc"
@@ -234,6 +235,11 @@ func (e *proposalEngine) readTrailStock(ctx context.Context, rec queuedAuthRecor
 	if spread := (ask - bid) / mid * 100; spread > limit {
 		return unusable(fmt.Sprintf("the stock's spread is %.2f%% of its midpoint, above the %.2f%% limit; nothing can fire on it", spread, limit))
 	}
+	// A halt or a limit-up-limit-down pause can leave the last quote
+	// standing; it is never a price to sell on.
+	if why := stockHaltReason(s.marketEventsForSymbols(ctx, []string{underlying.Symbol}), underlying.Symbol); why != "" {
+		return unusable(why)
+	}
 	at = q.PriceAt
 	if at.IsZero() {
 		at = q.AsOf
@@ -348,6 +354,17 @@ func (e *proposalEngine) queuedTrailTick(now time.Time) (time.Duration, bool) {
 		}
 	}
 	return tick, ok
+}
+
+// stockHaltReason names an active trading halt or limit-up-limit-down pause
+// of symbol in the market-event flags, or "".
+func stockHaltReason(events rpc.MarketEventsResult, symbol string) string {
+	for _, flag := range events.BySymbol[strings.ToUpper(strings.TrimSpace(symbol))] {
+		if flag.Status == rpc.MarketEventStatusActive && (flag.ID == rpc.MarketEventHaltRegulatoryOrNews || flag.ID == rpc.MarketEventLULDRecent) {
+			return "the stock is halted or paused (" + nonEmptyString(flag.Label, flag.ID) + "); its last quote is no price to fire on"
+		}
+	}
+	return ""
 }
 
 // trailSendQuantity is what a trail sells now: what is held, never more than

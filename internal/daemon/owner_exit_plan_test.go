@@ -266,3 +266,39 @@ func TestQueuedTrailTickOnlyInsideTheWindow(t *testing.T) {
 		t.Fatal("ticks for an ended trail")
 	}
 }
+
+// A halt or a limit-up-limit-down pause on the stock makes its quote no
+// price to fire on; a recent, ended one does not.
+func TestStockHaltReason(t *testing.T) {
+	events := rpc.MarketEventsResult{BySymbol: map[string][]rpc.MarketEventFlag{
+		"SYNA": {{ID: rpc.MarketEventHaltRegulatoryOrNews, Status: rpc.MarketEventStatusActive, Label: "Halt"}},
+		"SYNB": {{ID: rpc.MarketEventLULDRecent, Status: rpc.MarketEventStatusActive, Label: "LULD active"}},
+		"SYNC": {{ID: rpc.MarketEventHaltRegulatoryOrNews, Status: rpc.MarketEventStatusRecent}},
+	}}
+	for symbol, halted := range map[string]bool{"SYNA": true, "syna": true, "SYNB": true, "SYNC": false, "SYNX": false} {
+		if got := stockHaltReason(events, symbol) != ""; got != halted {
+			t.Errorf("%s: halted %v, want %v", symbol, got, halted)
+		}
+	}
+}
+
+// The plan's sales close or reduce a held long line, so neither the
+// drawdown brake nor a sell-only (risk-adding) gate ever holds them.
+func TestExitPlanSalesNeverAddRisk(t *testing.T) {
+	s := &Server{}
+	first, trail := exitPlanTestTerms()
+	for _, tc := range []struct {
+		terms  rpc.QueuedAuthTerms
+		after  float64
+		effect string
+	}{{first, 10, rpc.OrderPositionEffectReduce}, {trail, 0, rpc.OrderPositionEffectClose}} {
+		draft := rpc.OrderDraft{Action: "SELL", Contract: tc.terms.Contract, Quantity: tc.terms.MaxQuantity}
+		impact := rpc.OrderPositionImpact{Before: 20, After: tc.after, Effect: tc.effect}
+		if s.riskAddingOrder(draft, impact) {
+			t.Fatalf("%s reads as adding risk", tc.terms.OwnerOrder.Plan.Role)
+		}
+		if b, _ := s.riskPolicyBrake(draft, impact); b != nil {
+			t.Fatalf("%s braked: %+v", tc.terms.OwnerOrder.Plan.Role, b)
+		}
+	}
+}
