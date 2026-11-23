@@ -53,10 +53,6 @@ type CapitalInput struct {
 	Now               time.Time
 }
 
-// Capital is the mandate's capital state: the risk base, the budget base,
-// the drawdown from the high-water mark and the room left under D. Known is
-// false, with Reasons, whenever the evidence cannot establish them; the
-// numbers are then zero and must not be read.
 // Capital hold codes: a suspected cash flow that can still clear by itself
 // (a declared flow, executions or the move undone), and one that needs a
 // statement because a restart left the broker's P&L basis ambiguous.
@@ -73,6 +69,10 @@ type CapitalHold struct {
 	Reason   string    `json:"reason"`
 }
 
+// Capital is the mandate's capital state: the risk base, the budget base,
+// the drawdown from the high-water mark and the room left under D. Known is
+// false, with Reasons, whenever the evidence cannot establish them; the
+// numbers are then zero and must not be read.
 type Capital struct {
 	Known   bool     `json:"known"`
 	Reasons []string `json:"reasons,omitempty"`
