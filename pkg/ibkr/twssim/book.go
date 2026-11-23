@@ -278,15 +278,26 @@ func (b *Book) StockConID(symbol string) (int, bool) {
 // Contract returns a listed contract.
 func (b *Book) Contract(conID int) (Instrument, bool) { return b.instrument(conID) }
 
-// Position returns a holding and whether the book holds it.
+// Position returns a holding and whether the book holds it (a line closed
+// this session is not held; it stays a zero row on the streams).
 func (b *Book) Position(conID int) (Position, bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	p, ok := b.pos[conID]
-	if !ok {
+	if !ok || p.Quantity == 0 {
 		return Position{}, false
 	}
 	return *p, true
+}
+
+// ClosePosition takes a holding flat during the session: it stays a zero
+// row on the account and position streams, as a closed line does at TWS.
+func (b *Book) ClosePosition(conID int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if p := b.pos[conID]; p != nil {
+		p.Quantity = 0
+	}
 }
 
 // Cash is the native cash of a currency.
@@ -625,10 +636,11 @@ func (b *Book) fillLocked(order *Order, in Instrument, shares, price float64, no
 	if (p.Quantity >= 0) == (signed > 0) && p.Quantity+signed != 0 {
 		p.AvgCost = (p.AvgCost*math.Abs(p.Quantity) + price*multiplier(in)*shares) / (math.Abs(p.Quantity) + shares)
 	}
+	// A line a fill takes flat stays as a zero row for the session: TWS keeps
+	// sending updatePortfolio and position callbacks with position 0 for it
+	// (assumed from the official client's callbacks, which carry closed
+	// lines at zero).
 	p.Quantity += signed
-	if p.Quantity == 0 {
-		delete(b.pos, in.ConID)
-	}
 	b.execSeq++
 	ex := Execution{
 		ExecID: fmt.Sprintf("0000sim.%08d.01.01", b.execSeq), OrderID: order.OrderID, PermID: order.PermID, ClientID: order.ClientID,

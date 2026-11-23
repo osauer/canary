@@ -193,7 +193,11 @@ func control(sim *twssim.Server, args []string, now time.Time) (any, error) {
 		if _, listed := sim.Book().Contract(conID); !listed {
 			return nil, fmt.Errorf("contract %d is not listed", conID)
 		}
-		sim.Book().SetPosition(conID, qty, avg)
+		if qty == 0 {
+			sim.Book().ClosePosition(conID)
+		} else {
+			sim.Book().SetPosition(conID, qty, avg)
+		}
 		sim.PushAccount()
 		return nil, nil
 	case "options":
