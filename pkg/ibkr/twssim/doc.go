@@ -54,6 +54,17 @@
 //	error 10354 for attachedOrders (Options, off by default) read from the
 //	                                                        10.50 bytecode
 //	WSH requests answered with error 10276                  assumed
+//	an SEHK listing's board lot carried as minSize,         assumed
+//	  sizeIncrement and suggestedSizeIncrement (100), valid
+//	  exchanges without SMART, the HKEX spread table as its
+//	  market rule
+//	a stock order off its board lot rejected, on WhatIf     assumed
+//	  and on place, error 201 with a reason naming the lot
+//	reqMatchingSymbols: stocks whose symbol or company name assumed
+//	  starts with the pattern, by contract id, at most 16,
+//	  no derivative sec types
+//	a cash debit (a buy in a currency not held) reported    assumed
+//	  as a negative CashBalance and SettledCash row
 //	BUY orders, parentId with transmit false, BAG orders    never sent live
 //
 // Live-proven by past fills on the real account, so modelled from fact: STK

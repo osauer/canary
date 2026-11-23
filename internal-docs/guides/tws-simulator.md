@@ -1,6 +1,6 @@
 # The TWS Simulator
 
-Updated: 2026-11-23 01:21 CET
+Updated: 2026-11-23 06:54 CET
 
 ## What it is
 
@@ -82,7 +82,22 @@ Control it while it runs with `canary-sim ctl -dir D COMMAND`.
 - `frames [SINCE]`, `orders`
 - `drop`, `account CODE`
 
-Exchange sessions start as the official calendar has them now.
+Exchange sessions start as the official calendar has them now. Markets:
+`us_equity`, `us_options`, `de_xetra`, `uk_lse` and `hk_hkex`.
+
+A Hong Kong listing: `SYNH` (contract id 900701) trades on SEHK in HKD, not
+on SMART. Its contract details carry a board lot of 100 (minSize,
+sizeIncrement, suggestedSizeIncrement), the HKEX spread table (market rule
+4) and the Asia/Hong_Kong time zone. Its ADR, `SYNH` on NYSE in USD
+(900702), has the same company name, so a symbol search returns both. The
+book lists `USD.HKD` at 7.8 and holds no HKD: a buy on borrowed HKD
+(`buy_stock_on_borrowed_currency = true` in the protection policy) leaves a
+negative HKD cash row, and `ctl cash HKD AMOUNT` funds the native case.
+Two behaviours here are assumed, not captured from IBKR: that the board
+lot arrives in those size fields, and that an order off the lot is
+rejected (error 201, the reason naming the lot) on WhatIf and on place.
+`reqMatchingSymbols` answers stocks whose symbol or company name starts
+with the pattern, at most 16.
 
 Index protection without a real ticker: `SYNX` is a synthetic index fund at
 600, listed as a hedge symbol in the simulator's Rulebook. On the default

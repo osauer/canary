@@ -94,8 +94,11 @@ Brokers does not route these listings through SMART. The preview names the excha
 and is judged on that market's hours, lunch break included. Interactive Brokers'
 Adaptive algorithm runs only on SMART, so these orders go as plain limits: a
 reduction says so in its terms, and asking for Adaptive by hand is refused with the
-reason. Interactive Brokers decides the rest, such as board lots and price steps, in
-its answer to the preview. Read that answer before you confirm.
+reason. Where Interactive Brokers states a share's minimum size and size step, a
+stock addition must be a whole lot: a smaller or uneven quantity is held with the
+lot named, and the maximum is sized in whole lots. Interactive Brokers decides the
+rest, such as price steps, in its answer to the preview. Read that answer before you
+confirm.
 
 Canary checks a cross-currency order against your per-order limit with a live quote
 from IDEALPRO, Interactive Brokers' currency market. HKD has a pair with EUR, GBP,

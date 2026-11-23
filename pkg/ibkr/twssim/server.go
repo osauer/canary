@@ -381,11 +381,11 @@ func (ss *session) dispatch(f Frame) {
 	case reqHeadTimestamp:
 		ss.text(msgHeadTimestamp, field(fs, 0), "20100104-14:30:00")
 	case reqMarketRule:
-		ss.text(msgMarketRule, field(fs, 0), "1", "0", "0.01")
+		ss.text(msgMarketRule, append([]string{field(fs, 0)}, marketRuleFields(atoi(field(fs, 0)))...)...)
 	case reqSecDefOptParams:
 		ss.optionParams(atoi(field(fs, 0)), field(fs, 1), atoi(field(fs, 4)))
 	case reqMatchingSymbols:
-		ss.text(msgSymbolSamples, field(fs, 0), "0")
+		ss.text(msgSymbolSamples, symbolSampleFields(atoi(field(fs, 0)), ss.srv.book.matchingStocks(field(fs, 1)))...)
 	case reqAllOpenOrders, reqOpenOrders:
 		ss.openOrders(f.MsgID == reqAllOpenOrders)
 	case reqCompletedOrders:
@@ -528,16 +528,13 @@ func (ss *session) contractDetails(reqID int, q contractQuery) {
 // version field; lastTradeDate, size rules and ineligibility reasons present).
 func contractDetailsFields(reqID int, in Instrument) []string {
 	orderTypes := "LMT,MKT,STP,STPLMT,TRAIL,TRAILLIMIT,REL"
-	valid := "SMART," + in.PrimaryExch
-	switch in.SecType {
-	case "OPT":
-		valid = "SMART,AMEX,CBOE,ISE"
-	case "STK":
-	default:
-		valid = in.Exchange
+	valid := in.validExchanges()
+	rule := in.MarketRule
+	if rule == 0 {
+		rule = 26
 	}
 	// One market rule per valid exchange, in the same order, as TWS lists them.
-	rules := strings.TrimSuffix(strings.Repeat("26,", strings.Count(valid, ",")+1), ",")
+	rules := strings.TrimSuffix(strings.Repeat(itoa(rule)+",", strings.Count(valid, ",")+1), ",")
 	stockType := ""
 	if in.SecType == "STK" {
 		stockType = "COMMON"
@@ -547,7 +544,7 @@ func contractDetailsFields(reqID int, in Instrument) []string {
 		strike, mult, under, underType, month = num(in.Strike), num(multiplier(in)), itoa(in.UnderConID), "STK", in.Expiry[:6]
 		orderTypes = "LMT,MKT,STP,STPLMT,REL,COMBO"
 	}
-	return []string{itoa(reqID), in.Symbol, in.SecType, in.Expiry, in.Expiry, strike, in.Right, in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), mult, orderTypes, valid, itoa(max(in.PriceMagnifier, 1)), under, in.LongName, in.PrimaryExch, month, "", "", "", "US/Eastern", "", "", "", "0", "0", "1", underSym, underType, rules, in.Expiry, stockType, "1", "1", "1", "0"}
+	return []string{itoa(reqID), in.Symbol, in.SecType, in.Expiry, in.Expiry, strike, in.Right, in.Exchange, in.Currency, in.LocalSymbol, in.TradingClass, in.TradingClass, itoa(in.ConID), num(in.MinTick), mult, orderTypes, valid, itoa(max(in.PriceMagnifier, 1)), under, in.LongName, in.PrimaryExch, month, "", "", "", timeZoneOf(in), "", "", "", "0", "0", "1", underSym, underType, rules, in.Expiry, stockType, num(in.lot()), num(in.lot()), num(in.lot()), "0"}
 }
 
 // optionPositionExchange is the exchange a held option's portfolio row
@@ -823,4 +820,45 @@ func (ss *session) executions(reqID int) {
 	end = end.varint(1, int64(reqID))
 	out = append(out, protoMessage(msgExecDetailsEnd, end))
 	ss.send(out...)
+}
+
+// timeZoneOf is the time zone id contract details carry for a listing.
+func timeZoneOf(in Instrument) string {
+	if marketOf(in) == MarketHKHKEX {
+		return "Asia/Hong_Kong"
+	}
+	return "US/Eastern"
+}
+
+// MarketRuleHK is the simulator's id for a Hong Kong price grid.
+const MarketRuleHK = 4
+
+// marketRuleFields answers reqMarketRule: the count, then each band's low
+// edge and increment. Rule MarketRuleHK is the Hong Kong spread table (as
+// HKEX publishes it, here with invented ids); every other rule is one cent.
+func marketRuleFields(rule int) []string {
+	if rule != MarketRuleHK {
+		return []string{"1", "0", "0.01"}
+	}
+	bands := [][2]string{{"0", "0.001"}, {"0.25", "0.005"}, {"0.5", "0.01"}, {"10", "0.02"}, {"20", "0.05"}, {"100", "0.1"}, {"200", "0.2"}, {"500", "0.5"}, {"1000", "1"}, {"2000", "2"}, {"5000", "5"}}
+	out := []string{itoa(len(bands))}
+	for _, b := range bands {
+		out = append(out, b[0], b[1])
+	}
+	return out
+}
+
+// maxSymbolSamples is the most matches reqMatchingSymbols answers, as TWS.
+const maxSymbolSamples = 16
+
+// symbolSampleFields is the symbolSamples layout at server version 203
+// (EDecoder.processSymbolSamplesMsg): reqId, count, then per contract conId,
+// symbol, secType, primary exchange, currency, the derivative sec types
+// (count and list), description and issuer id.
+func symbolSampleFields(reqID int, found []Instrument) []string {
+	out := []string{itoa(reqID), itoa(len(found))}
+	for _, in := range found {
+		out = append(out, itoa(in.ConID), in.Symbol, in.SecType, in.PrimaryExch, in.Currency, "0", in.LongName, "")
+	}
+	return out
 }

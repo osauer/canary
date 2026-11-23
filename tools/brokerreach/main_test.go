@@ -12,7 +12,8 @@ import (
 // The fixture daemon has one route per way a handler can reach the IBKR
 // connector. Only a read outside the seam counts, a callback's included; the
 // order-write route is not counted, and building the route table reaches no
-// handler.
+// handler. A route that sends a frame through the seam does not reach the
+// order-write path's wire guard, which the connector's send calls.
 func TestAnalyseFindsReadsOutsideTheSeam(t *testing.T) {
 	got, err := analyse(filepath.Join("testdata", "fixture"), "")
 	if err != nil {
@@ -25,9 +26,9 @@ func TestAnalyseFindsReadsOutsideTheSeam(t *testing.T) {
 	if !maps.EqualFunc(got.routes, want, slices.Equal) {
 		t.Errorf("routes = %v, want %v", got.routes, want)
 	}
-	// handleDirect, handleCallback$1 and handleOrder read outside the seam;
-	// the seam's own gatewayConnector call in brokerReads counts in calls only.
-	if len(got.sites) != 3 || got.calls != 3 {
+	// handleDirect, handleCallback$1, handleOrder and its guard read outside
+	// the seam; the seam's own gatewayConnector call counts in calls only.
+	if len(got.sites) != 4 || got.calls != 4 {
 		t.Errorf("sites = %v, calls = %d", got.sites, got.calls)
 	}
 }

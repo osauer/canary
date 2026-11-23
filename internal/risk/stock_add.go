@@ -5,6 +5,8 @@ import (
 	"maps"
 	"math"
 	"slices"
+	"strconv"
+	"strings"
 )
 
 // StockAddAdmissionV1 names the complete, separately approved stock-entry contract.
@@ -78,6 +80,14 @@ type StockAddCash struct {
 	AccountReserveBase      float64 `json:"account_reserve_base"`
 	OtherReserveFundingBase float64 `json:"other_reserve_funding_base"`
 	Spendable               float64 `json:"spendable"`
+	// BorrowAllowed marks a stated purchase that may borrow its own currency
+	// against the account's other cash (buy_stock_on_borrowed_currency):
+	// Spendable then includes that borrowing. Borrowed is the debit the
+	// exact purchase creates in Currency, which its warning names.
+	BorrowAllowed   bool    `json:"borrow_allowed,omitempty"`
+	Currency        string  `json:"currency,omitempty"`
+	Borrowed        float64 `json:"borrowed,omitempty"`
+	BorrowSpendable float64 `json:"-"`
 }
 
 // StockAddMargin is the exact candidate's broker-simulated headroom in base currency.
@@ -497,6 +507,15 @@ func CheckStockAdd(in StockAddInput) StockAddPlan {
 		return hold(stockAddRiskKind(in, in.Requested), "add_risk_hold", reason)
 	}
 	out.Warnings = stockAddWarnings(in, in.Requested)
+	if c := in.Cash; c != nil && c.BorrowAllowed {
+		if borrowed := out.Cost - max(0, c.Available-c.Committed); borrowed > 0.005 {
+			cash := *c
+			cash.Borrowed = borrowed
+			out.Cash = &cash
+			out.Warnings = append(out.Warnings, StockAddBlocker{Kind: "warning", Code: "add_borrowed_currency",
+				Message: fmt.Sprintf("This purchase borrows %s %s; your cash in other currencies covers it. IBKR charges interest on the borrowed %s until you convert.", stockAddAmount(borrowed), c.Currency, c.Currency)})
+		}
+	}
 	out.Quantity = in.Requested
 	out.After = in.CurrentQuantity + float64(in.Requested)
 	out.StockPctAfter = (in.StockValueBase + float64(in.Requested)*in.Price*in.FX) / *in.Rules.NLVBase * 100
@@ -517,3 +536,18 @@ func stockAddBlockerKind(code string) string {
 }
 
 func finiteStockAdd(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) }
+
+// stockAddAmount writes a currency amount with thousands separators and
+// whole units, rounded up so a stated debit is never understated.
+func stockAddAmount(v float64) string {
+	n := int64(math.Ceil(v))
+	digits := strconv.FormatInt(n, 10)
+	var b strings.Builder
+	for i, r := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}

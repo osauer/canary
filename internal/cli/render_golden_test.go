@@ -259,6 +259,17 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "portfolio_plan", argv: []string{"portfolio", "plan"}, conn: goldenConn{rpc.MethodPortfolioPlan: goldenPortfolioPlan()}},
 		{name: "portfolio_plan_held", argv: []string{"portfolio", "plan"}, conn: goldenConn{rpc.MethodPortfolioPlan: rpc.PortfolioPlanResult{State: "held", Reason: "Current portfolio evidence is incomplete.", Blockers: []rpc.TradingBlocker{{Code: "portfolio_book_unavailable", Message: "A complete same-session account and portfolio are required."}}}}},
 		{name: "add_plan", argv: []string{"add", "plan", "SYNA", "--currency", "USD", "--limit", "100", "--max"}, conn: goldenConn{rpc.MethodAddPlan: goldenStockAdd()}},
+		{name: "add_search", argv: []string{"add", "search", "9988"}, conn: goldenConn{rpc.MethodAddSearch: rpc.AddSearchResult{Query: "9988", Truncated: true, Listings: []rpc.AddSearchListing{
+			{Symbol: "9988", ConID: 880011, Name: "SYNTHETIC GROUP HOLDINGS", SecType: "STK", Currency: "HKD", PrimaryExchange: "SEHK", Exchange: "SEHK", Market: "hk_hkex"},
+			{Symbol: "SYNAX", ConID: 880010, Name: "SYNAX CORP", SecType: "STK", Currency: "USD", PrimaryExchange: "NYSE", Exchange: "SMART", Market: "us_equity"},
+		}}}},
+		{name: "add_borrowed_currency", render: func(env *Env) {
+			p := goldenStockAdd()
+			p.Currency, p.BaseCurrency, p.Sizing, p.MaximumKnown, p.RequestedQuantity = "HKD", "EUR", "quantity", false, 9
+			p.Cash = &risk.StockAddCash{AccountReserveBase: 1000, OtherReserveFundingBase: 1500, Spendable: 4445.45, BorrowAllowed: true, Currency: "HKD", Borrowed: 905}
+			p.Warnings = []risk.StockAddBlocker{{Kind: "warning", Code: "add_borrowed_currency", Message: "This purchase borrows 905 HKD; your cash in other currencies covers it. IBKR charges interest on the borrowed HKD until you convert."}}
+			renderAddPlan(env, p)
+		}},
 		{name: "add_fixed_stop", render: func(env *Env) { p := goldenStockAdd(); p.StopPrice = 95; renderAddPlan(env, p) }},
 		{name: "add_pair_status", render: func(env *Env) {
 			renderOrderStatusText(env, &rpc.OrderStatusResult{Found: true, Order: rpc.OrderView{OrderRef: "synthetic-entry", Symbol: "SYNA", Action: "BUY", Quantity: 10, Filled: 10, LifecycleStatus: rpc.OrderLifecycleFilled, AttachedStop: &rpc.AttachedStockStop{Price: 95}}, AttachedStop: &rpc.OrderView{OrderRef: "synthetic-stop", Remaining: 10, FixedStopPrice: 95, EntryState: "activation_pending"}}, "synthetic-entry")

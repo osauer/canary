@@ -29,6 +29,44 @@ type stockAddEvidence struct {
 	ordersGeneration    uint64
 	portfolioGeneration uint64
 	accountFingerprint  string
+	// lot is the broker's lot for the resolved stock.
+	lot stockLot
+}
+
+// stockLot is a stock's order size rule in whole shares: at least min and a
+// whole number of increments above it. Zero values read as one share.
+type stockLot struct{ min, increment int }
+
+func (l stockLot) normal() stockLot {
+	return stockLot{min: max(l.min, 1), increment: max(l.increment, 1)}
+}
+
+// fits reports whether q shares is a whole lot.
+func (l stockLot) fits(q int) bool {
+	return q >= l.min && (q-l.min)%l.increment == 0
+}
+
+// shares is n whole lots in shares (0 for none).
+func (l stockLot) shares(n int) int {
+	if n <= 0 {
+		return 0
+	}
+	return l.min + (n-1)*l.increment
+}
+
+// within is the most whole lots in q shares.
+func (l stockLot) within(q int) int {
+	if q < l.min {
+		return 0
+	}
+	return (q-l.min)/l.increment + 1
+}
+
+func (l stockLot) sentence(symbol string) string {
+	if l.min == l.increment {
+		return fmt.Sprintf("%s trades in lots of %d shares; choose a multiple of %d.", symbol, l.increment, l.increment)
+	}
+	return fmt.Sprintf("%s trades from %d shares in steps of %d; choose %d shares plus a multiple of %d.", symbol, l.min, l.increment, l.min, l.increment)
 }
 
 // stockAddProblem preserves the reason category across daemon evidence collection.
@@ -129,6 +167,15 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 	if p.Quantity > upper {
 		return held("capacity", "add_quantity_above_max", "The requested addition exceeds the current order allowance before broker costs.")
 	}
+	lot := ev.lot.normal()
+	if !p.Max && !lot.fits(p.Quantity) {
+		return held("capacity", "add_lot_size", lot.sentence(ev.contract.Symbol))
+	}
+	// The maximum is searched over whole lots: n lots is lot.shares(n).
+	upperLots := lot.within(upper)
+	if p.Max && upper > 0 && upperLots == 0 {
+		return held("capacity", "add_lot_size", lot.sentence(ev.contract.Symbol))
+	}
 	type candidate struct {
 		plan risk.StockAddPlan
 		fee  float64
@@ -181,24 +228,25 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 		}
 		return finish(c, false)
 	}
-	q, best := upper, 0
+	// n counts whole lots; with lots of one share, n is the share count.
+	n, best := upperLots, 0
 	for range stockAddQuoteBudget {
 		if err := ctx.Err(); err != nil {
 			return held("evidence", "add_search_incomplete", "The planning time budget ended before a maximum was established.")
 		}
-		c, err := quote(q)
+		c, err := quote(lot.shares(n))
 		if err != nil {
 			return held("evidence", "add_broker_evidence_unavailable", err.Error())
 		}
-		if c.plan.Quantity > best && len(c.plan.Blockers) == 0 {
-			best = q
+		if c.plan.Quantity > lot.shares(best) && len(c.plan.Blockers) == 0 {
+			best = n
 		}
-		out.SupportedQuantity = best
+		out.SupportedQuantity = lot.shares(best)
 		// Certification is exhaustive above the best accepted quantity. Even a
 		// discontinuous fee schedule cannot make an untested larger lot disappear.
-		next := upper
+		next := upperLots
 		for next > best {
-			if _, seen := checked[next]; !seen {
+			if _, seen := checked[lot.shares(next)]; !seen {
 				break
 			}
 			next--
@@ -207,32 +255,32 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 			if best == 0 {
 				return held("capacity", "add_no_capacity", "Every quantity within the order allowance failed its exact cash or margin check.")
 			}
-			return finish(checked[best], true)
+			return finish(checked[lot.shares(best)], true)
 		}
 		if best == 0 {
 			// Find one affordable witness early, but never use its fee to certify
 			// a different quantity. The untested upper interval is still checked.
-			affordable := max(0, int(math.Floor((ev.input.FreeCash-c.fee)/ev.input.Price)))
+			affordable := lot.within(max(0, int(math.Floor((ev.input.FreeCash-c.fee)/ev.input.Price))))
 			next = min(next, affordable)
-			if next >= q {
-				next = q / 2
+			if next >= n {
+				next = n / 2
 			}
 			if next == 0 {
 				next = 1
 			}
-			if _, seen := checked[next]; seen {
-				next = upper
+			if _, seen := checked[lot.shares(next)]; seen {
+				next = upperLots
 				for next > 0 {
-					if _, seen := checked[next]; !seen {
+					if _, seen := checked[lot.shares(next)]; !seen {
 						break
 					}
 					next--
 				}
 			}
 		}
-		q = next
+		n = next
 	}
-	return held("evidence", "add_search_incomplete", fmt.Sprintf("Maximum not established within the bounded broker search. %d additional shares passed an exact check; use an explicit quantity for a fresh review.", best))
+	return held("evidence", "add_search_incomplete", fmt.Sprintf("Maximum not established within the bounded broker search. %d additional shares passed an exact check; use an explicit quantity for a fresh review.", lot.shares(best)))
 }
 
 // stockAddWhatIfMargin applies only this draft's simulated margin change. The
@@ -265,12 +313,22 @@ func stockAddWhatIfMargin(in risk.StockAddInput, w rpc.OrderWhatIfResult, quanti
 
 // stockAddCashFunding leaves the account reserve funded once across measured
 // cash currencies, after every currency's float and fee-inclusive commitments.
-// Only the selected currency can pay for the stock; no FX or borrowing is created.
-func stockAddCashFunding(bucket *protectionCashSweepPolicy, ledger map[string]cashSweepLedgerRow, commitments cashSweepCommitments, currency string, reserve, rate float64) (*risk.StockAddCash, error) {
+// Spendable is paid from the selected currency only; no FX or borrowing is
+// created. With borrow (buy_stock_on_borrowed_currency) it also measures
+// BorrowSpendable = own free cash + (other free cash in base - reserve) /
+// rate: what the selected currency may spend going negative while the other
+// currencies' free cash beyond the reserve covers it. It is never below
+// Spendable and never lets the account's cash in base fall below the
+// reserve. A debit counts against the other currencies' cash; a debit
+// currency, or the selected one, with no float written keeps none.
+func stockAddCashFunding(bucket *protectionCashSweepPolicy, ledger map[string]cashSweepLedgerRow, commitments cashSweepCommitments, currency string, reserve, rate float64, borrow bool) (*risk.StockAddCash, error) {
 	out := &risk.StockAddCash{AccountReserveBase: reserve}
 	for _, ccy := range slices.Sorted(maps.Keys(ledger)) {
 		row := ledger[ccy]
 		keep, known := bucket.keepCash(ccy)
+		if !known && borrow && row.Observed && (ccy == currency || row.TradeDate < 0 || row.Settled != nil && *row.Settled < 0) {
+			keep, known = 0, true
+		}
 		if !known || !row.Observed || row.Settled == nil || !finiteProtectionOptionPolicyValue(*row.Settled) || !finiteProtectionOptionPolicyValue(row.TradeDate) || !positiveFinite(row.ExchangeRate) {
 			return nil, fmt.Errorf("settled cash, currency float and conversion are required for account reserve funding in %s", ccy)
 		}
@@ -288,7 +346,47 @@ func stockAddCashFunding(bucket *protectionCashSweepPolicy, ledger map[string]ca
 	}
 	out.ReserveInCurrency = max(0, reserve-out.OtherReserveFundingBase) / rate
 	out.Spendable = out.Available - out.Committed - out.CurrencyFloat - out.ReserveInCurrency
+	if borrow {
+		out.BorrowSpendable = max(out.Spendable, out.Available-out.Committed-out.CurrencyFloat+(out.OtherReserveFundingBase-reserve)/rate)
+	}
 	return out, nil
+}
+
+// stockAddNativeCash checks the stock's own currency row. With borrowing
+// allowed, a currency the account has never held has no ledger row: it reads
+// as observed zero (absent), for the stock's own currency only and only while
+// the base currency row is observed.
+func stockAddNativeCash(borrow bool, base string, ledger map[string]cashSweepLedgerRow, currency string) (absent bool, err error) {
+	row, ok := ledger[currency]
+	baseRow, baseOK := ledger[base]
+	absent = !ok && borrow && baseOK && baseRow.Observed && baseRow.Settled != nil && finiteProtectionOptionPolicyValue(*baseRow.Settled)
+	if !absent && (!ok || !row.Observed || row.Settled == nil || !finiteProtectionOptionPolicyValue(*row.Settled)) {
+		return false, fmt.Errorf("native settled cash is unavailable for %s", currency)
+	}
+	return absent, nil
+}
+
+// stockAddBorrowingHolds applies no_buy_while_borrowed to a stock add. With
+// borrowing allowed a debit no longer holds the add by itself: the funding
+// counts it against the other currencies' cash. Unknown cash still holds.
+func stockAddBorrowingHolds(borrow bool, b *rpc.CashSweepBorrowing) bool {
+	return b.HoldsBuys && (!borrow || len(b.Unknown) > 0)
+}
+
+// stockAddFunding is the add's cash: the native rule, unless a stated
+// purchase the currency's own cash cannot pay without going negative may
+// borrow it (buy_stock_on_borrowed_currency); the plan then warns with the
+// amount. Every other add, and every maximum, keeps the native rule.
+func stockAddFunding(bucket *protectionCashSweepPolicy, ledger map[string]cashSweepLedgerRow, commitments cashSweepCommitments, currency string, reserve, rate float64, p rpc.AddParams) (*risk.StockAddCash, error) {
+	borrow := bucket.buyStockOnBorrowedCurrency()
+	cash, err := stockAddCashFunding(bucket, ledger, commitments, currency, reserve, rate, borrow)
+	if err != nil {
+		return nil, err
+	}
+	if borrow && p.Quantity > 0 && float64(p.Quantity)*p.LimitPrice > max(0, cash.Available-cash.Committed) {
+		cash.Spendable, cash.Currency, cash.BorrowAllowed = cash.BorrowSpendable, currency, true
+	}
+	return cash, nil
 }
 
 func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAddEvidence, error) {
@@ -325,10 +423,11 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		return ev, fmt.Errorf("current broker session unavailable")
 	}
 	ev.broker = broker
-	contract, err := s.resolvePreviewOrderContract(ctx, broker, p.Contract, previewMinTickTimeout)
+	contract, lot, err := s.resolvePreviewOrderContractLot(ctx, broker, p.Contract, previewMinTickTimeout)
 	if err != nil {
 		return ev, err
 	}
+	ev.lot = lot
 	if contract.SecType != "STK" || contract.ConID <= 0 || contract.Symbol != p.Contract.Symbol || contract.Currency != p.Contract.Currency || (p.Contract.ConID > 0 && contract.ConID != p.Contract.ConID) {
 		return ev, fmt.Errorf("resolved stock identity differs from the selected instrument")
 	}
@@ -355,11 +454,12 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 	if why != "" {
 		return ev, fmt.Errorf("%s", why)
 	}
-	row, ok := ledger[contract.Currency]
-	if !ok || !row.Observed || row.Settled == nil || !finiteProtectionOptionPolicyValue(*row.Settled) {
-		return ev, fmt.Errorf("native settled cash is unavailable for %s", contract.Currency)
-	}
 	bucket := cashPolicy.Cash.Sweep
+	borrow := bucket.buyStockOnBorrowedCurrency()
+	absent, err := stockAddNativeCash(borrow, base, ledger, contract.Currency)
+	if err != nil {
+		return ev, err
+	}
 	if bucket == nil || bucket.ReserveFloorBase == nil || bucket.ReservePctNLV == nil || bucket.NoBuyWhileBorrowed == nil {
 		return ev, &stockAddProblem{kind: "policy", message: "account cash reserve is unapproved"}
 	}
@@ -367,12 +467,22 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		return ev, fmt.Errorf("net liquidation, base currency and margin headroom must be measured")
 	}
 	borrowing := cashSweepBorrowingFor(bucket, cashSweepInput{Ledger: ledger}, slices.Sorted(maps.Keys(ledger)))
-	if borrowing.HoldsBuys {
+	// With borrowing allowed, a debit no longer holds the add by itself: the
+	// funding below counts it against the other currencies' cash. Unknown cash
+	// still holds.
+	if stockAddBorrowingHolds(borrow, borrowing) {
 		return ev, fmt.Errorf("the approved cash policy holds new purchases while any currency is borrowed or unknown")
 	}
 	n, err := s.captureOrderNotionalAuthority(ctx, broker, p.LimitPrice, contract.Currency, base, orderPreviewDefaultWait)
 	if err != nil {
 		return ev, err
+	}
+	if absent {
+		if !positiveFinite(n.BasePerContract) {
+			return ev, fmt.Errorf("native settled cash is unavailable for %s", contract.Currency)
+		}
+		ledger = maps.Clone(ledger)
+		ledger[contract.Currency] = cashSweepLedgerRow{Observed: true, Settled: new(0.), ExchangeRate: n.BasePerContract}
 	}
 	reserve := max(*bucket.ReserveFloorBase, acct.NetLiquidation*(*bucket.ReservePctNLV)/100)
 	inventory, orderScope, err := s.brokerOpenOrderInventory(ctx, true)
@@ -404,7 +514,7 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		}
 		committedBase += amount * rate
 	}
-	cash, err := stockAddCashFunding(bucket, ledger, commitments, contract.Currency, reserve, n.BasePerContract)
+	cash, err := stockAddFunding(bucket, ledger, commitments, contract.Currency, reserve, n.BasePerContract, p)
 	if err != nil {
 		return ev, err
 	}

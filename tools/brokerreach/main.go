@@ -304,6 +304,9 @@ func reachable(graph *callgraph.Graph, roots []*ssa.Function, stops map[*ssa.Fun
 		queue = append(queue, funcValues(fn)...)
 		if node := graph.Nodes[fn]; node != nil {
 			for _, e := range node.Out {
+				if wireGuardCall(e.Site) {
+					continue
+				}
 				if !inModule(e.Callee.Func) {
 					continue
 				}
@@ -315,6 +318,65 @@ func reachable(graph *callgraph.Graph, roots []*ssa.Function, stops map[*ssa.Fun
 }
 
 const modulePath = "github.com/osauer/canary/v3"
+
+// wireGuardSend and wireGuardParam name the connector's send and its guard
+// parameter: the order-write path installs a wire guard there
+// ((*Server).brokerWireGuard), and every other send passes nil. The call
+// graph does not tell the sends apart, so calling the guard would join every
+// route that sends a frame to the write path's reads. The guard is the write
+// path's callback, which writeCapabilities already leave out, so the walk does
+// not follow that one call.
+const (
+	wireGuardSend  = "(*Connection).sendBoundFrames"
+	wireGuardParam = "guard"
+)
+
+// wireGuardCall reports a call of the send's guard parameter, directly or
+// from a closure inside the send.
+func wireGuardCall(site ssa.CallInstruction) bool {
+	if site == nil || site.Common().IsInvoke() {
+		return false
+	}
+	var owner *ssa.Function
+	value := site.Common().Value
+	// A parameter a closure captures is loaded through its cell.
+	if load, ok := value.(*ssa.UnOp); ok && load.Op == token.MUL {
+		value = load.X
+	}
+	switch v := value.(type) {
+	case *ssa.Parameter:
+		if v.Name() != wireGuardParam {
+			return false
+		}
+		owner = v.Parent()
+	case *ssa.FreeVar:
+		if v.Name() != wireGuardParam {
+			return false
+		}
+		owner = v.Parent()
+	case *ssa.Alloc:
+		if v.Comment != wireGuardParam {
+			return false
+		}
+		owner = v.Parent()
+	default:
+		return false
+	}
+	for owner != nil && owner.Parent() != nil {
+		owner = owner.Parent()
+	}
+	if owner == nil || owner.Pkg == nil || owner.Pkg.Pkg.Path() != modulePath+"/pkg/ibkr" || owner.RelString(owner.Pkg.Pkg) != wireGuardSend {
+		return false
+	}
+	// The parameter must be the send's own guard, not a same-named value of
+	// another function.
+	for _, p := range owner.Params {
+		if p.Name() == wireGuardParam {
+			return true
+		}
+	}
+	return false
+}
 
 // inModule reports whether fn is Canary's own code, or a wrapper the compiler
 // made for it. The walk does not enter the standard library or other modules:

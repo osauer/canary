@@ -6,9 +6,13 @@ import (
 	"slices"
 
 	"github.com/osauer/canary/v3/internal/rpc/api"
+	"github.com/osauer/canary/v3/pkg/ibkr"
 )
 
-type conn struct{ account string }
+type conn struct {
+	account string
+	wire    *ibkr.Connection
+}
 
 // Server holds the connector the way Canary's daemon does.
 type Server struct {
@@ -33,6 +37,7 @@ func (s *Server) routeTable() map[string]route {
 		api.Seamed.Name:   serve(api.Seamed, "positions", s.handleSeamed),
 		api.Order.Name:    serve(api.Order, "orders", s.handleOrder),
 		api.Lookup.Name:   serve(api.Lookup, "status", s.handleLookup),
+		api.Send.Name:     serve(api.Send, "positions", s.handleSend),
 	}
 }
 
@@ -70,10 +75,28 @@ func (s *Server) handleSeamed() (int, error) {
 }
 
 func (s *Server) handleOrder() (int, error) {
-	if s.gatewayConnector() == nil {
+	c := s.gatewayConnector()
+	if c == nil {
 		return 0, nil
 	}
-	return 1, nil
+	// The write path's wire guard re-reads the connector before the frame.
+	guard := func() error {
+		if s.gatewayConnector() == nil {
+			return nil
+		}
+		return nil
+	}
+	return 1, c.wire.SendGuarded(guard)
+}
+
+// handleSend sends a frame through the seam with no guard of its own; the
+// connector's guard call is the write path's callback, not this route's read.
+func (s *Server) handleSend() (int, error) {
+	c := s.brokerReads()
+	if c == nil {
+		return 0, nil
+	}
+	return 1, c.wire.Send()
 }
 
 func (s *Server) gatewayConnector() *conn {

@@ -27,6 +27,8 @@ func runAdd(ctx context.Context, env *Env, args []string) int {
 			return runAddMarket(ctx, env, append(append([]string{}, args[:i]...), args[i+1:]...))
 		case "call-plan":
 			return runAddCallPlan(ctx, env, append(append([]string{}, args[:i]...), args[i+1:]...))
+		case "search":
+			return runAddSearch(ctx, env, append(append([]string{}, args[:i]...), args[i+1:]...))
 		}
 		break
 	}
@@ -35,6 +37,7 @@ func runAdd(ctx context.Context, env *Env, args []string) int {
 	fs.Usage = func() {
 		usage()
 		helpLine(env, "", "plan checks a stock addition or opening; preview creates an exact order review for separate owner confirmation. Neither places an order.", nil)
+		helpLine(env, "", "search PATTERN finds stock listings by symbol or name and says which exchange and currency Add uses for each.", nil)
 		helpLine(env, "", "market reads stock quotes and discovers or refreshes calls; call-plan sizes an exact call using broker fee evidence. Both read one JSON object from stdin. Run canary add market --help or canary add call-plan --help for request fields and examples.", nil)
 	}
 	stop := fs.Float64("stop-price", 0, "fixed attached stop below entry; added shares only, GTC regular session")
@@ -119,7 +122,17 @@ func renderAddPlan(env *Env, p rpc.AddPlanResult) {
 	}
 	if p.Cash != nil {
 		c := p.Cash
-		riskReadLine(env, "Cash calculation", fmt.Sprintf("%.2f available − %.2f committed − %.2f currency float − %.2f account reserve = %.2f %s spendable", c.Available, c.Committed, c.CurrencyFloat, c.ReserveInCurrency, c.Spendable, p.Currency))
+		if c.BorrowAllowed {
+			// buy_stock_on_borrowed_currency: the other currencies' cash
+			// beyond the account reserve backs a debit in this currency.
+			other := c.Spendable - (c.Available - c.Committed - c.CurrencyFloat)
+			riskReadLine(env, "Cash calculation", fmt.Sprintf("%.2f available − %.2f committed − %.2f currency float + %.2f other currencies' cash beyond the account reserve = %.2f %s spendable", c.Available, c.Committed, c.CurrencyFloat, other, c.Spendable, p.Currency))
+			if c.Borrowed > 0 {
+				riskReadLine(env, "Borrowed", fmt.Sprintf("%.2f %s, a debit IBKR charges interest on until you convert", c.Borrowed, p.Currency))
+			}
+		} else {
+			riskReadLine(env, "Cash calculation", fmt.Sprintf("%.2f available − %.2f committed − %.2f currency float − %.2f account reserve = %.2f %s spendable", c.Available, c.Committed, c.CurrencyFloat, c.ReserveInCurrency, c.Spendable, p.Currency))
+		}
 		riskReadLine(env, "Account reserve", fmt.Sprintf("%.2f %s required; %.2f %s available outside this currency after floats and commitments", c.AccountReserveBase, p.BaseCurrency, c.OtherReserveFundingBase, p.BaseCurrency))
 	}
 	if p.Quantity > 0 && len(p.Blockers) == 0 {
@@ -165,6 +178,36 @@ func addBlockerKindLabel(kind string) string {
 	default:
 		return "More evidence needed"
 	}
+}
+
+// runAddSearch finds stock listings for a symbol or name. Read-only.
+func runAddSearch(ctx context.Context, env *Env, args []string) int {
+	fs := describedFlagSet(env, "add search", "Find stock listings by symbol or name; no orders placed", "canary add search PATTERN [--json]")
+	jsonOut := fs.Bool("json", false, "emit typed listings")
+	if err := fs.Parse(args); err != nil {
+		return parseExit(err)
+	}
+	if fs.NArg() != 1 {
+		return fail(env, "usage: canary add search PATTERN [--json]")
+	}
+	var out rpc.AddSearchResult
+	if err := rpc.Call(ctx, env.Conn, api.AddSearch, rpc.AddSearchParams{Pattern: fs.Arg(0)}, &out); err != nil {
+		return fail(env, "add search: %v", err)
+	}
+	if *jsonOut {
+		return printJSON(env, out)
+	}
+	if len(out.Listings) == 0 {
+		fmt.Fprintf(env.Stdout, "No stock listing matches %s.\n", out.Query)
+		return 0
+	}
+	for _, l := range out.Listings {
+		fmt.Fprintf(env.Stdout, "%s  %s  %s %s on %s  con_id %d\n", l.Symbol, l.Name, l.Currency, l.PrimaryExchange, l.Exchange, l.ConID)
+	}
+	if out.Truncated {
+		fmt.Fprintln(env.Stdout, "More listings match; type more of the name or symbol.")
+	}
+	return 0
 }
 
 // runAddMarket adapts one bounded read-only request; stdin carries no authority.

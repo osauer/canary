@@ -42,6 +42,30 @@ type Instrument struct {
 	// PriceMagnifier is TWS's quote scale (100 for an LSE line quoted in
 	// pence); zero counts as 1.
 	PriceMagnifier int
+	// SizeIncrement is the listing's board lot: contract details carry it as
+	// minSize, sizeIncrement and suggestedSizeIncrement, and an order off a
+	// multiple of it is rejected (assumed); zero counts as 1.
+	SizeIncrement float64
+	// MarketRule is the price-grid rule contract details name for every valid
+	// exchange; zero is rule 26, one cent.
+	MarketRule int
+}
+
+// lot is the board lot, at least 1.
+func (in Instrument) lot() float64 { return max(in.SizeIncrement, 1) }
+
+// validExchanges are the exchanges contract details list: SMART and the
+// primary for a SMART-routed stock, the listing's own exchange alone for one
+// that is not (an SEHK line), the routing exchange for anything else.
+func (in Instrument) validExchanges() string {
+	switch {
+	case in.SecType == "OPT":
+		return "SMART,AMEX,CBOE,ISE"
+	case in.SecType == "STK" && in.Exchange == "SMART":
+		return "SMART," + in.PrimaryExch
+	default:
+		return in.Exchange
+	}
 }
 
 // Position is one holding of the book's account.
@@ -153,11 +177,38 @@ func Default() *Book {
 		{ConID: 416904, Symbol: "SPX", SecType: "IND", Exchange: "CBOE", Currency: "USD", LongName: "SYNTHETIC 500 INDEX", MinTick: 0.01, Price: 6000},
 		{ConID: 900203, Symbol: "VVIX", SecType: "IND", Exchange: "CBOE", Currency: "USD", LongName: "SYNTHETIC VOL OF VOL INDEX", MinTick: 0.01, Price: 88},
 		{ConID: 15016059, Symbol: "USD", SecType: "CASH", Exchange: "IDEALPRO", Currency: "JPY", LocalSymbol: "USD.JPY", TradingClass: "USD.JPY", LongName: "SYNTHETIC USD.JPY", MinTick: 0.005, Price: 150, Spread: 0.01},
+		// A Hong Kong listing not routed on SMART, in board lots of 100 on
+		// the Hong Kong price grid, and its ADR on NYSE under the same company
+		// name. The account holds no HKD until a buy or `ctl cash HKD`.
+		{ConID: 900701, Symbol: "SYNH", SecType: "STK", Exchange: "SEHK", PrimaryExch: "SEHK", Currency: "HKD", LocalSymbol: "9901", TradingClass: "9901", LongName: "SYNTHETIC H HOLDINGS LTD", MinTick: 0.05, Price: 82.5, Spread: 0.1, SizeIncrement: 100, MarketRule: MarketRuleHK},
+		{ConID: 900702, Symbol: "SYNH", SecType: "STK", Exchange: "SMART", PrimaryExch: "NYSE", Currency: "USD", TradingClass: "SYNH", LongName: "SYNTHETIC H HOLDINGS LTD", MinTick: 0.01, Price: 52.9, Spread: 0.02},
+		{ConID: 900703, Symbol: "USD", SecType: "CASH", Exchange: "IDEALPRO", Currency: "HKD", LocalSymbol: "USD.HKD", TradingClass: "USD.HKD", LongName: "SYNTHETIC USD.HKD", MinTick: 0.00005, Price: 7.8, Spread: 0.0002},
 	} {
 		b.AddInstrument(in)
 	}
+	b.SetFX("HKD", 1/7.8)
 	b.SetPosition(900001, 100, 48)
 	return b
+}
+
+// matchingStocks answers reqMatchingSymbols from the catalogue: stocks whose
+// symbol or company name starts with pattern (case-insensitive), at most
+// maxSymbolSamples, by contract id.
+func (b *Book) matchingStocks(pattern string) []Instrument {
+	pattern = strings.ToUpper(strings.TrimSpace(pattern))
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []Instrument
+	if pattern == "" {
+		return out
+	}
+	for _, in := range b.instr {
+		if in.SecType == "STK" && !in.Defunct && (strings.HasPrefix(in.Symbol, pattern) || strings.HasPrefix(strings.ToUpper(in.LongName), pattern)) {
+			out = append(out, *in)
+		}
+	}
+	slices.SortFunc(out, func(x, y Instrument) int { return x.ConID - y.ConID })
+	return out[:min(len(out), maxSymbolSamples)]
 }
 
 // EuropeanBook is [Default] with a EUR line on Xetra (SYNE, IBIS) and a GBP

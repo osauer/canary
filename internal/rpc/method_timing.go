@@ -61,6 +61,7 @@ var methodTimings = []MethodTiming{
 	{Method: MethodTechnical, Lifetime: MethodLifetimeUnary, DaemonTimeout: 75 * time.Second},
 	{Method: MethodAddCallPlan, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},
 	{Method: MethodAddMarket, Lifetime: MethodLifetimeUnary, DaemonTimeout: 120 * time.Second},
+	{Method: MethodAddSearch, Lifetime: MethodLifetimeUnary, DaemonTimeout: 15 * time.Second},
 	{Method: MethodAddPlan, Lifetime: MethodLifetimeUnary, DaemonTimeout: 90 * time.Second},
 	{Method: MethodAddPreview, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},
 	{Method: MethodSetupsEvaluate, Lifetime: MethodLifetimeUnary, DaemonTimeout: 150 * time.Second},

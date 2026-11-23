@@ -26,7 +26,7 @@ const ctlUsage = `canary-sim ctl -dir DIR COMMAND [ARGS]
 
 Commands (against a running canary-sim in DIR):
   quote SYMBOL LAST [BID ASK]     set a listed stock's quote
-  session MARKET open             open a market now (us_equity, us_options, de_xetra, uk_lse)
+  session MARKET open             open a market now (us_equity, us_options, de_xetra, uk_lse, hk_hkex)
   session MARKET closed           close it
   session MARKET opens-in SECS    closed now, opens SECS seconds from now
   session MARKET closes-in SECS   open now, closes SECS seconds from now
@@ -237,6 +237,7 @@ func control(sim *twssim.Server, args []string, now time.Time) (any, error) {
 var ctlMarkets = map[string]marketcal.Market{
 	twssim.MarketUSEquity: marketcal.MarketUSEquity, twssim.MarketUSOptions: marketcal.MarketUSOptions,
 	twssim.MarketDEXetra: marketcal.MarketDEXetra, twssim.MarketUKLSE: marketcal.MarketUKLSE,
+	twssim.MarketHKHKEX: marketcal.MarketHKHKEX,
 }
 
 // setSession sets a market's synthetic hours in both the simulated exchange

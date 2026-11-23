@@ -1,0 +1,76 @@
+# canary  · COLUMNS=80 · colour off
+Add · SYNA · HKD
+Limit · 100.0000 HKD per share
+Warning · confirmation required · This purchase borrows 905 HKD; your cash in
+  other currencies covers it. IBKR charges interest on the borrowed HKD until
+  you convert.
+Add shares · 9
+Cost incl. fee bound · 905.00 HKD
+Cash after reserves · 95.00 HKD
+Position · 4 → 13 shares
+Requested addition · 9 shares
+Stock allocation room · 20 additional shares before cash, risk and order
+  checks
+Order allowance · up to 10 shares before exact broker costs and margin
+Cash before this order's fee · limit 1000.00; used 0.00; remaining 1000.00 EUR
+  (10 shares)
+Underlying stock allowance · limit 2600.00; used 600.00; remaining 2000.00 EUR
+  (20 shares)
+Cash calculation · 0.00 available − 0.00 committed − 0.00 currency float +
+  4445.45 other currencies' cash beyond the account reserve = 4445.45 HKD
+  spendable
+Borrowed · 905.00 HKD, a debit IBKR charges interest on until you convert
+Account reserve · 1000.00 EUR required; 1500.00 EUR available outside this
+  currency after floats and commitments
+Total stock allocation · 10.00% → 10.90% of account value
+Underlying stock allocation · 0.60% → 1.50% of account value
+Sizing constraint before broker simulation · Cash before this order's fee
+Margin headroom before · Excess liquidity is 50% of account value.
+Margin headroom after · Broker simulation leaves 49% of account value as
+  excess liquidity.
+Working stop instructions · 3 shares; shares without these instructions 1 → 10
+Other pending purchases · 2 shares; not included in the filled holding or stop
+  coverage
+Protection review · Stop instructions do not guarantee an exit or loss limit.
+  Existing stops retain their reviewed quantity; changing protection requires a
+  separate review.
+Order review · Planning evidence only. An exact preview and separate owner
+  confirmation are required.
+# canary  · COLUMNS=80 · colour on, ESC written as \x1b
+Add · SYNA · HKD
+Limit · 100.0000 HKD per share
+Warning · confirmation required · This purchase borrows 905 HKD; your cash in
+  other currencies covers it. IBKR charges interest on the borrowed HKD until
+  you convert.
+Add shares · 9
+Cost incl. fee bound · 905.00 HKD
+Cash after reserves · 95.00 HKD
+Position · 4 → 13 shares
+Requested addition · 9 shares
+Stock allocation room · 20 additional shares before cash, risk and order
+  checks
+Order allowance · up to 10 shares before exact broker costs and margin
+Cash before this order's fee · limit 1000.00; used 0.00; remaining 1000.00 EUR
+  (10 shares)
+Underlying stock allowance · limit 2600.00; used 600.00; remaining 2000.00 EUR
+  (20 shares)
+Cash calculation · 0.00 available − 0.00 committed − 0.00 currency float +
+  4445.45 other currencies' cash beyond the account reserve = 4445.45 HKD
+  spendable
+Borrowed · 905.00 HKD, a debit IBKR charges interest on until you convert
+Account reserve · 1000.00 EUR required; 1500.00 EUR available outside this
+  currency after floats and commitments
+Total stock allocation · 10.00% → 10.90% of account value
+Underlying stock allocation · 0.60% → 1.50% of account value
+Sizing constraint before broker simulation · Cash before this order's fee
+Margin headroom before · Excess liquidity is 50% of account value.
+Margin headroom after · Broker simulation leaves 49% of account value as
+  excess liquidity.
+Working stop instructions · 3 shares; shares without these instructions 1 → 10
+Other pending purchases · 2 shares; not included in the filled holding or stop
+  coverage
+Protection review · Stop instructions do not guarantee an exit or loss limit.
+  Existing stops retain their reviewed quantity; changing protection requires a
+  separate review.
+Order review · Planning evidence only. An exact preview and separate owner
+  confirmation are required.
