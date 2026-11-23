@@ -196,12 +196,14 @@ func TestSimulatedTWSSizingAndAccountChanges(t *testing.T) {
 		t.Fatalf("quantity plan: %+v", plan.Blockers)
 	}
 	t.Logf("a quantity plan with one 300 ms WhatIf took %s", time.Since(start))
+	// The change lands while the plan's sizing WhatIf is out: the broker
+	// sends it ahead of the WhatIf's answer on the same socket, so the plan
+	// has it in hand when it checks its evidence after the answer.
 	during := func(change func()) rpc.AddPlanResult {
-		go func() {
-			time.Sleep(100 * time.Millisecond)
+		d.sim.BeforeNextWhatIfAnswer(func() {
 			change()
 			d.sim.PushAccount()
-		}()
+		})
 		return d.plan(synaAdd)
 	}
 	// An account tick inside the tolerance during the WhatIf changes nothing

@@ -55,3 +55,12 @@ func (s *Server) subscribedAll() []*session {
 	defer s.mu.Unlock()
 	return append([]*session(nil), s.sessions...)
 }
+
+// BeforeNextWhatIfAnswer runs fn once, before the next WhatIf answer is
+// sent: whatever it sends the client (an account update, say) arrives ahead
+// of that answer on the same socket.
+func (s *Server) BeforeNextWhatIfAnswer(fn func()) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.beforeWhatIf = fn
+}

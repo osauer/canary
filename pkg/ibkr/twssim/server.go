@@ -77,7 +77,9 @@ type Server struct {
 	nextID   int // order ids handed out by nextValidId
 	// outsideID numbers the orders AddOutsideOrder lists.
 	outsideID int
-	accepted  int
+	// beforeWhatIf runs once before the next WhatIf answer is sent.
+	beforeWhatIf func()
+	accepted     int
 }
 
 // Listen starts a simulator on a loopback address. It refuses any other

@@ -191,6 +191,13 @@ func (ss *session) place(o PlaceOrder) {
 		if s.whatIfDelay > 0 {
 			time.Sleep(s.whatIfDelay)
 		}
+		s.mu.Lock()
+		hook := s.beforeWhatIf
+		s.beforeWhatIf = nil
+		s.mu.Unlock()
+		if hook != nil {
+			hook()
+		}
 		if f, ok := s.takeFault(o); ok && f.Kind == FaultWhatIfReject {
 			ss.fail(o.OrderID, codeOr(f.Code, 201), nonEmpty(f.Message, "Order rejected - reason:YOUR ORDER IS NOT ACCEPTED. IN ORDER TO OBTAIN THE DESIRED POSITION YOUR EQUITY WITH LOAN VALUE MUST EXCEED THE INITIAL MARGIN"))
 			return
