@@ -44,6 +44,8 @@
 //	BAG: quoted from its legs; fills whole at the net ask,  assumed
 //	  one execution per leg under the BAG's order id
 //	10123 for a combination leg with openClose 1 or 2       assumed (option)
+//	a line taken flat stays a zero row on updatePortfolio   assumed
+//	  and position callbacks for the session
 //	every scripted Fault (reject 201/442, reject after ack, assumed
 //	  PreSubmitted, partial, silent, drop, error 110/103/200/354/10089)
 //	market data type 1 (live) at every hour                 assumed

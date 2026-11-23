@@ -27,6 +27,22 @@ func (d *simDesk) heldVertical() rpc.PositionStrategy {
 	return rpc.PositionStrategy{}
 }
 
+// strategyUnits is a strategy's units in the daemon's grouping now, 0 when
+// it is no longer grouped.
+func (d *simDesk) strategyUnits(id string) int {
+	d.t.Helper()
+	pos, rerr := dispatchJSON[rpc.PositionsResult](d.t, d.srv, rpc.MethodPositionsList, rpc.PositionsListParams{})
+	if rerr != nil {
+		d.t.Fatalf("positions.list: %+v", rerr)
+	}
+	for _, st := range rpc.NewPositionStrategiesView(&pos).Strategies {
+		if st.ID == id {
+			return st.Units
+		}
+	}
+	return 0
+}
+
 // strategyPreview is `canary strategies OP ID REV [--units N] [--limit L]`
 // as Desk builds it (execution_strategy.go).
 func (d *simDesk) strategyPreview(st rpc.PositionStrategy, op string, units int, limit *float64) (rpc.OrderPreviewResult, *rpc.Error) {
@@ -172,6 +188,36 @@ func TestSimulatedTWSStrategyReduceAndClose(t *testing.T) {
 			d.waitStatus(placed.OrderRef, func(v rpc.OrderView) bool { return v.Status == "Filled" })
 			if o := d.realPlaces(); len(o) != 1 || o[0].SecType != "BAG" || o[0].Action != "SELL" {
 				t.Fatalf("%s frame %+v", op, o)
+			}
+			// The book after the fill: a reduce leaves 14 units, a close leaves
+			// no strategy, and a second close of it is never sent.
+			want := 14
+			if op == "close" {
+				want = 0
+			}
+			got := -1
+			deadline := time.Now().Add(15 * time.Second)
+			for time.Now().Before(deadline) {
+				got = d.strategyUnits(st.ID)
+				if got == want {
+					break
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+			if got != want {
+				t.Errorf("%s: the strategy shows %d units after the fill, want %d", op, got, want)
+				if op == "close" {
+					again, rerr := d.strategyPreview(d.heldVertical(), "close", 0, &limit)
+					sent := 0
+					if rerr == nil && again.SubmitEligible {
+						_, perr := d.place(again.PreviewToken)
+						time.Sleep(time.Second)
+						sent = len(d.realPlaces())
+						t.Errorf("a second close of a closed spread: preview minted %t, place err %+v, transmitted frames %d", again.TokenMinted, perr, sent)
+					} else {
+						t.Logf("a second close was refused: %+v", rerr)
+					}
+				}
 			}
 		})
 	}
