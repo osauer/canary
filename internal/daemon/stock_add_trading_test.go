@@ -87,7 +87,13 @@ func TestStockAddWireGuardRejectsChangedAuthority(t *testing.T) {
 			case "orders":
 				binding.stockAddOrdersGeneration = 99
 			case "cash":
-				binding.stockAddAccountFingerprint = "previous cash"
+				// The cash the Add sized from was far more than now.
+				binding.stockAddAccount = ev.account
+				binding.stockAddAccount.Cash = map[string]float64{}
+				for k, v := range ev.account.Cash {
+					binding.stockAddAccount.Cash[k] = v + 1e6
+				}
+				binding.stockAddAccount.NetLiquidation += 1e6
 			}
 			guard, release := s.brokerWireGuard(binding, auth.Status, false)
 			defer release()

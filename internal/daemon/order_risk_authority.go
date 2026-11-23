@@ -937,7 +937,7 @@ func (s *Server) bindPreviewOrderRiskAuthority(ctx context.Context, binding *bro
 		binding.stockAddReview = &addEvidence.review
 		binding.stockAddQueueAdmission = addEvidence.queueAdmission
 		binding.stockAddOrdersGeneration = addEvidence.ordersGeneration
-		binding.stockAddAccountFingerprint = addEvidence.accountFingerprint
+		binding.stockAddAccount = addEvidence.account
 	}
 	if draft.Source == hedgeOrderSource && isIndexFutureContract(draft.Contract) {
 		binding.riskBaseCurrency = current.BaseCurrency

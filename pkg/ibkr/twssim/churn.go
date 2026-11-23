@@ -6,6 +6,16 @@ import "fmt"
 // as a hand order in TWS is (client 0): every all-client open-order read
 // reports it, and it never fills by itself.
 func (s *Server) AddOutsideOrder(conID int, action string, quantity, limit float64) (int, error) {
+	return s.addOutside(conID, action, "LMT", quantity, limit, 0)
+}
+
+// AddOutsideStop lists a working sell stop placed outside the client, as a
+// protective stop entered in TWS is.
+func (s *Server) AddOutsideStop(conID int, quantity, stop float64) (int, error) {
+	return s.addOutside(conID, "SELL", "STP", quantity, 0, stop)
+}
+
+func (s *Server) addOutside(conID int, action, orderType string, quantity, limit, aux float64) (int, error) {
 	in, ok := s.book.instrument(conID)
 	if !ok {
 		return 0, fmt.Errorf("twssim: contract %d is not listed", conID)
@@ -15,7 +25,7 @@ func (s *Server) AddOutsideOrder(conID int, action string, quantity, limit float
 	id := 900000 + s.outsideID
 	s.mu.Unlock()
 	s.store(PlaceOrder{OrderID: id, ClientID: 0, ConID: in.ConID, Symbol: in.Symbol, SecType: in.SecType, Exchange: in.Exchange, Currency: in.Currency,
-		Action: action, Quantity: quantity, OrderType: "LMT", LimitPrice: limit, TIF: "DAY"}, "Submitted")
+		Action: action, Quantity: quantity, OrderType: orderType, LimitPrice: limit, AuxPrice: aux, TIF: "GTC"}, "Submitted")
 	return id, nil
 }
 

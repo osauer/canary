@@ -19,21 +19,21 @@ import (
 // account/mode scope that passed authorization. It is never durable order
 // authority and must be revalidated immediately before broker I/O.
 type brokerWriteTransactionBinding struct {
-	indexHedge                 *indexHedgeAuthority
-	reduceFillEvidence         *protectionOrderSnapshotBinding
-	deskAuthority              *deskAuthorityFence
-	standingAuthority          bool
-	stockAddReview             *rpc.AddReview
-	stockAddQueueAdmission     *ownerQueueAdmission
-	stockAddOrdersGeneration   uint64
-	stockAddAccountFingerprint string
-	connector                  *ibkrlib.Connector
-	connectorEpoch             uint64
-	session                    ibkrlib.ConnectorSessionBinding
-	scope                      brokerStateScope
-	endpoint                   string
-	clientID                   int
-	origin                     string
+	indexHedge               *indexHedgeAuthority
+	reduceFillEvidence       *protectionOrderSnapshotBinding
+	deskAuthority            *deskAuthorityFence
+	standingAuthority        bool
+	stockAddReview           *rpc.AddReview
+	stockAddQueueAdmission   *ownerQueueAdmission
+	stockAddOrdersGeneration uint64
+	stockAddAccount          stockAddAccountMark
+	connector                *ibkrlib.Connector
+	connectorEpoch           uint64
+	session                  ibkrlib.ConnectorSessionBinding
+	scope                    brokerStateScope
+	endpoint                 string
+	clientID                 int
+	origin                   string
 	//lint:ignore U1000 Used by the trading-tagged order submission path.
 	orderID int
 	//lint:ignore U1000 Used by the trading-tagged order submission path.
@@ -425,7 +425,7 @@ func (s *Server) brokerWireGuard(binding brokerWriteTransactionBinding, status r
 				return fmt.Errorf("%w: queued buy admission changed before transmission", ErrTradingDisabled)
 			}
 			broker := &orderPreviewBrokerAuthority{connector: binding.connector}
-			if s.stockAddQueuedInstruction(binding.scope, binding.stockAddQueueAdmission) || !s.stockAddPolicyCurrent(*binding.stockAddReview) || s.currentProtectionOrderSnapshotBinding().generation != binding.stockAddOrdersGeneration || stockAddAccountFingerprint(broker) != binding.stockAddAccountFingerprint {
+			if s.stockAddQueuedInstruction(binding.scope, binding.stockAddQueueAdmission) || !s.stockAddPolicyCurrent(*binding.stockAddReview) || s.currentProtectionOrderSnapshotBinding().generation != binding.stockAddOrdersGeneration || !stockAddAccountMarkCurrent(broker, binding.stockAddAccount) {
 				return fmt.Errorf("%w: Add policy, cash or working orders changed after admission; preview again", ErrTradingDisabled)
 			}
 		}

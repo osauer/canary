@@ -28,7 +28,9 @@ type stockAddEvidence struct {
 	broker              *orderPreviewBrokerAuthority
 	ordersGeneration    uint64
 	portfolioGeneration uint64
-	accountFingerprint  string
+	// account and ordersMark are what the Add sized from (stock_add_marks.go).
+	account    stockAddAccountMark
+	ordersMark string
 	// lot is the broker's lot for the resolved stock.
 	lot stockLot
 }
@@ -129,6 +131,10 @@ const stockAddQuoteBudget = 24
 
 func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPlanResult, error) {
 	ev, err := s.stockAddEvidence(ctx, p)
+	if errors.Is(err, errStockAddEvidenceMoved) {
+		// What it sized from moved while it was collected: collect once more.
+		ev, err = s.stockAddEvidence(ctx, p)
+	}
 	if err != nil {
 		out := s.addHeld(p, "add_evidence_unavailable", err.Error())
 		if problem, ok := errors.AsType[*stockAddProblem](err); ok {
@@ -182,7 +188,7 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 	}
 	checked := map[int]candidate{}
 	quote := func(q int) (candidate, error) {
-		if !s.stockAddEvidenceCurrent(ev) {
+		if !s.stockAddEvidenceCurrent(ctx, &ev) {
 			return candidate{}, fmt.Errorf("account, orders or policy changed while sizing; calculate again")
 		}
 		draft := rpc.OrderDraft{AdaptivePriority: p.AdaptivePriority, Action: rpc.OrderActionBuy, Contract: ev.contract, Quantity: q, OrderType: "LMT", LimitPrice: p.LimitPrice, TIF: "DAY", Strategy: "explicit-limit"}
@@ -192,7 +198,7 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 		}
 		fee, ok := cashSweepFeeUpper(&rpc.OrderPreviewResult{WhatIf: w}, ev.contract.Currency)
 		if !ok {
-			return candidate{}, fmt.Errorf("the exact candidate needs an accepted broker commission bound in its cash currency")
+			return candidate{}, fmt.Errorf("the exact candidate needs an accepted broker commission bound in its cash currency: %s", stockAddFeeProblem(w, ev.contract.Currency))
 		}
 		input := ev.input
 		input.Requested, input.Fee = q, fee
@@ -205,7 +211,7 @@ func (s *Server) planStockAdd(ctx context.Context, p rpc.AddParams) (*rpc.AddPla
 		return c, nil
 	}
 	finish := func(c candidate, maximum bool) (*rpc.AddPlanResult, error) {
-		if !s.stockAddEvidenceCurrent(ev) {
+		if !s.stockAddEvidenceCurrent(ctx, &ev) {
 			return held("evidence", "add_evidence_changed", "Account, orders or policy changed while sizing; calculate again.")
 		}
 		out.StockAddPlan = c.plan
@@ -432,10 +438,11 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 		return ev, fmt.Errorf("resolved stock identity differs from the selected instrument")
 	}
 	ev.contract = contract
-	ev.accountFingerprint = stockAddAccountFingerprint(broker)
-	if ev.accountFingerprint == "" {
+	account, ok := stockAddAccountMarkFrom(broker.connector.AccountSummaryRaw())
+	if !ok {
 		return ev, fmt.Errorf("current account cash and margin evidence unavailable")
 	}
+	ev.account = account
 	acct, aa, err := s.buildAccountSummaryWithAuthority(ctx, false)
 	if err != nil {
 		return ev, err
@@ -563,13 +570,19 @@ func (s *Server) stockAddEvidence(ctx context.Context, p rpc.AddParams) (stockAd
 	input.Rules.Names = rulebookEconomicNames(input.Rules.Names, input.Rules.Earnings)
 	ev.input = input
 	ev.ordersGeneration = inventory.Generation
+	ev.ordersMark = stockAddOrderMark(inventory.Orders, contract.ConID, scope)
 	ev.portfolioGeneration = health.ProjectionGeneration
 	ev.review = rpc.AddReview{RegimeStage: input.Rules.RegimeStage, RegimeAsOf: input.Rules.RegimeStageAsOf, PolicyFingerprint: mgr.policy.FingerprintKey(), RulebookFingerprint: pol.FingerprintKey(), CashPolicyFingerprint: fingerprintProtectionPolicy(cashPolicy).Key, AsOf: now}
-	if !s.stockAddEvidenceCurrent(ev) {
-		return ev, fmt.Errorf("account, orders or policy changed while collecting Add evidence")
+	if !s.stockAddEvidenceCurrent(ctx, &ev) {
+		return ev, errStockAddEvidenceMoved
 	}
 	return ev, nil
 }
+
+// errStockAddEvidenceMoved is an Add's evidence that changed while it was
+// collected: the cash or margin it sized from, a buy or an order on its
+// contract, a structural position change, the session or a policy.
+var errStockAddEvidenceMoved = errors.New("account, orders or policy changed while collecting Add evidence")
 
 func stockAddPending(in *risk.StockAddInput, orders []ibkrlib.OrderLifecycleEvent, ledger map[string]cashSweepLedgerRow, contract rpc.ContractParams, scope brokerStateScope) error {
 	// Stops must be covered by filled shares, never by another pending buy.
@@ -650,21 +663,21 @@ func stockAddPending(in *risk.StockAddInput, orders []ibkrlib.OrderLifecycleEven
 	return nil
 }
 
-func (s *Server) stockAddEvidenceCurrent(ev stockAddEvidence) bool {
+func (s *Server) stockAddEvidenceCurrent(ctx context.Context, ev *stockAddEvidence) bool {
 	if s.stockAddEvidenceForTest != nil {
 		return true
 	}
 	if s.stockAddQueuedInstruction(s.currentBrokerStateScope(), ev.queueAdmission) {
 		return false
 	}
-	if !s.orderPreviewBrokerAuthorityCurrent(ev.broker) || ev.broker.connector.PortfolioProjectionGeneration() != ev.portfolioGeneration || stockAddAccountFingerprint(ev.broker) != ev.accountFingerprint {
+	if !s.orderPreviewBrokerAuthorityCurrent(ev.broker) || ev.broker.connector.PortfolioProjectionGeneration() != ev.portfolioGeneration {
 		return false
 	}
-	b := s.currentProtectionOrderSnapshotBinding()
-	if b.generation != ev.ordersGeneration {
+	now, ok := stockAddAccountMarkFrom(ev.broker.connector.AccountSummaryRaw())
+	if !ok || !stockAddAccountMarkHolds(ev.account, now) {
 		return false
 	}
-	return s.stockAddPolicyCurrent(ev.review)
+	return s.stockAddPolicyCurrent(ev.review) && s.stockAddOrdersHold(ctx, ev)
 }
 
 func (s *Server) stockAddPolicyCurrent(review rpc.AddReview) bool {
@@ -672,8 +685,9 @@ func (s *Server) stockAddPolicyCurrent(review rpc.AddReview) bool {
 	pol, status := s.activeRulebookPolicy()
 	cash, cs := s.protectionPolicies.Active()
 	if review.RegimeStage != "" {
+		// The stage's value decides, not when it was last republished.
 		stage, carried := s.rulebookRegimeStage(pol, s.orderNow())
-		if carried || stage.Bucket != review.RegimeStage || !stage.AsOf.Equal(review.RegimeAsOf) {
+		if carried || stage.Bucket != review.RegimeStage {
 			return false
 		}
 	}
@@ -720,7 +734,7 @@ func (s *Server) validateStockAddDraft(ctx context.Context, draft rpc.OrderDraft
 	if draft.Add != nil && (draft.Add.PolicyFingerprint != ev.review.PolicyFingerprint || draft.Add.RulebookFingerprint != ev.review.RulebookFingerprint || draft.Add.CashPolicyFingerprint != ev.review.CashPolicyFingerprint || draft.Add.Plan.Before != plan.Before) {
 		return ev, fmt.Errorf("position or policy changed since the Add review; preview again")
 	}
-	if !s.stockAddEvidenceCurrent(ev) {
+	if !s.stockAddEvidenceCurrent(ctx, &ev) {
 		return ev, fmt.Errorf("stock addition evidence changed during review")
 	}
 	return ev, nil
