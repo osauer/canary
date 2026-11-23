@@ -2,6 +2,7 @@ package twssim
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ const (
 	MarketUSOptions = "us_options"
 	MarketDEXetra   = "de_xetra"
 	MarketUKLSE     = "uk_lse"
+	MarketHKHKEX    = "hk_hkex"
 )
 
 // marketOf is the exchange session an instrument trades in.
@@ -34,6 +36,8 @@ func marketOf(in Instrument) string {
 		return MarketDEXetra
 	case in.Currency == "GBP":
 		return MarketUKLSE
+	case in.Currency == "HKD":
+		return MarketHKHKEX
 	default:
 		return MarketUSEquity
 	}
@@ -176,6 +180,13 @@ func (ss *session) place(o PlaceOrder) {
 	s.mu.Lock()
 	s.nextID = max(s.nextID, o.OrderID+1)
 	s.mu.Unlock()
+	// A stock order off its listing's board lot is rejected, on WhatIf and on
+	// place, with a reason naming the lot (assumed: IBKR's wording and code
+	// for a Hong Kong odd lot are not captured).
+	if lot := in.lot(); in.SecType == "STK" && lot > 1 && math.Mod(o.Quantity, lot) != 0 {
+		ss.fail(o.OrderID, 201, fmt.Sprintf("Order rejected - reason:The order size %g is not a multiple of the board lot of %g shares for %s.", o.Quantity, lot, in.Symbol))
+		return
+	}
 	if o.WhatIf {
 		if s.whatIfDelay > 0 {
 			time.Sleep(s.whatIfDelay)

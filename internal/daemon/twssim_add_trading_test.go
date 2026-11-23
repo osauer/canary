@@ -52,6 +52,14 @@ type simDesk struct {
 // first regime read does.
 func startSimDesk(t *testing.T, opts twssim.Options, ready bool) *simDesk {
 	t.Helper()
+	return startSimDeskPolicies(t, opts, ready, nil)
+}
+
+// startSimDeskPolicies is startSimDesk with policies, after the synthetic
+// owner's are written and before the daemon reads them, changed by edit
+// (the policy directory); nil changes nothing.
+func startSimDeskPolicies(t *testing.T, opts twssim.Options, ready bool, edit func(dir string)) *simDesk {
+	t.Helper()
 	requireSimTier(t)
 	sim := twssim.Start(t, opts)
 	dir := shortTempDir(t)
@@ -60,6 +68,9 @@ func startSimDesk(t *testing.T, opts twssim.Options, ready bool) *simDesk {
 	}
 	if err := WriteSimulatorPolicies(config.PolicyDir(), sim.Book().Base()); err != nil {
 		t.Fatal(err)
+	}
+	if edit != nil {
+		edit(config.PolicyDir())
 	}
 	port := sim.Port()
 	cfg, err := (&config.Config{
