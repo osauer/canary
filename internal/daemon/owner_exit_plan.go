@@ -184,8 +184,9 @@ func exitPlanTermsProblem(t rpc.QueuedAuthTerms) string {
 		return "an exit plan's record without its plan"
 	}
 	plan := o.Plan
-	if plan.PlanID == "" || len(plan.PlanID) > queuedPlanIDMaxBytes || strings.TrimSpace(plan.PlanID) != plan.PlanID ||
-		plan.WaitMinutes < 1 || plan.WaitMinutes > queuedPlanMaxWaitMinutes {
+	waitForm := plan.StartInMinutes == nil && plan.WaitMinutes >= 1 && plan.WaitMinutes <= queuedPlanMaxWaitMinutes
+	startForm := plan.StartInMinutes != nil && plan.WaitMinutes == 0 && *plan.StartInMinutes >= 0 && *plan.StartInMinutes <= queuedPlanMaxWaitMinutes
+	if plan.PlanID == "" || len(plan.PlanID) > queuedPlanIDMaxBytes || strings.TrimSpace(plan.PlanID) != plan.PlanID || !waitForm && !startForm {
 		return "invalid exit plan link"
 	}
 	if t.Contract.ConID <= 0 || t.Contract.SecType != "OPT" || t.Contract.Right != "C" || t.AccountID == "" || !slices.Contains([]string{"paper", "live"}, t.AccountMode) ||
@@ -317,7 +318,9 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 		return block("queue_stop_missing", "The starting stop must be a positive stock price.")
 	case plan.FirstSale != nil && (plan.FirstSale.Quantity < 1 || plan.FirstSale.MinPrice != 0 && !positiveFinite(plan.FirstSale.MinPrice)):
 		return block("queue_request_invalid", "The first sale needs a quantity of at least 1, and a minimum price that is positive or left out.")
-	case plan.WaitMinutes > queuedPlanMaxWaitMinutes || plan.WaitMinutes < 1:
+	case plan.StartInMinutes != nil && (plan.WaitMinutes != 0 || *plan.StartInMinutes < 0 || *plan.StartInMinutes > queuedPlanMaxWaitMinutes):
+		return block("queue_wait_invalid", fmt.Sprintf("A plan signed in the session starts now or within %d minutes, given as start_in_minutes alone.", queuedPlanMaxWaitMinutes))
+	case plan.StartInMinutes == nil && (plan.WaitMinutes > queuedPlanMaxWaitMinutes || plan.WaitMinutes < 1):
 		return block("queue_wait_invalid", fmt.Sprintf("The wait after the open must be between the market's opening offset and %d minutes.", queuedPlanMaxWaitMinutes))
 	case plan.Contract.ConID <= 0 || !strings.EqualFold(strings.TrimSpace(plan.Contract.SecType), "OPT"):
 		return block("queue_contract_inexact", "An exit plan needs the exact contract id of a held option.")
@@ -358,8 +361,11 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 		return block("queue_session_unknown", "The current exchange session cannot be verified.")
 	}
 	offset, _ := s.readinessOpeningOffset(market, "owner_order", now)
-	if time.Duration(plan.WaitMinutes)*time.Minute < offset {
+	if plan.StartInMinutes == nil && time.Duration(plan.WaitMinutes)*time.Minute < offset {
 		return block("queue_wait_invalid", fmt.Sprintf("The wait after the open must be at least the market's opening offset of %d minutes.", int(offset/time.Minute)))
+	}
+	if plan.StartInMinutes != nil && !session.IsOpen {
+		return block("queue_wait_invalid", "start_in_minutes applies while the session is open; before the open the plan waits wait_minutes after it.")
 	}
 	var opens time.Time
 	switch {
@@ -371,9 +377,13 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 		return block("queue_session_unknown", "The trading calendar dates no next regular open for this market.")
 	}
 	start := opens.Add(time.Duration(plan.WaitMinutes) * time.Minute).UTC()
-	if session.IsOpen && !now.Before(start) {
+	switch {
+	case plan.StartInMinutes != nil:
+		// Signed during the session: it starts now or in a few minutes.
+		start = now.Add(time.Duration(*plan.StartInMinutes) * time.Minute).UTC()
+	case session.IsOpen && !now.Before(start):
 		if plan.FirstSale != nil {
-			return block("queue_not_offered", "The market is open past the plan's wait; sell now by the ordinary path.")
+			return block("queue_not_offered", "The market is open past the plan's wait; give start_in_minutes to start the plan now or in a few minutes.")
 		}
 		start = now.UTC()
 	}
@@ -381,8 +391,10 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 	// the plan is signed) the first sale, a discretionary sale, waits the
 	// longer of the plan's wait and the stress open's offset. The trail is a
 	// protective exit: it starts at the plan's own wait, never later.
+	// Once the session has been open longer than the stress offset, the
+	// rule has nothing left to wait for.
 	firstStart := start
-	if stressStart := opens.Add(readinessStressOptionsOpeningOffset).UTC(); market == marketcal.MarketUSOptions && s.regimeStressOpen(now) && stressStart.After(firstStart) {
+	if stressStart := opens.Add(readinessStressOptionsOpeningOffset).UTC(); market == marketcal.MarketUSOptions && s.regimeStressOpen(now) && stressStart.After(firstStart) && now.Before(stressStart) {
 		firstStart = stressStart
 	}
 	day, ok := s.previewSession(market, start)
@@ -416,6 +428,13 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 	if plan.FirstSale != nil && float64(plan.FirstSale.Quantity) >= held {
 		return block("queue_quantity", "The first sale must be below the held quantity; the trail covers the rest.")
 	}
+	if plan.FirstSale != nil && !day.Close.After(firstStart) {
+		return block("queue_session_unknown", "The first sale would start at or after the close.")
+	}
+	var startIn *int
+	if plan.StartInMinutes != nil {
+		startIn = new(*plan.StartInMinutes)
+	}
 	reference, referenceAt := e.exitPlanReferencePrice(ctx, underlying, now)
 	policy, status := s.protectionPolicies.Active()
 	planID, err := randomTokenID()
@@ -432,7 +451,7 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 			ReferenceMarkAt: now.UTC(), MaxSpreadPctOfMid: queuedSpreadLimit(policy, prop), Currency: contract.Currency, Market: string(market),
 			SessionDate: day.Date, NotBefore: start, TIF: rpc.OrderTIFDay, ArmDeadline: now.Add(queuedArmWindow).UTC(),
 			RowTermsDigest: queuedRowTermsDigest(prop), PolicyFingerprint: status.EffectiveFingerprint,
-			OwnerOrder: &rpc.QueuedOwnerOrder{OrderType: rpc.OrderTypeLMT, Plan: &rpc.QueuedPlan{PlanID: planID, Role: role, WaitMinutes: plan.WaitMinutes}},
+			OwnerOrder: &rpc.QueuedOwnerOrder{OrderType: rpc.OrderTypeLMT, Plan: &rpc.QueuedPlan{PlanID: planID, Role: role, WaitMinutes: plan.WaitMinutes, StartInMinutes: startIn}},
 		}
 	}
 	var all []rpc.QueuedAuthTerms

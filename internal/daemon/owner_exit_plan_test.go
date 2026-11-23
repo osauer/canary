@@ -112,6 +112,9 @@ func TestExitPlanTermsValidation(t *testing.T) {
 		"trail concession":         func(f, tr *rpc.QueuedAuthTerms) { tr.Concession = 0.5 },
 		"fractional line":          func(f, tr *rpc.QueuedAuthTerms) { tr.PositionQuantity = 20.5 },
 		"put":                      func(f, tr *rpc.QueuedAuthTerms) { tr.Contract.Right = "P" },
+		"wait and start both":      func(f, tr *rpc.QueuedAuthTerms) { tr.OwnerOrder.Plan.StartInMinutes = new(5) },
+		"start above 120":          func(f, tr *rpc.QueuedAuthTerms) { tr.OwnerOrder.Plan.WaitMinutes, tr.OwnerOrder.Plan.StartInMinutes = 0, new(121) },
+		"start negative":           func(f, tr *rpc.QueuedAuthTerms) { tr.OwnerOrder.Plan.WaitMinutes, tr.OwnerOrder.Plan.StartInMinutes = 0, new(-1) },
 	} {
 		f, tr := clone(first), clone(trail)
 		edit(&f, &tr)
@@ -451,5 +454,29 @@ func TestTrailLineCap(t *testing.T) {
 	raw, _ = json.Marshal(trail)
 	if strings.Contains(string(raw), "whole_line") {
 		t.Fatal("a capped trail's terms changed bytes")
+	}
+}
+
+// A plan signed in the session carries start_in_minutes (0 is at once) and
+// no wait; exactly one of the two.
+func TestExitPlanStartInTerms(t *testing.T) {
+	first, trail := exitPlanTestTerms()
+	for _, terms := range []rpc.QueuedAuthTerms{first, trail} {
+		o := *terms.OwnerOrder
+		plan := *o.Plan
+		plan.WaitMinutes, plan.StartInMinutes = 0, new(0)
+		o.Plan = &plan
+		terms.OwnerOrder = &o
+		if p := ownerQueueProblem(terms); p != "" {
+			t.Fatalf("%s starting at once refused: %s", plan.Role, p)
+		}
+		raw, _ := json.Marshal(terms)
+		if !strings.Contains(string(raw), `"wait_minutes":0,"start_in_minutes":0`) {
+			t.Fatalf("terms: %s", raw)
+		}
+	}
+	raw, _ := json.Marshal(first)
+	if strings.Contains(string(raw), "start_in_minutes") {
+		t.Fatal("a plan signed before the open changed bytes")
 	}
 }

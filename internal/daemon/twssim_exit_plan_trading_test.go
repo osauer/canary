@@ -1410,3 +1410,72 @@ func TestSimulatedTWSExitPlanCappedTrailKeepsItsCap(t *testing.T) {
 		t.Fatalf("%s %s, broker sold %g", rec.State, rec.Reason, d.planBrokerSold(opt.ConID))
 	}
 }
+
+// X30. A plan signed during the session with start in 0: the first sale is
+// accepted and sent at once at the mid, and the line watches from the first
+// read.
+func TestSimulatedTWSExitPlanSignedInSessionStartsNow(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -40*time.Minute, 0)
+	signed := time.Now()
+	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, StartInMinutes: new(0), FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10}, Trail: planTrail(48.50)})
+	first, trail := d.queuedRecord(ids[0]), d.queuedRecord(ids[1])
+	for _, r := range []queuedAuthRecord{first, trail} {
+		if p := r.Terms.OwnerOrder.Plan; p.StartInMinutes == nil || *p.StartInMinutes != 0 || p.WaitMinutes != 0 || r.Terms.NotBefore.Before(signed.Add(-time.Second)) || r.Terms.NotBefore.After(time.Now()) {
+			t.Fatalf("%s terms: %+v from %s", p.Role, p, r.Terms.NotBefore)
+		}
+	}
+	if !first.Terms.NotAfter.Equal(first.Terms.NotBefore.Add(time.Hour)) {
+		t.Fatalf("first sale window %s to %s", first.Terms.NotBefore, first.Terms.NotAfter)
+	}
+	rec := d.planWaitRecord("the first sale at once", ids[0], 30*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if rec.State != rpc.QueuedAuthFilled || rec.QuantitySent != 10 {
+		t.Fatalf("first sale %s, sent %d", rec.State, rec.QuantitySent)
+	}
+	if b, a := rec.SendQuote.Bid, rec.SendQuote.Ask; b == nil || a == nil || rec.LimitPrice <= *b || rec.LimitPrice > *a {
+		t.Fatalf("first sale at %g, not the mid of %+v", rec.LimitPrice, rec.SendQuote)
+	}
+	d.planWaitRecord("the line to watch", ids[1], 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+}
+
+// X31. Start in 5 minutes: both records start then, and nothing is sent
+// before.
+func TestSimulatedTWSExitPlanSignedInSessionStartsLater(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -40*time.Minute, 0)
+	signed := time.Now()
+	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, StartInMinutes: new(5), FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10}, Trail: planTrail(48.50)})
+	for _, id := range ids {
+		r := d.queuedRecord(id)
+		if at := r.Terms.NotBefore.Sub(signed); at < 5*time.Minute-2*time.Second || at > 5*time.Minute+2*time.Second {
+			t.Fatalf("%s starts %s after signing", r.Terms.OwnerOrder.Plan.Role, at)
+		}
+	}
+	time.Sleep(15 * time.Second)
+	if n := len(d.realPlaces()); n != 0 {
+		t.Fatalf("%d sent before the start", n)
+	}
+	if w := d.planWatchView(ids[1]); w.State != rpc.QueuedWatchWaiting {
+		t.Fatalf("watch before the start: %+v", w)
+	}
+}
+
+// X32. Signed near the close: the first sale's hour is clipped at the close,
+// as is the line's window. Before the open, start_in_minutes is refused.
+func TestSimulatedTWSExitPlanSignedNearTheClose(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -40*time.Minute, 60*time.Minute) // closes 20 minutes from now
+	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, StartInMinutes: new(0), FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10}, Trail: planTrail(48.50)})
+	first, trail := d.queuedRecord(ids[0]), d.queuedRecord(ids[1])
+	session, _ := d.srv.previewSession(marketcal.MarketUSOptions, time.Now())
+	if !first.Terms.NotAfter.Equal(session.Close.UTC()) || !trail.Terms.NotAfter.Equal(session.Close.UTC()) {
+		t.Fatalf("close %s: first sale until %s, line until %s", session.Close, first.Terms.NotAfter, trail.Terms.NotAfter)
+	}
+	planStartIn(t, 30*time.Minute, 0) // the session opens later
+	marketcal.SimulateSession(marketcal.MarketUSOptions, marketcal.Window{Open: time.Now().Add(30 * time.Minute), Close: time.Now().Add(7 * time.Hour)})
+	marketcal.SimulateSession(marketcal.MarketUSEquity, marketcal.Window{Open: time.Now().Add(30 * time.Minute), Close: time.Now().Add(7 * time.Hour)})
+	before := d.preparePlan(rpc.QueuedExitPlanParams{Contract: opt, StartInMinutes: new(0), Trail: planTrail(48.50)})
+	if before.Accepted || before.Blockers[0].Code != "queue_wait_invalid" {
+		t.Fatalf("start_in before the open: %+v", before)
+	}
+}

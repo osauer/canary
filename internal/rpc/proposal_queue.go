@@ -162,6 +162,10 @@ type QueuedPlan struct {
 	PlanID      string `json:"plan_id"`
 	Role        string `json:"role"`
 	WaitMinutes int    `json:"wait_minutes"`
+	// StartInMinutes is the start of a plan signed during the session, in
+	// minutes from signing (0 is at once); WaitMinutes is then 0. Exactly one
+	// of the two applies.
+	StartInMinutes *int `json:"start_in_minutes,omitempty"`
 }
 
 // QueuedStockTrail is the exit line on the underlying stock: it starts at
@@ -303,6 +307,10 @@ type TradeProposalQueuePrepareParams struct {
 type QueuedExitPlanParams struct {
 	Contract    ContractParams       `json:"contract"`
 	WaitMinutes int                  `json:"wait_minutes"`
+	// StartInMinutes starts a plan signed during the session that many
+	// minutes from now (0 at once, at most 120), in place of WaitMinutes,
+	// which applies to a plan signed before the open.
+	StartInMinutes *int `json:"start_in_minutes,omitempty"`
 	FirstSale   *QueuedPlanFirstSale `json:"first_sale,omitempty"`
 	Trail       *QueuedPlanTrail     `json:"trail,omitempty"`
 }

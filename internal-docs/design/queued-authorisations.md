@@ -95,9 +95,14 @@ required; `first_sale` is optional, at least 1 and below the held quantity.
 minimum, its terms carry no `worst_price`, and it sells at the mid inside
 the option spread limit, as the owner may sign before any option price exists.
 `wait_minutes` is at least the market's opening offset and at most 120; it
-is a term of this plan only. While the session is open past the wait, a
-first sale is refused (`queue_not_offered`); a trail-only plan starts at
-once. A put is refused (`queue_right_unsupported`): the line sells as the
+is a term of this plan only, for a plan signed before the open. A plan
+signed during the session gives `start_in_minutes` instead (0 to 120; 0 is
+at once): both records start then, the first sale's hour is clipped at the
+close, and the stress open's wait no longer applies once the session has
+been open longer than it. Exactly one of the two is signed
+(`owner_order.plan`). Without `start_in_minutes` in the session past the
+wait, a first sale is refused (`queue_not_offered`); a trail-only plan
+starts at once. A put is refused (`queue_right_unsupported`): the line sells as the
 stock falls, which protects a call and would sell a put at its best.
 
 The result carries `plan`: `plan_id`, `plan_digest`, `queues` and
