@@ -1329,3 +1329,84 @@ func TestSimulatedTWSExitPlanFirstSaleWithoutMinimum(t *testing.T) {
 		t.Fatalf("trail %s: %d sells %+v, broker sold %g", tr.State, len(sells), sells, d.planBrokerSold(opt.ConID))
 	}
 }
+
+// planSetLine sets the held option line as a hand trade would.
+func (d *simDesk) planSetLine(conID int, qty float64) {
+	d.sim.Book().SetPosition(conID, qty, 250)
+	d.sim.PushAccount()
+	time.Sleep(2 * time.Second)
+}
+
+// X26. The owner adds to the line before the first sale: it still sends its
+// signed 10.
+func TestSimulatedTWSExitPlanAddedBeforeTheFirstSale(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, 10*time.Second, 0)
+	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10}, Trail: planTrail(48.50)})
+	d.planSetLine(opt.ConID, 30)
+	rec := d.planWaitRecord("the first sale", ids[0], 60*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if rec.State != rpc.QueuedAuthFilled || rec.QuantitySent != 10 {
+		t.Fatalf("first sale after an addition: %s %s %q, sent %d", rec.State, rec.ReasonCode, rec.Reason, rec.QuantitySent)
+	}
+}
+
+// X27. The owner adds to the line before the exit line is crossed: the trail
+// sells the whole line held when it fires.
+func TestSimulatedTWSExitPlanSellsTheIncreasedLine(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -10*time.Minute, 0)
+	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
+	if st := d.queuedRecord(trail).Terms.OwnerOrder.StockTrail; !st.WholeLine {
+		t.Fatal("a new plan's trail is not whole-line")
+	}
+	d.planSetLine(opt.ConID, 30)
+	d.planStock(48)
+	rec := d.planWaitRecord("the whole line to sell", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if rec.State != rpc.QueuedAuthFilled || rec.Watch.LineAtTrigger != 30 || rec.Watch.SaleFilled != 30 || d.planBrokerSold(opt.ConID) != 30 {
+		t.Fatalf("%s %s: %+v, broker sold %g", rec.State, rec.Reason, rec.Watch, d.planBrokerSold(opt.ConID))
+	}
+}
+
+// X28. Less is held than the first sale signed: it is withdrawn and says
+// why; the trail still covers what is held.
+func TestSimulatedTWSExitPlanFirstSaleWithdrawnWhenLessIsHeld(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, 10*time.Second, 0)
+	ids := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, FirstSale: &rpc.QueuedPlanFirstSale{Quantity: 10}, Trail: planTrail(48.50)})
+	d.planSetLine(opt.ConID, 6)
+	rec := d.planWaitRecord("the first sale to be withdrawn", ids[0], 60*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if rec.State != rpc.QueuedAuthCancelled || rec.ReasonCode != queuedReasonPositionChanged || !strings.Contains(rec.Reason, "less is held") || len(d.planSells(opt.ConID)) != 0 {
+		t.Fatalf("first sale: %s %s %q", rec.State, rec.ReasonCode, rec.Reason)
+	}
+	d.planStock(48)
+	tr := d.planWaitRecord("the trail to sell what is held", ids[1], 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if tr.State != rpc.QueuedAuthFilled || d.planBrokerSold(opt.ConID) != 6 {
+		t.Fatalf("trail %s, broker sold %g", tr.State, d.planBrokerSold(opt.ConID))
+	}
+}
+
+// X29. A trail signed in the capped form keeps its cap: an increased line
+// sells only the signed maximum.
+func TestSimulatedTWSExitPlanCappedTrailKeepsItsCap(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -10*time.Minute, 0)
+	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
+	if err := d.srv.tradeProposals.queued.update(t.Context(), time.Now(), func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[trail]
+		st := *r.Terms.OwnerOrder.StockTrail
+		st.WholeLine = false
+		o := *r.Terms.OwnerOrder
+		o.StockTrail = &st
+		r.Terms.OwnerOrder = &o
+		r.TermsDigest, _ = queuedTermsDigest(r.Terms)
+		return []queuedAuthEvent{r.note("fixture", r.State, time.Now())}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	d.planSetLine(opt.ConID, 30)
+	d.planStock(48)
+	rec := d.planWaitRecord("the capped sale", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if rec.State != rpc.QueuedAuthFilled || d.planBrokerSold(opt.ConID) != 20 {
+		t.Fatalf("%s %s, broker sold %g", rec.State, rec.Reason, d.planBrokerSold(opt.ConID))
+	}
+}

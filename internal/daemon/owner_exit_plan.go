@@ -109,6 +109,9 @@ type queuedTrailState struct {
 	SaleAttempts int       `json:"sale_attempts,omitempty"`
 	SaleFilled   int       `json:"sale_filled,omitempty"`
 	SaleCancelAt time.Time `json:"sale_cancel_at,omitzero"`
+	// LineAtTrigger is the option line held when the exit line was crossed:
+	// what a whole-line trail sells in all.
+	LineAtTrigger int `json:"line_at_trigger,omitempty"`
 	// SaleStep is the price step of the next or working attempt: the mid,
 	// halfway to the bid, the bid (trailSaleSteps). LastLimit, LastBid and
 	// LastAsk are the ended attempt's limit and quote, for skipping a step
@@ -240,6 +243,15 @@ func queuedPlanStageConflict(records map[string]*queuedAuthRecord, r *queuedAuth
 		}
 	}
 	return stop, busy
+}
+
+// trailLineCap is what a fired trail may sell in all: the line held when it
+// fired for a whole-line trail, else the signed maximum.
+func trailLineCap(r queuedAuthRecord) int {
+	if st := r.Terms.OwnerOrder.StockTrail; st != nil && st.WholeLine && r.Watch.LineAtTrigger > 0 {
+		return r.Watch.LineAtTrigger
+	}
+	return r.Terms.MaxQuantity
 }
 
 // trailStop is the exit line: the signed starting stop, raised to the high
@@ -435,7 +447,7 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 	trail := terms(rpc.QueuedPlanRoleTrail, int(held), "close")
 	trail.Style, trail.NotAfter = rpc.QueuedAuthStyleStockTrail, trailEnd
 	trail.OwnerOrder.StockTrail = &rpc.QueuedStockTrail{Underlying: underlying, TrailPercent: plan.Trail.TrailPercent, InitialStopPrice: plan.Trail.InitialStopPrice,
-		ReferencePrice: reference, ReferenceAt: referenceAt}
+		ReferencePrice: reference, ReferenceAt: referenceAt, WholeLine: true}
 	all = append(all, trail)
 	for _, t := range all {
 		if problem := ownerQueueProblem(t); problem != "" {

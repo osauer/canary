@@ -323,11 +323,19 @@ func (e *proposalEngine) resolveOwnerQueue(ctx context.Context, rec queuedAuthRe
 		if current <= 0 {
 			return p, nil, queuedReasonPositionChanged, "the option position closed; the exit plan ends"
 		}
-		qty, ok := trailSendQuantity(current, t.MaxQuantity-rec.Watch.SaleFilled)
+		qty, ok := trailSendQuantity(current, trailLineCap(rec)-rec.Watch.SaleFilled)
 		if !ok {
 			return p, preparedBlocker("queue_position_unavailable", "Whole-contract coverage cannot be verified."), "", ""
 		}
 		p.Quantity, p.PositionQuantity = qty, current
+	} else if queuedPlanFirstSale(t) {
+		// A plan's first sale sells its signed quantity while at least that
+		// much is held: an owner who added to the line still wants it sold.
+		// Less than that held (sold by hand, say) withdraws it.
+		if current < float64(t.MaxQuantity) {
+			return p, nil, queuedReasonPositionChanged, fmt.Sprintf("less is held (%g) than the first sale signed (%d), perhaps sold by hand; the first sale is withdrawn and the exit line still covers what is held", current, t.MaxQuantity)
+		}
+		p.PositionQuantity = current
 	} else if current != t.PositionQuantity {
 		return p, nil, queuedReasonPositionChanged, "the position changed after confirmation; prepare the exact order again"
 	}

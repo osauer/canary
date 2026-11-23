@@ -727,14 +727,14 @@ func (e *proposalEngine) sendQueued(ctx context.Context, rec queuedAuthRecord, p
 			switch {
 			case preview.Draft.Contract.ConID != terms.Contract.ConID || !strings.EqualFold(preview.Draft.Action, terms.Action):
 				mismatch = "the preview does not describe the signed contract and side"
-			case preview.Draft.Quantity <= 0 || !ownerQueueProtection(terms) && preview.Draft.Quantity > terms.MaxQuantity:
+			case preview.Draft.Quantity <= 0 || !ownerQueueProtection(terms) && !queuedPlanTrail(terms) && preview.Draft.Quantity > terms.MaxQuantity:
 				mismatch = "the preview quantity is outside the signed maximum"
 			case ownerQueueProtection(terms) && (float64(preview.Draft.Quantity) != preview.Position.Before || !trailSpecsEquivalent(preview.Draft.Trail, terms.OwnerOrder.Trail)):
 				mismatch = "the preview changed full-position coverage or the approved trail"
 			case queuedPlanTrail(terms):
 				// A trail sells what is held, never more, at a positive limit
 				// and with no minimum price.
-				if float64(preview.Draft.Quantity) > preview.Position.Before || preview.Draft.Quantity > terms.MaxQuantity-current.Watch.SaleFilled || !positiveFinite(preview.Draft.LimitPrice) {
+				if float64(preview.Draft.Quantity) > preview.Position.Before || preview.Draft.Quantity > trailLineCap(current)-current.Watch.SaleFilled || !positiveFinite(preview.Draft.LimitPrice) {
 					mismatch = "the preview would sell more than is held, or without a price"
 				}
 			case queuedOwnerOrder(terms) && !ownerQueueProtection(terms) && preview.Draft.Quantity != terms.MaxQuantity:

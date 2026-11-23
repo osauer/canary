@@ -420,3 +420,36 @@ func TestExitPlanFirstSaleMinimumIsOptional(t *testing.T) {
 		}
 	}
 }
+
+// A whole-line trail sells the line held when it fired, contracts added
+// after signing included; a capped one never more than its signed maximum.
+func TestTrailLineCap(t *testing.T) {
+	_, trail := exitPlanTestTerms()
+	capped := queuedAuthRecord{Terms: trail, Watch: queuedTrailState{LineAtTrigger: 30}}
+	if got := trailLineCap(capped); got != 20 {
+		t.Fatalf("capped trail sells up to %d", got)
+	}
+	whole := trail
+	st := *trail.OwnerOrder.StockTrail
+	st.WholeLine = true
+	o := *trail.OwnerOrder
+	o.StockTrail = &st
+	whole.OwnerOrder = &o
+	if p := ownerQueueProblem(whole); p != "" {
+		t.Fatalf("whole-line terms refused: %s", p)
+	}
+	if got := trailLineCap(queuedAuthRecord{Terms: whole, Watch: queuedTrailState{LineAtTrigger: 30}}); got != 30 {
+		t.Fatalf("whole-line trail sells up to %d", got)
+	}
+	if got := trailLineCap(queuedAuthRecord{Terms: whole}); got != 20 {
+		t.Fatalf("a whole-line trail with no line read sells up to %d", got)
+	}
+	raw, _ := json.Marshal(whole)
+	if !strings.Contains(string(raw), `"whole_line":true`) {
+		t.Fatalf("terms: %s", raw)
+	}
+	raw, _ = json.Marshal(trail)
+	if strings.Contains(string(raw), "whole_line") {
+		t.Fatal("a capped trail's terms changed bytes")
+	}
+}

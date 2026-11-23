@@ -111,6 +111,13 @@ Both records are version 3 and carry `owner_order.plan` (`plan_id`, `role`,
 `wait_minutes`). Each stays a single-send record, so the executor's states,
 holds, recovery and events apply to it unchanged.
 
+- **Adding to the line never withdraws the plan.** The first sale sends
+  its signed quantity while at least that much is held, and is withdrawn
+  only when less is held (`position_changed`, saying so). A trail with
+  `stock_trail.whole_line` sells everything held of the line when the exit
+  line is crossed, contracts added after signing included; its
+  `max_quantity` is then the line at signing, for the record. A trail
+  without the flag keeps its signed maximum as a cap.
 - **First sale:** a midpoint owner order as in version 2: `midpoint_bounded`,
   plain limit (an option carries no Adaptive), `worst_price` the minimum (omitted when there is none),
   `max_quantity` the first-sale quantity, a one-hour window from the open

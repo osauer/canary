@@ -174,6 +174,11 @@ type QueuedStockTrail struct {
 	InitialStopPrice float64        `json:"initial_stop_price"`
 	ReferencePrice   float64        `json:"reference_price"`
 	ReferenceAt      time.Time      `json:"reference_at"`
+	// WholeLine signs everything held of the option line when the exit line
+	// is crossed, contracts added after signing included; max_quantity is
+	// then the line held at signing, for the record, not a cap. Without it
+	// the sale is capped at max_quantity.
+	WholeLine bool `json:"whole_line,omitempty"`
 }
 
 // QueuedTrailWatch is a trail record's runtime view, outside its terms:

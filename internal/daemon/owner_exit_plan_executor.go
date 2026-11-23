@@ -144,6 +144,14 @@ func (e *proposalEngine) watchQueuedTrail(ctx context.Context, rec queuedAuthRec
 		live.breachAt = time.Time{}
 	}
 	e.setTrailLive(id, live)
+	// The line held when the exit line is crossed is what a whole-line trail
+	// sells; read before the trigger is latched.
+	line := 0
+	if fire && st.WholeLine {
+		if position, err := e.server.capturePreviewOrderPositionAuthority(ctx, e.server.currentTradingStatus(), rec.Terms.Contract, rpc.OrderActionSell, 1); err == nil && position.Impact.Before > 0 {
+			line = int(math.Trunc(position.Impact.Before))
+		}
+	}
 	var withdrawn []queuedAuthRecord
 	fired := false
 	err := e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
@@ -167,7 +175,7 @@ func (e *proposalEngine) watchQueuedTrail(ctx context.Context, rec queuedAuthRec
 			events = append(events, ev)
 		}
 		if fire && price <= w.StopPrice {
-			w.TriggeredAt, w.TriggerPrice = now.UTC(), price
+			w.TriggeredAt, w.TriggerPrice, w.LineAtTrigger = now.UTC(), price, line
 			r.Watch = w
 			ev := r.note(queuedEventTriggered, r.State, now)
 			ev.StockPrice, ev.HighWater, ev.StopPrice, ev.ExecutorTickAt = price, w.HighWater, w.StopPrice, now
@@ -439,7 +447,7 @@ func trailSaleProgress(r *queuedAuthRecord, v rpc.OrderView, now time.Time) (que
 	sold := int(math.Round(max(v.Filled, 0)))
 	r.Watch.SaleFilled += sold
 	r.FilledQuantity, r.AvgFillPrice = v.Filled, v.AvgFillPrice
-	total, signed := r.Watch.SaleFilled, r.Terms.MaxQuantity
+	total, signed := r.Watch.SaleFilled, trailLineCap(*r)
 	end := queuedOrderEnd(v)
 	var ev queuedAuthEvent
 	switch {
