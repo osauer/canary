@@ -29,7 +29,10 @@ declared and statement cash flows with its high-water mark. When equity moves
 by more than those flows and the book's own P&L explain, Canary treats the move
 as a suspected cash flow. It then holds the mandate's remaining loss room as
 unknown until you declare the flow (`canary policy capital-event`) or a
-statement covering that day is reconciled.
+statement covering that day is reconciled. The mandate verdict serves it as
+`capital.hold` (`code`, `raised_at`, `reason`): `flow_suspected` while it can
+still clear by itself, `pnl_reset_unresolved` once only a statement can clear
+it (a restart left the broker's P&L basis ambiguous); absent without a hold.
 
 `canary recon` is advisory. Its report and dismissals are CLI-only; the
 read-only MCP tool `canary_recon_status` reports acquisition and

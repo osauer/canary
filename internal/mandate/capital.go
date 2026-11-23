@@ -57,14 +57,33 @@ type CapitalInput struct {
 // the drawdown from the high-water mark and the room left under D. Known is
 // false, with Reasons, whenever the evidence cannot establish them; the
 // numbers are then zero and must not be read.
+// Capital hold codes: a suspected cash flow that can still clear by itself
+// (a declared flow, executions or the move undone), and one that needs a
+// statement because a restart left the broker's P&L basis ambiguous.
+const (
+	CapitalHoldFlowSuspected      = "flow_suspected"
+	CapitalHoldPnLResetUnresolved = "pnl_reset_unresolved"
+)
+
+// CapitalHold is a raised capital hold: its code, when it was raised and
+// the sentence that says what clears it.
+type CapitalHold struct {
+	Code     string    `json:"code"`
+	RaisedAt time.Time `json:"raised_at"`
+	Reason   string    `json:"reason"`
+}
+
 type Capital struct {
-	Known        bool      `json:"known"`
-	Reasons      []string  `json:"reasons,omitempty"`
-	BaseCurrency string    `json:"base_currency,omitempty"`
-	StartedAt    string    `json:"started_at,omitempty"`
-	EquityBase   float64   `json:"equity_base,omitempty"`
-	EquityAsOf   time.Time `json:"equity_as_of,omitzero"`
-	EquityStale  bool      `json:"equity_stale,omitempty"`
+	Known   bool     `json:"known"`
+	Reasons []string `json:"reasons,omitempty"`
+	// Hold is the capital hold while one is raised: a suspected cash flow
+	// that keeps the risk measure unknown. Absent when there is none.
+	Hold         *CapitalHold `json:"hold,omitempty"`
+	BaseCurrency string       `json:"base_currency,omitempty"`
+	StartedAt    string       `json:"started_at,omitempty"`
+	EquityBase   float64      `json:"equity_base,omitempty"`
+	EquityAsOf   time.Time    `json:"equity_as_of,omitzero"`
+	EquityStale  bool         `json:"equity_stale,omitempty"`
 	// TaxReserveBase is the owner's reserve; RiskBase is equity after it.
 	TaxReserveBase float64 `json:"tax_reserve_base,omitempty"`
 	RiskBase       float64 `json:"risk_base,omitempty"`

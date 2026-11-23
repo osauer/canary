@@ -612,11 +612,14 @@ func (st *riskCapitalStore) MandateCapitalForScope(c *risk.Constitution, scope b
 		capital.Known = false
 		reason := fmt.Sprintf("a cash flow is suspected: an equity move of %s since %s that declared flows and the book's own P&L do not explain; the room is held until the flow is declared (canary policy capital-event) or a statement covering the day is reconciled",
 			mandateMoney(s.Unexplained, in.BaseCurrency), s.At.UTC().Format(time.DateTime))
+		code := mandate.CapitalHoldFlowSuspected
 		if !s.PnLResetAmbiguousAt.IsZero() {
+			code = mandate.CapitalHoldPnLResetUnresolved
 			reason = fmt.Sprintf("the cash-flow hold raised at %s remains unresolved: daily P&L may have reset at %s; numerical readings and flow declarations alone cannot settle its basis, so a statement covering %s must be reconciled",
 				s.At.UTC().Format(time.DateTime), s.PnLResetAmbiguousAt.UTC().Format(time.DateTime), mandateSessionDate(s.PnLResetAmbiguousAt))
 		}
 		capital.Reasons = append([]string{reason}, capital.Reasons...)
+		capital.Hold = &mandate.CapitalHold{Code: code, RaisedAt: s.At.UTC(), Reason: reason}
 	}
 	var realised mandateRealised
 	if m != nil && m.StartedAt == c.Mandate.StartedAt {
