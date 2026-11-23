@@ -1,7 +1,27 @@
 # Canary full context
 
-Updated: 2026-11-22 17:20 CET
+Updated: 2026-11-23 08:30 CET
 
+Version 3.45 adds `canary add search PATTERN [--json]`, a read-only lookup
+through IBKR's symbol search by symbol or company name that names each
+listing's currency and the exchange Add asks on (IBKR connections only). A
+stock add whose quantity is off the broker's board lot is held with
+`add_lot_size`, and `--max` sizes in whole lots; `add` market detail carries
+`min_size` and `size_increment`. The `[cash.sweep]` key
+`buy_stock_on_borrowed_currency` (off unless written) lets a stock purchase
+borrow its own currency while the account's free cash in every currency, after
+floats, open purchases and the reserve, still covers it; each such order
+carries the warning `add_borrowed_currency` with the borrowed amount, and
+`--max` never borrows. An entry the broker never acknowledged is cancelled
+once when its attached stop is refused, and an order record the broker never
+acknowledged is bound or closed by the reconcile sweep. Option entries sized
+by `add`, strategy previews and combination broker previews no longer fail
+inside Canary; orders carry the contract multiplier in the type IBKR reads, no
+empty attached-orders field, and combination legs with IBKR's default leg
+fields. None of these option or combination orders has yet been sent to a live
+broker. Regime readings label a
+previous-session close as such, gamma never takes it as spot, and the daemon
+prunes old damaged-store copies and schema-upgrade backups after a start.
 Version 3.44 adds `canary strategies add ID REVISION --units N`, which buys
 whole units of a held option strategy as one combination order, every leg in
 the held ratio, at a day limit, from the command line only (a preview
