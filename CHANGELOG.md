@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.45.0 — 2026-11-23 08:30 CET
+
+### What's new
+
+**Add finds a listing for you.** `canary add search PATTERN` looks a stock up by symbol or company name through Interactive Brokers' own symbol search, so a Hong Kong stock code finds the Hong Kong line and its US depositary receipt side by side. Each listing names its currency and the exchange Add will ask on. The search places no order and works on an IBKR connection only.
+
+**A stock add keeps to the exchange's board lot.** Where the broker trades a stock in lots, as Hong Kong does, a plan or preview for a quantity off the lot is held with `add_lot_size` and says which multiple to choose, and `--max` sizes in whole lots. A stock that trades in single shares sizes exactly as before.
+
+**A stock add can borrow its own currency, if you allow it.** A new `[cash.sweep]` setting, `buy_stock_on_borrowed_currency`, is off unless you write it. With it on, a purchase that its own currency's cash cannot pay may borrow the rest in that currency, as long as the account's free cash in every currency, after floats, open purchases and the reserve, still covers it. Each such order carries the warning `add_borrowed_currency` with the amount borrowed, which you accept with the order, and `--max` never borrows. While a debit stands you pay IBKR's interest on it and carry the exchange-rate move until you convert, and the cash sweep's bill buys wait. With it on, a debit that other cash covers no longer holds the next add.
+
+**An entry the broker never acknowledged is withdrawn when its stop is refused.** When the broker refuses the protective stop of a protected add and never acknowledged the entry, Canary now cancels the entry once instead of leaving it waiting at the broker, where it could be sent by hand without its stop. Only a cancel is ever sent for it. An order record the broker never acknowledged also no longer stays pending forever: the reconcile sweep binds it if the broker holds it, and otherwise closes it as never acknowledged, unless the send itself may have reached the broker unseen.
+
+The order fixes below were driven end to end against a simulated TWS that decodes each order by IB Gateway's own field table. The option and combination orders have not yet been sent to a live broker, so check the legs and the limit on the first preview before you send. Listing search and board lots were checked only against the simulator; check the lot on your first Hong Kong preview.
+
+### Fixed
+
+- An option entry sized with `add` failed with "the Adaptive algorithm requires a SMART stock LMT DAY order". The sizing preview is now a plain limit, and asking for Adaptive on an option is refused at the preview with a sentence saying why.
+- `canary strategies add` previews answered "trading disabled: invalid strategy position binding".
+- Strategy close, reduce and add previews failed before reaching the broker with "finite explicit limit price required for combo limit orders".
+- Option and future orders reached the broker without their contract multiplier, which was written in a form the broker skips. Orders and previews still named the contract by its id.
+- Every order carried an empty attached-orders field that the broker can answer with error 10354 on some accounts. It is no longer sent.
+- A spread add or close could be refused by a broker rule (10123) because its legs were marked open or close. Legs now go as "same", with IBKR's default leg fields.
+- A stock buy queued from the paired phone app was held at the open by any standing warning. The signed terms now carry the warnings of its plan, and an order whose warnings match the signed ones word for word, figures included, goes out; any difference still holds it.
+- A gamma refresh in the seconds after the open could centre its whole profile on the previous session's close and keep it until the next open.
+- Regime readings showed the previous session's close as a current price, with a day change of exactly zero. They now read "previous close" and report the day change as missing. Bands and thresholds are unchanged.
+
+### Changed
+
+- After each successful start the daemon keeps the newest two damaged-store copies and any younger than seven days, and the newest schema-upgrade backup, and removes older copies it wrote itself. Files you put there by hand are never touched.
+
+### Added
+
+- `canary add search PATTERN [--json]`.
+- `add` market detail carries `min_size` and `size_increment` for the listing.
+- `[cash.sweep] buy_stock_on_borrowed_currency`.
+- `canary-sim` and `make test-sim` (source tree only): the real daemon against a simulated TWS, for testing order paths without a broker.
+
 ## v3.44.1 — 2026-11-22 18:30 CET
 
 ### What's new
