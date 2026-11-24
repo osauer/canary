@@ -40,11 +40,35 @@ func TestMarketReadAnswersWithinItsBudgetWhileHistoryIsSlow(t *testing.T) {
 		t.Errorf("missing inputs are not marked unavailable: %+v", r.Index)
 	}
 	// The slow reads were asked for, on the background lane, and a second
-	// read inside the retry window does not ask again.
+	// read inside the retry window does not ask again. The read records each
+	// background request before it returns and sends it from its own
+	// goroutine, so a first request can reach the broker after the read has
+	// answered. Wait until every first request that can reach this broker
+	// has: the bounded request lets as many through as it has slots, and
+	// this broker never answers, so the rest wait for a slot. The baseline
+	// seed, when the read starts one, reads outside the slots. Then drain,
+	// then read again: a late first request is not a repeat.
 	select {
-	case <-requested:
-	case <-time.After(2 * time.Second):
+	case <-requested: // the bounded request has made its slots by now
+	case <-time.After(10 * time.Second):
 		t.Fatal("no background history request was made")
+	}
+	s.marketRead.mu.Lock()
+	recorded, seeded := len(s.marketRead.requested), s.marketRead.seeded != ""
+	s.marketRead.mu.Unlock()
+	s.marketData.mu.Lock()
+	slots := cap(s.marketData.slots)
+	s.marketData.mu.Unlock()
+	expected := min(recorded, slots)
+	if seeded {
+		expected++
+	}
+	for seen := 1; seen < expected; seen++ {
+		select {
+		case <-requested:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%d of %d background history requests reached the broker", seen, expected)
+		}
 	}
 	for len(requested) > 0 {
 		<-requested
