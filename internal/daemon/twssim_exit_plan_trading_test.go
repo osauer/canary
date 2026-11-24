@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -614,35 +615,84 @@ func TestSimulatedTWSExitPlanSurvivesARestart(t *testing.T) {
 	}
 }
 
-// X9. The option's spread is too wide at the trigger: the trail holds, stays
-// latched while the stock recovers, and sells when the spread narrows.
+// X9. The option is quoted 60% wide when the line is crossed: the sale
+// still works an order (owner, 2026-11-24 10:01 CET: "Yes, rest at mid").
+// It rests at the mid, says so in the watch with the spread and the floor,
+// and fills when a buyer lifts it.
 func TestSimulatedTWSExitPlanWideSpreadAtTheTrigger(t *testing.T) {
 	d, opt := planDesk(t, 50, 20)
+	d.sim.SetMidFill(opt.ConID, false)
 	planStartIn(t, -10*time.Minute, 0)
 	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
 	if err := d.sim.SetSpread(opt.ConID, 60); err != nil {
 		t.Fatal(err)
 	}
 	d.planStock(48)
-	d.planWaitRecord("the trail to hold on the spread", trail, 60*time.Second, func(r queuedAuthRecord) bool {
-		return !r.Watch.TriggeredAt.IsZero() && r.HoldCode == rpc.ReadinessSpreadTooWide
+	rec := d.planWaitRecord("the sale to rest at the mid", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	sells := d.planSells(opt.ConID)
+	q := rec.SendQuote
+	mid := (*q.Bid + *q.Ask) / 2
+	if len(sells) != 1 || math.Abs(sells[0].LimitPrice-mid) > 0.011 || *q.SpreadPct < 55 {
+		t.Fatalf("first attempt: %d sells, limit %g, mid %g, spread %g", len(sells), sells[0].LimitPrice, mid, *q.SpreadPct)
+	}
+	requirePlainLimitSell(t, sells[0], opt.ConID, 20)
+	if w := d.planWatchView(trail); w.State != rpc.QueuedWatchTriggered || w.ReasonCode != queuedTrailSaleWideSpread || w.SaleSpreadPct < 55 || math.Abs(w.SaleFloor-mid*0.875) > 1e-6 {
+		t.Fatalf("wide view: %+v", w)
+	}
+	o := d.planBrokerOrder(opt.ConID, 20)
+	if err := d.sim.Fill(o.OrderID, 0, o.LimitPrice); err != nil {
+		t.Fatal(err)
+	}
+	rec = d.planWaitRecord("the sale to fill", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if rec.State != rpc.QueuedAuthFilled || d.planBrokerSold(opt.ConID) != 20 {
+		t.Fatalf("%s %q, sold %g", rec.State, rec.Reason, d.planBrokerSold(opt.ConID))
+	}
+}
+
+// X9c. A wide quote that narrows: on the wide quote the steps go no lower
+// than mid × (1 − 25/200); once the quote is inside the limit the ordinary
+// steps resume and the line sells at the bid.
+func TestSimulatedTWSExitPlanWideSpreadNarrows(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	d.sim.SetMidFill(opt.ConID, false)
+	planStartIn(t, -10*time.Minute, 0)
+	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
+	if err := d.sim.SetSpread(opt.ConID, 60); err != nil {
+		t.Fatal(err)
+	}
+	d.planStock(48)
+	d.planWaitRecord("the steps to reach the floor", trail, 90*time.Second, func(r queuedAuthRecord) bool {
+		return r.Watch.SaleStep >= 2 && r.State == rpc.QueuedAuthSent
 	})
-	d.planStock(51)
-	time.Sleep(12 * time.Second)
-	rec := d.queuedRecord(trail)
-	if len(d.planSells(opt.ConID)) != 0 || rec.Watch.TriggeredAt.IsZero() || !rec.waiting() {
-		t.Fatalf("recovered stock: %+v %s, %d sells", rec.Watch, rec.State, len(d.planSells(opt.ConID)))
+	if rec := d.queuedRecord(trail); rec.final() {
+		t.Fatalf("sold on the wide quote: %s", rec.State)
+	}
+	for _, ev := range queuedEventsFor(t, d, trail) {
+		if ev.Type != queuedEventSending || ev.Quote == nil || ev.Quote.Bid == nil || ev.Quote.Ask == nil {
+			continue
+		}
+		mid := (*ev.Quote.Bid + *ev.Quote.Ask) / 2
+		if ev.Limit+1e-9 < mid*0.875 || ev.Limit <= *ev.Quote.Bid {
+			t.Fatalf("a wide attempt at %g below the floor of mid %g (bid %g)", ev.Limit, mid, *ev.Quote.Bid)
+		}
 	}
 	if err := d.sim.SetSpread(opt.ConID, 0); err != nil {
 		t.Fatal(err)
 	}
 	d.srv.tradeProposals.Kick()
-	rec = d.planWaitRecord("the trail to sell once the spread narrows", trail, 60*time.Second, func(r queuedAuthRecord) bool { return trailSold(r) })
-	sells := d.planSells(opt.ConID)
-	if len(sells) != 1 || rec.QuantitySent != 20 {
-		t.Fatalf("%d sells, sent %d", len(sells), rec.QuantitySent)
+	rec := d.planWaitRecord("the line to sell at the bid", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if rec.State != rpc.QueuedAuthFilled || d.planBrokerSold(opt.ConID) != 20 {
+		t.Fatalf("%s %q, sold %g", rec.State, rec.Reason, d.planBrokerSold(opt.ConID))
 	}
-	requirePlainLimitSell(t, sells[0], opt.ConID, 20)
+	var last queuedAuthEvent
+	for _, ev := range queuedEventsFor(t, d, trail) {
+		if ev.Type == queuedEventSending {
+			last = ev
+		}
+	}
+	if q := last.Quote; q == nil || q.SpreadPct == nil || *q.SpreadPct > 25 || last.SaleStep != "bid" || math.Abs(last.Limit-*q.Bid) > 1e-9 {
+		t.Fatalf("the narrow quote did not sell at the bid: %+v", last)
+	}
 }
 
 // X10. The owner cancels before the trigger: cancelling one record leaves
@@ -854,19 +904,24 @@ func TestSimulatedTWSExitPlanArmIsAllOrNothing(t *testing.T) {
 	}
 }
 
-// X8b. The latch survives a restart: a trail that fired and is held on a wide
-// option spread restarts still triggered, sells nothing while the stock
+// X8b. The latch survives a restart: a trail that fired and is held on a
+// one-sided option quote restarts still triggered, sells nothing while the stock
 // recovers, and sells once the spread narrows.
 func TestSimulatedTWSExitPlanLatchSurvivesARestart(t *testing.T) {
 	d, stop, db, opt := restartablePlanDesk(t)
 	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
-	if err := d.sim.SetSpread(opt.ConID, 60); err != nil {
+	// One-sided: there is no mid, so the fired trail holds with its own
+	// reason, distinct from a wide quote's.
+	if err := d.sim.SetFeed(opt.ConID, twssim.FeedOneSided); err != nil {
 		t.Fatal(err)
 	}
 	d.planStock(48)
-	d.planWaitRecord("the trail to hold on the spread", trail, 60*time.Second, func(r queuedAuthRecord) bool {
-		return !r.Watch.TriggeredAt.IsZero() && r.HoldCode == rpc.ReadinessSpreadTooWide
+	d.planWaitRecord("the trail to hold on the one-sided quote", trail, 60*time.Second, func(r queuedAuthRecord) bool {
+		return !r.Watch.TriggeredAt.IsZero() && r.HoldCode == rpc.ReadinessQuoteUnusable
 	})
+	if w := d.planWatchView(trail); w.ReasonCode != rpc.ReadinessQuoteUnusable || len(d.planSells(opt.ConID)) != 0 {
+		t.Fatalf("one-sided view: %+v", w)
+	}
 	d, _ = restartExitPlanDesk(t, d, stop, db)
 	d.planStock(52)
 	time.Sleep(15 * time.Second)
@@ -874,7 +929,7 @@ func TestSimulatedTWSExitPlanLatchSurvivesARestart(t *testing.T) {
 	if rec.Watch.TriggeredAt.IsZero() || !rec.waiting() || len(d.planSells(opt.ConID)) != 0 {
 		t.Fatalf("after the restart: %+v %s, %d sells", rec.Watch, rec.State, len(d.planSells(opt.ConID)))
 	}
-	if err := d.sim.SetSpread(opt.ConID, 0); err != nil {
+	if err := d.sim.SetFeed(opt.ConID, twssim.FeedLive); err != nil {
 		t.Fatal(err)
 	}
 	d.srv.tradeProposals.Kick()

@@ -844,3 +844,66 @@ func TestPolicyHoldIsVisibleOnTheWatch(t *testing.T) {
 		t.Fatalf("policy hold view: %+v", w)
 	}
 }
+
+// A fired trail always prices an order. Inside the spread limit it steps
+// from the mid to halfway to the bid to the bid. Wider, it starts at the mid
+// and steps down no further than the bid of a quote at the limit:
+// floor = mid × (1 − limit/200), 12.5% under the mid at 25%.
+func TestTrailSalePricesAWideQuote(t *testing.T) {
+	option := rpc.ContractParams{Symbol: "SYNA", SecType: "OPT", Right: "C", Strike: 55, Expiry: "20261218", Multiplier: 100}
+	quote := func(bid, ask float64) rpc.OrderQuoteSnapshot {
+		return rpc.OrderQuoteSnapshot{Bid: new(bid), Ask: new(ask), DataType: rpc.MarketDataLive}
+	}
+	if got := trailWideFloor(1.40, 25); math.Abs(got-1.225) > 1e-9 {
+		t.Fatalf("floor %g", got)
+	}
+	for name, c := range map[string]struct {
+		q     rpc.OrderQuoteSnapshot
+		steps [3]float64
+	}{
+		"57% wide": {quote(1.00, 1.80), [3]float64{1.40, 1.23, 1.23}},
+		"7% wide":  {quote(1.35, 1.45), [3]float64{1.40, 1.38, 1.35}},
+		"60% wide": {quote(0.70, 1.30), [3]float64{1.00, 0.88, 0.88}},
+	} {
+		for step, want := range c.steps {
+			got, err := boundedLimitPrice(rpc.OrderActionSell, trailSaleBound(step, 25), nil, option, c.q)
+			if err != nil || math.Abs(got-want) > 1e-9 {
+				t.Errorf("%s step %d: %g %v, want %g", name, step, got, err, want)
+			}
+		}
+	}
+	// One-sided: there is no mid, and nothing is priced.
+	if _, err := boundedLimitPrice(rpc.OrderActionSell, trailSaleBound(0, 25), nil, option, rpc.OrderQuoteSnapshot{Bid: new(1.0), DataType: rpc.MarketDataLive}); !previewRefusedWith(err, previewQuoteNotTwoSidedCode) {
+		t.Fatalf("one-sided: %v", err)
+	}
+	// Every other bounded limit still refuses a wide quote.
+	if _, err := boundedLimitPrice(rpc.OrderActionSell, &rpc.OrderBoundedLimit{Concession: 0, NoWorstPrice: true, MaxSpreadPctOfMid: 25}, nil, option, quote(1.00, 1.80)); !previewRefusedWith(err, previewBoundedSpreadCode) {
+		t.Fatalf("a first sale's bound priced a wide quote: %v", err)
+	}
+}
+
+// A fired trail whose sale works on a quote wider than its limit says so in
+// a typed way, with the spread and the floor.
+func TestTrailWideSaleView(t *testing.T) {
+	rig := newQueueTestRig(t)
+	e := rig.engine
+	_, trail := exitPlanTestTerms()
+	trail.QueueID = "trail1"
+	storeTrail(t, e, trail, exitPlanTestOpen)
+	at := exitPlanTestOpen.Add(time.Minute)
+	rig.now = at
+	if err := e.queued.update(t.Context(), at, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[trail.QueueID]
+		r.Watch.TriggeredAt, r.Watch.SaleAttempts = at, 1
+		r.State, r.OrderRef, r.SentAt, r.LimitPrice = rpc.QueuedAuthSent, "ref1", at, 1.40
+		r.SendQuote = queuedSendQuote(rpc.OrderQuoteSnapshot{Bid: new(1.00), Ask: new(1.80), DataType: rpc.MarketDataLive})
+		return []queuedAuthEvent{r.note(queuedEventTriggered, r.State, at)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := e.queued.get(trail.QueueID)
+	w := e.queuedView(r).Watch
+	if w.State != rpc.QueuedWatchTriggered || w.ReasonCode != queuedTrailSaleWideSpread || math.Abs(w.SaleSpreadPct-57.142857) > 1e-3 || math.Abs(w.SaleFloor-1.225) > 1e-9 {
+		t.Fatalf("wide sale view: %+v", w)
+	}
+}

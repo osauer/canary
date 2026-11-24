@@ -218,9 +218,15 @@ type QueuedTrailWatch struct {
 	SaleFilled   int     `json:"sale_filled,omitempty"`
 	// SaleStep is the price step of the working or next attempt: "mid",
 	// "half" (halfway to the bid) or "bid".
-	SaleStep   string `json:"sale_step,omitempty"`
-	ReasonCode string `json:"reason_code,omitempty"`
-	Reason     string `json:"reason,omitempty"`
+	SaleStep string `json:"sale_step,omitempty"`
+	// SaleSpreadPct and SaleFloor describe a sale working on a quote wider
+	// than the signed spread limit (reason_code resting_at_mid_wide_spread):
+	// the spread it was priced from, in percent of the mid, and the lowest
+	// price the trail steps down to, mid × (1 − limit/200).
+	SaleSpreadPct float64 `json:"sale_spread_pct,omitempty"`
+	SaleFloor     float64 `json:"sale_floor,omitempty"`
+	ReasonCode    string  `json:"reason_code,omitempty"`
+	Reason        string  `json:"reason,omitempty"`
 	// NextWatchAt is when a trail outside the regular session, or inside
 	// its opening wait, watches (or resumes its sale) again; zero when it is
 	// watching or its validity ends first.

@@ -3041,6 +3041,10 @@ type OrderBoundedLimit struct {
 	MaxGive           float64
 	ClampToWorst      bool
 	NoWorstPrice      bool
+	// WideFloorPctOfMid prices a quote wider than MaxSpreadPctOfMid instead of
+	// refusing it, never further from the mid than this percent of the mid
+	// (an exit plan's fired trail: half its spread limit).
+	WideFloorPctOfMid float64
 }
 
 // StrategyPreviewParams requests one constrained group close or reduction.

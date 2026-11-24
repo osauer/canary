@@ -1715,7 +1715,9 @@ func previewLimitPrice(action, strategy string, explicit *float64, contract rpc.
 // beyond the worst price. A bound with MaxGive prices a wider spread no
 // further than that from the mid, and one with ClampToWorst lands on the
 // worst price instead of refusing (the step of an unfilled mandate cut,
-// mandate_cut_step.go). Only the daemon sets the bound.
+// mandate_cut_step.go). A bound with WideFloorPctOfMid prices a wider spread
+// no further from the mid than that percent of it (a fired exit-plan trail,
+// trailSaleBound). Only the daemon sets the bound.
 func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *float64, contract rpc.ContractParams, quote rpc.OrderQuoteSnapshot) (float64, error) {
 	switch {
 	case bound == nil:
@@ -1723,7 +1725,8 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 	case explicit != nil:
 		return 0, errBadRequest("bounded-limit strategy must not carry a limit price")
 	case math.IsNaN(bound.Concession) || bound.Concession < 0 || bound.Concession > 1 || !positiveFinite(bound.MaxSpreadPctOfMid),
-		bound.NoWorstPrice && (bound.WorstPrice != 0 || bound.ClampToWorst), !bound.NoWorstPrice && !positiveFinite(bound.WorstPrice):
+		bound.NoWorstPrice && (bound.WorstPrice != 0 || bound.ClampToWorst), !bound.NoWorstPrice && !positiveFinite(bound.WorstPrice),
+		math.IsNaN(bound.WideFloorPctOfMid) || bound.WideFloorPctOfMid < 0 || bound.WideFloorPctOfMid >= 100 || bound.WideFloorPctOfMid > 0 && bound.MaxGive > 0:
 		return 0, errBadRequest("bounded-limit bound is invalid")
 	}
 	bid, ask, err := liveTwoSidedQuote(quote, "bounded-limit")
@@ -1731,9 +1734,12 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 		return 0, err
 	}
 	mid := (bid + ask) / 2
-	wide := false
+	wide, give := false, bound.MaxGive
 	if spread := (ask - bid) / mid * 100; spread > bound.MaxSpreadPctOfMid {
-		if !(bound.MaxGive > 0) || math.IsInf(bound.MaxGive, 0) {
+		if bound.WideFloorPctOfMid > 0 {
+			give = mid * bound.WideFloorPctOfMid / 100
+		}
+		if !(give > 0) || math.IsInf(give, 0) {
 			return 0, refusePreviewCode(previewBoundedSpreadCode, errBadRequest(fmt.Sprintf("bounded-limit requires a spread within %.1f%% of mid; it is %.1f%%", bound.MaxSpreadPctOfMid, spread)))
 		}
 		wide = true
@@ -1744,7 +1750,7 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 	case rpc.OrderActionSell:
 		limit = roundPrice(min(ceilPriceToTick(mid-bound.Concession*(mid-bid), tick), ask))
 		if wide {
-			limit = max(limit, roundPrice(min(ceilPriceToTick(mid-bound.MaxGive, tick), ask)))
+			limit = max(limit, roundPrice(min(ceilPriceToTick(mid-give, tick), ask)))
 		}
 		if !bound.NoWorstPrice && limit+1e-9 < bound.WorstPrice {
 			if !bound.ClampToWorst {
@@ -1755,7 +1761,7 @@ func boundedLimitPrice(action string, bound *rpc.OrderBoundedLimit, explicit *fl
 	case rpc.OrderActionBuy:
 		limit = roundPrice(max(floorPriceToTick(mid+bound.Concession*(ask-mid), tick), bid))
 		if wide {
-			limit = min(limit, roundPrice(max(floorPriceToTick(mid+bound.MaxGive, tick), bid)))
+			limit = min(limit, roundPrice(max(floorPriceToTick(mid+give, tick), bid)))
 		}
 		if !bound.NoWorstPrice && limit > bound.WorstPrice+1e-9 {
 			if !bound.ClampToWorst {

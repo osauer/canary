@@ -101,7 +101,7 @@ func TestOpeningFillsClearTheFlowHoldTheyRaised(t *testing.T) {
 		// 14:30:50.
 		retain(rt, opening)
 		recordExecutionAnswer(rt, fillQuotePoll{scope: scope, at: utc(14, 31, 10), complete: true, allClients: true, authority: authority}, answer(opening), account)
-		read(utc(14, 31, 20), utc(14, 30, 50), 190900, cashAfter, -3168, after)
+		read(utc(14, 31, 20), utc(14, 30, 50), 190904, cashAfter, -3164, after)
 		return held, !suspected()
 	}
 	empty := func(rt *fillQuoteRuntime, authority *orderPreviewBrokerAuthority, at time.Time) {

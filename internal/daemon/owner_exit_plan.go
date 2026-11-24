@@ -822,6 +822,13 @@ func (e *proposalEngine) armExitPlan(ctx context.Context, p rpc.TradeProposalQue
 	return out, nil
 }
 
+// trailSaleWide reports a fired trail's sale priced from a quote wider than
+// its signed spread limit.
+func trailSaleWide(r queuedAuthRecord) bool {
+	q := r.SendQuote
+	return q != nil && q.Bid != nil && q.Ask != nil && q.SpreadPct != nil && *q.SpreadPct > r.Terms.MaxSpreadPctOfMid
+}
+
 // queuedView is a record's read view; a trail record carries its watch.
 func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
 	v := r.view()
@@ -861,6 +868,12 @@ func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
 			w.ReasonCode, w.Reason, w.NextWatchAt = sess.code, sess.reason, sess.next
 		case r.HoldCode != "":
 			w.ReasonCode, w.Reason = r.HoldCode, r.HoldReason
+		case r.State == rpc.QueuedAuthSent && trailSaleWide(r):
+			q := r.SendQuote
+			mid := (*q.Bid + *q.Ask) / 2
+			w.SaleSpreadPct, w.SaleFloor = *q.SpreadPct, trailWideFloor(mid, r.Terms.MaxSpreadPctOfMid)
+			w.ReasonCode, w.Reason = queuedTrailSaleWideSpread, fmt.Sprintf("the option is quoted %.1f%% wide, beyond the %g%% limit; the sale rests at %g and steps down no further than %g, re-priced from the current mid until it fills or the quote narrows",
+				*q.SpreadPct, r.Terms.MaxSpreadPctOfMid, r.LimitPrice, roundPrice(w.SaleFloor))
 		case r.State == rpc.QueuedAuthSent && r.Watch.SaleCancelAt.After(r.SentAt):
 			w.ReasonCode, w.Reason = queuedTrailSaleCancelling, "the sale did not fill at its limit; it is being cancelled at the broker to send again at the bid once it has ended"
 		case r.State == rpc.QueuedAuthSent:

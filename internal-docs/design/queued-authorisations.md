@@ -199,9 +199,27 @@ its window nothing extra runs.
   is passed over at once (`queued_auth.sale_step_skipped`), so a market one
   tick wide goes from the mid straight to the bid. Worst case, about 20
   seconds from the first attempt to the bid. The step is journaled with each
-  send and shown as `sale_step` (`mid`, `half`, `bid`). Every hold the
+  send and shown as `sale_step` (`mid`, `half`, `bid`).
+- **Wide quote.** Once the line is crossed the sale always works an order
+  (owner, 2026-11-24 10:01 CET, asked whether a crossed line meeting a quote
+  wider than 25% should still rest at the mid: "Yes, rest at mid"; built
+  2026-11-24). On a quote wider than the signed spread limit the first
+  attempt rests at the mid and the steps go no lower than
+  `mid × (1 − max_spread_pct_of_mid / 200)`: the bid a quote exactly at the
+  limit would show around the same mid, 12.5% under the mid at 25%. So a
+  wide quote never gets a worse price than the widest quote the owner
+  signed as acceptable; it changes when the order rests, not what it may
+  give up. The re-price at that floor follows the current mid every 30
+  seconds, and a quote that narrows inside the limit takes the ordinary
+  steps again. The watch shows `reason_code` `resting_at_mid_wide_spread`
+  with `sale_spread_pct` and `sale_floor`. Both version 3 and version 4
+  plans take this: their terms sign no minimum price and a spread limit,
+  and every price sent is one those terms already send on an acceptable
+  quote. The first sale still refuses a wide quote. With no two-sided
+  quote there is no mid: the trail holds (`quote_unusable`).
+- **Holds.** Every hold the
   queue knows applies: freeze, paused configuration, broker link, session,
-  spread, quote, a working order on the contract and the order caps (a sale
+  quote, a working order on the contract and the order caps (a sale
   that fails the delta-reducing exemption holds and retries). None cancels
   the trail inside its window. A protection policy changed since signing
   holds a trail that has not fired, which then cannot fire; a fired trail

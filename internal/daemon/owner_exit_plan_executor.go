@@ -680,6 +680,41 @@ func trailSendQuantity(held float64, maxQuantity int) (int, bool) {
 	return min(int(held), maxQuantity), true
 }
 
+// queuedTrailSaleWideSpread is a fired trail's view reason while its sale
+// works on a quote wider than the signed spread limit.
+const queuedTrailSaleWideSpread = "resting_at_mid_wide_spread"
+
+// trailWideFloor is the lowest price a fired trail sells at on a quote wider
+// than its spread limit: the bid of a quote exactly that wide around the same
+// mid, mid × (1 − limit/200).
+func trailWideFloor(mid, maxSpreadPct float64) float64 {
+	return mid * (1 - maxSpreadPct/200)
+}
+
+// trailSaleBound is the bounded limit of a fired trail's attempt at step.
+//
+// Once the exit line is crossed the sale always works an order (owner,
+// 2026-11-24 10:01 CET, asked whether a crossed line meeting a quote wider
+// than 25% should still rest at the mid: "Yes, rest at mid"). Inside the
+// signed spread limit the steps are the mid, halfway to the bid, the bid.
+// On a wider quote the first attempt rests at the mid, and the steps go down
+// no further than trailWideFloor: mid × (1 − limit/200), the bid a quote
+// exactly at the limit would show around the same mid (12.5% under the mid
+// at 25%). The re-price at the floor follows the current mid every 30
+// seconds; when the quote narrows inside the limit the ordinary steps price
+// it again. With no two-sided quote there is no mid and nothing is sent.
+//
+// Inside what was signed: the terms sign no minimum price (stock_trail, no
+// worst_price) and max_spread_pct_of_mid, which bounds what a sale gives up
+// against the mid. Every price this sends is one the signed terms already
+// send on an acceptable quote: the mid, or at most the concession of a sale
+// at the bid of a quote at the limit. A wide quote changes when the order
+// rests, not how much it may give away, so version-3 and version-4 plans
+// both take it; the first sale keeps refusing wide quotes.
+func trailSaleBound(step int, maxSpreadPct float64) *rpc.OrderBoundedLimit {
+	return &rpc.OrderBoundedLimit{Concession: trailSaleSteps[trailStep(step)].concession, NoWorstPrice: true, MaxSpreadPctOfMid: maxSpreadPct, WideFloorPctOfMid: maxSpreadPct / 2}
+}
+
 // queuedFollowsHeldAttempt reports records whose attempt, once its send
 // outcome is unclear, is held and followed in the order journal rather than
 // failed: a full-position stop, and an exit plan's trail. Neither is resent
