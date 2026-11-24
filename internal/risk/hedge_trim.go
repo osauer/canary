@@ -159,6 +159,30 @@ type HedgeTrimAssessment struct {
 	State  HedgeTrimState
 	Reason string
 	Plan   HedgeTrimPlan
+	// Line is rule 12's measurement for the inside, planned and no-long-book
+	// states (its long book is zero in the last), zero otherwise; Add sizes
+	// an index put against it (HedgeLine.RoomBase).
+	Line HedgeLine
+}
+
+// HedgeLine is rule 12's measurement of the book: the long book, the hedge
+// puts' short delta, the band top and the over-hedge line past which puts
+// count as risk, all as the trim reads them.
+type HedgeLine struct {
+	GrossLongBase, ShortBase float64
+	TopPct, ActPct           float64
+}
+
+// RatioPct is the puts' short delta as a percent of the long book.
+func (l HedgeLine) RatioPct() float64 { return pct(l.ShortBase, l.GrossLongBase) }
+
+// RoomBase is the short delta more puts may add before the hedge passes the
+// over-hedge line; none on a book with no long exposure.
+func (l HedgeLine) RoomBase() float64 {
+	if !(l.GrossLongBase > 0) {
+		return 0
+	}
+	return max(0, l.ActPct/100*l.GrossLongBase-l.ShortBase)
 }
 
 // AssessHedgeTrim is PlanHedgeTrim with the reason there is no plan, which
@@ -212,20 +236,24 @@ func AssessHedgeTrim(in RuleInputs, pol RulebookPolicy) HedgeTrimAssessment {
 		return HedgeTrimAssessment{State: HedgeTrimPutUnmeasured, Reason: unmeasured}
 	case incomplete != "":
 		return HedgeTrimAssessment{State: HedgeTrimBookIncomplete, Reason: incomplete}
+	}
+	plan.TopPct, plan.ActPct = hedgeTrimLine(c)
+	line := HedgeLine{GrossLongBase: max(0, plan.GrossLongBase), ShortBase: plan.ShortBase, TopPct: plan.TopPct, ActPct: plan.ActPct}
+	switch {
+	case !(plan.GrossLongBase > 0) && len(plan.Lines) > 0:
+		return HedgeTrimAssessment{State: HedgeTrimNoLongBook, Line: line}
 	case len(plan.Lines) == 0:
-		return HedgeTrimAssessment{State: HedgeTrimInside}
-	case !(plan.GrossLongBase > 0):
-		return HedgeTrimAssessment{State: HedgeTrimNoLongBook}
+		return HedgeTrimAssessment{State: HedgeTrimInside, Line: line}
 	}
-	plan, ok := sizeHedgeTrim(c, plan)
+	plan, ok := sizeHedgeTrim(plan)
 	if !ok {
-		return HedgeTrimAssessment{State: HedgeTrimInside}
+		return HedgeTrimAssessment{State: HedgeTrimInside, Line: line}
 	}
-	return HedgeTrimAssessment{State: HedgeTrimPlanned, Plan: plan}
+	return HedgeTrimAssessment{State: HedgeTrimPlanned, Plan: plan, Line: line}
 }
 
-// sizeHedgeTrim applies the band to a measured book.
-func sizeHedgeTrim(c *ruleContext, plan HedgeTrimPlan) (HedgeTrimPlan, bool) {
+// hedgeTrimLine is the band top and the over-hedge line the trim reads.
+func hedgeTrimLine(c *ruleContext) (top, act float64) {
 	sets := []string{RegimeBucketCalm, RegimeBucketEarlyWarning, RegimeBucketConfirmed}
 	if stage := c.in.RegimeStage; stage != "" {
 		sets = []string{regimeSetBucket(stage)}
@@ -234,9 +262,13 @@ func sizeHedgeTrim(c *ruleContext, plan HedgeTrimPlan) (HedgeTrimPlan, bool) {
 		}
 	}
 	for _, set := range sets {
-		plan.TopPct = math.Max(plan.TopPct, c.pol.SetForBucket(set).HedgeBandMaxPct)
+		top = math.Max(top, c.pol.SetForBucket(set).HedgeBandMaxPct)
 	}
-	plan.ActPct = c.pol.OverhedgeMultiple * plan.TopPct
+	return top, c.pol.OverhedgeMultiple * top
+}
+
+// sizeHedgeTrim applies the band (TopPct and ActPct set) to a measured book.
+func sizeHedgeTrim(plan HedgeTrimPlan) (HedgeTrimPlan, bool) {
 	plan.RatioPct = pct(plan.ShortBase, plan.GrossLongBase)
 	if plan.RatioPct <= plan.ActPct {
 		return HedgeTrimPlan{}, false

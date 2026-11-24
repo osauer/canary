@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
@@ -130,6 +131,7 @@ func renderOrdersOpenText(env *Env, res *rpc.OrdersOpenResult) {
 	}
 	for _, order := range res.Orders {
 		fmt.Fprintf(out, "  %s\n", formatOrderViewTitle(order))
+		renderOrderCombinationText(out, order.Combination)
 		fmt.Fprintf(out, "    %s  %s  updated %s  origin %s\n", order.LifecycleStatus, nonEmpty(order.Status, order.LastEvent), formatOrderTime(order.UpdatedAt), nonEmpty(order.Origin, "none"))
 		if order.LastMessage != "" {
 			fmt.Fprintf(out, "    %s\n", order.LastMessage)
@@ -148,6 +150,37 @@ func renderOrdersOpenText(env *Env, res *rpc.OrdersOpenResult) {
 	fmt.Fprintln(out)
 }
 
+// renderOrderCombinationText names what a combination order trades under
+// its title line, so a working spread never reads as one instrument: the
+// strategy and operation, then one line per leg.
+func renderOrderCombinationText(out io.Writer, c *rpc.OrderCombination) {
+	if c == nil {
+		return
+	}
+	fmt.Fprintf(out, "    %s\n", orderCombinationTitle(c))
+	for _, leg := range c.Legs {
+		fmt.Fprintf(out, "      %s\n", orderCombinationLegText(leg))
+	}
+}
+
+func orderCombinationTitle(c *rpc.OrderCombination) string {
+	if c.Source == rpc.OrderCombinationBroker {
+		if len(c.Legs) == 0 {
+			return "combination; the broker reports no legs"
+		}
+		return fmt.Sprintf("combination of %d legs, placed outside Canary", len(c.Legs))
+	}
+	name := strings.ReplaceAll(nonEmpty(c.Strategy, nonEmpty(c.Kind, "strategy")), "_", " ")
+	return fmt.Sprintf("%s, %s %d unit(s), one combination order", name, nonEmpty(c.Operation, "order"), c.Units)
+}
+
+func orderCombinationLegText(leg rpc.OrderCombinationLeg) string {
+	if leg.Expiry == "" && leg.Strike == 0 {
+		return fmt.Sprintf("%s %d×  conID %d", leg.Action, leg.Ratio, leg.ConID)
+	}
+	return fmt.Sprintf("%s %d×  %s %s %.2f  conID %d", leg.Action, leg.Ratio, leg.Expiry, leg.Right, leg.Strike, leg.ConID)
+}
+
 // renderUntrackedOrdersText lists the orders working at the broker that
 // Canary never placed. An unavailable inventory is said out loud rather
 // than rendered as an empty list.
@@ -162,6 +195,7 @@ func renderUntrackedOrdersText(env *Env, res *rpc.OrdersOpenResult) {
 		fmt.Fprintf(out, "Working at the broker, not placed by Canary (inventory %s):\n", formatOrderTime(res.UntrackedAsOf))
 		for _, order := range res.Untracked {
 			fmt.Fprintf(out, "  %s\n", formatOrderViewTitle(order))
+			renderOrderCombinationText(out, order.Combination)
 			fmt.Fprintf(out, "    %s  %s  origin none  %s\n", order.LifecycleStatus, nonEmpty(order.Status, "unknown"), untrackedOrderControlText(order, res.UntrackedControl))
 		}
 	}
@@ -257,6 +291,12 @@ func renderOrderStatusText(env *Env, res *rpc.OrderStatusResult, id string) {
 	fmt.Fprintf(out, "Canary Order Status  %s\n", env.statusBadge(statusConcern{Text: strings.ToUpper(res.Order.LifecycleStatus), Level: orderStatusConcernLevel(res.Order.LifecycleStatus)}))
 	renderOrderReadScope(env, res.Account, res.Mode, res.NotBrokerStatement, res.LastLocalEventAt, res.Limitations)
 	statusRow(env, out, "Order", formatOrderViewTitle(res.Order))
+	if c := res.Order.Combination; c != nil {
+		statusRow(env, out, "Combination", orderCombinationTitle(c))
+		for _, leg := range c.Legs {
+			fmt.Fprintf(out, "  %s\n", orderCombinationLegText(leg))
+		}
+	}
 	if res.Order.ReservedOrderID != 0 {
 		statusRow(env, out, "Broker ID", strconv.Itoa(res.Order.ReservedOrderID))
 	}

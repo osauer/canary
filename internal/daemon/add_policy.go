@@ -21,6 +21,51 @@ type opportunityAddPolicy struct {
 	Calls []addHorizonPolicy `toml:"calls" json:"calls"`
 	// Puts are the protective put horizons Add offers (Canary default 30, 60, 90 and 120 days), on the same terms; put deltas are written without their sign.
 	Puts []addHorizonPolicy `toml:"puts" json:"puts"`
+	// Spread is the sold strike `canary strategies spreads` proposes for a debit vertical (Canary default: delta nearest 0.5 of the bought option's, saving at least 0.25 of its premium, at least 0.5 one-sigma moves to expiry beyond the price). It picks a suggestion only.
+	Spread *addSpreadPolicy `toml:"spread" json:"spread,omitempty"`
+}
+
+// addSpreadPolicy is the default sold strike of a debit vertical. Among the
+// listed strikes of the bought option's expiry beyond it, those whose
+// midpoint takes back at least MinSaving of the bought option's and that sit
+// at least CapExpectedMoves one-sigma moves to expiry beyond the
+// underlying's price qualify; of those, the one whose delta is nearest
+// ShortDeltaRatio times the bought option's is proposed.
+type addSpreadPolicy struct {
+	ShortDeltaRatio  float64 `toml:"short_delta_ratio" json:"short_delta_ratio"`
+	MinSaving        float64 `toml:"min_saving" json:"min_saving"`
+	CapExpectedMoves float64 `toml:"cap_expected_moves" json:"cap_expected_moves"`
+}
+
+// defaultAddSpreadPolicy is Canary's compiled default for the sold strike,
+// proposed with the open operation on 2026-11-24 (owner request 07:00 CET):
+// half the bought option's delta, a common trader's cap, which on a 30%
+// single-stock chain and on index puts near 15% volatility sits past half a
+// one-sigma move and takes back about a third of the premium; the bounds
+// keep a sold strike that saves under a quarter, or caps the gain inside
+// half the move, from being proposed. A file without [add].spread uses it,
+// marked canary_default; Canary never writes it into an existing file.
+func defaultAddSpreadPolicy() addSpreadPolicy {
+	return addSpreadPolicy{ShortDeltaRatio: 0.5, MinSaving: 0.25, CapExpectedMoves: 0.5}
+}
+
+func validateAddSpreadPolicy(p addSpreadPolicy) error {
+	if !(p.ShortDeltaRatio > 0 && p.ShortDeltaRatio < 1) || !(p.MinSaving >= 0 && p.MinSaving < 1) || !(p.CapExpectedMoves >= 0 && p.CapExpectedMoves <= 5) {
+		return fmt.Errorf("add.spread needs 0 < short_delta_ratio < 1, 0 <= min_saving < 1 and 0 <= cap_expected_moves <= 5")
+	}
+	return nil
+}
+
+// addSpreadRule is the sold-strike rule in force and its source: the
+// policy's [add].spread when written and valid, else Canary's default.
+func (s *Server) addSpreadRule() rpc.StrategySpreadRule {
+	p, source := defaultAddSpreadPolicy(), rpc.StrategySpreadRuleDefault
+	if s != nil && s.opportunityPolicies != nil {
+		if active, _ := s.opportunityPolicies.Active(); active.Add.Spread != nil && validateAddSpreadPolicy(*active.Add.Spread) == nil {
+			p, source = *active.Add.Spread, rpc.StrategySpreadRulePolicy
+		}
+	}
+	return rpc.StrategySpreadRule{ShortDeltaRatio: p.ShortDeltaRatio, MinSaving: p.MinSaving, CapExpectedMoves: p.CapExpectedMoves, Source: source}
 }
 
 type addHorizonPolicy struct {
@@ -104,7 +149,18 @@ func addPolicyTableLines(release string) []string {
 		"# every order still passes the gates. Edits apply at the next reload.",
 	}
 	lines = append(lines, addHorizonsText("calls", p.Calls)...)
-	return append(lines, addHorizonsText("puts", p.Puts)...)
+	lines = append(lines, addHorizonsText("puts", p.Puts)...)
+	return append(lines, addSpreadText(defaultAddSpreadPolicy())...)
+}
+
+// addSpreadText writes the sold-strike rule as the policy file carries it.
+func addSpreadText(p addSpreadPolicy) []string {
+	return []string{
+		"# A debit vertical's proposed sold strike: delta nearest short_delta_ratio",
+		"# of the bought option's, among strikes saving at least min_saving of its",
+		"# premium and at least cap_expected_moves one-sigma moves beyond the price.",
+		fmt.Sprintf("spread = { short_delta_ratio = %s, min_saving = %s, cap_expected_moves = %s }", addDeltaText(p.ShortDeltaRatio), addDeltaText(p.MinSaving), addDeltaText(p.CapExpectedMoves)),
+	}
 }
 
 // addSide is one side of the picker as the policy in force sets it.

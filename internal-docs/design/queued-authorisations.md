@@ -70,7 +70,7 @@ before the broker (2026-11-22 23:23 CET: options were admitted here and then
 refused by the broker layer). Omitting it preserves existing plain-limit CLI
 behavior.
 
-## Exit plans (version 3)
+## Exit plans (version 3, carried over in version 4)
 
 An exit plan is the owner's signed exit for one held long call: an optional
 first sale of part of the line once the session has been open for the plan's
@@ -85,9 +85,12 @@ Prepare takes `exit_plan` with `owner_order: true`, account and mode:
   "contract": { "con_id": 1, "symbol": "SYNA", "sec_type": "OPT", "...": "the exact option" },
   "wait_minutes": 20,
   "first_sale": { "quantity": 10, "min_price": 4.20 },
-  "trail": { "trail_percent": 3.0, "initial_stop_price": 49.50 }
+  "trail": { "trail_percent": 3.0, "initial_stop_price": 49.50 },
+  "validity": "3d"
 }
 ```
+
+`validity` is optional (this session); see "Carrying over sessions".
 
 It cannot be combined with `order`, `key` or `full_position`. `trail` is
 required; `first_sale` is optional, at least 1 and below the held quantity.
@@ -226,8 +229,14 @@ its window nothing extra runs.
   a due pre-authorised sale waits on it. Worst case, one reconnect a minute
   for as long as the Gateway keeps poisoning the read; otherwise the hour's
   quiet holds.
-- **End.** Untriggered at its window's end, the trail expires
-  (`window_ended`) and nothing is sent.
+- **End.** At its window's end the trail ends with its own code: the
+  plan's validity ended (`plan_validity_ended`), or its last session was
+  the option's last trading day (`plan_contract_expired`). The reason says
+  whether the exit line was crossed and what was sold ("the plan's validity
+  ended and the exit line was not crossed; nothing was sold"). An untriggered
+  trail sends nothing. The other ends keep their codes: sold (`filled`),
+  cancelled (`owner_cancelled`), the line closed (`position_changed`). A
+  first sale whose hour ends unsent keeps `window_ended`.
 
 A stress open (the latched regime stage reads confirmed stress when the
 plan is prepared) moves only the first sale, a discretionary sale: it starts
@@ -240,7 +249,99 @@ most 30 seconds old, `unwatched` otherwise, `triggered` once fired), the
 last stock price and its time, the high, the stop, the trigger's time and
 price, the sale's attempts, price step, working limit and contracts sold
 (`sale_attempts`, `sale_step`, `sale_limit`, `sale_filled`), and the reason it is
-unwatched, or why a fired trail has not sold yet.
+unwatched, or why a fired trail has not sold yet. A trail held by another
+gate (a changed protection policy, a freeze) shows that hold as its reason.
+Between sessions, or in a later session's opening wait, `state` is
+`waiting` (a fired trail stays `triggered`) with `reason_code`
+`market_closed` or `opening_window` and `next_watch_at`, when it watches or
+resumes its sale; empty when the validity ends first.
+
+### Carrying over sessions (version 4)
+
+Owner, 2026-11-24 07:00 CET: "exit function refined with a GTC or x days
+validity to be able to carry over". A one-session plan had ended at the
+close unsold and left its calls uncovered overnight. Added 2026-11-24
+07:38 CET.
+
+Prepare takes `exit_plan.validity`: omitted or `day` is this session, and
+the records stay version 3 byte for byte; `Nd` is N sessions counting the
+plan's first (`3d`; `1d` is the day); `gtc` is until cancelled. Either
+carry-over form makes both records version 4, whose `owner_order.plan`
+adds three signed fields:
+
+```json
+"plan": { "plan_id": "…", "role": "trail", "wait_minutes": 20,
+          "validity": "3d", "valid_until": "2026-11-27", "resume_wait_minutes": 20 }
+```
+
+- `valid_until` is the date, in the option market's calendar, of the last
+  session the plan watches, and the trail's `not_after` is the earlier of
+  the option's and the stock's close on it (a half day's early close
+  included). Prepare walks the official calendar: a holiday or a day only
+  one of the two markets trades does not count, and the walk never passes
+  the option's last trading day (its expiry, or the last session before an
+  expiry on a holiday). `Nd` beyond the expiry and `gtc` both end there;
+  the signed date says where.
+- `resume_wait_minutes` is the plan's wait, at least the market's ordinary
+  opening offset (15 minutes for US options; a plan signed in the session
+  takes the offset). On every later session the trail neither watches nor
+  sells until that long after the later of the two opens. The opening
+  minutes' option spreads are the widest of the day, and a protective exit
+  keeps the ordinary offset, as on the plan's first day, never the stress
+  open's 30 minutes. It is signed, so the owner sees the delay and no
+  regime read at a later open moves it.
+- The first sale stays a first-session action: its hour from the open plus
+  the wait, then it expires unsent (`window_ended`).
+
+Across sessions the trail watches only while the regular sessions of both
+the option and the stock are open by the official calendar; between them it
+reads nothing (hold `market_closed`), so an after-hours print can neither
+seed the high nor latch the trigger, and a read at or below the line
+awaiting its confirmation does not carry over. The high, the stop and a
+latched trigger are in the stored record and survive the night and a
+restart. At the next session, after the resume wait, the first two reads at
+or below the line fire it: a stock that opens under the line (a gap) sells
+then. If the calendar cannot say whether the session is open, a version-4
+trail does not watch (`queue_session_unknown`); a version-3 trail keeps its
+one-session window as before.
+
+A fired trail whose sale is still unsold at the close holds: the day's
+order ends at the broker with the session, and the trail waits for the next
+session's resume wait, then sells what is held, from a fresh quote, its
+price steps starting again at the mid (`queued_auth.session_started`).
+Every child order is a plain DAY limit; nothing rests overnight.
+
+A sale still recorded at the broker from an earlier session (the daemon
+was down at the close, so the broker's end of the DAY order was never
+seen) is settled at the next session's resume wait: with a fresh, complete
+open-order read showing no working sell on the option, and no order
+without a contract id that could be one, and the position read, the record
+counts what the journal shows the order sold, and sells what is held now
+from the mid (`queued_auth.sale_settled`); a line that is gone ends the
+plan `filled`. Within the session an attempt was sent in, an unclear or
+unconfirmed attempt is never resent, as before. A double sale cannot
+follow: the earlier DAY order ended with its session, any working sell on
+the option holds the trail, and it sells only what the broker shows held.
+
+Whole-line selling, contracts added after signing, cancel and every hold
+are as in version 3, with two changes for plans that run for weeks:
+
+- **Hand orders.** The settling rule (a hand order placed or modified after
+  signing holds a send) applies to a plan's sale only for hand orders on its
+  own option, or without a contract id that could be on it. A resting order
+  elsewhere, such as a GTC stop on a stock, never holds it. A working sell
+  on the option itself still holds it (one order per contract).
+- **Standing plans.** A trail that only watches (not fired, nothing at the
+  broker) is no live intent: rows for its option are neither gated nor
+  marked queued, so a mandate reduction, a protection row or the owner's
+  own reduce or close goes through beside it, and the whole-line trail
+  covers what is left. Once fired it holds the contract as before. Another
+  queued authorisation for the option is still refused beside a plan.
+
+A protection-policy change after signing holds an unfired trail until the
+plan is signed again: the record's `hold_code` and the watch's
+`reason_code` read `queue_policy_changed` (watch `state` `unwatched`), which
+Desk turns into "exit plan stopped: policy changed, sign again".
 
 ## Version 1 terms
 

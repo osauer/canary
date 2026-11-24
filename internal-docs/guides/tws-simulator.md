@@ -156,8 +156,8 @@ and a regime.
 
 - Drive the daemon through its RPCs (`d.plan`, `d.preview`, `d.place`,
   `d.status`).
-- Script the broker with `d.sim.ArmFault`, `d.sim.SetSession`,
-  `d.sim.Fill` and `d.sim.EndDay`.
+- Script the broker with `d.sim.ArmFault`, `d.sim.ClearFaults`,
+  `d.sim.SetSession`, `d.sim.Fill` and `d.sim.EndDay`.
 - Assert the broker's book and `d.realPlaces()` (the transmitted frames).
 
 A scenario blocked by a known product defect skips and names the branch
@@ -167,7 +167,9 @@ or the real exchange calendar:
 - option expiries come from `twssim.OptionExpiries`, which keeps each
   expiry in its horizon on every day;
 - sessions are set with `marketcal.SimulateSession` and `SetSession`
-  (`ctl session` in canary-sim);
+  (`ctl session` in canary-sim); `marketcal.SimulateSessions` installs
+  consecutive sessions, the k-th dated k days after the first, so a
+  carry-over exit plan crosses simulated nights in minutes;
 - a DAY order ends only when the scenario calls `EndDay`.
 
 ## Test tiers

@@ -1936,6 +1936,10 @@ const (
 	// StrategyOperationAdd buys more whole units of a held strategy as one
 	// combination; every leg opens in the strategy's ratio.
 	StrategyOperationAdd = "add"
+	// StrategyOperationOpen buys a new debit vertical from flat as one
+	// combination: one option bought, one of the same expiry sold further
+	// out of the money (StrategyPreviewParams.Open).
+	StrategyOperationOpen = "open"
 )
 
 // PositionStrategy is the daemon-owned grouping of exact held contracts.
@@ -3049,6 +3053,18 @@ type StrategyPreviewParams struct {
 	TIF              string   `json:"tif,omitempty"`
 	TimeoutMs        int      `json:"timeout_ms,omitempty"`
 	Source           string   `json:"source,omitempty"`
+	// Open names the two exact contracts of a new vertical for operation
+	// open, which takes no strategy ID or revision: nothing is held yet.
+	Open *StrategyOpenLegs `json:"open,omitempty"`
+}
+
+// StrategyOpenLegs are the bought and sold option of a debit vertical to
+// open, as exact option contracts (con_id, symbol, expiry, strike, right,
+// trading_class), copied from `strategy.spreads`. The daemon resolves both
+// at the broker and refuses anything but a debit vertical.
+type StrategyOpenLegs struct {
+	Long  ContractParams `json:"long"`
+	Short ContractParams `json:"short"`
 }
 
 // StrategyOrderDraft is the complete group operation bound into an order
@@ -3073,6 +3089,9 @@ type StrategyOrderLeg struct {
 	Quantity int            `json:"quantity"`
 	Before   float64        `json:"before"`
 	After    float64        `json:"after"`
+	// Mark is the leg's midpoint at preview, set for an open only: the
+	// price its volatility is implied from when the book holds no such leg.
+	Mark float64 `json:"mark,omitempty"`
 }
 
 // OrderDraft is the canonical local intent bound into a preview token.
@@ -3429,6 +3448,10 @@ type OrderView struct {
 	LimitPrice       float64            `json:"limit_price,omitempty"`
 	Trail            *OrderTrailSpec    `json:"trail,omitempty"`
 	OpenClose        string             `json:"open_close,omitempty"`
+	// Combination says the order is a combination (BAG) and what it trades:
+	// for one Canary placed, the strategy, operation, units and every leg as
+	// journaled; for one placed elsewhere, the legs the broker reports.
+	Combination *OrderCombination `json:"combination,omitempty"`
 	// OCAGroup and OCAType are the order's broker one-cancels-all membership
 	// as journaled when Canary sent it and as the broker reports it; see
 	// OrderDraft. Empty and zero mean none.

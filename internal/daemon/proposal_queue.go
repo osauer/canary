@@ -1224,7 +1224,9 @@ func (e *proposalEngine) decorateQueued(snap *rpc.TradeProposalSnapshot) {
 	marks := map[string]rpc.TradeProposalQueued{}
 	for _, rec := range e.queued.list() {
 		live := rec.liveIntent()
-		if !live && rec.State != rpc.QueuedAuthSent || rec.ContractSide == "" || !sameBrokerScope(rec.scope(), scope) {
+		// A standing exit plan only watches; the rows for its option stay
+		// actionable beside it (queuedPlanStanding).
+		if !live && rec.State != rpc.QueuedAuthSent || queuedPlanStanding(rec) || rec.ContractSide == "" || !sameBrokerScope(rec.scope(), scope) {
 			continue
 		}
 		if prior, ok := marks[rec.ContractSide]; ok && prior.State != rpc.QueuedAuthSent && !live {

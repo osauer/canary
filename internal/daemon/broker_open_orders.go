@@ -194,5 +194,6 @@ func untrackedOrderView(order ibkrlib.OrderLifecycleEvent, scope brokerStateScop
 	if order.ClientIDPresent {
 		view.ClientID = order.ClientID
 	}
+	view.Combination = brokerOrderCombination(order)
 	return view
 }

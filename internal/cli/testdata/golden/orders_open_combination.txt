@@ -1,0 +1,36 @@
+# canary orders open · COLUMNS=80 · colour off
+
+Canary Open Orders  1
+Scope          DU0000000 paper
+Source         local journal and broker session; not a broker statement
+  canary-spread-1  BUY 1 AAA LMT 2.9000 DAY
+    bull call spread, open 1 unit(s), one combination order
+      BUY 1×  20261218 C 100.00  conID 900011
+      SELL 1×  20261218 C 110.00  conID 900012
+    submitted  Submitted  updated 2026-09-05T13:57:00+02:00  origin agent
+
+Working at the broker, not placed by Canary (inventory 2026-09-05T13:56:00+02:00):
+  perm 900000584  SELL 2 AAA LMT 1.1000 DAY
+    combination of 2 legs, placed outside Canary
+      SELL 1×  conID 900021
+      BUY 1×  conID 900022
+    working  Submitted  origin none  control on
+
+# canary orders open · COLUMNS=80 · colour on, ESC written as \x1b
+
+Canary Open Orders  \x1b[32m\x1b[1m1\x1b[0m\x1b[0m
+\x1b[2mScope         \x1b[0m DU0000000 paper
+\x1b[2mSource        \x1b[0m local journal and broker session; not a broker statement
+  canary-spread-1  BUY 1 AAA LMT 2.9000 DAY
+    bull call spread, open 1 unit(s), one combination order
+      BUY 1×  20261218 C 100.00  conID 900011
+      SELL 1×  20261218 C 110.00  conID 900012
+    submitted  Submitted  updated 2026-09-05T13:57:00+02:00  origin agent
+
+Working at the broker, not placed by Canary (inventory 2026-09-05T13:56:00+02:00):
+  perm 900000584  SELL 2 AAA LMT 1.1000 DAY
+    combination of 2 legs, placed outside Canary
+      SELL 1×  conID 900021
+      BUY 1×  conID 900022
+    working  Submitted  origin none  control on
+

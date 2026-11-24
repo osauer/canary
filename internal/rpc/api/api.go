@@ -148,6 +148,8 @@ var (
 	OrderStatus                          = rpc.Define[rpc.OrderStatusParams, rpc.OrderStatusResult](rpc.MethodOrderStatus)
 	OrderPreview                         = rpc.Define[rpc.OrderPreviewParams, rpc.OrderPreviewResult](rpc.MethodOrderPreview)
 	StrategyPreview                      = rpc.Define[rpc.StrategyPreviewParams, rpc.OrderPreviewResult](rpc.MethodStrategyPreview)
+	StrategySpreads                      = rpc.Define[rpc.StrategySpreadsParams, rpc.StrategySpreadsResult](rpc.MethodStrategySpreads)
+	StrategySpreadPlan                   = rpc.Define[rpc.StrategySpreadPlanParams, rpc.StrategySpreadPlanResult](rpc.MethodStrategySpreadPlan)
 	DisplaySubscribe                     = rpc.Define[rpc.NoParams, json.RawMessage](rpc.MethodDisplaySubscribe)
 	QuoteSubscribe                       = rpc.Define[rpc.QuoteSubscribeParams, json.RawMessage](rpc.MethodQuoteSubscribe)
 	OrderPlace                           = rpc.Define[rpc.OrderPlaceParams, rpc.OrderPlaceResult](rpc.MethodOrderPlace)

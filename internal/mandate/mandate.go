@@ -126,6 +126,26 @@ type Leg struct {
 	// and a cut takes the uncovered units first, as the line rebuilt after
 	// the fill counts them. Zero means the figure applies to every unit.
 	StoppedUnits float64 `json:"stopped_units,omitempty"`
+	// shortHistory marks a leg Evaluate charges instead of simulating: a long
+	// line on an underlying with too few closes (ShortHistoryLine).
+	shortHistory bool
+}
+
+// ShortHistoryLine is an underlying whose decision-grade daily history holds
+// fewer closes than the simulation needs, held only long (decided by the
+// supervising agent 2026-11-24 07:23 CET, not an owner instruction: a newly
+// listed name must not blind the mandate). Its lines are not simulated: their whole current value,
+// ChargedBase, counts as lost in every scenario and in both index stresses,
+// as a long line cannot lose more than it is worth; the one-name gap, which
+// needs no history, applies as to any name. Its legs and its underlying row
+// carry no measured contribution or beta (LegReport.ShortHistory). Any short
+// line on such an underlying keeps the verdict unknown.
+type ShortHistoryLine struct {
+	Underlying   string   `json:"underlying"`
+	Lines        []string `json:"lines"`
+	Closes       int      `json:"closes"`
+	ClosesNeeded int      `json:"closes_needed"`
+	ChargedBase  float64  `json:"charged_base"`
 }
 
 // LossMeasure is the mandate's headline: what the book can
@@ -474,6 +494,9 @@ type LegReport struct {
 	// LossBase is the leg's part of the loss measure: a bought option's
 	// value today, or the cash loss to its armed stop; zero for protection.
 	LossBase float64 `json:"loss_base,omitempty"`
+	// ShortHistory marks a leg charged at its whole value instead of
+	// simulated (Verdict.ShortHistory): its ContributionPct is not measured.
+	ShortHistory bool `json:"short_history,omitempty"`
 }
 
 // UnderlyingReport is one underlying's contribution and its stresses.
@@ -496,6 +519,9 @@ type UnderlyingReport struct {
 	GapLossBase     float64  `json:"gap_loss_base"`
 	GapCapBase      float64  `json:"gap_cap_base"`
 	GapBreach       bool     `json:"gap_breach,omitempty"`
+	// ShortHistory marks an underlying charged instead of simulated
+	// (Verdict.ShortHistory): its ContributionPct and Beta are not measured.
+	ShortHistory bool `json:"short_history,omitempty"`
 }
 
 // Stresses is the named stress set.
@@ -568,6 +594,10 @@ type Verdict struct {
 	// IVFallback names the options priced on a fallback volatility, the
 	// S&P-fall range across their bands and its tier; nil when none is.
 	IVFallback *IVFallbackReport `json:"iv_fallback,omitempty"`
+	// ShortHistory names the underlyings charged at their whole value
+	// because their history is too short to simulate; set only on a
+	// simulated verdict.
+	ShortHistory []ShortHistoryLine `json:"short_history,omitempty"`
 }
 
 // Evaluate runs the historical simulation and judges the book against the
@@ -596,7 +626,16 @@ func Evaluate(in Input) Verdict {
 			currencies[ccy] = true
 		}
 	}
+	// A series too short to simulate is charged instead when every line on
+	// it is long (ShortHistoryLine); the index's never is.
+	shortHeld := map[string]bool{}
+	for _, l := range legs {
+		if l.Quantity < 0 {
+			shortHeld[LegReturnsSeries(l)] = true
+		}
+	}
 	series := map[string]Series{}
+	charged := map[string]int{}
 	for key := range needed {
 		s, ok := in.Series[key]
 		switch {
@@ -604,6 +643,8 @@ func Evaluate(in Input) Verdict {
 			v.Reasons = append(v.Reasons, fmt.Sprintf("no decision-grade daily history for %s", key))
 		case s.Stale:
 			v.Reasons = append(v.Reasons, fmt.Sprintf("daily history for %s is stale (last read %s)", key, s.AsOf.UTC().Format(time.DateTime)))
+		case len(s.Closes) < Closes && len(s.Dates) == len(s.Closes) && key != IndexSymbol && !shortHeld[key]:
+			charged[key] = len(s.Closes)
 		case len(s.Closes) < Closes || len(s.Dates) != len(s.Closes):
 			v.Reasons = append(v.Reasons, fmt.Sprintf("daily history for %s holds %d closes; %d are needed", key, len(s.Closes), Closes))
 		default:
@@ -651,8 +692,14 @@ func Evaluate(in Input) Verdict {
 		return v
 	}
 	v.Scenarios, v.ScenariosFrom, v.ScenariosTo = Scenarios, from, to
+	for i := range legs {
+		if _, ok := charged[LegReturnsSeries(legs[i])]; ok && legs[i].Quantity != 0 {
+			legs[i].shortHistory = true
+		}
+	}
 	sim := simulate(in, legs, returns)
 	v.Risk, v.Legs, v.Underlyings, v.Stresses, v.Allocations = sim.risk, sim.legs, sim.underlyings, sim.stresses, sim.allocations
+	v.ShortHistory = shortHistoryLines(in, legs, charged)
 	// The simulation orders its reports by contribution, so each leg's loss
 	// is matched by ID, never by position.
 	lossByID := map[string]float64{}
@@ -687,6 +734,35 @@ func Evaluate(in Input) Verdict {
 	}
 	ApplySleeveStop(&v, in.OwnerStop)
 	return v
+}
+
+// shortHistoryLines names every charged underlying with its lines, the closes
+// its series holds and the value charged, the figure simulate charges.
+func shortHistoryLines(in Input, legs []Leg, charged map[string]int) []ShortHistoryLine {
+	byName := map[string]*ShortHistoryLine{}
+	var order []string
+	for _, l := range legs {
+		if !l.shortHistory {
+			continue
+		}
+		r, ok := byName[l.Underlying]
+		if !ok {
+			r = &ShortHistoryLine{Underlying: l.Underlying, Closes: charged[LegReturnsSeries(l)], ClosesNeeded: Closes}
+			byName[l.Underlying] = r
+			order = append(order, l.Underlying)
+		}
+		r.Lines = append(r.Lines, l.Symbol)
+		r.ChargedBase += legValue(l, l.Spot, l.TimeToExpiryYears) * fxNowFor(in, l)
+	}
+	slices.Sort(order)
+	out := make([]ShortHistoryLine, 0, len(order))
+	for _, name := range order {
+		out = append(out, *byName[name])
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // WithLeg returns the input with one more leg (an order's addition), summed
@@ -926,6 +1002,15 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 		now := legValue(l, l.Spot, l.TimeToExpiryYears)
 		values[i] = now * fx
 		pnl := make([]float64, n)
+		if l.shortHistory {
+			// Not simulated: the whole value is lost in every scenario.
+			for k := range n {
+				pnl[k] = -values[i]
+				total[k] += pnl[k]
+			}
+			legPnL[i] = pnl
+			continue
+		}
 		for k := range n {
 			next := legValue(l, l.Spot*math.Exp(r[k]), l.TimeToExpiryYears-DecayDays/365)
 			local := (next - now) * fx
@@ -952,8 +1037,8 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 	returnsOf := map[string]string{}
 	var order []string
 	for i, l := range legs {
-		rep := LegReport{ID: l.ID, Symbol: l.Symbol, Underlying: l.Underlying, Kind: l.Kind, Quantity: l.Quantity, ValueBase: values[i]}
-		if variance > 0 {
+		rep := LegReport{ID: l.ID, Symbol: l.Symbol, Underlying: l.Underlying, Kind: l.Kind, Quantity: l.Quantity, ValueBase: values[i], ShortHistory: l.shortHistory}
+		if variance > 0 && !l.shortHistory {
 			rep.ContributionPct = covariance(legPnL[i], total, mean) / variance * 100
 		}
 		legReports[i], contributions[i] = rep, rep.ContributionPct
@@ -966,6 +1051,7 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 		}
 		u.ValueBase += rep.ValueBase
 		u.ContributionPct += rep.ContributionPct
+		u.ShortHistory = u.ShortHistory || l.shortHistory
 	}
 	// Betas to the index over the same returns.
 	indexReturns := returns["u:"+IndexSymbol]
@@ -982,9 +1068,13 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 	var index *IndexGapReport
 	for _, name := range order {
 		u := byUnderlying[name]
-		if name == IndexSymbol {
+		switch {
+		case name == IndexSymbol:
 			u.Beta = 1
-		} else if indexVar > 0 {
+		case u.ShortHistory:
+			// No history to measure a beta on: the index stresses charge
+			// the whole value instead.
+		case indexVar > 0:
 			u.Beta = covariance(returns["u:"+returnsOf[name]], indexReturns, indexMean) / indexVar
 		}
 		betas[name] = u.Beta
@@ -1056,10 +1146,21 @@ func simulate(in Input, legs []Leg, returns map[string][]float64) simulation {
 			stresses.GapBreaches = append(stresses.GapBreaches, name)
 		}
 	}
-	stresses.IndexLossBase = shockLoss(legs, fxNow, func(l Leg) float64 {
+	// A charged line has no beta: it loses its whole value in both index
+	// moves, never priced at a spot of zero (a long put would gain there).
+	simulated := make([]Leg, 0, len(legs))
+	chargedBase := 0.0
+	for i, l := range legs {
+		if l.shortHistory {
+			chargedBase += values[i]
+			continue
+		}
+		simulated = append(simulated, l)
+	}
+	stresses.IndexLossBase = chargedBase + shockLoss(simulated, fxNow, func(l Leg) float64 {
 		return 1 - IndexShockPct/100*betas[l.Underlying]
 	})
-	stresses.IndexRiseLossBase = shockLoss(legs, fxNow, func(l Leg) float64 {
+	stresses.IndexRiseLossBase = chargedBase + shockLoss(simulated, fxNow, func(l Leg) float64 {
 		return 1 + IndexShockPct/100*betas[l.Underlying]
 	})
 	underlyings := make([]UnderlyingReport, 0, len(order))

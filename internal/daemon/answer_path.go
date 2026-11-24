@@ -357,8 +357,8 @@ func (s *Server) saleWaitsOnOpenOrders(now time.Time) bool {
 		if !rec.waiting() || now.Before(rec.Terms.NotBefore) || !ownerQueueProtection(rec.Terms) && !now.Before(rec.Terms.NotAfter) {
 			continue
 		}
-		if queuedPlanTrail(rec.Terms) && rec.Watch.TriggeredAt.IsZero() {
-			continue // a trail that has not fired reads the stock, not the orders
+		if queuedPlanTrail(rec.Terms) && (rec.Watch.TriggeredAt.IsZero() || !e.trailSessionAt(rec, now).in) {
+			continue // a trail that has not fired reads the stock, not the orders; none sells between sessions
 		}
 		return true
 	}

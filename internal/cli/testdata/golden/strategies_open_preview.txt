@@ -1,0 +1,22 @@
+# canary strategies open --units 2 --limit 3.45 · COLUMNS=80 · colour off
+
+Open 2 spread unit(s) of AAA as one combination
+Limit          Pay up to 3.45 per strategy
+After          2 strategy unit(s) held
+Broker preview accepted
+Can submit     yes
+  BUY 2  20261218 C 100.00  0 → 2
+  SELL 2  20261218 C 110.00  0 → -2
+No order was sent. Add --submit to send this exact operation after a fresh preview.
+
+# canary strategies open --units 2 --limit 3.45 · COLUMNS=80 · colour on, ESC written as \x1b
+
+Open 2 spread unit(s) of AAA as one combination
+\x1b[2mLimit         \x1b[0m Pay up to 3.45 per strategy
+\x1b[2mAfter         \x1b[0m 2 strategy unit(s) held
+\x1b[2mBroker preview\x1b[0m accepted
+\x1b[2mCan submit    \x1b[0m yes
+  BUY 2  20261218 C 100.00  0 → 2
+  SELL 2  20261218 C 110.00  0 → -2
+No order was sent. Add --submit to send this exact operation after a fresh preview.
+

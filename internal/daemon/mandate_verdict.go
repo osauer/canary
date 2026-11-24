@@ -516,6 +516,8 @@ func mandateLegsFromPositions(pos *rpc.PositionsResult, base string, now time.Ti
 		mandateFallbackIV(&leg, row)
 		legs = append(legs, leg)
 	}
+	// A bought option a sold one caps counts at what the pair can lose.
+	mandateNetSpreadLosses(legs, pos.Options, base)
 	return legs, notModelled, fxNow, reasons
 }
 
@@ -771,7 +773,7 @@ func (s *Server) addPutCover(contract rpc.ContractParams) *rpc.AddPutCover {
 	if err != nil {
 		return nil
 	}
-	return &rpc.AddPutCover{HeldShares: shares, CoveredShares: covered, RoomContracts: int(max(0, math.Floor((shares-sold-covered-bought+1e-9)/100)))}
+	return &rpc.AddPutCover{Kind: rpc.AddPutCoverShares, HeldShares: shares, CoveredShares: covered, RoomContracts: int(max(0, math.Floor((shares-sold-covered-bought+1e-9)/100)))}
 }
 
 // indexHedgeReduces classifies a SELL of the index future. On the kept mandate

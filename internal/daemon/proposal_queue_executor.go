@@ -125,6 +125,7 @@ func (e *proposalEngine) runQueuedCycleFor(ctx context.Context, only func(queued
 	e.endFlatProtectionQueues(ctx)
 	e.expireQueued(ctx)
 	e.followQueuedSent(ctx)
+	e.settleCarriedTrailSales(ctx)
 	e.repriceTrailSales(ctx)
 	now := e.clock()
 	records := e.queued.list()
@@ -168,6 +169,11 @@ func (e *proposalEngine) queuedWake(now time.Time) (time.Duration, bool) {
 			consider(rec.Terms.NotBefore)
 			consider(rec.Terms.NotAfter)
 		}
+		if queuedPlanTrail(rec.Terms) && (rec.waiting() || rec.State == rpc.QueuedAuthSent) {
+			// A carry-over trail wakes when its next session's watch starts,
+			// a sale left from an earlier session included.
+			consider(e.trailSessionAt(rec, now).next)
+		}
 	}
 	if next.IsZero() {
 		return 0, false
@@ -187,11 +193,16 @@ func (e *proposalEngine) expireQueued(ctx context.Context) {
 			case r.State == rpc.QueuedAuthPrepared && !now.Before(r.Terms.ArmDeadline):
 				events = append(events, r.resolve(queuedEventExpired, rpc.QueuedAuthExpired, queuedReasonNotArmed, "the owner's signature did not arrive within ten minutes", now))
 			case r.waiting() && !ownerQueueProtection(r.Terms) && !now.Before(r.Terms.NotAfter):
-				reason := "the send window ended before every gate passed"
-				if r.HoldReason != "" {
+				code, reason := queuedReasonWindowEnded, "the send window ended before every gate passed"
+				if queuedPlanTrail(r.Terms) {
+					// A trail's window is its plan's validity: say how the plan
+					// ended, not that a send was refused.
+					code, reason = e.planEndReason(*r)
+				}
+				if betweenSessions := queuedPlanTrail(r.Terms) && (r.HoldCode == rpc.ReadinessMarketClosed || r.HoldCode == rpc.ReadinessOpeningWindow); r.HoldReason != "" && !betweenSessions {
 					reason += "; it was held: " + r.HoldReason
 				}
-				ev := r.resolve(queuedEventExpired, rpc.QueuedAuthExpired, queuedReasonWindowEnded, reason, now)
+				ev := r.resolve(queuedEventExpired, rpc.QueuedAuthExpired, code, boundedQueuedReason(reason), now)
 				ev.ExecutorTickAt = now
 				events = append(events, ev)
 				ended = append(ended, *r)
@@ -248,7 +259,7 @@ func (e *proposalEngine) followQueuedSent(ctx context.Context) {
 			if queuedPlanTrail(r.Terms) {
 				// A trail's sale is followed attempt by attempt: it ends the
 				// record only when the line is sold or the window is over.
-				if ev, ok := trailSaleProgress(r, v, now); ok {
+				if ev, ok := trailSaleProgress(r, v, now, e.planEndReason); ok {
 					events = append(events, ev)
 					if r.final() {
 						done = append(done, *r)
@@ -533,7 +544,12 @@ func (e *proposalEngine) executeQueued(ctx context.Context, rec queuedAuthRecord
 		return
 	}
 	book := e.automaticSettlingBook(ctx, scope, true)
-	switch book.holdSince(rec.ArmedAt, rec.SettlingBaseline, rec.SettlingBaselineKnown) {
+	settling := book.holdSince(rec.ArmedAt, rec.SettlingBaseline, rec.SettlingBaselineKnown)
+	if queuedPlanOf(rec.Terms) != nil {
+		// An exit plan's sale is held only by hand orders on its own option.
+		settling = book.holdSinceOn(rec.Terms.Contract, rec.ArmedAt, rec.SettlingBaseline, rec.SettlingBaselineKnown)
+	}
+	switch settling {
 	case "":
 	case automaticHoldUnavailable:
 		e.holdQueued(ctx, rec, rpc.ReadinessBrokerUnavailable, queuedHoldUnverifiedReason)
@@ -999,11 +1015,28 @@ func (e *proposalEngine) queuedLiveRecordFor(contractSide string) (queuedAuthRec
 	}
 	scope := e.currentScope()
 	for _, rec := range e.queued.list() {
-		if rec.liveIntent() && rec.ContractSide == contractSide && sameBrokerScope(rec.scope(), scope) {
+		if rec.liveIntent() && !queuedPlanStanding(rec) && rec.ContractSide == contractSide && sameBrokerScope(rec.scope(), scope) {
 			return rec, true
 		}
 	}
 	return queuedAuthRecord{}, false
+}
+
+// queuedPlanStanding reports an exit plan's trail that only watches: armed
+// or held, not fired, nothing of it at the broker. It is no intent to send
+// yet, so it never holds back another sale of its option (a mandate
+// reduction, a protection row, the owner's own reduce or close): the
+// whole-line trail then covers what is left, and ends when nothing is.
+// What still bounds two sells of one line: every send, the trail's
+// included, re-reads the broker's working orders and Canary's own
+// unacknowledged sends on the contract under brokerWriteMu
+// (reductionOrderBlockers) and waits behind any; each sells at most what the
+// broker shows held. Once the trail fires it is a live intent again and
+// holds the contract as before. Worst case: a reduction sells part of the
+// line just before the line is crossed, and the trail sells the rest once
+// that order has ended.
+func queuedPlanStanding(r queuedAuthRecord) bool {
+	return queuedPlanTrail(r.Terms) && r.waiting() && r.Watch.TriggeredAt.IsZero() && r.OrderRef == ""
 }
 
 // queuedIntentGateBlockers refuses a preview, a prepared submit or a submit

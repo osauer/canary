@@ -87,6 +87,10 @@ type OrderLifecycleEvent struct {
 	CumQty            float64 // CumQty is the execution's cumulative filled quantity.
 	OrderRef          string
 	Raw               []string
+
+	// ComboLegs are a BAG order's legs as the broker's openOrder reports
+	// them; none for any other order.
+	ComboLegs []ComboLeg
 }
 
 // OrderLifecycleReceipt binds one parsed broker lifecycle event to the exact
@@ -259,6 +263,7 @@ func parseOpenOrderProtoEvent(fields []string) (OrderLifecycleEvent, bool) {
 		ModifyTermsKnown:  summaryFieldValue(fields, "modifyTermsKnown=") == "true",
 		ModifyUnsupported: summaryFieldValue(fields, "modifyUnsupported="),
 		PrimaryExch:       summaryFieldValue(fields, "primaryExch="),
+		ComboLegs:         parseComboLegSummary(summaryFieldValue(fields, "comboLegs=")),
 		OpenClose:         summaryFieldValue(fields, "openClose="),
 		Deactivated:       deactivated,
 		AlgoKnown:         true,
@@ -410,4 +415,23 @@ func orderEventParentID(fields []string) *int {
 		return nil
 	}
 	return &n
+}
+
+// parseComboLegSummary reads the comboLegs summary field
+// (appendComboLegSummaryField); a malformed leg ends the list there.
+func parseComboLegSummary(raw string) []ComboLeg {
+	var out []ComboLeg
+	for item := range strings.SplitSeq(raw, ",") {
+		parts := strings.Split(item, ":")
+		if len(parts) != 4 {
+			break
+		}
+		conID, err1 := strconv.Atoi(parts[0])
+		ratio, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil || conID <= 0 || ratio <= 0 {
+			break
+		}
+		out = append(out, ComboLeg{ConID: conID, Ratio: ratio, Action: strings.ToUpper(parts[2]), Exchange: parts[3]})
+	}
+	return out
 }

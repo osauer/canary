@@ -15,8 +15,10 @@ a USD SMART option: sec_type OPT, right C or P, multiplier 100, positive con_id,
 trading_class and expiry YYYYMMDD more than seven days away; retain symbol and
 strike.
 
-A put is sized within the held shares it may still protect; cover_capped says
-that held the size.
+A put is sized within the held shares it may still protect, or on a Rulebook
+hedge symbol within rule 12's over-hedge line (index_protection; when
+unmeasured, its unmeasured reason and the option cap); cover_capped says that
+held the size.
 
 limit_price (required): positive premium per underlying share in USD. budget
 (required): positive total USD debit including the broker fee bound, at most
@@ -67,8 +69,10 @@ a USD SMART option: sec_type OPT, right C or P, multiplier 100, positive con_id,
 trading_class and expiry YYYYMMDD more than seven days away; retain symbol and
 strike.
 
-A put is sized within the held shares it may still protect; cover_capped says
-that held the size.
+A put is sized within the held shares it may still protect, or on a Rulebook
+hedge symbol within rule 12's over-hedge line (index_protection; when
+unmeasured, its unmeasured reason and the option cap); cover_capped says that
+held the size.
 
 limit_price (required): positive premium per underlying share in USD. budget
 (required): positive total USD debit including the broker fee bound, at most

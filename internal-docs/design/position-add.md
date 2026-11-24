@@ -281,6 +281,18 @@ makes `put_cover` unavailable; it is never reported as zero room on that basis.
 Discovery reads this shared inventory once within the existing short order-read
 bound, after the option lookup. `add call-plan` holds a put's size to the same
 remaining room (`cover_capped`) and its exact preview also checks fill coherence.
+A put on a Rulebook hedge symbol (SPY and the rest of `hedge_symbols`) is index
+protection for the whole long book, not cover for shares (owner, 2026-11-24
+07:00 CET): its `put_cover` has `kind` `index_protection` and an
+`index_protection` block with rule 12's measurement, the hedge trim's own
+(`long_base`, `protection_base`, `ratio_pct`, `band_top_pct`, `line_pct`,
+`room_base`, `working_contracts`), and each row its `hedge_room_contracts`: the
+contracts of that put whose short delta still fits under the over-hedge line
+after held and working puts. `add call-plan` sizes within that room on the
+put's live model delta. When the line cannot be measured, `unmeasured` says why
+and the size is held to the option cap and the budget (refused if the cap is
+unknown); a book past the line, or with no long book, is refused. The order
+gates already pass such a put as a hedge entry and do not re-check the line.
 Capped horizons aim at their target from the start, at the strike the stock's
 implied volatility puts there; the live option delta still decides. Without a
 live in-range call, a second round aims with the options' own volatility, or

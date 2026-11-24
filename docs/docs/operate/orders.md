@@ -27,7 +27,10 @@ these actions:
   ([Currency leveling](cash.md#currency-leveling));
 - exercise an eligible held option when the action reduces or closes risk;
 - close or reduce a grouped option strategy as one combo, or add whole units
-  to one you hold (`canary strategies add`); and
+  to one you hold (`canary strategies add`);
+- open a debit vertical (a bull call spread or a bear put spread) as one
+  combination, priced with `canary strategies spreads` and sent with
+  `canary strategies open`; and
 - cancel a Canary-owned order.
 
 `order preview` mints a signed draft token and runs the broker WhatIf; it never

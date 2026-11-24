@@ -74,6 +74,55 @@ as either "Pay up to" or "Receive at least" and includes:
 - the resulting strategy and portfolio risk;
 - the route's guaranteed-combo classification.
 
+`open` buys a new debit vertical from flat as one combination (owner request
+2026-11-24 07:00 CET; 07:19 CET, asked whether Desk may sell the short leg of
+a defined-risk spread sent as one combination order: "Yes, spreads only"). It
+takes the two exact contracts, not a strategy id: one option bought and one of
+the same underlying, expiry, right, contract size and trading class sold
+further out of the money (a bull call spread or a bear put spread), 1:1, at a
+net debit above zero and below the strike width. It is gated as a covered add
+(`internal/daemon/strategy_add.go`): the order cap reads the debit at the
+limit, each leg meets `[order_limits].max_option_contracts`, the sold leg
+needs no `allow_option_sell_to_open`, the mandate's premium limits and loss
+measure read the debit, and a bear put spread on a Rulebook hedge symbol (or
+over held shares) is a hedge entry like the single put. A credit spread, a
+ratio, a calendar or diagonal and a naked sale are refused whatever the
+permission says. The order records its lineage under the id the grouping
+gives the filled legs, so the fill is the strategy `list`, `reduce` and
+`close` then act on. The name may hold other options, and the bought contract
+may be held already (owner's case 2026-11-24: a call held on the name, a call spread
+opened beside or over it): the order record makes the spread a group of its
+own, and what the book holds beyond it is grouped again on its own, extra
+bought contracts a line of their own. The sold contract must not be held, nor
+the bought one held short. A recorded vertical counts its units by its sold
+leg; a sold leg the bought one no longer covers is for review, and a vertical
+with nothing sold is closed. While a group shares a contract with a line of its
+own, single-contract proposals on that contract stay blocked
+(`proposal_strategy_legs.go`) and its exits go through the group.
+
+The mandate's loss measure counts a held vertical at what the pair can still
+lose, the bought leg's value less the sold leg's (`risk.SpreadPairs`, the
+pairing the premium at risk already used), so the measure after an open's
+fill is what the open was admitted at. A sold leg nothing covers offsets
+nothing.
+
+`strategy.spread_plan` (`canary strategies spread-plan`) sizes an open for a
+budget with exact previews of the combination: the broker's fee bound, the
+option cap per leg, the order cap on the net premium and, for a bear put
+spread on a Rulebook hedge symbol, rule 12's over-hedge line read with the
+spread's net delta. `held_by` names the limit that held the size.
+
+`strategy.spreads` (`canary strategies spreads`) is the open's pricing
+evidence: for one exact bought option, the listed sold strikes of its expiry
+beyond it, each leg's quote and delta, and the spread's net bid, ask and
+midpoint, width, maximum gain and loss per unit and breakeven. Its default sold
+strike is the one whose delta is nearest `short_delta_ratio` of the bought
+option's, among strikes that take back at least `min_saving` of its premium and
+sit at least `cap_expected_moves` one-sigma moves to expiry beyond the price.
+The numbers live in the opportunity policy's `[add].spread`; a file without it
+uses Canary's default (0.50, 0.25, 0.50), which the result marks
+`canary_default`.
+
 The first implementation submits only combinations covered by Canary's closed,
 documented guaranteed-route policy. Unknown and non-guaranteed combinations
 may be inspected but are not submit-eligible. Canary never falls back to a

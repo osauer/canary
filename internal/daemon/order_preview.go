@@ -1531,63 +1531,93 @@ func (s *Server) exactSessionContractQuote(ctx context.Context, authority *order
 }
 
 func (s *Server) exactSessionContractQuoteModel(ctx context.Context, authority *orderPreviewBrokerAuthority, contract rpc.ContractParams, timeout time.Duration, requireBidAsk, waitSizes, waitModel bool) (rpc.OrderQuoteSnapshot, exactQuoteSizes, error) {
+	read, err := s.readExactContractQuote(ctx, authority.connector, authority.session, contract, timeout, requireBidAsk, waitSizes, waitModel)
+	if err != nil {
+		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, err
+	}
+	if !s.orderPreviewBrokerAuthorityCurrent(authority) {
+		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, fmt.Errorf("%w: broker session changed during exact quote", ErrTradingDisabled)
+	}
+	return s.finishExactContractQuote(read, contract, requireBidAsk), read.sizes, nil
+}
+
+// exactContractRead is one exact-contract line as read on a session, before
+// the caller has checked that the session it was read on is still current.
+type exactContractRead struct {
+	q                    *rpc.Quote
+	started, priceTickAt time.Time
+	bidAt, askAt         time.Time
+	sizes                exactQuoteSizes
+}
+
+// readExactContractQuote reads one exact contract on c's session: a private
+// line, released afterwards, polled until both sides (requireBidAsk), the
+// displayed sizes (waitSizes) and the option model (waitModel) arrive or the
+// budget ends. The caller checks its own session authority before using it
+// (finishExactContractQuote): the order path's preview authority, or the read
+// seam's binding (strategy_spreads.go).
+func (s *Server) readExactContractQuote(ctx context.Context, c *ibkrlib.Connector, session ibkrlib.ConnectorSessionBinding, contract rpc.ContractParams, timeout time.Duration, requireBidAsk, waitSizes, waitModel bool) (exactContractRead, error) {
 	quoteCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	started := time.Now()
-	key, err := authority.connector.SubscribeMarketDataWithContractForSession(quoteCtx, authority.session, *previewIBKRQuoteContract(contract), defaultGenericTicks)
+	key, err := c.SubscribeMarketDataWithContractForSession(quoteCtx, session, *previewIBKRQuoteContract(contract), defaultGenericTicks)
 	if err != nil {
-		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, fmt.Errorf("%w: exact contract quote request failed: %v", ErrTradingDisabled, err)
+		return exactContractRead{}, fmt.Errorf("%w: exact contract quote request failed: %v", ErrTradingDisabled, err)
 	}
 	defer func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
 		defer cleanupCancel()
-		_ = authority.connector.UnsubscribeMarketDataForSession(cleanupCtx, authority.session, key)
+		_ = c.UnsubscribeMarketDataForSession(cleanupCtx, session, key)
 	}()
-	q := &rpc.Quote{Symbol: contract.Symbol, Contract: contract, IVStatus: "unavailable", AsOf: s.orderNow()}
-	var priceTickAt, bidAt, askAt time.Time
+	out := exactContractRead{q: &rpc.Quote{Symbol: contract.Symbol, Contract: contract, IVStatus: "unavailable", AsOf: s.orderNow()}, started: started}
+	q := out.q
 	sidesReady := false
 	var model *ibkrlib.OptionRiskMeasurement
-	if err := pollMarketData(quoteCtx, authority.connector, key, started.Add(timeout), func(data *ibkrlib.MarketData) bool {
+	if err := pollMarketData(quoteCtx, c, key, started.Add(timeout), func(data *ibkrlib.MarketData) bool {
 		fillQuoteMarketData(q, data)
-		if data != nil && data.LastPriceTickAt.After(priceTickAt) {
-			priceTickAt = data.LastPriceTickAt
+		if data != nil && data.LastPriceTickAt.After(out.priceTickAt) {
+			out.priceTickAt = data.LastPriceTickAt
 		}
 		hasPrice := q.Bid != nil || q.Ask != nil || q.Last != nil || q.Mark != nil
 		if hasPrice {
 			q.DataType = quoteDataTypeName(data.FeedType, true, false)
-			bidAt, askAt = data.BidAt, data.AskAt
+			out.bidAt, out.askAt = data.BidAt, data.AskAt
 		}
 		sidesReady = exactQuoteReady(q, requireBidAsk)
 		if waitModel {
-			model = authority.connector.OptionRiskForSession(authority.session, key)
+			model = c.OptionRiskForSession(session, key)
 		}
 		// A model computed before the request's feed notice stays unclassified
 		// (the connector never upgrades it), so wait for the next computation.
 		return sidesReady && (!waitSizes || q.BidSize != nil && q.AskSize != nil) && (!waitModel || model != nil && model.IV != nil && model.Delta != nil && model.DataType != 0)
 	}); err != nil && (!(waitSizes || waitModel) || !sidesReady || !errors.Is(err, context.DeadlineExceeded) || ctx.Err() != nil) {
-		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, fmt.Errorf("%w: exact contract quote unavailable: %v", ErrTradingDisabled, err)
+		return exactContractRead{}, fmt.Errorf("%w: exact contract quote unavailable: %v", ErrTradingDisabled, err)
 	}
-	if !s.orderPreviewBrokerAuthorityCurrent(authority) {
-		return rpc.OrderQuoteSnapshot{}, exactQuoteSizes{}, fmt.Errorf("%w: broker session changed during exact quote", ErrTradingDisabled)
-	}
+	out.sizes = exactQuoteSizes{Bid: q.BidSize, Ask: q.AskSize, Model: model}
+	return out, nil
+}
+
+// finishExactContractQuote dates a read whose session the caller found
+// current and turns it into the quote snapshot the order path prices with.
+func (s *Server) finishExactContractQuote(read exactContractRead, contract rpc.ContractParams, requireBidAsk bool) rpc.OrderQuoteSnapshot {
+	q := read.q
 	q.AsOf = s.orderNow()
-	sizes := exactQuoteSizes{Bid: q.BidSize, Ask: q.AskSize, Model: model}
 	if requireBidAsk {
-		return s.exactBidAskQuoteSnapshot(q, contract, started, bidAt, askAt), sizes, nil
+		return s.exactBidAskQuoteSnapshot(q, contract, read.started, read.bidAt, read.askAt)
 	}
 	s.decorateExactPreviewQuote(q, contract)
-	if !priceTickAt.IsZero() {
+	if !read.priceTickAt.IsZero() {
 		// Exact-session subscriptions start empty, so this is the receipt time
 		// of a price tick observed after this request boundary—not a timestamp
 		// relabelled from a shared symbol/Greeks cache.
-		q.PriceAt = priceTickAt.UTC()
-		q.QuotePriceAt = priceTickAt.UTC()
+		q.PriceAt = read.priceTickAt.UTC()
+		q.QuotePriceAt = read.priceTickAt.UTC()
 		if market, ok := quoteSessionMarketForContract(contract); ok {
 			q.PriceAsOf = quotePriceAsOf(q, market)
 			q.QuotePriceAsOf = quoteAsOfLabel(q, market, q.QuotePriceAt, q.QuotePriceSource, q.DataType)
 		}
 	}
-	return orderQuoteSnapshotFromQuote(q), sizes, nil
+	return orderQuoteSnapshotFromQuote(q)
 }
 
 // exactQuoteReady waits for the broker's feed classification as well as prices.

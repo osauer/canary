@@ -13,9 +13,11 @@ always JSON, with or without --json.
 underlying (required): stock contract with symbol, sec_type STK, currency and
 exchange SMART; con_id is optional when known.
 
-right (optional): C (default) for calls, P for protective puts. Puts come back
-in puts with put_cover: the shares held, the shares long puts cover and the
-contracts that still fit.
+right (optional): C (default) for calls, P for puts. Puts come back in puts with
+put_cover: for a stock, kind shares with the shares held, the shares long puts
+cover and the contracts that still fit; for a Rulebook hedge symbol, kind
+index_protection with rule 12's index_protection measurement and each row's
+hedge_room_contracts under the over-hedge line.
 
 discover (optional boolean): discover candidates for USD stocks, one per horizon
 of the opportunity policy's [add] table. selected (optional contract): refresh
@@ -60,9 +62,11 @@ always JSON, with or without --json.
 underlying (required): stock contract with symbol, sec_type STK, currency and
 exchange SMART; con_id is optional when known.
 
-right (optional): C (default) for calls, P for protective puts. Puts come back
-in puts with put_cover: the shares held, the shares long puts cover and the
-contracts that still fit.
+right (optional): C (default) for calls, P for puts. Puts come back in puts with
+put_cover: for a stock, kind shares with the shares held, the shares long puts
+cover and the contracts that still fit; for a Rulebook hedge symbol, kind
+index_protection with rule 12's index_protection measurement and each row's
+hedge_room_contracts under the over-hedge line.
 
 discover (optional boolean): discover candidates for USD stocks, one per horizon
 of the opportunity policy's [add] table. selected (optional contract): refresh

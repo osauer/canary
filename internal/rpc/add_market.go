@@ -34,6 +34,9 @@ type AddCallCandidate struct {
 	// DeltaBand is the owner's delta range for this horizon; Desk reads it
 	// rather than keeping its own copy.
 	DeltaBand *AddDeltaBand `json:"delta_band,omitempty"`
+	// HedgeRoomContracts is, for a put on a hedge symbol, the contracts of
+	// this row that still fit under rule 12's over-hedge line.
+	HedgeRoomContracts *int `json:"hedge_room_contracts,omitempty"`
 }
 
 // AddDeltaBand bounds a suggested option's live delta, inclusive, and names
@@ -49,10 +52,43 @@ type AddDeltaBand struct {
 // long, the shares the long puts held cover, and the contracts of 100 shares
 // left after working put purchases and share sales reserve their units.
 // It is unavailable when current holdings or commitments cannot be read.
+//
+// A put on a Rulebook hedge symbol protects the whole long book instead
+// (Kind index_protection): HeldShares and CoveredShares are then zero,
+// RoomContracts is the most contracts any listed put may still add, each
+// row's own in AddCallCandidate.HedgeRoomContracts, and IndexProtection
+// carries rule 12's measurement.
 type AddPutCover struct {
-	HeldShares    float64 `json:"held_shares"`
-	CoveredShares float64 `json:"covered_shares"`
-	RoomContracts int     `json:"room_contracts"`
+	Kind            string              `json:"kind"` // shares | index_protection
+	HeldShares      float64             `json:"held_shares"`
+	CoveredShares   float64             `json:"covered_shares"`
+	RoomContracts   int                 `json:"room_contracts"`
+	IndexProtection *AddIndexProtection `json:"index_protection,omitempty"`
+}
+
+// Put cover kinds.
+const (
+	AddPutCoverShares          = "shares"
+	AddPutCoverIndexProtection = "index_protection"
+)
+
+// AddIndexProtection is rule 12's measurement of the book an index put
+// protects, in base currency: the long book (delta-adjusted gross long
+// exposure), the short delta the held hedge puts give, the band top and the
+// over-hedge line past which more puts count as risk, and the short delta
+// still fitting under that line. WorkingContracts are working put buys on
+// the symbol, charged against each row's room. When the line cannot be
+// measured, Unmeasured says why and the room is the option cap.
+type AddIndexProtection struct {
+	Unmeasured       string  `json:"unmeasured,omitempty"`
+	BaseCurrency     string  `json:"base_currency,omitempty"`
+	LongBase         float64 `json:"long_base"`
+	ProtectionBase   float64 `json:"protection_base"`
+	RatioPct         float64 `json:"ratio_pct"`
+	BandTopPct       float64 `json:"band_top_pct"`
+	LinePct          float64 `json:"line_pct"`
+	RoomBase         float64 `json:"room_base"`
+	WorkingContracts int     `json:"working_contracts,omitempty"`
 }
 
 // AddCallPlanning is closed-session context, never live selection or order

@@ -1,6 +1,7 @@
 package marketcal
 
 import (
+	"slices"
 	"sync"
 	"time"
 )
@@ -9,7 +10,7 @@ import (
 // empty in every daemon but a simulated one.
 var simulatedSessions struct {
 	sync.RWMutex
-	windows map[Market]Window
+	windows map[Market][]Window
 }
 
 // SimulateSession replaces the official calendar of one market with a single
@@ -18,12 +19,20 @@ var simulatedSessions struct {
 // daemon running against the TWS simulator calls it (cmd/canary-sim): the
 // installed daemon never does, and a test holds every caller to that path.
 func SimulateSession(market Market, w Window) {
+	SimulateSessions(market, w)
+}
+
+// SimulateSessions is SimulateSession with consecutive synthetic sessions,
+// in order: between two of them the market is closed and names the next
+// open, and the k-th is dated k days after the first's open, so a plan can
+// be carried over simulated nights within minutes of wall-clock time.
+func SimulateSessions(market Market, ws ...Window) {
 	simulatedSessions.Lock()
 	defer simulatedSessions.Unlock()
 	if simulatedSessions.windows == nil {
-		simulatedSessions.windows = map[Market]Window{}
+		simulatedSessions.windows = map[Market][]Window{}
 	}
-	simulatedSessions.windows[market] = w
+	simulatedSessions.windows[market] = slices.Clone(ws)
 }
 
 // ClearSimulatedSessions restores the official calendar for every market.
@@ -37,13 +46,26 @@ func ClearSimulatedSessions() {
 // one is installed.
 func simulatedSession(spec calendarSpec, at time.Time) (Session, bool) {
 	simulatedSessions.RLock()
-	w, ok := simulatedSessions.windows[spec.market]
+	ws, ok := simulatedSessions.windows[spec.market]
 	simulatedSessions.RUnlock()
-	if !ok {
+	if !ok || len(ws) == 0 {
 		return Session{}, false
 	}
+	// The session at hand is the window at or after at, else the last.
+	k := len(ws) - 1
+	for i, w := range ws {
+		if at.Before(w.Close) {
+			k = i
+			break
+		}
+	}
+	w := ws[k]
+	date := at.In(time.UTC).Format("2006-01-02")
+	if len(ws) > 1 {
+		date = ws[0].Open.In(time.UTC).AddDate(0, 0, k).Format("2006-01-02")
+	}
 	s := Session{
-		Market: spec.market, Label: spec.label, Date: at.In(time.UTC).Format("2006-01-02"), Timezone: spec.timezone,
+		Market: spec.market, Label: spec.label, Date: date, Timezone: spec.timezone,
 		Source: "twssim", Notes: "simulated session: the TWS simulator's exchange hours, not the official calendar",
 	}
 	if w.Open.IsZero() {

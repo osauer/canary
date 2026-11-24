@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -438,16 +439,7 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 		}
 	}
 	if err == nil {
-		projectionCtx, projectionCancel := context.WithTimeout(ctx, flexHTTPTimeout)
-		if s.flexProjectionFn != nil {
-			err = s.flexProjectionFn(projectionCtx)
-		} else {
-			err = s.refreshStatementProjection(projectionCtx)
-		}
-		projectionCancel()
-		if err != nil {
-			err = &flexFetchFailure{reason: rpc.ReconReportReasonProjectionFailed, retryable: true, detail: "statement projection refresh failed"}
-		}
+		err = s.projectRetainedStatements(ctx, "statement projection refresh")
 	}
 	if err == nil {
 		s.cashInterest.invalidate()
@@ -467,12 +459,23 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 			st.state.Stage = rpc.ReconReportStateActionRequired
 		}
 		st.state.LastReason, st.state.LastBrokerCode, st.state.LastRetryable = reason, flexFailureBrokerCode(err), retryable
-		if retryable {
-			st.state.NextAttempt = finished.UTC().Add(flexRetryAfterFail)
-		} else {
+		switch {
+		case !retryable:
 			st.state.NextAttempt = time.Time{}
+		case reason == rpc.ReconReportReasonProjectionFailed:
+			// Local work on statements already retained: retried on the
+			// loop's own cadence, not the download's.
+			st.state.NextAttempt = finished.UTC().Add(flexCheckInterval)
+		default:
+			st.state.NextAttempt = finished.UTC().Add(flexRetryAfterFail)
 		}
-		s.infof("Flex report check failed: %s", reason)
+		// The daemon logs at WARN; a failed check at INFO left no line
+		// (2026-11-24 05:33 UTC). The detail is the failure's redacted one.
+		detail := ""
+		if failure, ok := errors.AsType[*flexFetchFailure](err); ok && failure.detail != "" {
+			detail = ": " + failure.detail
+		}
+		s.warnf("Flex report check failed: %s%s; next attempt %s", reason, detail, st.state.NextAttempt.Format(time.RFC3339))
 	} else {
 		st.state.Stage = rpc.ReconReportStateCurrent
 		st.state.LastReason, st.state.LastBrokerCode, st.state.LastRetryable = "", "", false
@@ -495,6 +498,40 @@ func (s *Server) runFlexFetch(ctx context.Context, operationCancel context.Cance
 		st.done = nil
 	}
 	st.mu.Unlock()
+}
+
+// projectRetainedStatements re-projects the retained statements into the
+// store. It is local work (waiting for the retained-statement gate, a cold
+// parse of every retained report, one replacing write), so it runs under the
+// whole statement check's budget, never the 30-second HTTP timeout it once
+// borrowed, which a slow morning exceeded (2026-11-24 05:33 UTC). A failure
+// names its class and elapsed time, never the error text, which can quote
+// broker values (fxProjectionFailure).
+func (s *Server) projectRetainedStatements(ctx context.Context, what string) error {
+	started := time.Now()
+	projectionCtx, cancel := context.WithTimeout(ctx, flexFetchTimeout)
+	defer cancel()
+	var err error
+	if s.flexProjectionFn != nil {
+		err = s.flexProjectionFn(projectionCtx)
+	} else {
+		err = s.refreshStatementProjection(projectionCtx)
+	}
+	if err == nil {
+		return nil
+	}
+	class := "failed"
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		class = "ran out of time"
+	case errors.Is(err, context.Canceled):
+		class = "was cancelled"
+	case errors.Is(err, corestore.ErrBlocked):
+		class = "was blocked by the store"
+	}
+	failure := &flexFetchFailure{reason: rpc.ReconReportReasonProjectionFailed, retryable: true,
+		detail: fmt.Sprintf("%s %s after %s", what, class, time.Since(started).Round(time.Millisecond))}
+	return failure
 }
 
 // fetchFlexOnce runs the two-step Flex protocol: SendRequest returns a

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osauer/canary/v3/internal/rpc"
 )
@@ -75,4 +76,38 @@ func goldenStrategyAddPreview() rpc.OrderPreviewResult {
 		Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 2, LimitPrice: 1.5, StrategyGroup: &rpc.StrategyOrderDraft{
 			StrategyID: "strat-aaa-1", StrategyRevision: 3, Operation: rpc.StrategyOperationAdd, Units: 2, UnitsBefore: 3, UnitsAfter: 5, GuaranteedCombo: true,
 			Legs: []rpc.StrategyOrderLeg{leg(900001, 1, rpc.OrderActionBuy, 145, 3, 5), leg(900002, -1, rpc.OrderActionSell, 135, -3, -5)}}}}
+}
+
+// goldenStrategyOpenInput is the two exact contracts of a bull call spread.
+const goldenStrategyOpenInput = `{"long": {"con_id": 900011, "symbol": "AAA", "sec_type": "OPT", "exchange": "SMART", "currency": "USD", "expiry": "20261218", "strike": 100, "right": "C", "multiplier": 100, "trading_class": "AAA"},
+ "short": {"con_id": 900012, "symbol": "AAA", "sec_type": "OPT", "exchange": "SMART", "currency": "USD", "expiry": "20261218", "strike": 110, "right": "C", "multiplier": 100, "trading_class": "AAA"}}`
+
+// goldenStrategyOpenPreview is the preview of two units of a bull call
+// spread opened from flat.
+func goldenStrategyOpenPreview() rpc.OrderPreviewResult {
+	leg := func(conID, ratio int, action string, strike, after float64) rpc.StrategyOrderLeg {
+		return rpc.StrategyOrderLeg{Contract: rpc.ContractParams{Symbol: "AAA", SecType: "OPT", Expiry: "20261218", Right: "C", Strike: strike, ConID: conID},
+			Ratio: ratio, Action: action, Quantity: 2, After: after}
+	}
+	return rpc.OrderPreviewResult{SubmitEligible: true, WhatIf: rpc.OrderWhatIfResult{Status: rpc.OrderWhatIfStatusAccepted},
+		Draft: rpc.OrderDraft{Action: rpc.OrderActionBuy, Quantity: 2, LimitPrice: 3.45, Contract: rpc.ContractParams{Symbol: "AAA", SecType: "BAG"}, StrategyGroup: &rpc.StrategyOrderDraft{
+			StrategyID: "strategy-aaa", Operation: rpc.StrategyOperationOpen, Units: 2, UnitsAfter: 2, GuaranteedCombo: true,
+			Legs: []rpc.StrategyOrderLeg{leg(900011, 1, rpc.OrderActionBuy, 100, 2), leg(900012, -1, rpc.OrderActionSell, 110, -2)}}}}
+}
+
+// goldenOrdersOpenCombination is a working bull call spread Canary opened
+// and a combination placed in TWS, as orders.open serves them.
+func goldenOrdersOpenCombination() rpc.OrdersOpenResult {
+	leg := func(action string, conID int, strike float64) rpc.OrderCombinationLeg {
+		return rpc.OrderCombinationLeg{Action: action, Ratio: 1, Quantity: 1, ConID: conID, Symbol: "AAA", SecType: "OPT", Expiry: "20261218", Strike: strike, Right: "C", Multiplier: 100, TradingClass: "AAA", Exchange: "SMART"}
+	}
+	return rpc.OrdersOpenResult{AsOf: goldenAt, Account: "DU0000000", Mode: "paper", NotBrokerStatement: "local journal and broker session; not a broker statement",
+		Orders: []rpc.OrderView{{OrderRef: "canary-spread-1", Symbol: "AAA", SecType: "BAG", Action: "BUY", OrderType: "LMT", TIF: "DAY", Quantity: 1, LimitPrice: 2.9,
+			Status: "Submitted", LifecycleStatus: "submitted", UpdatedAt: goldenAt.Add(-3 * time.Minute), Origin: "agent",
+			Combination: &rpc.OrderCombination{Source: rpc.OrderCombinationCanary, Strategy: "bull_call_spread", Kind: "vertical", Operation: "open", StrategyID: "strategy-aaa", Units: 1,
+				Legs: []rpc.OrderCombinationLeg{leg("BUY", 900011, 100), leg("SELL", 900012, 110)}}}},
+		Untracked: []rpc.OrderView{{PermID: 900000584, Symbol: "AAA", SecType: "BAG", Action: "SELL", OrderType: "LMT", TIF: "DAY", Quantity: 2, LimitPrice: 1.1,
+			Status: "Submitted", LifecycleStatus: "working",
+			Combination: &rpc.OrderCombination{Source: rpc.OrderCombinationBroker, Legs: []rpc.OrderCombinationLeg{{Action: "SELL", Ratio: 1, ConID: 900021, Exchange: "SMART"}, {Action: "BUY", Ratio: 1, ConID: 900022, Exchange: "SMART"}}}}},
+		UntrackedStatus: rpc.OrdersUntrackedCurrent, UntrackedAsOf: goldenAt.Add(-4 * time.Minute), UntrackedControl: "on"}
 }

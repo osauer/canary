@@ -187,3 +187,27 @@ func TestRenderQueuedAuthFirstSaleWithoutMinimum(t *testing.T) {
 		t.Fatalf("rendered %q", got)
 	}
 }
+
+// A carry-over trail shows how long it is valid, its end with its date, and
+// when it watches again between sessions.
+func TestRenderQueuedAuthCarryOverTrail(t *testing.T) {
+	var out bytes.Buffer
+	q := rpc.QueuedAuth{State: rpc.QueuedAuthHeld,
+		Terms: rpc.QueuedAuthTerms{QueueID: "q4", Version: 4, Action: rpc.OrderActionSell, MaxQuantity: 15, Currency: "USD",
+			Contract:  rpc.ContractParams{Symbol: "SYNA", SecType: "OPT", Expiry: "20261218", Strike: 55, Right: "C"},
+			NotBefore: time.Date(2026, 11, 24, 14, 50, 0, 0, time.UTC), NotAfter: time.Date(2026, 11, 27, 18, 0, 0, 0, time.UTC),
+			OwnerOrder: &rpc.QueuedOwnerOrder{Plan: &rpc.QueuedPlan{PlanID: "p", Role: rpc.QueuedPlanRoleTrail, WaitMinutes: 20, Validity: "3d", ValidUntil: "2026-11-27", ResumeWaitMinutes: 20},
+				StockTrail: &rpc.QueuedStockTrail{Underlying: rpc.ContractParams{Symbol: "SYNA", Currency: "USD"}, TrailPercent: 3, InitialStopPrice: 49.5}}},
+		Watch: &rpc.QueuedTrailWatch{State: rpc.QueuedWatchWaiting, StopPrice: 50.83, HighWater: 52.4, NextWatchAt: time.Date(2026, 11, 25, 14, 50, 0, 0, time.UTC)}}
+	renderQueuedAuth(&out, q)
+	got := out.String()
+	for _, want := range []string{
+		"–" + q.Terms.NotAfter.Local().Format("Mon 2 Jan 15:04 MST"),
+		"Valid until: the close of 2026-11-27, " + q.Terms.NotAfter.Local().Format("Mon 2 Jan 15:04 MST") + " (3 sessions); each later session watches from 20 minutes after the open",
+		"Exit line: waiting 50.83 USD, high 52.4 USD, watches from " + q.Watch.NextWatchAt.Local().Format("Mon 2 Jan 15:04 MST"),
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("rendered %q, want %q", got, want)
+		}
+	}
+}

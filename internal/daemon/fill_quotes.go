@@ -89,6 +89,9 @@ type fillQuotePoll struct {
 	coverageFrom time.Time
 	allClients   bool
 	authority    *orderPreviewBrokerAuthority
+	// execIDs are the account's executions this answer listed, sorted; the
+	// next answer must list them again to extend the coverage chain.
+	execIDs []string
 }
 
 // fillQuoteRead is what one exact-contract quote read returned.
@@ -387,29 +390,96 @@ func (s *Server) mandateFillsBetween(scope brokerStateScope, from, to time.Time)
 }
 
 // executionCoverageFrom is a conservative lower boundary proven by this
-// answer. IBKR's default request covers only its current day, whose timezone
-// the daemon does not know. A returned broker timestamp proves at least that
-// much history was included; retained fills and receipt fallbacks prove none.
-// An older base waits for statement reconciliation, including a base before
-// the day's first fill. Empty or ambiguously dated inventories prove no span.
-func executionCoverageFrom(events []ibkrlib.OrderLifecycleEvent, account string, requestedAt time.Time) time.Time {
+// answer alone. IBKR's default request covers only its current day, whose
+// timezone the daemon does not know. A returned broker timestamp proves at
+// least that much history was included; retained fills and receipt
+// fallbacks prove none. ok is false for an ambiguous inventory (an undated,
+// unattributed or future row), which proves no span at all; an empty answer
+// is ok with no time: evidence of no fills, not of an earlier start.
+// executionCoverage extends it over the daemon's own unbroken polls.
+func executionCoverageFrom(events []ibkrlib.OrderLifecycleEvent, account string, requestedAt time.Time) (time.Time, bool) {
 	var first time.Time
 	for _, ev := range events {
 		if !strings.EqualFold(strings.TrimSpace(ev.Account), strings.TrimSpace(account)) {
 			if strings.TrimSpace(ev.Account) == "" {
-				return time.Time{}
+				return time.Time{}, false
 			}
 			continue
 		}
 		at, ok := parseIBKRExecTime(ev.ExecTime)
 		if !ok || at.After(requestedAt) {
-			return time.Time{}
+			return time.Time{}, false
 		}
 		if first.IsZero() || at.Before(first) {
 			first = at
 		}
 	}
-	return first
+	return first, true
+}
+
+// fillQuoteChainGap is the longest pause between two answers that still
+// chains them: one missed poll tick plus a poll's own budget. A longer one
+// (a sleeping machine, a stalled loop) may span IBKR's day boundary
+// unobserved, so the chain starts again.
+const fillQuoteChainGap = 2*fillQuotePollEvery + fillQuotePollBudget
+
+// executionCoverage is where a complete, account-wide answer's coverage
+// starts. Every such answer lists the broker's whole current day, so an
+// execution after an earlier answer of the same chain is in this one or, past
+// a day boundary, in none; the chain is broken (and starts at this request)
+// unless the previous answer was complete and account-wide on the same
+// broker authority, scope and client, at most fillQuoteChainGap before, and
+// every execution it listed is listed again, so no day boundary passed
+// between them. A boundary after an empty answer cannot be seen: an
+// execution in the last poll interval before it would be missed, and then
+// the books' quantities fail to rebuild and the flow stays held. A daemon
+// restart (a blank poll) and a reconnect (a new authority) start a chain at
+// the first answer. The earliest execution the answer itself dates still
+// proves as far back as it reaches (executionCoverageFrom).
+func executionCoverage(prev, outcome fillQuotePoll, first time.Time) time.Time {
+	start := outcome.at
+	chained := prev.authority != nil && prev.authority == outcome.authority && sameBrokerScope(prev.scope, outcome.scope) && prev.clientID == outcome.clientID &&
+		prev.complete && prev.err == "" && prev.allClients && !prev.coverageFrom.IsZero() &&
+		!outcome.at.Before(prev.at) && outcome.at.Sub(prev.at) <= fillQuoteChainGap
+	if chained {
+		for _, id := range prev.execIDs {
+			if !slices.Contains(outcome.execIDs, id) {
+				chained = false
+				break
+			}
+		}
+	}
+	if chained && prev.coverageFrom.Before(start) {
+		start = prev.coverageFrom
+	}
+	if !first.IsZero() && first.Before(start) {
+		start = first
+	}
+	return start
+}
+
+// withExecutionCoverage sets a complete answer's coverage, chained to the
+// previous answer: none for an ambiguous or not account-wide one.
+func withExecutionCoverage(prev, outcome fillQuotePoll, events []ibkrlib.OrderLifecycleEvent, account string) fillQuotePoll {
+	first, ok := executionCoverageFrom(events, account, outcome.at)
+	if !ok || !outcome.allClients {
+		return outcome
+	}
+	outcome.execIDs = executionIDs(events, account)
+	outcome.coverageFrom = executionCoverage(prev, outcome, first)
+	return outcome
+}
+
+// executionIDs lists the account's execution ids in an answer, sorted.
+func executionIDs(events []ibkrlib.OrderLifecycleEvent, account string) []string {
+	var out []string
+	for _, ev := range events {
+		if id := strings.TrimSpace(ev.ExecID); id != "" && strings.EqualFold(strings.TrimSpace(ev.Account), strings.TrimSpace(account)) {
+			out = append(out, id)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
 }
 
 func (s *Server) fillQuoteAllClients(authority *orderPreviewBrokerAuthority, clientID int) bool {
@@ -730,7 +800,7 @@ func (s *Server) pollExecutionsFrom(ctx context.Context, status rpc.TradingStatu
 	if err == nil && snap.Complete && s.orderPreviewBrokerAuthorityCurrent(authority) {
 		outcome.authority = authority
 		outcome.allClients = s.fillQuoteAllClients(authority, status.ClientID)
-		outcome.coverageFrom = executionCoverageFrom(snap.Executions, status.Account, now)
+		outcome = withExecutionCoverage(rt.pollStatus(), outcome, snap.Executions, status.Account)
 	}
 	switch {
 	case err == nil:

@@ -58,7 +58,7 @@ func queuedJournalSendOutcome(events []orderJournalEvent, rec queuedAuthRecord) 
 }
 
 func ownerQueueProblem(t rpc.QueuedAuthTerms) string {
-	if t.Version == queuedPlanTermsVersion {
+	if queuedExitPlanVersion(t.Version) {
 		return exitPlanTermsProblem(t)
 	}
 	o := t.OwnerOrder

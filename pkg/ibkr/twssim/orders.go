@@ -94,6 +94,15 @@ func (s *Server) ArmFault(f Fault) {
 	s.faults = append(s.faults, f)
 }
 
+// ClearFaults drops every scripted answer not yet used, so a scenario can
+// end a stretch of faults (a session's close) and let the next orders take
+// the normal answer.
+func (s *Server) ClearFaults() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.faults = nil
+}
+
 func (s *Server) takeFault(o PlaceOrder) (Fault, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

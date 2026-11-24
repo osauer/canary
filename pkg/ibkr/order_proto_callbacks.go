@@ -17,6 +17,7 @@ const (
 
 type inboundOrderProtoSummary struct {
 	conID                int
+	comboLegs            []ComboLeg
 	modifyTermsKnown     bool
 	modifyUnsupported    string
 	openClose            string
@@ -132,6 +133,7 @@ func summarizeOpenOrderProtoCallback(body []byte) []string {
 		"clientId="+strconv.Itoa(summary.clientID),
 	)
 	fields = appendContractSummaryFields(fields, summary)
+	fields = appendComboLegSummaryField(fields, summary)
 	fields = appendOrderSummaryFields(fields, summary)
 	fields = append(fields,
 		"status="+summary.status,
@@ -222,6 +224,20 @@ func appendContractSummaryFields(fields []string, summary inboundOrderProtoSumma
 		"localSymbol="+summary.localSymbol,
 		"tradingClass="+summary.tradingClass,
 	)
+}
+
+// appendComboLegSummaryField writes a BAG's legs as one summary field,
+// conId:ratio:action:exchange per leg, comma-separated; none for any other
+// contract.
+func appendComboLegSummaryField(fields []string, summary inboundOrderProtoSummary) []string {
+	if len(summary.comboLegs) == 0 {
+		return fields
+	}
+	legs := make([]string, len(summary.comboLegs))
+	for i, l := range summary.comboLegs {
+		legs[i] = strconv.Itoa(l.ConID) + ":" + strconv.Itoa(l.Ratio) + ":" + l.Action + ":" + l.Exchange
+	}
+	return append(fields, "comboLegs="+strings.Join(legs, ","))
 }
 
 func appendOrderSummaryFields(fields []string, summary inboundOrderProtoSummary) []string {
@@ -402,11 +418,46 @@ func parseInboundContractProto(body []byte, summary *inboundOrderProtoSummary) e
 			summary.localSymbol = string(value)
 		case 12:
 			summary.tradingClass = string(value)
+		case 20:
+			leg, err := parseInboundComboLegProto(value)
+			if err != nil {
+				return err
+			}
+			summary.comboLegs = append(summary.comboLegs, leg)
 		case 21:
 			summary.expiry = string(value)
 		}
 		return nil
 	})
+}
+
+// parseInboundComboLegProto reads one ComboLeg of a BAG contract
+// (ComboLeg.proto: conId 1, ratio 2, action 3, exchange 4, openClose 5).
+func parseInboundComboLegProto(body []byte) (ComboLeg, error) {
+	var leg ComboLeg
+	err := forEachProtoField(body, func(fieldNumber, wireType int, value []byte) error {
+		switch fieldNumber {
+		case 1, 2, 5:
+			v, err := protoVarintValue(fieldNumber, wireType, value)
+			if err != nil {
+				return err
+			}
+			switch fieldNumber {
+			case 1:
+				leg.ConID = int(int32(v))
+			case 2:
+				leg.Ratio = int(int32(v))
+			default:
+				leg.OpenClose = int(int32(v))
+			}
+		case 3:
+			leg.Action = string(value)
+		case 4:
+			leg.Exchange = string(value)
+		}
+		return nil
+	})
+	return leg, err
 }
 
 func parseInboundOrderProto(body []byte, summary *inboundOrderProtoSummary) error {

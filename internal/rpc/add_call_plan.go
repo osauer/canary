@@ -2,7 +2,7 @@ package rpc
 
 import "time"
 
-// MethodAddCallPlan sizes a long call, or a protective put, against an owner budget, without submission.
+// MethodAddCallPlan sizes a long call, or a protective or index put, against an owner budget, without submission.
 const MethodAddCallPlan = "add.call-plan"
 
 // AddCallPlanParams contains exact intended terms and the owner's debit ceiling.
@@ -28,7 +28,12 @@ type AddCallPlanResult struct {
 	HeldToCap bool `json:"held_to_cap,omitempty"`
 	OptionCap int  `json:"option_cap,omitempty"`
 	// CoverCapped says a put was held to the shares it may still protect
+	// or, for an index put, to rule 12's over-hedge line
 	// (AddPutCover.RoomContracts).
-	CoverCapped bool      `json:"cover_capped,omitempty"`
-	AsOf        time.Time `json:"as_of"`
+	CoverCapped bool `json:"cover_capped,omitempty"`
+	// IndexProtection is rule 12's measurement an index put was sized on;
+	// its Unmeasured is the warning that only the option cap and the budget
+	// held the size.
+	IndexProtection *AddIndexProtection `json:"index_protection,omitempty"`
+	AsOf            time.Time           `json:"as_of"`
 }

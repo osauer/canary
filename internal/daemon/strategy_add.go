@@ -50,12 +50,90 @@ import (
 // order, as the single hedge put does: nothing sums the premium of repeated
 // hedge entries at the gate. Rule 2's hedge tier and rule 12 report on the
 // held hedge afterwards; they do not refuse an order.
+//
+// Opening a debit vertical from flat (operation open) is an add from zero
+// units, judged by the same rule and nothing wider. Owner, 2026-11-24 07:00
+// CET: buy an option as a defined-risk debit vertical in one order (a bull
+// call spread, a bear put spread); 07:19 CET, asked "May Desk sell the short
+// leg of a defined-risk spread, sent as one combination order?": "Yes,
+// spreads only". So an open is exactly one bought and one sold option of
+// one underlying, expiry, right, contract size and trading class, 1:1, the
+// sold strike further out of the money, bought for a net debit above zero
+// and below the strike width (validateStrategyOpenVertical). Its sold leg
+// needs no sell-to-open permission because the order caps it; a credit
+// spread, a ratio, a calendar or diagonal and a naked sale are refused
+// whatever [order_limits].allow_option_sell_to_open says. What it can lose
+// is the debit paid, bounded as a covered add's is above.
 
 // strategyAdd returns the group of an order that adds units of a held
-// strategy, or nil for every other order.
+// strategy or opens a debit vertical from flat, or nil for every other
+// order.
 func strategyAdd(draft rpc.OrderDraft) *rpc.StrategyOrderDraft {
-	if g := draft.StrategyGroup; g != nil && g.Operation == rpc.StrategyOperationAdd {
+	if g := draft.StrategyGroup; g != nil && (g.Operation == rpc.StrategyOperationAdd || g.Operation == rpc.StrategyOperationOpen) {
 		return g
+	}
+	return nil
+}
+
+// validateStrategyOpenVertical holds an open to a debit vertical: two
+// distinct exact USD SMART options of one underlying, expiry, right,
+// contract size and trading class, one bought and one sold in equal
+// numbers, the sold strike above the bought for calls and below it for
+// puts, bought at a limit above zero and below the strike width. The
+// sentence it returns is the refusal the owner reads.
+func validateStrategyOpenVertical(g *rpc.StrategyOrderDraft, limit float64) error {
+	if g == nil || len(g.Legs) != 2 {
+		return fmt.Errorf("a spread is opened as one bought and one sold option")
+	}
+	var long, short *rpc.StrategyOrderLeg
+	for i := range g.Legs {
+		switch g.Legs[i].Ratio {
+		case 1:
+			long = &g.Legs[i]
+		case -1:
+			short = &g.Legs[i]
+		}
+	}
+	if long == nil || short == nil {
+		return fmt.Errorf("a spread is opened one sold option for each one bought; Canary opens no ratio")
+	}
+	l, s := long.Contract, short.Contract
+	right := strings.ToUpper(strings.TrimSpace(l.Right))
+	for _, c := range []rpc.ContractParams{l, s} {
+		if !strings.EqualFold(c.SecType, "OPT") || c.ConID <= 0 || !strings.EqualFold(c.Currency, "USD") || !strings.EqualFold(c.Exchange, "SMART") || contractMultiplier(c) != 100 || !(c.Strike > 0) {
+			return fmt.Errorf("both legs of a spread must be exact US dollar options of 100 shares on SMART")
+		}
+	}
+	if l.ConID == s.ConID {
+		return fmt.Errorf("a spread buys and sells two different options")
+	}
+	if !strings.EqualFold(strings.TrimSpace(l.Symbol), strings.TrimSpace(s.Symbol)) || !strings.EqualFold(strings.TrimSpace(l.TradingClass), strings.TrimSpace(s.TradingClass)) {
+		return fmt.Errorf("both legs of a spread must be options on the same underlying and trading class")
+	}
+	if strings.TrimSpace(l.Expiry) == "" || strings.TrimSpace(l.Expiry) != strings.TrimSpace(s.Expiry) {
+		return fmt.Errorf("both legs of a spread must share one expiry; Canary opens no calendar or diagonal")
+	}
+	if (right != "C" && right != "P") || !strings.EqualFold(right, strings.TrimSpace(s.Right)) {
+		return fmt.Errorf("both legs of a spread must be calls, or both puts")
+	}
+	if right == "C" && !(s.Strike > l.Strike) || right == "P" && !(s.Strike < l.Strike) {
+		if right == "C" {
+			return fmt.Errorf("a bull call spread sells the higher strike; selling the lower one is a credit spread, which Canary does not open")
+		}
+		return fmt.Errorf("a bear put spread sells the lower strike; selling the higher one is a credit spread, which Canary does not open")
+	}
+	if g.Units <= 0 || long.Quantity != g.Units || short.Quantity != g.Units || long.Action != rpc.OrderActionBuy || short.Action != rpc.OrderActionSell {
+		return fmt.Errorf("a spread buys and sells the same number of contracts")
+	}
+	width := math.Abs(l.Strike - s.Strike)
+	if !(limit > 0) {
+		return fmt.Errorf("a spread is opened for a net debit above zero; one taken in for nothing or a credit is a credit spread, which Canary does not open")
+	}
+	if limit >= width-1e-9 {
+		return fmt.Errorf("a debit of %.2f at or above the strike width of %.2f cannot make money; lower the limit or widen the spread", limit, width)
+	}
+	if !strategyAddCovered(g) {
+		return rpc.Defect(fmt.Errorf("a validated debit vertical is not covered"))
 	}
 	return nil
 }
@@ -209,6 +287,9 @@ func validateStrategyAddDraft(limits risk.OrderLimitsInForce, draft rpc.OrderDra
 	if group == nil || !group.GuaranteedCombo || len(group.Legs) < 2 || draft.Contract.SecType != "BAG" || draft.Action != rpc.OrderActionBuy || group.Units <= 0 || draft.Quantity != group.Units {
 		return fmt.Errorf("strategy order is not one guaranteed proportional combo")
 	}
+	if group.Operation == rpc.StrategyOperationOpen {
+		return validateStrategyOpenDraft(limits, draft, position, notional)
+	}
 	if group.UnitsBefore <= 0 || group.UnitsAfter != group.UnitsBefore+group.Units || position.Before != float64(group.UnitsBefore) || position.After != float64(group.UnitsAfter) {
 		return fmt.Errorf("strategy order does not add whole units to the current group")
 	}
@@ -238,6 +319,39 @@ func validateStrategyAddDraft(limits risk.OrderLimitsInForce, draft rpc.OrderDra
 	}
 	if sells && !limits.AllowOptionSellToOpen {
 		return fmt.Errorf("this strategy sells an option to open that no bought leg of the order caps; option sell-to-open requires [order_limits].allow_option_sell_to_open = true")
+	}
+	return nil
+}
+
+// validateStrategyOpenDraft holds an open to a debit vertical: no unit of it
+// held before, the sold leg opening from none and the bought one from none
+// or more held on its own, each inside the option-contract cap, and a cap notional no less than the debit its limit
+// can pay. Nothing here reads the sell-to-open permission: only a covered
+// debit vertical passes, and every other shape is refused outright.
+func validateStrategyOpenDraft(limits risk.OrderLimitsInForce, draft rpc.OrderDraft, position rpc.OrderPositionImpact, notional orderNotionalAuthority) error {
+	group := draft.StrategyGroup
+	if group.UnitsBefore != 0 || group.UnitsAfter != group.Units || position.Before != 0 || position.After != float64(group.Units) {
+		return fmt.Errorf("a spread is opened from flat")
+	}
+	if err := validateStrategyOpenVertical(group, draft.LimitPrice); err != nil {
+		return err
+	}
+	for _, leg := range group.Legs {
+		if leg.Quantity > limits.MaxOptionContracts {
+			return fmt.Errorf("spread leg of %d contracts exceeds the option cap in force of %d contracts ([order_limits].max_option_contracts)", leg.Quantity, limits.MaxOptionContracts)
+		}
+		// The bought contract may be held already (more of it stays a line
+		// of its own); the sold one is opened from none.
+		after := leg.Before + float64(leg.Quantity)
+		if leg.Ratio < 0 {
+			after = leg.Before - float64(leg.Quantity)
+		}
+		if leg.Before < 0 || leg.Ratio < 0 && leg.Before != 0 || math.Abs(leg.After-after) > 1e-9 {
+			return fmt.Errorf("spread leg %d is held in a way a new spread cannot open over: the sold option must not be held, the bought one not held short", leg.Contract.ConID)
+		}
+	}
+	if net := strategyAddNetPremium(draft); notional.QuoteNotional < net-max(1e-8, net*1e-9) {
+		return fmt.Errorf("spread notional is below the debit its limit can pay")
 	}
 	return nil
 }
@@ -279,10 +393,21 @@ func mandateStrategyAddLegs(draft rpc.OrderDraft, in *mandate.Input) (legs []man
 				held = &in.Legs[i]
 			}
 		}
-		if held == nil || held.IV == nil || held.Quantity == 0 {
+		var add mandate.Leg
+		switch {
+		case held != nil && held.IV != nil && held.Quantity != 0:
+			add = *held
+		case g.Operation == rpc.StrategyOperationOpen && leg.Mark > 0:
+			// A leg the book does not hold yet is priced as a single option
+			// order is, at the volatility its preview midpoint implies.
+			priced, ok := mandateOrderLeg(rpc.OrderDraft{Action: leg.Action, Contract: leg.Contract, Quantity: leg.Quantity, LimitPrice: leg.Mark}, in)
+			if !ok {
+				return nil, "no volatility can be implied for " + deltaContractDesc(leg.Contract)
+			}
+			add = priced
+		default:
 			return nil, "the book carries no volatility for " + deltaContractDesc(leg.Contract)
 		}
-		add := *held
 		add.Quantity = float64(leg.Quantity)
 		if leg.Ratio < 0 {
 			add.Quantity = -add.Quantity

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/osauer/canary/v3/internal/mandate"
 	"github.com/osauer/canary/v3/internal/risk"
@@ -81,6 +82,59 @@ func mandateOptionLoss(leg *mandate.Leg, row rpc.PositionView, base string) {
 		loss = value
 	}
 	leg.LossPerUnitBase = loss / row.Quantity
+}
+
+// mandateNetSpreadLosses counts every bought option a sold option of the
+// same underlying caps (risk.SpreadPairs, the pairing the premium at risk
+// reads) at what the pair can still lose: the bought leg's value less the
+// sold leg's, never below nothing, for the contracts paired; its unpaired
+// contracts keep their own figure. A held debit vertical then counts at its
+// net value, so the measure after an open's fill is what the open was
+// admitted at (strategy_add.go), not the bought leg's whole value. The sold
+// leg's figure stays zero and a sold leg nothing caps offsets nothing: the
+// measure may overstate, never understate.
+func mandateNetSpreadLosses(legs []mandate.Leg, rows []rpc.PositionView, base string) {
+	byID := make(map[string]int, len(legs))
+	for i, l := range legs {
+		byID[l.ID] = i
+	}
+	ny, _ := time.LoadLocation("America/New_York")
+	byName := map[string][]int{}
+	inputs := make([]risk.LegInput, len(rows))
+	for i, row := range rows {
+		in := mandateOptionPremiumInput(row, base)
+		in.Right, in.Strike, in.Multiplier = strings.ToUpper(strings.TrimSpace(row.Right)), row.Strike, float64(optionMultiplier(row))
+		in.TradingClass = strings.TrimSpace(row.TradingClass)
+		if expiry, err := time.ParseInLocation("20060102", strings.TrimSpace(row.Expiry), ny); err == nil {
+			in.Expiry = expiry
+		}
+		inputs[i] = in
+		byName[normSym(row.Symbol)] = append(byName[normSym(row.Symbol)], i)
+	}
+	for _, idx := range byName {
+		if len(idx) < 2 {
+			continue
+		}
+		name := make([]risk.LegInput, len(idx))
+		for k, i := range idx {
+			name[k] = inputs[i]
+		}
+		paired, covered := map[int]float64{}, map[int]float64{}
+		for _, p := range risk.SpreadPairs(name) {
+			long, sold := name[p.Long], name[p.Sold]
+			value := math.Abs(long.MarketValueBase)*p.Contracts/long.Quantity - math.Abs(sold.MarketValueBase)*p.Contracts/-sold.Quantity
+			paired[p.Long] += math.Max(value, 0)
+			covered[p.Long] += p.Contracts
+		}
+		for k, c := range covered {
+			li, ok := byID[mandateLegID(rows[idx[k]])]
+			if !ok || legs[li].LossUnknown != "" || !(legs[li].Quantity > 0) {
+				continue
+			}
+			l := &legs[li]
+			l.LossPerUnitBase = (paired[k] + (l.Quantity-c)*l.LossPerUnitBase) / l.Quantity
+		}
+	}
 }
 
 // mandateMarkProtection marks every hedge-listed long put as protection, the

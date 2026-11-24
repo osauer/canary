@@ -239,9 +239,17 @@ func TestEvaluateUnknownOnMissingEvidence(t *testing.T) {
 		"missing IV":     func(in *Input) { in.Legs[1].IV = nil },
 		"missing series": func(in *Input) { delete(in.Series, "SYNA") },
 		"stale series":   func(in *Input) { s := in.Series["SYNA"]; s.Stale = true; in.Series["SYNA"] = s },
-		"short series": func(in *Input) {
+		// A long line on a short series is charged (short_history_test.go);
+		// a short one keeps the verdict unknown.
+		"short series held short": func(in *Input) {
 			s := in.Series["SYNA"]
 			s.Dates, s.Closes = s.Dates[:200], s.Closes[:200]
+			in.Series["SYNA"] = s
+			in.Legs[1].Quantity = -1
+		},
+		"short series with unequal dates": func(in *Input) {
+			s := in.Series["SYNA"]
+			s.Dates, s.Closes = s.Dates[:200], s.Closes[:199]
 			in.Series["SYNA"] = s
 		},
 		"missing FX":       func(in *Input) { delete(in.FX, "USD") },

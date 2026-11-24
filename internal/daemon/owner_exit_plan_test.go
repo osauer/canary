@@ -9,7 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osauer/canary/v3/internal/marketcal"
 	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 var exitPlanTestOpen = time.Date(2026, 11, 24, 14, 50, 0, 0, time.UTC)
@@ -323,7 +325,10 @@ func TestTrailSaleProgress(t *testing.T) {
 			Watch: queuedTrailState{TriggeredAt: trail.NotBefore, SaleAttempts: 1}}
 	}
 	r := sent()
-	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 8}, at); !ok ||
+	planEnd := func(queuedAuthRecord) (string, string) {
+		return queuedReasonPlanValidityEnded, "the plan's validity ended"
+	}
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 8}, at, planEnd); !ok ||
 		r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleEnded || r.Watch.SaleFilled != 8 || r.OrderRef != "" || r.PreviewTokenID != "" ||
 		r.Watch.SaleStep != 1 || r.Watch.LastLimit != 1.60 {
 		t.Fatalf("a cancelled attempt: %+v", r)
@@ -331,32 +336,32 @@ func TestTrailSaleProgress(t *testing.T) {
 	r = sent()
 	r.Watch.SaleFilled = 8
 	r.QuantitySent = 12
-	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleFilled, Filled: 12}, at); !ok || r.State != rpc.QueuedAuthFilled || r.Watch.SaleFilled != 20 {
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleFilled, Filled: 12}, at, planEnd); !ok || r.State != rpc.QueuedAuthFilled || r.Watch.SaleFilled != 20 {
 		t.Fatalf("the line sold: %+v", r)
 	}
 	r = sent()
-	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleRejected}, at); !ok || r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleEnded {
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleRejected}, at, planEnd); !ok || r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleEnded {
 		t.Fatalf("a rejected attempt: %+v", r)
 	}
 	r = sent()
-	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 5}, trail.NotAfter); !ok || r.State != rpc.QueuedAuthPartiallyFilled || r.ReasonCode != queuedReasonWindowEnded {
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 5}, trail.NotAfter, planEnd); !ok || r.State != rpc.QueuedAuthPartiallyFilled || r.ReasonCode != queuedReasonPlanValidityEnded {
 		t.Fatalf("at the window's end: %+v", r)
 	}
 	r = sent()
-	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled}, at); !ok || r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleUnconfirmed || r.OrderRef != "ref1" {
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled}, at, planEnd); !ok || r.State != rpc.QueuedAuthHeld || r.HoldCode != queuedHoldTrailSaleUnconfirmed || r.OrderRef != "ref1" {
 		t.Fatalf("an end not recorded: %+v", r)
 	}
-	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled}, at); ok {
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleClosedReconciled}, at, planEnd); ok {
 		t.Fatal("an unconfirmed attempt was handled twice")
 	}
 	r = sent()
 	r.State, r.HoldCode = rpc.QueuedAuthHeld, queuedReasonSendUnclear
-	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleSubmitted}, at); !ok || r.State != rpc.QueuedAuthSent || r.HoldCode != "" {
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleSubmitted}, at, planEnd); !ok || r.State != rpc.QueuedAuthSent || r.HoldCode != "" {
 		t.Fatalf("an unclear attempt the broker shows: %+v", r)
 	}
 	r = sent()
 	r.CancelRequested = true
-	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 3}, at); !ok || r.State != rpc.QueuedAuthCancelled || r.Watch.SaleFilled != 3 {
+	if _, ok := trailSaleProgress(r, rpc.OrderView{LifecycleStatus: rpc.OrderLifecycleCancelled, Filled: 3}, at, planEnd); !ok || r.State != rpc.QueuedAuthCancelled || r.Watch.SaleFilled != 3 {
 		t.Fatalf("an owner cancel: %+v", r)
 	}
 }
@@ -516,5 +521,326 @@ func TestSaleWaitsOnOpenOrders(t *testing.T) {
 	}
 	if rig.server.saleWaitsOnOpenOrders(trail.NotAfter) {
 		t.Fatal("a trail past its window waits on the open orders")
+	}
+}
+
+// exitPlanCarryTerms are exitPlanTestTerms carried over three sessions from
+// Tuesday 2026-11-24: Thanksgiving closes Thursday, so the third is Friday
+// 2026-11-27, whose stock market closes early at 13:00 New York.
+func exitPlanCarryTerms() (first, trail rpc.QueuedAuthTerms) {
+	first, trail = exitPlanTestTerms()
+	for _, terms := range []*rpc.QueuedAuthTerms{&first, &trail} {
+		o := *terms.OwnerOrder
+		plan := *o.Plan
+		plan.Validity, plan.ValidUntil, plan.ResumeWaitMinutes = "3d", "2026-11-27", 20
+		o.Plan = &plan
+		terms.OwnerOrder, terms.Version = &o, queuedPlanSessionsTermsVersion
+	}
+	trail.NotAfter = time.Date(2026, 11, 27, 18, 0, 0, 0, time.UTC)
+	return first, trail
+}
+
+func TestExitPlanValidity(t *testing.T) {
+	for in, want := range map[string]struct {
+		norm     string
+		sessions int
+		carry    bool
+	}{"": {"", 1, false}, "day": {"", 1, false}, "1d": {"", 1, false}, "3d": {"3d", 3, true}, " GTC ": {"gtc", 0, true}, "10D": {"10d", 10, true}} {
+		norm, sessions, carry, ok := exitPlanValidity(in)
+		if !ok || norm != want.norm || sessions != want.sessions || carry != want.carry {
+			t.Errorf("%q: %q %d %v %v", in, norm, sessions, carry, ok)
+		}
+	}
+	for _, in := range []string{"0d", "-2d", "3", "d", "03d", "3 sessions", "week"} {
+		if _, _, _, ok := exitPlanValidity(in); ok {
+			t.Errorf("%q accepted", in)
+		}
+	}
+}
+
+// A carry-over plan is version 4 and signs its validity; a one-session plan
+// keeps version 3 and the bytes it had.
+func TestExitPlanCarryOverTerms(t *testing.T) {
+	first, trail := exitPlanCarryTerms()
+	for _, terms := range []rpc.QueuedAuthTerms{first, trail} {
+		if p := ownerQueueProblem(terms); p != "" {
+			t.Fatalf("valid carry-over %s refused: %s", terms.OwnerOrder.Plan.Role, p)
+		}
+		if !queuedOwnerOrder(terms) || queuedPlanOf(terms) == nil {
+			t.Fatal("a version-4 record is not an exit plan's")
+		}
+	}
+	raw, _ := json.Marshal(trail)
+	if !strings.Contains(string(raw), `"plan":{"plan_id":"plan1","role":"trail","wait_minutes":20,"validity":"3d","valid_until":"2026-11-27","resume_wait_minutes":20}`) {
+		t.Fatalf("carry-over terms: %s", raw)
+	}
+	_, one := exitPlanTestTerms()
+	raw, _ = json.Marshal(one)
+	if !strings.Contains(string(raw), `"plan":{"plan_id":"plan1","role":"trail","wait_minutes":20}`) || strings.Contains(string(raw), "valid") {
+		t.Fatalf("a one-session plan changed bytes: %s", raw)
+	}
+	edit := func(terms rpc.QueuedAuthTerms, change func(*rpc.QueuedAuthTerms, *rpc.QueuedPlan)) rpc.QueuedAuthTerms {
+		o := *terms.OwnerOrder
+		plan := *o.Plan
+		o.Plan = &plan
+		terms.OwnerOrder = &o
+		change(&terms, &plan)
+		return terms
+	}
+	for name, change := range map[string]func(*rpc.QueuedAuthTerms, *rpc.QueuedPlan){
+		"no validity":             func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { p.Validity = "" },
+		"unknown validity":        func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { p.Validity = "week" },
+		"one day":                 func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { p.Validity = "1d" },
+		"past the expiry":         func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { p.ValidUntil = "2026-12-19" },
+		"before the first":        func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { p.ValidUntil = "2026-11-23" },
+		"no date":                 func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { p.ValidUntil = "" },
+		"no resume wait":          func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { p.ResumeWaitMinutes = 0 },
+		"resume wait above 120":   func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { p.ResumeWaitMinutes = 121 },
+		"no expiry":               func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { t.Contract.Expiry = "" },
+		"version 3 with validity": func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) { t.Version = queuedPlanTermsVersion },
+		"beyond the horizon": func(t *rpc.QueuedAuthTerms, p *rpc.QueuedPlan) {
+			t.NotAfter = t.NotBefore.Add(queuedPlanValidityMax + time.Hour)
+		},
+	} {
+		if ownerQueueProblem(edit(trail, change)) == "" {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// A one-session plan never runs past its day.
+	if ownerQueueProblem(edit(one, func(t *rpc.QueuedAuthTerms, _ *rpc.QueuedPlan) { t.NotAfter = t.NotBefore.Add(72 * time.Hour) })) == "" {
+		t.Fatal("a version-3 trail across three days was accepted")
+	}
+}
+
+// The validity walks the official calendar: holidays do not count, a half
+// day ends at its early close, and nothing runs past the option's last
+// trading day.
+func TestExitPlanLastSessionWalksTheCalendar(t *testing.T) {
+	s := &Server{}
+	useQueueCalendar(s)
+	at := time.Date(2026, 11, 24, 15, 0, 0, 0, time.UTC)
+	day, _ := s.previewSession(marketcal.MarketUSOptions, at)
+	stockDay, _ := s.previewSession(marketcal.MarketUSEquity, at)
+	for name, c := range map[string]struct {
+		sessions int
+		last     string
+		date     string
+		end      time.Time
+	}{
+		"today":                     {1, "2026-12-18", "2026-11-24", time.Date(2026, 11, 24, 21, 0, 0, 0, time.UTC)},
+		"over Thanksgiving":         {3, "2026-12-18", "2026-11-27", time.Date(2026, 11, 27, 18, 0, 0, 0, time.UTC)},
+		"until cancelled":           {0, "2026-12-04", "2026-12-04", time.Date(2026, 12, 4, 21, 0, 0, 0, time.UTC)},
+		"more sessions than listed": {30, "2026-12-04", "2026-12-04", time.Date(2026, 12, 4, 21, 0, 0, 0, time.UTC)},
+		"expiry on a holiday":       {0, "2026-11-26", "2026-11-25", time.Date(2026, 11, 25, 21, 0, 0, 0, time.UTC)},
+	} {
+		date, end := s.exitPlanLastSession(marketcal.MarketUSOptions, marketcal.MarketUSEquity, day, stockDay, c.sessions, c.last)
+		if date != c.date || !end.Equal(c.end) {
+			t.Errorf("%s: %s %s, want %s %s", name, date, end, c.date, c.end)
+		}
+	}
+}
+
+// storeTrail arms terms on the rig as a waiting trail.
+func storeTrail(t *testing.T, e *proposalEngine, terms rpc.QueuedAuthTerms, at time.Time) {
+	t.Helper()
+	digest, _ := queuedTermsDigest(terms)
+	if err := e.queued.update(t.Context(), at, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := &queuedAuthRecord{Version: queuedDocumentVersion, Terms: terms, TermsDigest: digest, CreatedAt: at}
+		records[terms.QueueID] = r
+		return []queuedAuthEvent{r.transition(queuedEventArmed, rpc.QueuedAuthArmed, at)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A carry-over trail watches only inside the regular session of the option
+// and the stock: not overnight, not on a holiday, and on a later session
+// only from the signed wait after the open. Off session it does not tick,
+// it wakes for the next watch, and its view says when that is.
+func TestTrailCarriesOverTheNight(t *testing.T) {
+	rig := newQueueTestRig(t)
+	e := rig.engine
+	_, trail := exitPlanCarryTerms()
+	trail.QueueID = "trail1"
+	storeTrail(t, e, trail, exitPlanTestOpen)
+	rec := func() queuedAuthRecord { r, _ := e.queued.get(trail.QueueID); return r }
+	day2Open := time.Date(2026, 11, 25, 14, 30, 0, 0, time.UTC)
+	for name, c := range map[string]struct {
+		at   time.Time
+		in   bool
+		code string
+		next time.Time
+	}{
+		"day one":              {time.Date(2026, 11, 24, 16, 0, 0, 0, time.UTC), true, "", time.Time{}},
+		"day one's evening":    {time.Date(2026, 11, 24, 21, 30, 0, 0, time.UTC), false, rpc.ReadinessMarketClosed, day2Open.Add(20 * time.Minute)},
+		"day two's pre-market": {time.Date(2026, 11, 25, 12, 0, 0, 0, time.UTC), false, rpc.ReadinessMarketClosed, day2Open.Add(20 * time.Minute)},
+		"day two's opening":    {day2Open.Add(5 * time.Minute), false, rpc.ReadinessOpeningWindow, day2Open.Add(20 * time.Minute)},
+		"day two":              {day2Open.Add(21 * time.Minute), true, "", time.Time{}},
+		"Thanksgiving":         {time.Date(2026, 11, 26, 16, 0, 0, 0, time.UTC), false, rpc.ReadinessMarketClosed, time.Date(2026, 11, 27, 14, 50, 0, 0, time.UTC)},
+		"after the last close": {time.Date(2026, 11, 27, 18, 5, 0, 0, time.UTC), false, rpc.ReadinessMarketClosed, time.Time{}},
+	} {
+		got := e.trailSessionAt(rec(), c.at)
+		if got.in != c.in || got.code != c.code || !got.next.Equal(c.next) {
+			t.Errorf("%s: %+v", name, got)
+		}
+		if _, ticks := e.queuedTrailTick(c.at); ticks != c.in && c.at.Before(trail.NotAfter) {
+			t.Errorf("%s: ticks %v", name, ticks)
+		}
+	}
+	evening := time.Date(2026, 11, 24, 21, 30, 0, 0, time.UTC)
+	if d, ok := e.queuedWake(evening); !ok || d != day2Open.Add(20*time.Minute).Sub(evening) {
+		t.Fatalf("wakes in %s %v", d, ok)
+	}
+	rig.now = evening
+	if w := e.queuedView(rec()).Watch; w.State != rpc.QueuedWatchWaiting || w.ReasonCode != rpc.ReadinessMarketClosed || !w.NextWatchAt.Equal(day2Open.Add(20*time.Minute)) {
+		t.Fatalf("evening view: %+v", w)
+	}
+	// A trail that fired yesterday and did not sell starts its steps again at
+	// the mid in the new session, once.
+	if err := e.queued.update(t.Context(), evening, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[trail.QueueID]
+		r.Watch.TriggeredAt, r.Watch.SaleStep, r.Watch.LastLimit, r.Watch.LastBid, r.Watch.LastAsk = exitPlanTestOpen, 2, 1.50, 1.45, 1.70
+		return []queuedAuthEvent{r.note(queuedEventTriggered, r.State, evening)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	rig.now = day2Open.Add(21 * time.Minute)
+	got := e.enterTrailSession(t.Context(), rec(), day2Open)
+	if got.Watch.SaleStep != 0 || got.Watch.LastLimit != 0 || !got.Watch.SessionOpen.Equal(day2Open) || got.Watch.TriggeredAt.IsZero() {
+		t.Fatalf("a new session: %+v", got.Watch)
+	}
+	events := 0
+	for range 2 {
+		before, _ := e.queued.get(trail.QueueID)
+		after := e.enterTrailSession(t.Context(), before, day2Open)
+		if after.Watch != before.Watch {
+			events++
+		}
+	}
+	if events != 0 {
+		t.Fatal("the same session was entered twice")
+	}
+	// A one-session plan is unchanged: the calendar's answer only confirms
+	// its window.
+	_, one := exitPlanTestTerms()
+	one.QueueID = "trail2"
+	storeTrail(t, e, one, exitPlanTestOpen)
+	r2, _ := e.queued.get(one.QueueID)
+	if got := e.trailSessionAt(r2, exitPlanTestOpen.Add(time.Hour)); !got.in {
+		t.Fatalf("a one-session trail in its window: %+v", got)
+	}
+}
+
+// A trail whose validity ends says how the plan ended: not crossed, or
+// crossed with what it sold; a plan that ends with its contract says so.
+// A first sale keeps its send-window end.
+func TestExitPlanEndReasons(t *testing.T) {
+	rig := newQueueTestRig(t)
+	e := rig.engine
+	first, trail := exitPlanCarryTerms()
+	first.QueueID, trail.QueueID = "first1", "trail1"
+	storeTrail(t, e, first, exitPlanTestOpen)
+	storeTrail(t, e, trail, exitPlanTestOpen)
+	rig.now = trail.NotAfter.Add(time.Second)
+	e.expireQueued(t.Context())
+	got, _ := e.queued.get(trail.QueueID)
+	if got.State != rpc.QueuedAuthExpired || got.ReasonCode != queuedReasonPlanValidityEnded ||
+		got.Reason != "the plan's validity ended and the exit line was not crossed; nothing was sold" {
+		t.Fatalf("not crossed: %s %s %q", got.State, got.ReasonCode, got.Reason)
+	}
+	if f, _ := e.queued.get(first.QueueID); f.ReasonCode != queuedReasonWindowEnded {
+		t.Fatalf("first sale: %s %q", f.ReasonCode, f.Reason)
+	}
+	// Valid until the option's last trading day, Friday 2026-12-18.
+	_, last := exitPlanCarryTerms()
+	last.QueueID, last.NotAfter = "trail2", time.Date(2026, 12, 18, 21, 0, 0, 0, time.UTC)
+	last.OwnerOrder.Plan.Validity, last.OwnerOrder.Plan.ValidUntil = queuedPlanValidityGTC, "2026-12-18"
+	r := queuedAuthRecord{Terms: last, Watch: queuedTrailState{TriggeredAt: exitPlanTestOpen, SaleFilled: 5}}
+	if code, reason := e.planEndReason(r); code != queuedReasonPlanContractExpired ||
+		reason != "the option's last trading day closed, so the plan ends with its contract after the exit line was crossed, with 5 of 20 sold" {
+		t.Fatalf("with its contract: %s %q", code, reason)
+	}
+}
+
+// An exit plan's sale is held only by a hand order on its own option, or one
+// without a contract id that could be on it; a resting order elsewhere (a
+// GTC stop on a stock) holds every other queued send but not the plan's.
+func TestPlanSaleSettlingHoldIsOnItsOption(t *testing.T) {
+	_, trail := exitPlanTestTerms()
+	stock := automaticHandOrder{Mark: "perm:7#a", Order: ibkrlib.OrderLifecycleEvent{PermID: 7, ConID: 900002, Symbol: "SYNB", SecType: "STK", Action: "SELL"}}
+	same := automaticHandOrder{Mark: "perm:8#b", Order: ibkrlib.OrderLifecycleEvent{PermID: 8, ConID: trail.Contract.ConID, Symbol: "SYNA", SecType: "OPT", Action: "SELL"}}
+	unknown := automaticHandOrder{Mark: "perm:9#c", Order: ibkrlib.OrderLifecycleEvent{PermID: 9, Symbol: "SYNA", SecType: "OPT", Action: "SELL"}}
+	since := exitPlanTestOpen
+	book := automaticSettlingBook{ok: true, hand: []automaticHandOrder{stock}}
+	if book.holdSince(since, nil, true) != automaticHoldHandOrder {
+		t.Fatal("the account-wide rule no longer holds")
+	}
+	if got := book.holdSinceOn(trail.Contract, since, nil, true); got != "" {
+		t.Fatalf("a stock order held the plan's sale: %s", got)
+	}
+	for name, h := range map[string]automaticHandOrder{"same option": same, "no contract id": unknown} {
+		b := automaticSettlingBook{ok: true, hand: []automaticHandOrder{stock, h}}
+		if got := b.holdSinceOn(trail.Contract, since, nil, true); got != automaticHoldHandOrder {
+			t.Fatalf("%s: %q", name, got)
+		}
+	}
+	if got := (automaticSettlingBook{}).holdSinceOn(trail.Contract, since, nil, true); got != automaticHoldUnavailable {
+		t.Fatalf("an unread book: %q", got)
+	}
+}
+
+// A standing plan (watching, not fired) never holds back another sale of its
+// option: rule rows are neither gated nor marked queued. A fired trail, or
+// one whose sale is at the broker, holds the contract as before.
+func TestStandingPlanYieldsTheContract(t *testing.T) {
+	rig := newQueueTestRig(t)
+	e := rig.engine
+	_, trail := exitPlanCarryTerms()
+	trail.QueueID = "trail1"
+	scope := e.currentScope()
+	trail.AccountID, trail.AccountMode = scope.Account, scope.Mode
+	row := rpc.TradeProposal{Key: "option_loss_exit:910001", Contract: trail.Contract, Action: rpc.OrderActionSell}
+	digest, _ := queuedTermsDigest(trail)
+	if err := e.queued.update(t.Context(), exitPlanTestOpen, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := &queuedAuthRecord{Version: queuedDocumentVersion, Terms: trail, TermsDigest: digest, ContractSide: sameContractSide(row), CreatedAt: exitPlanTestOpen}
+		records[trail.QueueID] = r
+		return []queuedAuthEvent{r.transition(queuedEventArmed, rpc.QueuedAuthArmed, exitPlanTestOpen)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.queuedIntentGateBlockers(row, nil); len(b) != 0 {
+		t.Fatalf("a standing plan gated a reduction: %+v", b)
+	}
+	if e.queuedLiveKeys([]rpc.TradeProposal{row})[row.Key] {
+		t.Fatal("a standing plan marked the row queued")
+	}
+	if err := e.queued.update(t.Context(), exitPlanTestOpen, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[trail.QueueID]
+		r.Watch.TriggeredAt = exitPlanTestOpen
+		return []queuedAuthEvent{r.note(queuedEventTriggered, r.State, exitPlanTestOpen)}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if b := e.queuedIntentGateBlockers(row, nil); len(b) == 0 || b[0].Code != queuedIntentExistsCode {
+		t.Fatalf("a fired trail let a second sale through: %+v", b)
+	}
+}
+
+// A trail held because the protection policy changed after signing says so
+// at once, in a typed reason Desk can raise as a notice.
+func TestPolicyHoldIsVisibleOnTheWatch(t *testing.T) {
+	rig := newQueueTestRig(t)
+	e := rig.engine
+	_, trail := exitPlanTestTerms()
+	trail.QueueID = "trail1"
+	storeTrail(t, e, trail, exitPlanTestOpen)
+	at := exitPlanTestOpen.Add(time.Minute)
+	rig.now = at
+	e.setTrailLive(trail.QueueID, queuedTrailLive{price: 50, usableAt: at})
+	r, _ := e.queued.get(trail.QueueID)
+	e.holdQueued(t.Context(), r, queuedHoldPolicyChanged, "the protection policy changed after the owner signed")
+	r, _ = e.queued.get(trail.QueueID)
+	if w := e.queuedView(r).Watch; w.State != rpc.QueuedWatchUnwatched || w.ReasonCode != queuedHoldPolicyChanged || r.HoldCode != queuedHoldPolicyChanged {
+		t.Fatalf("policy hold view: %+v", w)
 	}
 }

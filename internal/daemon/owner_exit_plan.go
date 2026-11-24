@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,8 +26,12 @@ import (
 // the signed starting stop and rises with the stock's high; when the stock's
 // midpoint is at or below it on two checks at least five seconds apart, the
 // trail sells what is still held of the option, never more than its signed
-// maximum, near the mid, inside the option spread limit, with no minimum. It
-// lasts for that session.
+// maximum, near the mid, inside the option spread limit, with no minimum. A
+// version-3 plan lasts that session; a version-4 plan carries over sessions,
+// to the end of its signed validity and never past the option's last trading
+// day, watching only inside the regular session of both the option and the
+// stock (owner, 2026-11-24 07:00 CET: "exit function refined with a GTC or x
+// days validity to be able to carry over").
 //
 // The plan is two ordinary single-send records linked by a plan id, so the
 // executor's state machine, its holds and its restart recovery apply to each
@@ -38,6 +43,16 @@ import (
 
 const (
 	queuedPlanTermsVersion = 3
+	// queuedPlanSessionsTermsVersion is an exit plan that carries over
+	// sessions: its plan link adds validity, valid_until and
+	// resume_wait_minutes, and the trail's window runs to the close of the
+	// valid_until session.
+	queuedPlanSessionsTermsVersion = 4
+	// queuedPlanValidityGTC is the until-cancelled validity.
+	queuedPlanValidityGTC = "gtc"
+	// queuedPlanValidityMax bounds a carry-over trail's window: the trading
+	// calendar's own forward horizon.
+	queuedPlanValidityMax = 400 * 24 * time.Hour
 	// queuedPlanMaxWaitMinutes bounds the signed wait after the open.
 	queuedPlanMaxWaitMinutes = 120
 	// queuedPlanMaxTrailPercent bounds the trail's give-back.
@@ -64,9 +79,19 @@ const (
 	// Hold codes of a plan's records.
 	queuedHoldStockQuote          = "stock_quote_unusable"
 	queuedHoldFirstSaleCancelling = "plan_first_sale_cancelling"
+	// queuedHoldPolicyChanged holds an unfired trail whose protection policy
+	// changed after signing, until the plan is signed again.
+	queuedHoldPolicyChanged = "queue_policy_changed"
 	// queuedReasonPlanStopTriggered withdraws an unsent first sale when the
 	// trail fires.
 	queuedReasonPlanStopTriggered = "plan_stop_triggered"
+	// End codes of a trail that did not sell the line: its signed validity
+	// ended, or the option's last trading day closed with it.
+	queuedReasonPlanValidityEnded   = "plan_validity_ended"
+	queuedReasonPlanContractExpired = "plan_contract_expired"
+	// queuedEventSessionStarted journals a carry-over trail entering a new
+	// regular session; a fired trail's sale starts again at the mid.
+	queuedEventSessionStarted = "queued_auth.session_started"
 
 	// Journaled transitions of a trail: the stop rose, and the line was
 	// crossed (the trigger is latched).
@@ -120,6 +145,9 @@ type queuedTrailState struct {
 	LastLimit float64 `json:"last_limit,omitempty"`
 	LastBid   float64 `json:"last_bid,omitempty"`
 	LastAsk   float64 `json:"last_ask,omitempty"`
+	// SessionOpen is the open of the regular session a carry-over trail last
+	// entered (version 4 only): a new one restarts a fired sale at the mid.
+	SessionOpen time.Time `json:"session_open,omitzero"`
 }
 
 // trailSaleSteps are a fired trail's price steps: each attempt starts at
@@ -145,18 +173,57 @@ func trailStepWorks(step int) time.Duration {
 // IsZero reports a record with no watch (omitzero).
 func (w queuedTrailState) IsZero() bool { return w == queuedTrailState{} }
 
-// queuedOwnerOrder reports owner-order terms: v2, or a v3 exit plan's record.
-// Both run through the owner path (resolveOwnerQueue, submitOwnerQueue).
+// queuedOwnerOrder reports owner-order terms: v2, or a v3 or v4 exit plan's
+// record. All run through the owner path (resolveOwnerQueue, submitOwnerQueue).
 func queuedOwnerOrder(t rpc.QueuedAuthTerms) bool {
-	return t.Version == 2 || t.Version == queuedPlanTermsVersion
+	return t.Version == 2 || queuedExitPlanVersion(t.Version)
+}
+
+// queuedExitPlanVersion reports the terms versions of an exit plan: 3 lasts
+// one session, 4 carries over sessions.
+func queuedExitPlanVersion(v int) bool {
+	return v == queuedPlanTermsVersion || v == queuedPlanSessionsTermsVersion
 }
 
 // queuedPlanOf is a record's plan link, or nil.
 func queuedPlanOf(t rpc.QueuedAuthTerms) *rpc.QueuedPlan {
-	if t.Version != queuedPlanTermsVersion || t.OwnerOrder == nil {
+	if !queuedExitPlanVersion(t.Version) || t.OwnerOrder == nil {
 		return nil
 	}
 	return t.OwnerOrder.Plan
+}
+
+// exitPlanValidity reads a requested validity: "" or "day" is this session
+// (carry false); "Nd" is N sessions counting the plan's first, "1d" being
+// the day; "gtc" is every session to the option's last trading day
+// (sessions 0). norm is the form signed in the terms.
+func exitPlanValidity(v string) (norm string, sessions int, carry, ok bool) {
+	v = strings.ToLower(strings.TrimSpace(v))
+	switch v {
+	case "", "day":
+		return "", 1, false, true
+	case queuedPlanValidityGTC:
+		return queuedPlanValidityGTC, 0, true, true
+	}
+	digits, found := strings.CutSuffix(v, "d")
+	n, err := strconv.Atoi(digits)
+	if !found || err != nil || n < 1 || n > 1000 || strconv.Itoa(n) != digits {
+		return "", 0, false, false
+	}
+	if n == 1 {
+		return "", 1, false, true
+	}
+	return strconv.Itoa(n) + "d", n, true, true
+}
+
+// optionLastTradingDate is the option's expiry as a calendar date
+// (YYYY-MM-DD), or "" when the contract does not name one.
+func optionLastTradingDate(c rpc.ContractParams) string {
+	day, err := time.Parse("20060102", strings.TrimSpace(c.Expiry))
+	if err != nil {
+		return ""
+	}
+	return day.Format(time.DateOnly)
 }
 
 func queuedPlanTrail(t rpc.QueuedAuthTerms) bool {
@@ -189,6 +256,19 @@ func exitPlanTermsProblem(t rpc.QueuedAuthTerms) string {
 	if plan.PlanID == "" || len(plan.PlanID) > queuedPlanIDMaxBytes || strings.TrimSpace(plan.PlanID) != plan.PlanID || !waitForm && !startForm {
 		return "invalid exit plan link"
 	}
+	carry := t.Version == queuedPlanSessionsTermsVersion
+	window := queuedTrailWindowMax
+	if carry {
+		norm, _, carries, _ := exitPlanValidity(plan.Validity)
+		last := optionLastTradingDate(t.Contract)
+		if !carries || norm != plan.Validity || plan.ResumeWaitMinutes < 1 || plan.ResumeWaitMinutes > queuedPlanMaxWaitMinutes ||
+			!isCalendarDate(plan.ValidUntil) || !isCalendarDate(t.SessionDate) || plan.ValidUntil < t.SessionDate || last == "" || plan.ValidUntil > last {
+			return "invalid exit plan validity"
+		}
+		window = queuedPlanValidityMax
+	} else if plan.Validity != "" || plan.ValidUntil != "" || plan.ResumeWaitMinutes != 0 {
+		return "invalid exit plan validity"
+	}
 	if t.Contract.ConID <= 0 || t.Contract.SecType != "OPT" || t.Contract.Right != "C" || t.AccountID == "" || !slices.Contains([]string{"paper", "live"}, t.AccountMode) ||
 		t.Action != rpc.OrderActionSell || t.Currency == "" || t.Currency != t.Contract.Currency || t.ArmDeadline.IsZero() || t.TIF != rpc.OrderTIFDay ||
 		t.MaxQuantity <= 0 || t.MaxQuantity > 1000000 || !positiveFinite(t.PositionQuantity) || math.Trunc(t.PositionQuantity) != t.PositionQuantity ||
@@ -210,7 +290,7 @@ func exitPlanTermsProblem(t rpc.QueuedAuthTerms) string {
 	case rpc.QueuedPlanRoleTrail:
 		st := o.StockTrail
 		if st == nil || t.Style != rpc.QueuedAuthStyleStockTrail || t.WorstPrice != 0 || t.PositionEffect != "close" ||
-			float64(t.MaxQuantity) != t.PositionQuantity || t.NotAfter.Sub(t.NotBefore) > queuedTrailWindowMax {
+			float64(t.MaxQuantity) != t.PositionQuantity || t.NotAfter.Sub(t.NotBefore) > window {
 			return "invalid exit plan trail"
 		}
 		if st.Underlying.ConID <= 0 || st.Underlying.SecType != "STK" || strings.TrimSpace(st.Underlying.Symbol) == "" ||
@@ -277,6 +357,47 @@ func trailAdvance(w queuedTrailState, st rpc.QueuedStockTrail, price float64, at
 	return next, next.HighWater != w.HighWater || next.StopPrice != w.StopPrice
 }
 
+// isCalendarDate reports a YYYY-MM-DD date.
+func isCalendarDate(v string) bool {
+	_, err := time.Parse(time.DateOnly, v)
+	return err == nil
+}
+
+// exitPlanLastSession walks the regular sessions the option's and the
+// stock's markets both hold, from the plan's first (day, stockDay): the
+// last of sessions (0: every one), never past the option's last trading
+// date, and the earlier of the two closes on it. A day only one market
+// trades does not count. The walk stops where the calendar stops naming a
+// next session, so the signed date says how far it reached.
+func (s *Server) exitPlanLastSession(market, stockMarket marketcal.Market, day, stockDay marketcal.Session, sessions int, lastTrading string) (string, time.Time) {
+	date, end := day.Date, earlier(day.Close, stockDay.Close)
+	at := day.Close
+	for count := 1; sessions <= 0 || count < sessions; {
+		closed, ok := s.previewSession(market, at)
+		if !ok || closed.NextOpen == nil || !closed.NextOpen.After(at) {
+			break
+		}
+		open := *closed.NextOpen
+		next, ok := s.previewSession(market, open)
+		if !ok || !next.IsOpen || next.Close.IsZero() || next.Date > lastTrading || next.Close.Sub(day.Close) > queuedPlanValidityMax {
+			break
+		}
+		at = next.Close
+		if stock, ok := s.previewSession(stockMarket, open); ok && stock.IsOpen && !stock.Close.IsZero() {
+			date, end = next.Date, earlier(next.Close, stock.Close)
+			count++
+		}
+	}
+	return date, end.UTC()
+}
+
+func earlier(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
+}
+
 // exitPlanDigest is the lowercase hex SHA-256 of the records' terms digests
 // joined, first sale then trail, by one newline.
 func exitPlanDigest(digests []string) string {
@@ -324,6 +445,10 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 		return block("queue_wait_invalid", fmt.Sprintf("The wait after the open must be between the market's opening offset and %d minutes.", queuedPlanMaxWaitMinutes))
 	case plan.Contract.ConID <= 0 || !strings.EqualFold(strings.TrimSpace(plan.Contract.SecType), "OPT"):
 		return block("queue_contract_inexact", "An exit plan needs the exact contract id of a held option.")
+	}
+	validity, sessions, carry, ok := exitPlanValidity(plan.Validity)
+	if !ok {
+		return block("queue_request_invalid", "The validity is day, a number of sessions such as 3d, or gtc (until cancelled).")
 	}
 	if !e.queued.attached() || s == nil || s.protectionPolicies == nil {
 		return block("queue_unavailable", "Queued authorisations are unavailable.")
@@ -410,12 +535,22 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 	if !known || !ok || !stockDay.IsOpen || stockDay.Close.IsZero() {
 		return block("queue_session_unknown", "The stock's regular session cannot be verified for the plan's day.")
 	}
-	trailEnd := day.Close.UTC()
-	if stockDay.Close.Before(trailEnd) {
-		trailEnd = stockDay.Close.UTC()
-	}
+	trailEnd := earlier(day.Close, stockDay.Close).UTC()
 	if !trailEnd.After(start) || !trailEnd.After(now) {
 		return block("queue_session_unknown", "The plan's window would be empty.")
+	}
+	// A carry-over plan runs to the close of its last valid session, never
+	// past the option's last trading day; on each later session the trail
+	// waits the plan's wait after the open, at least the market's opening
+	// offset, before it watches or sells.
+	version, validUntil, resumeWait := queuedPlanTermsVersion, "", 0
+	if carry {
+		lastTrading := optionLastTradingDate(contract)
+		if lastTrading == "" {
+			return block("queue_contract_inexact", "The option's last trading day is not known, so a plan cannot carry over sessions.")
+		}
+		version, resumeWait = queuedPlanSessionsTermsVersion, max(plan.WaitMinutes, int(offset/time.Minute))
+		validUntil, trailEnd = s.exitPlanLastSession(market, stockMarket, day, stockDay, sessions, lastTrading)
 	}
 	position, err := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), contract, rpc.OrderActionSell, 1)
 	if err != nil {
@@ -446,12 +581,13 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 		prop := base
 		prop.Key, prop.Quantity, prop.PositionEffect, prop.PositionQuantity = fmt.Sprintf("owner:%d:SELL:%s", contract.ConID, role), qty, effect, held
 		return rpc.QueuedAuthTerms{
-			Version: queuedPlanTermsVersion, Broker: scope.brokerField(), AccountID: scope.Account, AccountMode: scope.Mode, Key: prop.Key, Bucket: prop.Bucket,
+			Version: version, Broker: scope.brokerField(), AccountID: scope.Account, AccountMode: scope.Mode, Key: prop.Key, Bucket: prop.Bucket,
 			RevisionAtQueue: "owner", Contract: contract, Action: rpc.OrderActionSell, PositionEffect: effect, PositionQuantity: held, MaxQuantity: qty,
 			ReferenceMarkAt: now.UTC(), MaxSpreadPctOfMid: queuedSpreadLimit(policy, prop), Currency: contract.Currency, Market: string(market),
 			SessionDate: day.Date, NotBefore: start, TIF: rpc.OrderTIFDay, ArmDeadline: now.Add(queuedArmWindow).UTC(),
 			RowTermsDigest: queuedRowTermsDigest(prop), PolicyFingerprint: status.EffectiveFingerprint,
-			OwnerOrder: &rpc.QueuedOwnerOrder{OrderType: rpc.OrderTypeLMT, Plan: &rpc.QueuedPlan{PlanID: planID, Role: role, WaitMinutes: plan.WaitMinutes, StartInMinutes: startIn}},
+			OwnerOrder: &rpc.QueuedOwnerOrder{OrderType: rpc.OrderTypeLMT, Plan: &rpc.QueuedPlan{PlanID: planID, Role: role, WaitMinutes: plan.WaitMinutes, StartInMinutes: startIn,
+				Validity: validity, ValidUntil: validUntil, ResumeWaitMinutes: resumeWait}},
 		}
 	}
 	var all []rpc.QueuedAuthTerms
@@ -711,10 +847,18 @@ func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
 	if seen && live.usableAt.After(time.Time{}) {
 		w.StockPrice, w.StockPriceAt = live.price, live.usableAt
 	}
+	// Between sessions, or in a later session's opening wait, a carry-over
+	// trail says when it watches again.
+	sess := trailSession{in: true}
+	if r.waiting() && !now.Before(r.Terms.NotBefore) && now.Before(r.Terms.NotAfter) {
+		sess = e.trailSessionAt(r, now)
+	}
 	switch {
 	case !r.Watch.TriggeredAt.IsZero():
 		w.State = rpc.QueuedWatchTriggered
 		switch {
+		case !sess.in:
+			w.ReasonCode, w.Reason, w.NextWatchAt = sess.code, sess.reason, sess.next
 		case r.HoldCode != "":
 			w.ReasonCode, w.Reason = r.HoldCode, r.HoldReason
 		case r.State == rpc.QueuedAuthSent && r.Watch.SaleCancelAt.After(r.SentAt):
@@ -723,7 +867,13 @@ func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
 			w.ReasonCode, w.Reason = queuedTrailSaleWorking, "the sale is working at the broker at the bid; it is sent again at the fresh bid if it has not filled within 30 seconds"
 		}
 	case r.State == rpc.QueuedAuthPrepared || now.Before(r.Terms.NotBefore):
-		w.State = rpc.QueuedWatchWaiting
+		w.State, w.NextWatchAt = rpc.QueuedWatchWaiting, r.Terms.NotBefore
+	case !sess.in:
+		w.State, w.ReasonCode, w.Reason, w.NextWatchAt = rpc.QueuedWatchWaiting, sess.code, sess.reason, sess.next
+	case r.State == rpc.QueuedAuthHeld && r.HoldCode == queuedHoldPolicyChanged:
+		// Signed authority: the plan stops watching until the owner signs it
+		// again, and says so at once.
+		w.State, w.ReasonCode, w.Reason = rpc.QueuedWatchUnwatched, r.HoldCode, r.HoldReason
 	case r.waiting() && seen && live.code == "" && now.Sub(live.usableAt) <= queuedTrailWatchFresh:
 		w.State = rpc.QueuedWatchWatching
 	default:
@@ -731,6 +881,10 @@ func (e *proposalEngine) queuedView(r queuedAuthRecord) rpc.QueuedAuth {
 		switch {
 		case r.final():
 			w.ReasonCode, w.Reason = nonEmptyString(r.ReasonCode, r.State), nonEmptyString(r.Reason, "the trail has ended")
+		case r.State == rpc.QueuedAuthHeld && r.HoldCode != "" && r.HoldCode != queuedHoldStockQuote:
+			// A hold other than the stock's quote (a changed protection
+			// policy, a freeze) is what stops the trail; say that.
+			w.ReasonCode, w.Reason = r.HoldCode, r.HoldReason
 		case seen && live.code != "":
 			w.ReasonCode, w.Reason = live.code, live.reason
 		default:

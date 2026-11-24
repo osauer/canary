@@ -29,7 +29,13 @@ func (s *Server) handleAddCallPlan(ctx context.Context, req *rpc.Request) (*rpc.
 	// A put is sized within the shares it may still protect, so the plan
 	// never offers more than the protective put gate accepts.
 	optionCap, room := s.addOptionCap(), -1
-	if side.right == "P" {
+	var index *rpc.AddIndexProtection
+	if side.right == "P" && s.rulebookPolicy().IsHedgeSymbol(c.Symbol) {
+		// An index put protects the whole long book (add_index_put.go).
+		if room, index, err = s.addIndexPutRoom(ctx, c, optionCap); err != nil {
+			return nil, err
+		}
+	} else if side.right == "P" {
 		cover := s.readAddPutCover(ctx, c)
 		if cover == nil {
 			return nil, errBadRequest("The held shares and working orders cannot be read to size a protective put")
@@ -43,6 +49,7 @@ func (s *Server) handleAddCallPlan(ctx context.Context, req *rpc.Request) (*rpc.
 	if err != nil {
 		return nil, err
 	}
+	plan.IndexProtection = index
 	// A preview can straddle the close. A completed plan must still belong
 	// to the open options session; broker data_type alone is not authority.
 	if !addCallSessionLive(windows, hoursOK, s.orderNow()) {

@@ -48,7 +48,8 @@ const QueuedAuthStyleBoundedLimit = "bounded_limit"
 
 // QueuedAuthTerms is what the owner signs: at most MaxQuantity of one exact
 // contract, on one side, once, between NotBefore and NotAfter of one
-// session, as a bounded DAY limit, and only while the row still asks for it
+// session (an exit plan's version-4 trail: of every regular session up to
+// its plan's valid_until), as a bounded DAY limit, and only while the row still asks for it
 // with the position and policy as they were. Canary executes only these
 // stored terms. TermsDigest is the lowercase hex SHA-256 of their JSON
 // encoding as Canary serves it.
@@ -166,6 +167,17 @@ type QueuedPlan struct {
 	// minutes from signing (0 is at once); WaitMinutes is then 0. Exactly one
 	// of the two applies.
 	StartInMinutes *int `json:"start_in_minutes,omitempty"`
+	// Validity, ValidUntil and ResumeWaitMinutes are present only in v4, a
+	// plan that carries over sessions; a v3 plan lasts its one session and
+	// keeps its bytes. Validity is what the owner asked for ("3d": three
+	// sessions, or "gtc": until cancelled); ValidUntil is the date, in the
+	// option market's calendar, of the last session it watches, never past
+	// the option's last trading day; the trail's not_after is that session's
+	// close. ResumeWaitMinutes is how long after each later open the trail
+	// waits before it watches or sells.
+	Validity          string `json:"validity,omitempty"`
+	ValidUntil        string `json:"valid_until,omitempty"`
+	ResumeWaitMinutes int    `json:"resume_wait_minutes,omitempty"`
 }
 
 // QueuedStockTrail is the exit line on the underlying stock: it starts at
@@ -209,9 +221,14 @@ type QueuedTrailWatch struct {
 	SaleStep   string `json:"sale_step,omitempty"`
 	ReasonCode string `json:"reason_code,omitempty"`
 	Reason     string `json:"reason,omitempty"`
+	// NextWatchAt is when a trail outside the regular session, or inside
+	// its opening wait, watches (or resumes its sale) again; zero when it is
+	// watching or its validity ends first.
+	NextWatchAt time.Time `json:"next_watch_at,omitzero"`
 }
 
-// Trail watch states.
+// Trail watch states. A carry-over plan is waiting between sessions, with
+// next_watch_at.
 const (
 	QueuedWatchWaiting   = "waiting"
 	QueuedWatchWatching  = "watching"
@@ -313,6 +330,11 @@ type QueuedExitPlanParams struct {
 	StartInMinutes *int                 `json:"start_in_minutes,omitempty"`
 	FirstSale      *QueuedPlanFirstSale `json:"first_sale,omitempty"`
 	Trail          *QueuedPlanTrail     `json:"trail,omitempty"`
+	// Validity is how long the trail lasts: omitted or "day" for this
+	// session only; "Nd" for N sessions counting the plan's first ("3d");
+	// "gtc" until cancelled. Either carry-over form ends at the latest with
+	// the option's last trading day.
+	Validity string `json:"validity,omitempty"`
 }
 
 // QueuedPlanFirstSale sells Quantity near the mid, never below MinPrice;

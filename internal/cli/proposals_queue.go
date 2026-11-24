@@ -266,9 +266,21 @@ func renderQueuedAuth(out io.Writer, q rpc.QueuedAuth) {
 		// at or below its line.
 		bound = fmt.Sprintf("no minimum, once %s is at or below its line (from %s, trailing %g%%)", st.Underlying.Symbol, formatQueuedPrice(st.InitialStopPrice, st.Underlying.Currency), st.TrailPercent)
 	}
+	end := t.NotAfter.Local().Format("15:04 MST")
+	if from, to := t.NotBefore.Local(), t.NotAfter.Local(); from.YearDay() != to.YearDay() || from.Year() != to.Year() {
+		end = to.Format("Mon 2 Jan 15:04 MST")
+	}
 	fmt.Fprintf(out, "%s  %s  %s at most %d %s, %s, %s–%s\n", t.QueueID, strings.ReplaceAll(q.State, "_", " "),
 		strings.ToLower(t.Action), t.MaxQuantity, queuedContractLabel(t.Contract), bound,
-		t.NotBefore.Local().Format("Mon 2 Jan 15:04"), t.NotAfter.Local().Format("15:04 MST"))
+		t.NotBefore.Local().Format("Mon 2 Jan 15:04"), end)
+	if plan := queuedPlanLink(t); plan != nil && plan.ValidUntil != "" && st != nil {
+		kind := strings.TrimSuffix(plan.Validity, "d") + " sessions"
+		if plan.Validity == "gtc" {
+			kind = "until cancelled, at most to the option's last trading day"
+		}
+		fmt.Fprintf(out, "      Valid until: the close of %s, %s (%s); each later session watches from %d minutes after the open\n",
+			plan.ValidUntil, t.NotAfter.Local().Format("Mon 2 Jan 15:04 MST"), kind, plan.ResumeWaitMinutes)
+	}
 	if w := q.Watch; w != nil {
 		line := fmt.Sprintf("      Exit line: %s %s, high %s", strings.ReplaceAll(w.State, "_", " "), formatQueuedPrice(w.StopPrice, t.Currency), formatQueuedPrice(w.HighWater, t.Currency))
 		if w.StockPrice > 0 {
@@ -276,6 +288,13 @@ func renderQueuedAuth(out io.Writer, q rpc.QueuedAuth) {
 		}
 		if w.TriggerPrice > 0 {
 			line += ", crossed at " + formatQueuedPrice(w.TriggerPrice, t.Currency)
+		}
+		if !w.NextWatchAt.IsZero() {
+			verb := "watches"
+			if w.State == rpc.QueuedWatchTriggered {
+				verb = "sells"
+			}
+			line += ", " + verb + " from " + w.NextWatchAt.Local().Format("Mon 2 Jan 15:04 MST")
 		}
 		fmt.Fprintln(out, line)
 	}
@@ -288,6 +307,14 @@ func renderQueuedAuth(out io.Writer, q rpc.QueuedAuth) {
 	if q.Reason != "" && q.ReasonCode != "" {
 		fmt.Fprintf(out, "      %s: %s\n", strings.ReplaceAll(q.ReasonCode, "_", " "), q.Reason)
 	}
+}
+
+// queuedPlanLink is an exit plan record's plan link, or nil.
+func queuedPlanLink(t rpc.QueuedAuthTerms) *rpc.QueuedPlan {
+	if t.OwnerOrder == nil {
+		return nil
+	}
+	return t.OwnerOrder.Plan
 }
 
 func queuedContractLabel(c rpc.ContractParams) string {

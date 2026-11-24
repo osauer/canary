@@ -1069,6 +1069,9 @@ type automaticHandOrder struct {
 	// RequestedAt is the latest place or modify request the journal holds
 	// for the order; zero when the journal does not track it.
 	RequestedAt time.Time
+	// Order is the broker's view of it, for a rule scoped to one contract
+	// (holdSinceOn).
+	Order ibkrlib.OrderLifecycleEvent
 }
 
 // automaticSettlingBook is one classified reading of the broker's working
@@ -1117,6 +1120,31 @@ func (b automaticSettlingBook) holdSince(since time.Time, baseline []string, bas
 	return ""
 }
 
+// holdSinceOn is holdSince for an exit plan's sale of one held long option:
+// only a hand order on that contract, or one without a contract id that
+// could be on it, holds the sale. The account-wide rule keeps a machine
+// from acting on a book the owner is changing by hand; a plan's sale acts on
+// the owner's own signed terms for one line, and over a plan that runs for
+// weeks a resting order elsewhere (a GTC stop on a stock) would blind it.
+// What still bounds it: a working sell on the option itself is refused by
+// the one-order-per-contract check before any send
+// (reductionOrderBlockers), the sale never exceeds what the broker shows
+// held, and a sale of a held long option only closes or reduces, so an
+// order elsewhere cannot make it open or flip a position. Worst case: the
+// trail sells the line while the owner is placing an unrelated hand order.
+func (b automaticSettlingBook) holdSinceOn(contract rpc.ContractParams, since time.Time, baseline []string, baselineKnown bool) string {
+	if !b.ok {
+		return automaticHoldUnavailable
+	}
+	on := automaticSettlingBook{ok: true}
+	for _, h := range b.hand {
+		if h.Order.ConID == contract.ConID || h.Order.ConID <= 0 && optionExitSnapshotContractCouldMatch(h.Order, contract) {
+			on.hand = append(on.hand, h)
+		}
+	}
+	return on.holdSince(since, baseline, baselineKnown)
+}
+
 // automaticSettlingBook reads the broker's working orders in scope and keeps
 // the hand orders, each with its mark and its latest journaled request. A
 // slow broker read ends at automaticSettlingReadTimeout so it holds this
@@ -1143,7 +1171,7 @@ func (e *proposalEngine) automaticSettlingBook(ctx context.Context, scope broker
 		if automaticSettlingMachineOrigin(order.Origin()) {
 			continue
 		}
-		hand := automaticHandOrder{Mark: automaticOrderMark(order.Order)}
+		hand := automaticHandOrder{Mark: automaticOrderMark(order.Order), Order: order.Order}
 		if order.Journal != nil {
 			hand.RequestedAt = latestOrderRequestAt(eventsByKey[orderViewKey(*order.Journal)])
 		}

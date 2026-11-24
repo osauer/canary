@@ -306,6 +306,11 @@ func applyOpportunityPolicyDefaults(p *opportunityPolicy, md *toml.MetaData) {
 	if err := validateOpportunityAddPolicy(p.Add); err != nil {
 		p.diagnostics = append(p.diagnostics, rpc.PolicyDiagnostic{Key: "add", Feature: "add", Message: err.Error() + "; Add uses Canary's defaults until this is fixed"})
 	}
+	if p.Add.Spread != nil {
+		if err := validateAddSpreadPolicy(*p.Add.Spread); err != nil {
+			p.diagnostics = append(p.diagnostics, rpc.PolicyDiagnostic{Key: "add.spread", Feature: "add", Message: err.Error() + "; spreads use Canary's default sold strike until this is fixed"})
+		}
+	}
 	if p.SchemaVersion == 2 {
 		return
 	}

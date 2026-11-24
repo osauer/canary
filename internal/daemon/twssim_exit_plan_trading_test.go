@@ -55,13 +55,19 @@ func planStartIn(t *testing.T, in, close time.Duration) time.Time {
 // call (strike, the fourth expiry), with the option's broker contract.
 func planDesk(t *testing.T, strike float64, qty float64) (*simDesk, rpc.ContractParams) {
 	t.Helper()
+	return planDeskOn(t, 3, strike, qty)
+}
+
+// planDeskOn is planDesk on the call of the expiry'th listed expiry.
+func planDeskOn(t *testing.T, expiry int, strike float64, qty float64) (*simDesk, rpc.ContractParams) {
+	t.Helper()
 	now := time.Now()
 	setSessions(t, true)
 	book := twssim.OptionsBook(now)
 	exps := twssim.OptionExpiries(now)
-	id, ok := book.OptionConIDFor(planSYNA, exps[3], strike, "C")
+	id, ok := book.OptionConIDFor(planSYNA, exps[expiry], strike, "C")
 	if !ok {
-		t.Fatalf("no SYNA %s %v call listed", exps[3], strike)
+		t.Fatalf("no SYNA %s %v call listed", exps[expiry], strike)
 	}
 	in, _ := book.Contract(id)
 	book.SetPosition(id, qty, in.Price*100*0.8)
@@ -73,7 +79,7 @@ func planDesk(t *testing.T, strike float64, qty float64) (*simDesk, rpc.Contract
 	// The option's market has buyers inside the spread: a sale at the mid
 	// fills (a scenario turns it off, or scripts a resting answer).
 	d.sim.SetMidFill(id, true)
-	return d, rpc.ContractParams{ConID: id, Symbol: "SYNA", SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: exps[3], Strike: strike, Right: "C", Multiplier: 100, TradingClass: "SYNA"}
+	return d, rpc.ContractParams{ConID: id, Symbol: "SYNA", SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: exps[expiry], Strike: strike, Right: "C", Multiplier: 100, TradingClass: "SYNA"}
 }
 
 // planEURDesk is a desk on a EUR-base book holding the same USD line: 20
@@ -314,7 +320,8 @@ func redOpen(t *testing.T, d *simDesk, opt rpc.ContractParams) {
 }
 
 // X3. A steady rise to the close: the first sale sends; the trail never
-// fires and expires at the window's end with the high recorded.
+// fires and expires at the window's end with the high recorded. A today-only
+// plan ends there, saying the line was not crossed (carry-over scenario d).
 func TestSimulatedTWSExitPlanSteadyRiseToTheClose(t *testing.T) {
 	d, opt := planDesk(t, 50, 20)
 	planStartIn(t, 6*time.Second, 40*time.Second)
@@ -326,13 +333,15 @@ func TestSimulatedTWSExitPlanSteadyRiseToTheClose(t *testing.T) {
 		d.planWaitRecord("the high to follow", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == p })
 	}
 	rec := d.planWaitRecord("the trail to expire at the close", trail, 90*time.Second, func(r queuedAuthRecord) bool { return r.final() })
-	if rec.State != rpc.QueuedAuthExpired || rec.ReasonCode != queuedReasonWindowEnded || rec.Watch.HighWater != 51.5 || !rec.Watch.TriggeredAt.IsZero() {
-		t.Fatalf("at the close: %s %s %+v", rec.State, rec.ReasonCode, rec.Watch)
+	// A today-only plan ends at the close, and says it simply was not crossed.
+	if rec.State != rpc.QueuedAuthExpired || rec.ReasonCode != queuedReasonPlanValidityEnded || rec.Watch.HighWater != 51.5 || !rec.Watch.TriggeredAt.IsZero() ||
+		!strings.HasPrefix(rec.Reason, "the plan's validity ended and the exit line was not crossed; nothing was sold") || rec.Terms.Version != queuedPlanTermsVersion {
+		t.Fatalf("at the close: %s %s %q %+v", rec.State, rec.ReasonCode, rec.Reason, rec.Watch)
 	}
 	if n := len(d.planSells(opt.ConID)); n != 1 {
 		t.Fatalf("%d sells", n)
 	}
-	if w := d.planWatchView(trail); w.HighWater != 51.5 || w.State != rpc.QueuedWatchUnwatched || w.ReasonCode != queuedReasonWindowEnded {
+	if w := d.planWatchView(trail); w.HighWater != 51.5 || w.State != rpc.QueuedWatchUnwatched || w.ReasonCode != queuedReasonPlanValidityEnded {
 		t.Fatalf("ended view %+v", w)
 	}
 }
@@ -1268,7 +1277,7 @@ func TestSimulatedTWSExitPlanRepricingStopsAtTheClose(t *testing.T) {
 	}
 	d.sim.EndDay()
 	rec := d.planWaitRecord("the trail to end with the day's order", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.final() })
-	if rec.State != rpc.QueuedAuthExpiredUnfilled && rec.State != rpc.QueuedAuthExpired || rec.ReasonCode != queuedReasonWindowEnded {
+	if rec.State != rpc.QueuedAuthExpiredUnfilled && rec.State != rpc.QueuedAuthExpired || rec.ReasonCode != queuedReasonPlanValidityEnded {
 		t.Fatalf("at the close: %s %s %s", rec.State, rec.ReasonCode, rec.Reason)
 	}
 	t.Logf("%d attempts before the close; ended %s", atClose, rec.State)
@@ -1478,4 +1487,364 @@ func TestSimulatedTWSExitPlanSignedNearTheClose(t *testing.T) {
 	if before.Accepted || before.Blockers[0].Code != "queue_wait_invalid" {
 		t.Fatalf("start_in before the open: %+v", before)
 	}
+}
+
+// Carry-over plans (version 4). The simulator's sessions follow one another
+// within minutes of wall-clock time (marketcal.SimulateSessions); a later
+// session is re-installed opening just under the plan's wait ago, so its
+// watch starts seconds from now, as planStartIn does for the first.
+
+// planSessions installs consecutive sessions on the US equity and options
+// markets alike.
+func planSessions(t *testing.T, ws ...marketcal.Window) {
+	t.Helper()
+	t.Cleanup(marketcal.ClearSimulatedSessions)
+	marketcal.SimulateSessions(marketcal.MarketUSEquity, ws...)
+	marketcal.SimulateSessions(marketcal.MarketUSOptions, ws...)
+}
+
+// planOpenIn is a later session re-installed to open so its watch (the
+// plan's wait after the open) starts in from now; it closes an hour later.
+func planOpenIn(in time.Duration) marketcal.Window {
+	open := time.Now().Add(in - planWait*time.Minute)
+	return marketcal.Window{Open: open, Close: open.Add(time.Hour + planWait*time.Minute)}
+}
+
+// queuePlanFor prepares and arms a plan and returns its trail's terms.
+func (d *simDesk) queuePlanFor(plan rpc.QueuedExitPlanParams) rpc.QueuedAuthTerms {
+	d.t.Helper()
+	q := d.preparePlan(plan)
+	if !q.Accepted || q.Plan == nil {
+		d.t.Fatalf("plan prepare refused: %+v", q.Blockers)
+	}
+	if res := d.armPlanWith(q.Plan.QueuedRefs, q.Plan.PlanDigest); !res.Accepted {
+		d.t.Fatalf("plan arm refused: %+v", res.Blockers)
+	}
+	return q.Plan.Queues[len(q.Plan.Queues)-1].Terms
+}
+
+func simDate(w marketcal.Window, k int) string {
+	return w.Open.UTC().AddDate(0, 0, k).Format(time.DateOnly)
+}
+
+// X30 (carry-over a). A three-session plan not crossed on day one survives
+// the close and a daemon restart overnight with its high and line, never
+// watches between sessions, and is crossed on day two after its wait, then
+// sells down the ladder in plain DAY limits.
+func TestSimulatedTWSExitPlanCarriesOverTheNight(t *testing.T) {
+	d, stop, db, opt := restartablePlanDesk(t)
+	now := time.Now()
+	day1 := marketcal.Window{Open: now.Add(-30 * time.Minute), Close: now.Add(40 * time.Second)}
+	day2 := marketcal.Window{Open: now.Add(2 * time.Hour), Close: now.Add(3 * time.Hour)}
+	day3 := marketcal.Window{Open: now.Add(4 * time.Hour), Close: now.Add(5 * time.Hour)}
+	planSessions(t, day1, day2, day3)
+	terms := d.queuePlanFor(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50), Validity: "3d"})
+	plan := terms.OwnerOrder.Plan
+	if terms.Version != queuedPlanSessionsTermsVersion || !terms.NotAfter.Equal(day3.Close) || plan.Validity != "3d" || plan.ValidUntil != simDate(day1, 2) ||
+		plan.ResumeWaitMinutes != planWait || terms.TIF != rpc.OrderTIFDay {
+		t.Fatalf("carry-over terms: v%d %s %+v", terms.Version, terms.NotAfter, plan)
+	}
+	trail := terms.QueueID
+	d.planStock(53)
+	d.planWaitRecord("the stop to rise", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.StopPrice == 51.41 })
+	d.waitFor("day one's close", 90*time.Second, func() bool { return time.Now().After(day1.Close.Add(2 * time.Second)) })
+	d.sim.EndDay()
+	d.srv.tradeProposals.Kick()
+	d.planWaitRecord("the trail to wait for day two", trail, 30*time.Second, func(r queuedAuthRecord) bool {
+		return r.State == rpc.QueuedAuthHeld && r.HoldCode == rpc.ReadinessMarketClosed
+	})
+	if w := d.planWatchView(trail); w.State != rpc.QueuedWatchWaiting || !w.NextWatchAt.Equal(day2.Open.Add(planWait*time.Minute)) {
+		t.Fatalf("overnight view: %+v", w)
+	}
+	// Overnight the daemon restarts and the stock trades under the line in
+	// the dark: nothing is read, nothing fires.
+	d, stop = restartExitPlanDesk(t, d, stop, db)
+	defer stop()
+	rec := d.queuedRecord(trail)
+	if rec.final() || rec.Watch.HighWater != 53 || rec.Watch.StopPrice != 51.41 {
+		t.Fatalf("after the restart: %s %+v", rec.State, rec.Watch)
+	}
+	d.planStock(51)
+	time.Sleep(12 * time.Second)
+	if rec = d.queuedRecord(trail); !rec.Watch.TriggeredAt.IsZero() || len(d.planSells(opt.ConID)) != 0 {
+		t.Fatalf("fired overnight: %+v, %d sells", rec.Watch, len(d.planSells(opt.ConID)))
+	}
+	if _, seen := d.srv.tradeProposals.trailLiveFor(trail); seen {
+		t.Fatal("the stock was read between sessions")
+	}
+	// Day two opens above the line; the trail watches from its wait, then
+	// the stock gives back and the sale walks from the mid to the bid.
+	d.planStock(52)
+	d.sim.SetMidFill(opt.ConID, false)
+	day2 = planOpenIn(4 * time.Second)
+	watchFrom := day2.Open.Add(planWait * time.Minute)
+	planSessions(t, day1, day2, day3)
+	d.srv.tradeProposals.Kick()
+	d.waitFor("day two's first read", 40*time.Second, func() bool {
+		live, ok := d.srv.tradeProposals.trailLiveFor(trail)
+		return ok && live.price == 52
+	})
+	if time.Now().Before(watchFrom) {
+		t.Fatal("watched before the wait after the open")
+	}
+	if rec = d.queuedRecord(trail); rec.Watch.StopPrice != 51.41 || !rec.Watch.TriggeredAt.IsZero() {
+		t.Fatalf("day two: %+v", rec.Watch)
+	}
+	d.planStock(51)
+	rec = d.planWaitRecord("the sale to fill at the bid", trail, 120*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	sells := d.planSells(opt.ConID)
+	if rec.State != rpc.QueuedAuthFilled || len(sells) != 3 || rec.Watch.SaleFilled != 20 || rec.Watch.TriggeredAt.Before(watchFrom) {
+		t.Fatalf("%s %s: %d sells, %+v", rec.State, rec.Reason, len(sells), rec.Watch)
+	}
+	for _, o := range sells {
+		requirePlainLimitSell(t, o, opt.ConID, 20)
+	}
+	if got := planSendSteps(t, d, trail); !slices.Equal(got, []string{"mid", "half", "bid"}) {
+		t.Fatalf("steps %v", got)
+	}
+}
+
+// X31 (carry-over b). The stock gaps under the line overnight: at the next
+// open the trail fires once its wait after the open has passed, never in
+// the opening minutes.
+func TestSimulatedTWSExitPlanGapBelowTheLineAtTheOpen(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	now := time.Now()
+	day1 := marketcal.Window{Open: now.Add(-30 * time.Minute), Close: now.Add(30 * time.Second)}
+	day2 := marketcal.Window{Open: now.Add(2 * time.Hour), Close: now.Add(3 * time.Hour)}
+	planSessions(t, day1, day2)
+	trail := d.queuePlanFor(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50), Validity: "2d"}).QueueID
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+	d.waitFor("day one's close", 60*time.Second, func() bool { return time.Now().After(day1.Close.Add(2 * time.Second)) })
+	d.planStock(47)
+	// Day two opens with the stock already under the line; the opening wait
+	// still holds the trail for its last 10 seconds.
+	day2 = planOpenIn(10 * time.Second)
+	watchFrom := day2.Open.Add(planWait * time.Minute)
+	planSessions(t, day1, day2)
+	d.srv.tradeProposals.Kick()
+	d.planWaitRecord("the opening wait", trail, 10*time.Second, func(r queuedAuthRecord) bool { return r.HoldCode == rpc.ReadinessOpeningWindow })
+	rec := d.planWaitRecord("the trail to sell", trail, 60*time.Second, func(r queuedAuthRecord) bool { return trailSold(r) })
+	if rec.Watch.TriggeredAt.Before(watchFrom) || rec.Watch.TriggerPrice != 47 {
+		t.Fatalf("fired %s, the wait ended %s: %+v", rec.Watch.TriggeredAt, watchFrom, rec.Watch)
+	}
+	sells := d.planSells(opt.ConID)
+	if len(sells) != 1 {
+		t.Fatalf("gap: %d sells", len(sells))
+	}
+	requirePlainLimitSell(t, sells[0], opt.ConID, 20)
+}
+
+// X32 (carry-over c). Until cancelled ends with the contract: the plan's
+// last session is the option's last trading day, however many sessions the
+// calendar lists after it, and its end says so.
+func TestSimulatedTWSExitPlanUntilCancelledEndsWithTheContract(t *testing.T) {
+	d, opt := planDeskOn(t, 0, 50, 20)
+	now := time.Now()
+	ws := []marketcal.Window{{Open: now.Add(-30 * time.Minute), Close: now.Add(30 * time.Minute)}}
+	expiry, _ := time.Parse("20060102", opt.Expiry)
+	last := int(expiry.Sub(ws[0].Open.UTC().Truncate(24*time.Hour)) / (24 * time.Hour))
+	for k := 1; k <= last+2; k++ {
+		open := now.Add(time.Duration(k) * time.Hour)
+		ws = append(ws, marketcal.Window{Open: open, Close: open.Add(30 * time.Minute)})
+	}
+	planSessions(t, ws...)
+	for _, validity := range []string{"gtc", "40d"} {
+		terms := d.queuePlanFor(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50), Validity: validity})
+		if plan := terms.OwnerOrder.Plan; terms.Version != queuedPlanSessionsTermsVersion || plan.ValidUntil != expiry.Format(time.DateOnly) ||
+			!terms.NotAfter.Equal(ws[last].Close) || plan.Validity != validity {
+			t.Fatalf("%s: until %s at %s, want %s at %s", validity, plan.ValidUntil, terms.NotAfter, expiry.Format(time.DateOnly), ws[last].Close)
+		}
+		rec := d.queuedRecord(terms.QueueID)
+		if code, reason := d.srv.tradeProposals.planEndReason(rec); code != queuedReasonPlanContractExpired || !strings.Contains(reason, "last trading day") {
+			t.Fatalf("%s: ends %s %q", validity, code, reason)
+		}
+		if res, err := d.srv.tradeProposals.QueueCancel(t.Context(), rpc.TradeProposalQueueCancelParams{QueueID: terms.QueueID, Origin: rpc.OrderOriginAgent}); err != nil || !res.Accepted {
+			t.Fatalf("cancel: %+v %v", res, err)
+		}
+	}
+}
+
+// X33. A sale in progress at the close: the line was crossed and the sale
+// rests unfilled when the session ends; the day's order ends with it, and
+// the next session sells what is held, starting again at the mid.
+func TestSimulatedTWSExitPlanSaleResumesAtTheNextOpen(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	now := time.Now()
+	day1 := marketcal.Window{Open: now.Add(-30 * time.Minute), Close: now.Add(45 * time.Second)}
+	day2 := marketcal.Window{Open: now.Add(2 * time.Hour), Close: now.Add(3 * time.Hour)}
+	planSessions(t, day1, day2)
+	trail := d.queuePlanFor(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50), Validity: "2d"}).QueueID
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+	for range 10 {
+		d.sim.ArmFault(twssim.Fault{Kind: twssim.FaultHold})
+	}
+	d.planStock(48)
+	d.planWaitRecord("the sale to be sent", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	d.waitFor("day one's close", 90*time.Second, func() bool { return time.Now().After(day1.Close.Add(2 * time.Second)) })
+	d.sim.EndDay()
+	d.sim.ClearFaults()
+	d.srv.tradeProposals.Kick()
+	rec := d.planWaitRecord("the sale to wait for day two", trail, 30*time.Second, func(r queuedAuthRecord) bool {
+		return r.State == rpc.QueuedAuthHeld && r.HoldCode == rpc.ReadinessMarketClosed && r.OrderRef == ""
+	})
+	dayOne := len(d.planSells(opt.ConID))
+	if rec.Watch.TriggeredAt.IsZero() || rec.Watch.SaleFilled != 0 || dayOne < 1 {
+		t.Fatalf("at the close: %+v, %d sells", rec.Watch, dayOne)
+	}
+	if w := d.planWatchView(trail); w.State != rpc.QueuedWatchTriggered || !w.NextWatchAt.Equal(day2.Open.Add(planWait*time.Minute)) {
+		t.Fatalf("overnight view: %+v", w)
+	}
+	time.Sleep(12 * time.Second)
+	if n := len(d.planSells(opt.ConID)); n != dayOne {
+		t.Fatalf("sold between sessions: %d then %d", dayOne, n)
+	}
+	day2 = planOpenIn(4 * time.Second)
+	planSessions(t, day1, day2)
+	d.srv.tradeProposals.Kick()
+	rec = d.planWaitRecord("the sale to complete on day two", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	steps := planSendSteps(t, d, trail)
+	if rec.State != rpc.QueuedAuthFilled || rec.Watch.SaleFilled != 20 || len(steps) != dayOne+1 || steps[dayOne] != "mid" {
+		t.Fatalf("day two: %s %s, steps %v", rec.State, rec.Reason, steps)
+	}
+	requirePlainLimitSell(t, d.planSells(opt.ConID)[dayOne], opt.ConID, 20)
+}
+
+// carriedSale fires a two-session plan on day one with its sale resting at
+// the broker, stops the daemon, runs down (the broker meanwhile), closes the
+// session, restarts the daemon and opens day two with its watch seconds
+// away. It returns the desk, the option and the trail.
+func carriedSale(t *testing.T, down func(d *simDesk, opt rpc.ContractParams, working twssim.Order)) (*simDesk, rpc.ContractParams, string) {
+	t.Helper()
+	d, stop, db, opt := restartablePlanDesk(t)
+	now := time.Now()
+	day1 := marketcal.Window{Open: now.Add(-30 * time.Minute), Close: now.Add(45 * time.Second)}
+	planSessions(t, day1, marketcal.Window{Open: now.Add(2 * time.Hour), Close: now.Add(3 * time.Hour)})
+	trail := d.queuePlanFor(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50), Validity: "2d"}).QueueID
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+	for range 10 {
+		d.sim.ArmFault(twssim.Fault{Kind: twssim.FaultHold})
+	}
+	d.planStock(48)
+	d.planWaitRecord("the sale to be sent", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.State == rpc.QueuedAuthSent })
+	stop()
+	var working twssim.Order
+	for _, o := range d.sim.Book().Orders() {
+		if o.ConID == opt.ConID && o.Action == "SELL" && o.Working() {
+			working = o
+		}
+	}
+	if working.OrderID == 0 {
+		t.Fatal("no resting sale at the close")
+	}
+	if down != nil {
+		down(d, opt, working)
+	}
+	d.waitFor("day one's close", 90*time.Second, func() bool { return time.Now().After(day1.Close.Add(2 * time.Second)) })
+	d.sim.EndDay()
+	d.sim.ClearFaults()
+	d, stop = startExitPlanDaemon(t, d.sim, db)
+	t.Cleanup(stop)
+	if rec := d.queuedRecord(trail); rec.State != rpc.QueuedAuthSent || rec.OrderRef == "" {
+		t.Fatalf("after the restart: %s %q", rec.State, rec.OrderRef)
+	}
+	planSessions(t, day1, planOpenIn(4*time.Second))
+	d.srv.tradeProposals.Kick()
+	return d, opt, trail
+}
+
+// X34. The daemon is down when the session closes on a resting sale: the
+// broker ends the DAY order unseen. At the next session's resume the sale is
+// settled from the broker's open orders and position, and what is held is
+// sold from the mid; nothing waits for the rest of the validity.
+func TestSimulatedTWSExitPlanSaleAcrossAClosedRestart(t *testing.T) {
+	d, opt, trail := carriedSale(t, nil)
+	rec := d.planWaitRecord("the sale to complete on day two", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	sells := d.planSells(opt.ConID)
+	steps := planSendSteps(t, d, trail)
+	if rec.State != rpc.QueuedAuthFilled || d.planBrokerSold(opt.ConID) != 20 || len(sells) != 2 || steps[len(steps)-1] != "mid" {
+		t.Fatalf("day two: %s %q, %d sells, steps %v", rec.State, rec.Reason, len(sells), steps)
+	}
+	requirePlainLimitSell(t, sells[1], opt.ConID, 20)
+}
+
+// X35. Part of the resting sale filled before the close, unseen by the
+// daemon: the next session sells only what is still held.
+func TestSimulatedTWSExitPlanPartFilledAcrossAClosedRestart(t *testing.T) {
+	d, opt, trail := carriedSale(t, func(d *simDesk, _ rpc.ContractParams, working twssim.Order) {
+		if err := d.sim.Fill(working.OrderID, 8, 0); err != nil {
+			t.Fatal(err)
+		}
+	})
+	rec := d.planWaitRecord("the rest to sell on day two", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	sells := d.planSells(opt.ConID)
+	if rec.State != rpc.QueuedAuthFilled || d.planBrokerSold(opt.ConID) != 20 || len(sells) != 2 {
+		t.Fatalf("day two: %s %q, %d sells, sold %g", rec.State, rec.Reason, len(sells), d.planBrokerSold(opt.ConID))
+	}
+	requirePlainLimitSell(t, sells[1], opt.ConID, 12)
+}
+
+// X36. The resting sale filled while the daemon was down: the line is gone,
+// and the plan ends sold at the next session without another order.
+func TestSimulatedTWSExitPlanFilledWhileDown(t *testing.T) {
+	d, opt, trail := carriedSale(t, func(d *simDesk, _ rpc.ContractParams, working twssim.Order) {
+		if err := d.sim.Fill(working.OrderID, 0, 0); err != nil {
+			t.Fatal(err)
+		}
+	})
+	rec := d.planWaitRecord("the plan to end sold", trail, 60*time.Second, func(r queuedAuthRecord) bool { return r.final() })
+	if rec.State != rpc.QueuedAuthFilled || len(d.planSells(opt.ConID)) != 1 {
+		t.Fatalf("day two: %s %s %q, %d sells", rec.State, rec.ReasonCode, rec.Reason, len(d.planSells(opt.ConID)))
+	}
+}
+
+// X37. A hand order resting on another contract (a GTC stop on the stock,
+// entered in TWS after signing) does not hold the plan's sale; one on the
+// option itself still does (X11).
+func TestSimulatedTWSExitPlanHandOrderElsewhereDoesNotHold(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	planStartIn(t, -10*time.Minute, 0)
+	trail := d.queuePlan(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50)})[0]
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+	// A GTC stop on the stock entered in TWS after the plan was signed.
+	if _, err := d.sim.AddOutsideStop(planSYNA, 100, 30); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Second)
+	d.planStock(48)
+	rec := d.planWaitRecord("the trail to sell beside the stock order", trail, 60*time.Second, func(r queuedAuthRecord) bool { return trailSold(r) || r.HoldCode == queuedHoldHandOrder })
+	if rec.HoldCode == queuedHoldHandOrder || len(d.planSells(opt.ConID)) != 1 {
+		t.Fatalf("held behind an order on another contract: %s %q", rec.HoldCode, rec.HoldReason)
+	}
+	requirePlainLimitSell(t, d.planSells(opt.ConID)[0], opt.ConID, 20)
+}
+
+// X38. Part of a carry-over plan's line is sold on day two while the plan
+// only watches: the plan keeps watching what is left and sells it when the
+// line is crossed.
+func TestSimulatedTWSExitPlanReductionBesideAStandingPlan(t *testing.T) {
+	d, opt := planDesk(t, 50, 20)
+	now := time.Now()
+	day1 := marketcal.Window{Open: now.Add(-30 * time.Minute), Close: now.Add(30 * time.Second)}
+	planSessions(t, day1, marketcal.Window{Open: now.Add(2 * time.Hour), Close: now.Add(3 * time.Hour)}, marketcal.Window{Open: now.Add(4 * time.Hour), Close: now.Add(5 * time.Hour)})
+	trail := d.queuePlanFor(rpc.QueuedExitPlanParams{Contract: opt, WaitMinutes: planWait, Trail: planTrail(48.50), Validity: "3d"}).QueueID
+	d.planWaitRecord("the high to seed", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50 })
+	d.waitFor("day one's close", 60*time.Second, func() bool { return time.Now().After(day1.Close.Add(2 * time.Second)) })
+	planSessions(t, day1, planOpenIn(4*time.Second), marketcal.Window{Open: now.Add(4 * time.Hour), Close: now.Add(5 * time.Hour)})
+	d.srv.tradeProposals.Kick()
+	d.planStock(50.2)
+	d.waitFor("day two's watch", 40*time.Second, func() bool {
+		live, ok := d.srv.tradeProposals.trailLiveFor(trail)
+		return ok && live.price == 50.2
+	})
+	d.planSetLine(opt.ConID, 12)
+	d.planStock(50.4)
+	d.planWaitRecord("the watch to go on beside the smaller line", trail, 30*time.Second, func(r queuedAuthRecord) bool { return r.Watch.HighWater == 50.4 })
+	d.planStock(48)
+	rec := d.planWaitRecord("the trail to sell what is left", trail, 60*time.Second, func(r queuedAuthRecord) bool { return trailSold(r) })
+	sells := d.planSells(opt.ConID)
+	if len(sells) != 1 || rec.QuantitySent != 12 {
+		t.Fatalf("%d sells, sent %d", len(sells), rec.QuantitySent)
+	}
+	requirePlainLimitSell(t, sells[0], opt.ConID, 12)
 }

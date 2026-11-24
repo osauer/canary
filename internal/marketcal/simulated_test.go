@@ -37,6 +37,28 @@ func TestSimulatedSessionReplacesTheCalendar(t *testing.T) {
 	}
 }
 
+// Several simulated sessions follow one another: between two the market is
+// closed and names the next open, and each is dated a day after the last.
+func TestSimulatedSessionsFollowOneAnother(t *testing.T) {
+	t.Cleanup(ClearSimulatedSessions)
+	at := time.Date(2026, 11, 24, 15, 0, 0, 0, time.UTC)
+	day1, day2 := Window{Open: at.Add(-time.Hour), Close: at.Add(time.Minute)}, Window{Open: at.Add(10 * time.Minute), Close: at.Add(time.Hour)}
+	SimulateSessions(MarketUSEquity, day1, day2)
+	if s, _ := New().SessionAt(MarketUSEquity, at); !s.IsOpen || !s.Close.Equal(day1.Close) || s.Date != "2026-11-24" {
+		t.Fatalf("day one: %+v", s)
+	}
+	night := at.Add(5 * time.Minute)
+	if s, _ := New().SessionAt(MarketUSEquity, night); s.IsOpen || s.NextOpen == nil || !s.NextOpen.Equal(day2.Open) || s.Date != "2026-11-25" {
+		t.Fatalf("between them: %+v", s)
+	}
+	if s, _ := New().SessionAt(MarketUSEquity, day2.Open); !s.IsOpen || !s.Close.Equal(day2.Close) {
+		t.Fatalf("day two: %+v", s)
+	}
+	if s, _ := New().SessionAt(MarketUSEquity, day2.Close); s.IsOpen || s.NextOpen != nil {
+		t.Fatalf("after the last: %+v", s)
+	}
+}
+
 // Only the simulator path installs a simulated session: cmd/canary-sim and
 // tests. The installed daemon and CLI never call it.
 func TestOnlyTheSimulatorInstallsSessions(t *testing.T) {

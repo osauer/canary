@@ -81,7 +81,10 @@ func (s *Server) reduceScopeFacts(ctx context.Context, pos *rpc.PositionsResult,
 	if p.MinBeta > 0 {
 		if result, _, _, _ := s.currentMandateVerdict(); result != nil && result.Verdict != nil {
 			for _, u := range result.Verdict.Underlyings {
-				facts.betas[normSym(u.Underlying)] = u.Beta
+				// A name charged for its short history has no measured beta.
+				if !u.ShortHistory {
+					facts.betas[normSym(u.Underlying)] = u.Beta
+				}
 			}
 		}
 	}

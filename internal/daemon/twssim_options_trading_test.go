@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -178,7 +179,8 @@ const putCoverUnread = "cannot be read to size a protective put"
 
 // Put entry: a protective put on the 100 held shares is placed and fills;
 // add call-plan cannot size it without a mandate verdict, and refuses a put
-// with no shares (add_call_plan.go:33-39).
+// with no shares on a name off the hedge list (add_call_plan.go); an index
+// put is TestSimulatedTWSOptionIndexPutEntry.
 func TestSimulatedTWSOptionPutEntry(t *testing.T) {
 	t.Run("covered", func(t *testing.T) {
 		d, exps := optionDesk(t, nil, true)
@@ -216,6 +218,86 @@ func TestSimulatedTWSOptionPutEntry(t *testing.T) {
 			t.Fatal("an order reached the wire")
 		}
 	})
+}
+
+// Index put entry (owner, 2026-11-24 07:00 CET: "buying SPY puts" from Add
+// with no SPY shares held): a book long SYNA shares and calls and holding no
+// SYNX (the simulator's hedge-listed index fund at 600) plans a SYNX put
+// within rule 12's over-hedge line, then previews, places and fills it
+// through the RPCs Desk's Add sheet uses. The plan's size passes the gates
+// at preview and place, and the frame is a plain opening LMT DAY put.
+func TestSimulatedTWSOptionIndexPutEntry(t *testing.T) {
+	now := time.Now()
+	book := twssim.OptionsBook(now)
+	book.SetPosition(900001, 1000, 48)
+	exps := twssim.OptionExpiries(now)
+	if err := book.ListOptions(900601, exps, []float64{540, 560, 570, 580, 590, 600}); err != nil {
+		t.Fatal(err)
+	}
+	if held, ok := book.Position(900601); ok && held.Quantity != 0 {
+		t.Fatalf("the book holds %v SYNX shares", held.Quantity)
+	}
+	d, _ := optionDesk(t, book, true)
+	index := rpc.ContractParams{Symbol: "SYNX", SecType: "STK", Exchange: "SMART", Currency: "USD"}
+	market, rerr := dispatchJSON[rpc.AddMarketResult](t, d.srv, rpc.MethodAddMarket, rpc.AddMarketParams{Underlying: index, Right: "P", Discover: true})
+	if rerr != nil {
+		t.Fatalf("add.market: %+v", rerr)
+	}
+	cover := market.PutCover
+	if cover == nil || cover.Kind != rpc.AddPutCoverIndexProtection || cover.IndexProtection == nil || cover.RoomContracts <= 0 {
+		t.Fatalf("put_cover: %+v", cover)
+	}
+	ip := cover.IndexProtection
+	t.Logf("index protection: long %.0f, held %.0f (%.0f%%), line %.0f%%, room %.0f %s, %d contracts, unmeasured %q", ip.LongBase, ip.ProtectionBase, ip.RatioPct, ip.LinePct, ip.RoomBase, ip.BaseCurrency, cover.RoomContracts, ip.Unmeasured)
+	var put *rpc.AddCallCandidate
+	for i, row := range market.Puts {
+		if row.Contract != nil && row.Quote != nil && row.Quote.Ask != nil && row.HedgeRoomContracts != nil && *row.HedgeRoomContracts > 0 {
+			put = &market.Puts[i]
+			break
+		}
+	}
+	if put == nil {
+		t.Fatalf("no quoted SYNX put with room: %+v", market.Puts)
+	}
+	limit := *put.Quote.Ask
+	plan, rerr := d.callPlan(*put.Contract, limit, 1e6)
+	if rerr != nil {
+		t.Fatalf("add call-plan for an index put: %+v", rerr)
+	}
+	if plan.Quantity <= 0 || plan.IndexProtection == nil || plan.IndexProtection.Unmeasured != "" || plan.Quantity > *put.HedgeRoomContracts || (market.OptionCap > 0 && plan.Quantity > market.OptionCap) || !plan.CoverCapped && !plan.HeldToCap {
+		t.Fatalf("index put plan: %+v (row room %d, cap %d)", plan, *put.HedgeRoomContracts, market.OptionCap)
+	}
+	t.Logf("plan: %d %s %s %gP at %g (row room %d, delta %v), cover_capped %t, held_to_cap %t", plan.Quantity, plan.Contract.Symbol, plan.Contract.Expiry, plan.Contract.Strike, limit, *put.HedgeRoomContracts, *put.Quote.Delta, plan.CoverCapped, plan.HeldToCap)
+	coverJSON, _ := json.Marshal(cover)
+	planJSON, _ := json.Marshal(plan)
+	t.Logf("put_cover %s", coverJSON)
+	t.Logf("plan %s", planJSON)
+	preview, rerr := d.optionPreview(*put.Contract, plan.Quantity, limit, "")
+	if rerr != nil || !preview.TokenMinted {
+		t.Fatalf("index put preview: %+v", rerr)
+	}
+	placed, rerr := d.place(preview.PreviewToken)
+	if rerr != nil || !placed.Accepted {
+		t.Fatalf("index put place: %+v", rerr)
+	}
+	v := d.waitStatus(placed.OrderRef, func(v rpc.OrderView) bool { return v.Status == "Filled" })
+	sent := d.realPlaces()
+	if len(sent) != 1 || int(v.Filled) != plan.Quantity {
+		t.Fatalf("frames %d, record %s", len(sent), orderLine(v))
+	}
+	o := sent[0]
+	if o.SecType != "OPT" || o.Right != "P" || o.Strike != put.Contract.Strike || o.Expiry != put.Contract.Expiry || o.Multiplier != 100 || o.ConID != put.Contract.ConID ||
+		o.Action != "BUY" || o.OrderType != "LMT" || o.TIF != "DAY" || o.LimitPrice != limit || o.Quantity != float64(plan.Quantity) || o.OpenClose != "O" || o.AlgoStrategy != "" || len(o.AlgoParams) != 0 {
+		t.Fatalf("index put frame: %+v", o)
+	}
+	for _, f := range d.allPlaces() {
+		if len(f.IgnoredByBroker) > 0 {
+			t.Fatalf("fields the broker drops: %v", f.IgnoredByBroker)
+		}
+	}
+	if p, ok := d.sim.Book().Position(put.Contract.ConID); !ok || p.Quantity != float64(plan.Quantity) {
+		t.Fatalf("broker position: %+v", p)
+	}
 }
 
 // Refusals before any order: the options session closed, an expiry inside

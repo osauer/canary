@@ -348,6 +348,7 @@ func (s *Server) startFXWorker(ctx context.Context) {
 	go func() {
 		attempted := map[string]bool{}
 		activeQuery := ""
+		var backoff fxBackoff
 		defer func() { s.fxMu.Lock(); s.fxRunning = false; s.fxWorker = false; s.fxMu.Unlock() }()
 		for ctx.Err() == nil {
 			delay := time.Duration(0)
@@ -451,9 +452,17 @@ func (s *Server) startFXWorker(ctx context.Context) {
 				}
 				// err is a read code, a redacted Flex failure, a redacted
 				// projection failure or a context error: no broker values.
-				s.warnf("FX backfill: %s: %v", s.fxReason, err)
-				delay = time.Minute
+				var changed bool
+				delay, changed = backoff.fail(s.fxReason)
+				if changed {
+					s.warnf("FX backfill: %s: %v; retrying in %s, then less often while it lasts", s.fxReason, err, delay)
+				} else {
+					s.debugf("FX backfill: %s: %v (failure %d; next in %s)", s.fxReason, err, backoff.failures, delay)
+				}
 			} else {
+				if failures, reason := backoff.succeed(); failures > 0 {
+					s.warnf("FX backfill: recovered after %d failed attempts (%s)", failures, reason)
+				}
 				s.fxReason = ""
 			}
 			s.fxMu.Unlock()
@@ -466,9 +475,43 @@ func (s *Server) startFXWorker(ctx context.Context) {
 			case <-wake:
 				timer.Stop()
 				attempted = map[string]bool{}
+				backoff.failures = 0
 			}
 		}
 	}()
+}
+
+// fxBackoff spaces the FX backfill's retries while one failure lasts: a
+// minute after the first, doubling to the Flex check's own retry interval
+// (flexRetryAfterFail). The worker warns when the failure starts or its
+// reason changes and once when it recovers, never on every attempt
+// (2026-11-24: an outage of the Flex service wrote 870 identical warnings a
+// minute apart). A wake (the owner's backfill) retries at once and starts
+// the spacing again.
+type fxBackoff struct {
+	failures int
+	reason   string
+}
+
+// fail records one failed attempt and returns the delay before the next and
+// whether the failure is new or its reason changed.
+func (b *fxBackoff) fail(reason string) (time.Duration, bool) {
+	changed := b.failures == 0 || reason != b.reason
+	if reason != b.reason {
+		b.failures = 0
+	}
+	b.reason = reason
+	b.failures++
+	delay := time.Minute << min(b.failures-1, 10)
+	return min(delay, flexRetryAfterFail), changed
+}
+
+// succeed ends a failure, returning how many attempts it lasted and its
+// last reason; zero when none was running.
+func (b *fxBackoff) succeed() (int, string) {
+	failures, reason := b.failures, b.reason
+	b.failures, b.reason = 0, ""
+	return failures, reason
 }
 
 // fxProjectionFailure names a failed projection refresh without its text: a

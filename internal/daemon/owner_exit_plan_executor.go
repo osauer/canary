@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osauer/canary/v3/internal/marketcal"
 	"github.com/osauer/canary/v3/internal/rpc"
 )
 
@@ -53,6 +54,271 @@ func (e *proposalEngine) setTrailLive(id string, live queuedTrailLive) {
 	e.trailLive[id] = live
 }
 
+// trailSession is where a trail stands against the regular sessions of its
+// option and its stock. in reports that it may watch or sell now; open is
+// the session's open, its identity; next is when it watches again (zero when
+// unknown or past its validity); code and reason say why it does not now.
+type trailSession struct {
+	in           bool
+	open, next   time.Time
+	code, reason string
+}
+
+// trailSessionAt reads both markets' official sessions at now. A trail
+// watches and sells only while both are open: on the plan's first session
+// from not_before, on a later one (version 4) from the later of the two
+// opens plus the signed resume wait, so the opening minutes' wide option
+// spreads are past; and it never watches between sessions, so a pre-market
+// print never latches it. When the calendar cannot say, a version-3 trail
+// keeps its one-session window, as before; a carry-over trail does not watch.
+func (e *proposalEngine) trailSessionAt(rec queuedAuthRecord, now time.Time) trailSession {
+	t := rec.Terms
+	s := e.server
+	carry := t.Version == queuedPlanSessionsTermsVersion
+	if s == nil || t.OwnerOrder == nil || t.OwnerOrder.StockTrail == nil {
+		return trailSession{in: !carry}
+	}
+	stockMarket, known := quoteSessionMarketForContract(t.OwnerOrder.StockTrail.Underlying)
+	opt, ok := s.previewSession(marketcal.Market(t.Market), now)
+	stk, sok := s.previewSession(stockMarket, now)
+	if !known || !ok || !sok || opt.State == marketcal.StateUnknown || stk.State == marketcal.StateUnknown {
+		if !carry {
+			return trailSession{in: true}
+		}
+		return trailSession{code: "queue_session_unknown", reason: "the trading calendar cannot say whether the regular session is open; the plan does not watch until it can"}
+	}
+	resume := time.Duration(0)
+	if plan := queuedPlanOf(t); carry && plan != nil {
+		resume = time.Duration(plan.ResumeWaitMinutes) * time.Minute
+	}
+	// from is when the trail watches in the session that opens at open,
+	// dated date in the option market's calendar: the plan's own session
+	// from not_before, a later one from its open plus the resume wait.
+	from := func(open time.Time, date string) time.Time {
+		if date == t.SessionDate {
+			return t.NotBefore
+		}
+		return open.Add(resume)
+	}
+	if opt.IsOpen && stk.IsOpen {
+		open := opt.Open
+		if stk.Open.After(open) {
+			open = stk.Open
+		}
+		if start := from(open, opt.Date); now.Before(start) {
+			return trailSession{open: open, next: start, code: rpc.ReadinessOpeningWindow,
+				reason: fmt.Sprintf("the session opened at %s; the plan watches from %s, %d minutes after the open, once the opening spreads have settled",
+					open.UTC().Format(time.RFC3339), start.UTC().Format(time.RFC3339), int(start.Sub(open)/time.Minute))}
+		}
+		return trailSession{in: true, open: open}
+	}
+	nextOpen := func(x marketcal.Session) time.Time {
+		switch {
+		case x.IsOpen:
+			return x.Open
+		case x.NextOpen != nil:
+			return *x.NextOpen
+		}
+		return time.Time{}
+	}
+	next := time.Time{}
+	if a, b := nextOpen(opt), nextOpen(stk); !a.IsZero() && !b.IsZero() {
+		if b.After(a) {
+			a = b
+		}
+		if day, ok := s.previewSession(marketcal.Market(t.Market), a); ok {
+			next = from(a, day.Date)
+		}
+	}
+	reason := "the regular session is closed; the plan's validity ends before the next session"
+	switch {
+	case next.IsZero() || !next.Before(t.NotAfter):
+		next = time.Time{}
+	default:
+		reason = "the regular session is closed; the plan watches again from " + next.UTC().Format(time.RFC3339)
+		if !rec.Watch.TriggeredAt.IsZero() {
+			reason = "the regular session is closed; the exit line was crossed, so the sale resumes from " + next.UTC().Format(time.RFC3339)
+		}
+	}
+	return trailSession{next: next, code: rpc.ReadinessMarketClosed, reason: reason}
+}
+
+// enterTrailSession records a carry-over trail entering a new regular
+// session. A fired trail whose sale is not at the broker starts its price
+// steps again at the mid: yesterday's step is no price for today's quote.
+func (e *proposalEngine) enterTrailSession(ctx context.Context, rec queuedAuthRecord, open time.Time) queuedAuthRecord {
+	if rec.Terms.Version != queuedPlanSessionsTermsVersion || open.IsZero() || rec.Watch.SessionOpen.Equal(open) {
+		return rec
+	}
+	now := e.clock()
+	err := e.queued.update(ctx, now, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+		r := records[rec.Terms.QueueID]
+		if r == nil || !r.waiting() || r.Watch.SessionOpen.Equal(open) {
+			return nil
+		}
+		r.Watch.SessionOpen = open.UTC()
+		ev := r.note(queuedEventSessionStarted, r.State, now)
+		ev.ExecutorTickAt, ev.Reason = now, "a new regular session opened inside the plan's validity; the trail watches again"
+		if !r.Watch.TriggeredAt.IsZero() && r.OrderRef == "" {
+			r.Watch.SaleStep, r.Watch.LastLimit, r.Watch.LastBid, r.Watch.LastAsk = 0, 0, 0, 0
+			ev.Reason = "a new regular session opened inside the plan's validity; the exit line was crossed, so the sale starts again at the mid"
+		}
+		return []queuedAuthEvent{ev}
+	})
+	if err != nil {
+		e.server.warnf("exit plan trail %s: record session: %v", rec.Terms.QueueID, err)
+		return rec
+	}
+	if current, ok := e.queued.get(rec.Terms.QueueID); ok {
+		return current
+	}
+	return rec
+}
+
+// queuedEventSaleSettled journals a carry-over trail settling a sale left
+// from an earlier session.
+const queuedEventSaleSettled = "queued_auth.sale_settled"
+
+// settleCarriedTrailSales settles a fired carry-over trail whose last sale
+// was sent in an earlier session and is still recorded as at the broker
+// (sent, or held because its outcome was unclear or its end unconfirmed,
+// as after a daemon that was down at the close). The guard that never
+// resends such an attempt protects one session: it is narrowed here, and
+// only here, to an attempt from a session that has since closed.
+//
+// What still bounds it: the attempt was a DAY order, which the broker ends
+// at its session's close, so it cannot be working today; the settlement
+// runs only inside today's session after the resume wait, with a fresh and
+// complete open-order read showing no working sell, and no order of unknown
+// contract that could be one, on this option (any working sell keeps the
+// record as it is); and the next sale is what the broker shows held now,
+// never more than the line less what the trail is known to have sold, so a
+// fill the daemon never saw has already reduced it. Worst case: an earlier
+// attempt that filled while Canary could not see it leaves the record
+// counting less sold than was, and the trail sells what is still held, which
+// is what the owner signed. A line that is gone ends the plan sold. Within
+// the session an attempt was sent in, nothing changes: it is never resent.
+func (e *proposalEngine) settleCarriedTrailSales(ctx context.Context) {
+	s := e.server
+	if s == nil {
+		return
+	}
+	now := e.clock()
+	for _, rec := range e.queued.list() {
+		if rec.Terms.Version != queuedPlanSessionsTermsVersion || !queuedPlanTrail(rec.Terms) || rec.Watch.TriggeredAt.IsZero() || rec.OrderRef == "" {
+			continue
+		}
+		carried := rec.State == rpc.QueuedAuthSent ||
+			rec.State == rpc.QueuedAuthHeld && (rec.HoldCode == queuedHoldTrailSaleUnconfirmed || rec.HoldCode == queuedReasonSendUnclear)
+		// The attempt was sent in the session the trail last entered
+		// (enterTrailSession runs before every send, and a record at the
+		// broker enters no other): a different open now means that session
+		// has closed.
+		sess := e.trailSessionAt(rec, now)
+		if !carried || !sess.in || rec.Watch.SessionOpen.IsZero() || rec.Watch.SessionOpen.Equal(sess.open) {
+			continue
+		}
+		scope := e.currentScope()
+		if !brokerScopeConcrete(scope) || !sameBrokerScope(scope, rec.scope()) {
+			continue
+		}
+		snapshot, inventoryScope, err := s.brokerOpenOrderInventory(ctx, true)
+		if err != nil || !snapshot.Complete || !sameBrokerScope(inventoryScope, scope) {
+			continue
+		}
+		probe := rpc.TradeProposal{Contract: rec.Terms.Contract, SecType: rec.Terms.Contract.SecType, Action: rpc.OrderActionSell}
+		if _, found, unknown := sameContractWorkingOrder(snapshot, scope, probe); found || unknown {
+			continue
+		}
+		position, err := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), rec.Terms.Contract, rpc.OrderActionSell, 1)
+		if err != nil {
+			continue
+		}
+		held := max(position.Impact.Before, 0)
+		// What the ended attempt sold, when the journal recorded its end.
+		sold := 0
+		if views, _, err := s.loadOrderViews(); err == nil {
+			for _, v := range views {
+				if v.OrderRef == rec.OrderRef && v.ConID == rec.Terms.Contract.ConID {
+					sold = int(math.Round(max(v.Filled, 0)))
+				}
+			}
+		}
+		at := e.clock()
+		var done *queuedAuthRecord
+		err = e.queued.update(ctx, at, func(records map[string]*queuedAuthRecord) []queuedAuthEvent {
+			r := records[rec.Terms.QueueID]
+			if r == nil || r.OrderRef != rec.OrderRef || r.State != rec.State {
+				return nil
+			}
+			ref := r.OrderRef
+			r.Watch.SaleFilled += sold
+			r.SendingAt, r.PreviewTokenID, r.OrderRef, r.QuantitySent, r.LimitPrice, r.SendQuote, r.Late, r.SentAt = time.Time{}, "", "", 0, 0, nil, false, time.Time{}
+			r.FilledQuantity, r.AvgFillPrice, r.PermID = 0, 0, 0
+			r.Watch.SaleStep, r.Watch.LastLimit, r.Watch.LastBid, r.Watch.LastAsk = 0, 0, 0, 0
+			if held <= 0 {
+				ev := r.resolve(queuedEventFilled, rpc.QueuedAuthFilled, "", "the line is closed; the sale sent in an earlier session sold it", at)
+				ev.OrderRef, ev.ExecutorTickAt = ref, at
+				c := *r
+				done = &c
+				return []queuedAuthEvent{ev}
+			}
+			r.HeldAt, r.HoldCode = at.UTC(), queuedHoldTrailSaleEnded
+			r.HoldReason = boundedQueuedReason(fmt.Sprintf("the sale sent in an earlier session is no longer working at the broker (a DAY order ends at its close); %g is held now and is sold from the mid", held))
+			events := []queuedAuthEvent{}
+			if r.State != rpc.QueuedAuthHeld {
+				ev := r.transition(queuedEventHeld, rpc.QueuedAuthHeld, at)
+				ev.ReasonCode, ev.Reason = r.HoldCode, r.HoldReason
+				events = append(events, ev)
+			}
+			ev := r.note(queuedEventSaleSettled, r.State, at)
+			ev.OrderRef, ev.FillQty, ev.ExecutorTickAt, ev.Reason = ref, float64(sold), at, r.HoldReason
+			return append(events, ev)
+		})
+		if err != nil {
+			s.warnf("exit plan trail %s: settle an earlier session's sale: %v", rec.Terms.QueueID, err)
+			continue
+		}
+		s.infof("exit plan trail %s: settled its sale %s from an earlier session; %g held", rec.Terms.QueueID, rec.OrderRef, held)
+		if done != nil {
+			e.recordQueuedOutcome(*done, done.State, done.ReasonCode, done.Reason)
+		}
+	}
+}
+
+// planEndReason is why a trail ends when its window does: the option's last
+// trading day closed, or its validity ended; crossed or not.
+func (e *proposalEngine) planEndReason(r queuedAuthRecord) (code, reason string) {
+	code, what := queuedReasonPlanValidityEnded, "the plan's validity ended"
+	if e.planEndsWithContract(r.Terms) {
+		code, what = queuedReasonPlanContractExpired, "the option's last trading day closed, so the plan ends with its contract"
+	}
+	if r.Watch.TriggeredAt.IsZero() {
+		return code, what + " and the exit line was not crossed; nothing was sold"
+	}
+	return code, fmt.Sprintf("%s after the exit line was crossed, with %d of %d sold", what, r.Watch.SaleFilled, trailLineCap(r))
+}
+
+// planEndsWithContract reports a trail whose window ends at the close of the
+// option's last trading day: the next session of its market is past expiry.
+func (e *proposalEngine) planEndsWithContract(t rpc.QueuedAuthTerms) bool {
+	last := optionLastTradingDate(t.Contract)
+	if last == "" || e.server == nil || t.NotAfter.IsZero() {
+		return false
+	}
+	market := marketcal.Market(t.Market)
+	at, ok := e.server.previewSession(market, t.NotAfter)
+	if ok && at.IsOpen && !at.Close.IsZero() {
+		// The stock closed first (US options trade to 16:15 New York).
+		at, ok = e.server.previewSession(market, at.Close)
+	}
+	if !ok || at.NextOpen == nil {
+		return false
+	}
+	next, ok := e.server.previewSession(market, *at.NextOpen)
+	return ok && next.State != marketcal.StateUnknown && next.Date > last
+}
+
 // planSibling is the other record of rec's plan with role, if any.
 func (e *proposalEngine) planSibling(rec queuedAuthRecord, role string) (queuedAuthRecord, bool) {
 	for _, other := range e.queued.list() {
@@ -85,6 +351,19 @@ func (e *proposalEngine) advanceExitPlan(ctx context.Context, rec queuedAuthReco
 		}
 		return rec, true
 	case queuedPlanTrail(rec.Terms):
+		// Outside the regular session of the option or the stock, or inside
+		// a later session's opening wait, the trail neither watches nor
+		// sells; a read awaiting its confirmation does not carry over.
+		sess := e.trailSessionAt(rec, e.clock())
+		if !sess.in {
+			if live, seen := e.trailLiveFor(rec.Terms.QueueID); seen && !live.breachAt.IsZero() {
+				live.breachAt = time.Time{}
+				e.setTrailLive(rec.Terms.QueueID, live)
+			}
+			e.holdQueued(ctx, rec, sess.code, sess.reason)
+			return rec, false
+		}
+		rec = e.enterTrailSession(ctx, rec, sess.open)
 		if rec.Watch.TriggeredAt.IsZero() {
 			if !e.watchQueuedTrail(ctx, rec) {
 				return rec, false
@@ -116,7 +395,7 @@ func (e *proposalEngine) watchQueuedTrail(ctx context.Context, rec queuedAuthRec
 	// changed since signing holds it. Once fired, it sells on its signed terms.
 	if s := e.server; s.protectionPolicies != nil {
 		if _, status := s.protectionPolicies.Active(); status.EffectiveFingerprint != rec.Terms.PolicyFingerprint {
-			e.holdQueued(ctx, rec, "queue_policy_changed", "the protection policy changed after the owner signed; the trail is held and cannot fire until the plan is signed again")
+			e.holdQueued(ctx, rec, queuedHoldPolicyChanged, "the protection policy changed after the owner signed; the trail is held and cannot fire until the plan is signed again")
 			return false
 		}
 	}
@@ -366,7 +645,8 @@ func (e *proposalEngine) queuedTrailTick(now time.Time) (time.Duration, bool) {
 	for _, rec := range e.queued.list() {
 		// A fired trail's working sale is followed and re-priced on the same
 		// tick.
-		if !queuedPlanTrail(rec.Terms) || !rec.waiting() && rec.State != rpc.QueuedAuthSent || now.Before(rec.Terms.NotBefore) || !now.Before(rec.Terms.NotAfter) {
+		if !queuedPlanTrail(rec.Terms) || !rec.waiting() && rec.State != rpc.QueuedAuthSent || now.Before(rec.Terms.NotBefore) || !now.Before(rec.Terms.NotAfter) ||
+			!e.trailSessionAt(rec, now).in {
 			continue
 		}
 		next := queuedTrailCheckEvery
@@ -415,7 +695,8 @@ func queuedFollowsHeldAttempt(t rpc.QueuedAuthTerms) bool {
 // the window, and otherwise waits to send again at the bid (an owner cancel
 // meanwhile ends it). An order the broker reconciled as gone without a
 // recorded end is held for reconciliation and never resent.
-func trailSaleProgress(r *queuedAuthRecord, v rpc.OrderView, now time.Time) (queuedAuthEvent, bool) {
+// planEnd names the end once the window is over (planEndReason).
+func trailSaleProgress(r *queuedAuthRecord, v rpc.OrderView, now time.Time, planEnd func(queuedAuthRecord) (string, string)) (queuedAuthEvent, bool) {
 	if !orderLifecycleStatusIsTerminal(v.LifecycleStatus) {
 		if v.PermID != 0 {
 			r.PermID = v.PermID
@@ -455,10 +736,13 @@ func trailSaleProgress(r *queuedAuthRecord, v rpc.OrderView, now time.Time) (que
 		ev = r.resolve(queuedEventFilled, rpc.QueuedAuthFilled, "", fmt.Sprintf("the trail sold the line: %d of %d", total, signed), now)
 	case r.CancelRequested:
 		ev = r.resolve(queuedEventCancelled, rpc.QueuedAuthCancelled, queuedReasonOwnerCancelled, fmt.Sprintf("cancelled by the owner; the trail had sold %d of %d", total, signed), now)
-	case !now.Before(r.Terms.NotAfter) && total > 0:
-		ev = r.resolve(queuedEventPartiallyFilled, rpc.QueuedAuthPartiallyFilled, queuedReasonWindowEnded, fmt.Sprintf("the window ended with %d of %d sold: %s", total, signed, end), now)
 	case !now.Before(r.Terms.NotAfter):
-		ev = r.resolve(queuedEventExpiredUnfilled, rpc.QueuedAuthExpiredUnfilled, queuedReasonWindowEnded, "the window ended unsold: "+end, now)
+		code, reason := planEnd(*r)
+		state, eventType := rpc.QueuedAuthExpiredUnfilled, queuedEventExpiredUnfilled
+		if total > 0 {
+			state, eventType = rpc.QueuedAuthPartiallyFilled, queuedEventPartiallyFilled
+		}
+		ev = r.resolve(eventType, state, code, boundedQueuedReason(reason+"; the last order "+end), now)
 	default:
 		// The next attempt starts one step nearer the bid; the ended one's
 		// limit and quote decide whether that step would change the price.
@@ -470,7 +754,7 @@ func trailSaleProgress(r *queuedAuthRecord, v rpc.OrderView, now time.Time) (que
 		r.SendingAt, r.PreviewTokenID, r.OrderRef, r.QuantitySent, r.LimitPrice, r.SendQuote, r.Late, r.SentAt = time.Time{}, "", "", 0, 0, nil, false, time.Time{}
 		r.FilledQuantity, r.AvgFillPrice, r.PermID = 0, 0, 0
 		r.HeldAt, r.HoldCode = now.UTC(), queuedHoldTrailSaleEnded
-		r.HoldReason = boundedQueuedReason(fmt.Sprintf("the sale's order ended at the broker (%s) with %d of %d sold; the rest is sent again at the bid", end, total, signed))
+		r.HoldReason = boundedQueuedReason(fmt.Sprintf("the sale's order ended at the broker (%s) with %d of %d sold; the rest is sent again a step nearer the bid, or from the mid at the next session if this one has closed", end, total, signed))
 		ev = r.transition(queuedEventHeld, rpc.QueuedAuthHeld, now)
 		ev.ReasonCode, ev.Reason = r.HoldCode, r.HoldReason
 	}
@@ -485,7 +769,8 @@ func trailSaleProgress(r *queuedAuthRecord, v rpc.OrderView, now time.Time) (que
 func (e *proposalEngine) repriceTrailSales(ctx context.Context) {
 	now := e.clock()
 	for _, rec := range e.queued.list() {
-		if !queuedPlanTrail(rec.Terms) || rec.State != rpc.QueuedAuthSent || rec.OrderRef == "" || rec.CancelRequested || !now.Before(rec.Terms.NotAfter) {
+		if !queuedPlanTrail(rec.Terms) || rec.State != rpc.QueuedAuthSent || rec.OrderRef == "" || rec.CancelRequested || !now.Before(rec.Terms.NotAfter) ||
+			!e.trailSessionAt(rec, now).in {
 			continue
 		}
 		last := rec.SentAt

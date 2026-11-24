@@ -165,6 +165,12 @@ func renderMandate(env *Env, res rpc.MandateRiskResult) {
 			riskDisplayLine(env, "  ", reason, nil)
 		}
 	}
+	if len(v.ShortHistory) > 0 {
+		fmt.Fprintln(env.Stdout, "\n"+env.bold("Counted as lost")+"  too little daily history to measure; held long, so at most its value")
+		for _, h := range v.ShortHistory {
+			riskDisplayLine(env, "  ", briefJoin(h.Underlying, mandateAmount(h.ChargedBase, ccy)+" in every scenario and index stress", fmt.Sprintf("%d of %d daily closes", h.Closes, h.ClosesNeeded), strings.Join(h.Lines, ", ")), nil)
+		}
+	}
 	if len(v.Underlyings) > 0 {
 		fmt.Fprintln(env.Stdout, "\n"+env.bold("Contributions")+"  share of the risk · beta to "+mandate.IndexSymbol+" · one-name gap against its cap")
 		for _, u := range v.Underlyings {
@@ -184,6 +190,9 @@ func renderMandate(env *Env, res rpc.MandateRiskResult) {
 			}
 			gap += " (cap " + mandateCap(u.GapCapBase) + ")"
 			line := briefJoin(u.Underlying, mandateShare(u.ContributionPct), fmt.Sprintf("beta %.2f", u.Beta), gap)
+			if u.ShortHistory {
+				line = briefJoin(u.Underlying, "too little history to measure; its whole value counts as lost", gap)
+			}
 			style := func(s string) string { return s }
 			if u.GapBreach {
 				line += " · BREACH"
@@ -203,7 +212,11 @@ func renderMandate(env *Env, res rpc.MandateRiskResult) {
 			if l.LossBase > 0 {
 				loss = "loss " + mandateAmount(l.LossBase, ccy)
 			}
-			riskDisplayLine(env, "  ", briefJoin(l.Symbol, mandateShare(l.ContributionPct), mandateAmount(l.ValueBase, ccy), loss), nil)
+			share := mandateShare(l.ContributionPct)
+			if l.ShortHistory {
+				share = "counted as lost"
+			}
+			riskDisplayLine(env, "  ", briefJoin(l.Symbol, share, mandateAmount(l.ValueBase, ccy), loss), nil)
 		}
 	}
 	if s := v.Stresses; s != nil {

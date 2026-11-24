@@ -1145,6 +1145,9 @@ func mergeOrderJournalEventIntoView(view *rpc.OrderView, ev orderJournalEvent) {
 	if ev.BrokerParentID != nil {
 		view.BrokerParentID = new(*ev.BrokerParentID)
 	}
+	if view.Combination == nil && ev.StrategyGroup != nil {
+		view.Combination = orderCombinationFromGroup(ev.StrategyGroup)
+	}
 	preserveWorkingOrderOnBrokerError := brokerErrorShouldPreserveWorkingOrder(*view, ev)
 	brokerErrorLifecycleStatus := ""
 	if ev.Type == orderJournalEventBrokerError {

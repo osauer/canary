@@ -217,7 +217,11 @@ func mandateExposureName(g rpc.PositionGroup, base string, betas map[string]mand
 		}
 	}
 	deltaBeta = mandateExposureFigure{}
-	if u, ok := betas[g.Underlying]; ok {
+	if u, ok := betas[g.Underlying]; ok && u.ShortHistory {
+		// Charged at its whole value, not simulated: no share or beta was
+		// measured, so none is shown as if it were.
+		row.Unknown = append(row.Unknown, "share of risk and beta: too little daily history; its whole value is charged as lost")
+	} else if ok {
 		c, b := u.ContributionPct, u.Beta
 		row.ContributionPct, row.Beta = &c, &b
 		if delta.known {

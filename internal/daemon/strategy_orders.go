@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/config"
 	"github.com/osauer/canary/v3/internal/rpc"
 	"github.com/osauer/canary/v3/internal/rpc/api"
+	positionstrategy "github.com/osauer/canary/v3/internal/strategy"
 )
 
 func (s *Server) handleStrategyPreview(ctx context.Context, req *rpc.Request) (*rpc.OrderPreviewResult, error) {
@@ -43,7 +45,21 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 	if err != nil {
 		return nil, err
 	}
-	group, err := currentStrategyForPreview(positions.Strategies, p.StrategyID, p.ExpectedRevision)
+	heldOptions := make(map[int]float64, len(positions.Options))
+	for _, row := range positions.Options {
+		if row.ConID > 0 {
+			heldOptions[row.ConID] = row.Quantity
+		}
+	}
+	// An open names its two contracts; nothing is held yet, so there is no
+	// group to look up (strategy_open.go).
+	opening := strings.EqualFold(strings.TrimSpace(p.Operation), rpc.StrategyOperationOpen)
+	var group rpc.PositionStrategy
+	if opening {
+		group, err = strategyOpenGroup(positions, p)
+	} else {
+		group, err = currentStrategyForPreview(positions.Strategies, p.StrategyID, p.ExpectedRevision)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +91,10 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 		GuaranteedCombo: true,
 		Legs:            make([]rpc.StrategyOrderLeg, 0, len(group.Legs)),
 	}
-	// An add opens every leg further in the held direction; a close or
-	// reduction trades every leg back toward flat.
-	adding := operation == rpc.StrategyOperationAdd
+	// An add opens every leg further in the held direction, an open opens
+	// every leg from flat; a close or reduction trades every leg back
+	// toward flat.
+	adding := operation == rpc.StrategyOperationAdd || opening
 	if adding {
 		draftGroup.UnitsAfter = group.Units + units
 	}
@@ -101,7 +118,13 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 			action = rpc.OrderActionBuy
 		}
 		quantity := absOrderRatio(held.Ratio) * units
-		after := held.Quantity
+		// The contract as the book holds it: a recorded strategy's leg may
+		// sit beside more of the same contract held on its own.
+		before := held.Quantity
+		if q, ok := heldOptions[held.Contract.ConID]; ok || opening {
+			before = q
+		}
+		after := before
 		if action == rpc.OrderActionSell {
 			after -= float64(quantity)
 		} else {
@@ -109,18 +132,26 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 		}
 		draftGroup.Legs = append(draftGroup.Legs, rpc.StrategyOrderLeg{
 			Contract: resolved, Ratio: held.Ratio, Action: action, Quantity: quantity,
-			Before: held.Quantity, After: after,
+			Before: before, After: after,
 		})
 
 		quote, err := s.fetchPreviewQuoteBound(ctx, resolved, timeout, previewAuthority)
 		if err != nil {
 			return nil, err
 		}
+		if opening && quote.Bid != nil && quote.Ask != nil && positiveFinite(*quote.Bid) && positiveFinite(*quote.Ask) {
+			draftGroup.Legs[len(draftGroup.Legs)-1].Mark = roundPrice((*quote.Bid + *quote.Ask) / 2)
+		}
 		quotes = append(quotes, quote)
 	}
 	quote, limit, grossNotional, err := strategyPriceQuote(group.Underlying, draftGroup.Legs, quotes, p.LimitPrice)
 	if err != nil {
 		return nil, err
+	}
+	if opening {
+		if err := validateStrategyOpenVertical(draftGroup, limit); err != nil {
+			return nil, refusePreview(errBadRequest(err.Error()), rpc.TradingBlocker{Code: strategyOpenBlockerCode, Message: err.Error(), Action: "Choose a debit vertical: buy the option nearer the money and sell one further out, same expiry, for less than the strike width."})
+		}
 	}
 	if currency == "" {
 		return nil, errBadRequest("strategy has incomplete executable leg evidence")
@@ -140,6 +171,9 @@ func (s *Server) previewStrategyOrder(ctx context.Context, p rpc.StrategyPreview
 		// premium and no more, so the order cap reads it at the limit; any
 		// other add keeps the gross premium of its legs (strategy_add.go).
 		draft.Action, draft.Strategy, draft.OpenClose = rpc.OrderActionBuy, "group-add", "O"
+		if opening {
+			draft.Strategy = "group-open"
+		}
 		grossNotional = strategyAddCapNotional(draft, grossNotional)
 	}
 	positionAuthority, err := s.captureBoundStrategyPositionAuthority(ctx, previewAuthority.connector, previewAuthority.session, status, *draftGroup)
@@ -333,13 +367,13 @@ func normalizeStrategyOperation(operation string, units, available int) (string,
 			return "", 0, errBadRequest("reduce units must be positive and leave at least one strategy unit")
 		}
 		return operation, units, nil
-	case rpc.StrategyOperationAdd:
+	case rpc.StrategyOperationAdd, rpc.StrategyOperationOpen:
 		if units <= 0 {
-			return "", 0, errBadRequest("add units must be positive")
+			return "", 0, errBadRequest(operation + " units must be positive")
 		}
 		return operation, units, nil
 	default:
-		return "", 0, errBadRequest("operation must be close, reduce or add")
+		return "", 0, errBadRequest("operation must be close, reduce, add or open")
 	}
 }
 
@@ -370,7 +404,16 @@ func guaranteedUSOptionComboLeg(contract rpc.ContractParams, timeZone string) bo
 		(zone == "US/EASTERN" || zone == "AMERICA/NEW_YORK")
 }
 
-func (s *Server) reconcileJournaledStrategyGroups(options []rpc.PositionView, groups []rpc.PositionStrategy, issues []rpc.StrategyGroupingIssue) ([]rpc.PositionStrategy, []rpc.StrategyGroupingIssue) {
+// reconcileJournaledStrategyGroups lays Canary's own order records over the
+// grouping inferred from the book. A strategy a Canary combination opened or
+// traded is the group its record says, whatever else the name holds: a
+// spread opened beside another option of the same underlying, or over a
+// contract the book held already, is listed as that spread, and what the
+// book holds beyond it is grouped again on its own (an extra bought contract
+// a line of its own). A record whose legs no longer form whole units is a
+// strategy for review; an open that never filled holds nothing sold and is
+// closed (currentKnownVerticalUnits).
+func (s *Server) reconcileJournaledStrategyGroups(stocks, options []rpc.PositionView, groups []rpc.PositionStrategy, issues []rpc.StrategyGroupingIssue) ([]rpc.PositionStrategy, []rpc.StrategyGroupingIssue) {
 	if s == nil || s.orderJournal == nil {
 		return groups, issues
 	}
@@ -392,7 +435,11 @@ func (s *Server) reconcileJournaledStrategyGroups(options []rpc.PositionView, gr
 			quantityByConID[option.ConID] = option.Quantity
 		}
 	}
-	for id, known := range latest {
+	ids := slices.Sorted(maps.Keys(latest))
+	owned := map[string][]rpc.PositionStrategy{}
+	claimed := map[int]float64{}
+	for _, id := range ids {
+		known := latest[id]
 		units, currentLegs, state := currentKnownStrategyUnits(known, quantityByConID)
 		if state == knownStrategyClosed {
 			continue
@@ -420,16 +467,73 @@ func (s *Server) reconcileJournaledStrategyGroups(options []rpc.PositionView, gr
 			})
 			continue
 		}
+		changed := !sameKnownStrategyBefore(known, quantityByConID)
+		// The shape is the record's at its units; the revision is the
+		// grouping's while the book is as the record left it.
+		group := strategyFromLineage(stocks, id, known, units)
+		group.Revision = max(known.StrategyRevision, 1)
 		if index >= 0 {
-			groups[index].Source = rpc.PositionStrategySourceCanary
-			groups[index].Units = units
-			if !sameKnownStrategyBefore(known, quantityByConID) {
-				groups[index].Revision = known.StrategyRevision + 1
-			}
-			groups[index].Reason = ""
+			group.Revision = groups[index].Revision
 		}
+		if changed {
+			group.Revision = known.StrategyRevision + 1
+		}
+		group.Source, group.Units, group.Reason = rpc.PositionStrategySourceCanary, units, ""
+		group.Legs = make([]rpc.PositionStrategyLeg, len(known.Legs))
+		for i, leg := range known.Legs {
+			group.Legs[i] = rpc.PositionStrategyLeg{Contract: leg.Contract, Quantity: float64(units * leg.Ratio), Ratio: leg.Ratio}
+			claimed[leg.Contract.ConID] += float64(units * leg.Ratio)
+		}
+		underlying := normSym(group.Underlying)
+		owned[underlying] = append(owned[underlying], group)
+	}
+	// Every name a record owns a strategy on is grouped again: the records'
+	// strategies, then what the book holds beyond them, inferred as before.
+	for _, underlying := range slices.Sorted(maps.Keys(owned)) {
+		kept := groups[:0:0]
+		for _, g := range groups {
+			if normSym(g.Underlying) != underlying || g.Status == rpc.PositionStrategyStatusReview {
+				kept = append(kept, g)
+			}
+		}
+		keptIssues := issues[:0:0]
+		for _, is := range issues {
+			if normSym(is.Underlying) != underlying {
+				keptIssues = append(keptIssues, is)
+			}
+		}
+		var rest []rpc.PositionView
+		for _, option := range options {
+			if normSym(option.Symbol) != underlying {
+				continue
+			}
+			option.Quantity -= claimed[option.ConID]
+			if math.Abs(option.Quantity) > 1e-9 {
+				rest = append(rest, option)
+			}
+		}
+		inferred, inferredIssues := positionstrategy.InferStrategies(stocks, rest)
+		groups = append(append(kept, owned[underlying]...), inferred...)
+		issues = append(keptIssues, inferredIssues...)
 	}
 	return groups, issues
+}
+
+// strategyFromLineage is the group a record's legs form at units, named as
+// the grouping names that shape.
+func strategyFromLineage(stocks []rpc.PositionView, id string, known rpc.StrategyOrderDraft, units int) rpc.PositionStrategy {
+	symbol := normSym(known.Legs[0].Contract.Symbol)
+	rows := make([]rpc.PositionView, 0, len(known.Legs))
+	for _, leg := range known.Legs {
+		c := leg.Contract
+		rows = append(rows, rpc.PositionView{Symbol: symbol, SecType: "OPT", ConID: c.ConID, Currency: c.Currency, Exchange: c.Exchange, Quantity: float64(units * leg.Ratio),
+			Multiplier: contractMultiplier(c), Expiry: c.Expiry, Strike: c.Strike, Right: c.Right, TradingClass: c.TradingClass, LocalSymbol: c.LocalSymbol})
+	}
+	group := rpc.PositionStrategy{ID: id, Underlying: symbol, Status: rpc.PositionStrategyStatusCurrent, Actionable: true}
+	if inferred, _ := positionstrategy.InferStrategies(stocks, rows); len(inferred) == 1 {
+		group.Kind, group.Name, group.PositionFingerprint, group.Stock = inferred[0].Kind, inferred[0].Name, inferred[0].PositionFingerprint, inferred[0].Stock
+	}
+	return group
 }
 
 func (s *Server) strategyLineages() (map[string]rpc.StrategyOrderDraft, error) {
@@ -474,6 +578,9 @@ const (
 )
 
 func currentKnownStrategyUnits(known rpc.StrategyOrderDraft, quantities map[int]float64) (int, []rpc.PositionStrategyLeg, int) {
+	if units, legs, state, ok := currentKnownVerticalUnits(known, quantities); ok {
+		return units, legs, state
+	}
 	legs := make([]rpc.PositionStrategyLeg, 0, len(known.Legs))
 	currentUnits := -1
 	allZero := true
@@ -501,6 +608,50 @@ func currentKnownStrategyUnits(known rpc.StrategyOrderDraft, quantities map[int]
 		return 0, legs, knownStrategyClosed
 	}
 	return currentUnits, legs, knownStrategyCurrent
+}
+
+// currentKnownVerticalUnits reads a recorded debit vertical (one bought and
+// one sold option, 1:1, the sold one capped by the bought: strategyAddCovered)
+// by its sold leg: its units are the contracts sold, and the bought leg must
+// hold at least as many, any more being a line of its own (an open over a
+// held contract, a contract bought later alone). A sold leg the bought one
+// no longer covers is for review; with none sold the spread is closed. ok is
+// false for every other record.
+func currentKnownVerticalUnits(known rpc.StrategyOrderDraft, quantities map[int]float64) (int, []rpc.PositionStrategyLeg, int, bool) {
+	if len(known.Legs) != 2 || !strategyAddCovered(&known) {
+		return 0, nil, 0, false
+	}
+	var long, short rpc.StrategyOrderLeg
+	for _, leg := range known.Legs {
+		switch leg.Ratio {
+		case 1:
+			long = leg
+		case -1:
+			short = leg
+		default:
+			return 0, nil, 0, false
+		}
+	}
+	held := func(leg rpc.StrategyOrderLeg) float64 { return quantities[leg.Contract.ConID] }
+	legs := make([]rpc.PositionStrategyLeg, 0, 2)
+	for _, leg := range known.Legs {
+		legs = append(legs, rpc.PositionStrategyLeg{Contract: leg.Contract, Quantity: held(leg), Ratio: leg.Ratio})
+	}
+	sold, ok := wholeUnits(-held(short))
+	switch {
+	case !ok || sold < 0:
+		return 0, legs, knownStrategyBroken, true
+	case sold == 0:
+		return 0, legs, knownStrategyClosed, true
+	case held(long) < float64(sold)-1e-9:
+		return 0, legs, knownStrategyBroken, true
+	}
+	return sold, legs, knownStrategyCurrent, true
+}
+
+func wholeUnits(v float64) (int, bool) {
+	r := math.Round(v)
+	return int(r), math.Abs(v-r) <= 1e-9
 }
 
 func sameKnownStrategyBefore(known rpc.StrategyOrderDraft, quantities map[int]float64) bool {

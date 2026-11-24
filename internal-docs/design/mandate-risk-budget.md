@@ -277,6 +277,21 @@ owner's is recorded and not read: "Risk allocations" below). The
   an equity move the book's P&L does not explain suggests an undeclared
   cash flow (see Forced reduction).
   Every reason is named on the verdict. Nil is unavailable, never zero.
+- Short history (decided by the supervising agent, not an owner instruction, 2026-11-24 07:23 CET,
+  after a newly listed stock with three daily bars, about 2% of the book,
+  made the verdict unknown, refused every stock addition and held the
+  forced reduction): a name held only long, stock or bought options, whose
+  series is fresh but holds fewer than 253 closes is not simulated and no
+  longer makes the verdict unknown. Its whole current value counts as lost
+  in every scenario and in both index stresses (a long line cannot lose
+  more than it is worth); the one-name gap, which needs no history, applies
+  as to any name; the loss measure is unchanged. `verdict.short_history`
+  names it with its lines, the closes held and needed and the value charged;
+  its leg and underlying rows carry `short_history` and no measured
+  contribution or beta, so the charge moves the expected shortfall and the
+  index stresses but not the volatility, the Euler shares or a sleeve's use.
+  Any short line on such a name (short stock, any sold option) keeps the
+  verdict unknown, as does a short index series.
   The verdict is judged at a clock read once the capital state is in hand,
   so an equity observation that lands while the evaluation starts (its own
   account read, or another the store was persisting) is current, never one
@@ -573,11 +588,20 @@ What the daemon does (`internal/daemon/mandate_reduction.go`, bucket
   the fill-quote poll of the same account completed without error after
   the reading and every execution it found has been captured. Recovery
   also requires the current broker session's observed Master API client
-  setting to match Canary and a base no earlier than the earliest valid
-  broker timestamp in that poll's answer. The request's end marker does
-  not prove earlier days or other clients were covered. Without a proved
-  interval, including a base before the day's first returned execution,
-  the hold waits for the existing statement reconciliation path; retained
+  setting to match Canary and a base no earlier than the start of the
+  coverage: the earliest valid broker timestamp in that poll's answer, or
+  earlier, the first answer of an unbroken chain of complete, account-wide
+  answers on the same broker session (each at most two poll intervals and
+  a poll budget after the last, each listing again every execution the
+  last listed, so no IBKR day boundary passed). An empty answer is evidence
+  of no fills, not of no coverage (2026-11-24 07:39 CET: on 2026-11-23 the
+  owner's first fills at the US open raised a hold whose base, 27 seconds
+  earlier, preceded the first returned execution, so the morning's empty
+  answers proved nothing and the hold waited for the next statement). A
+  daemon restart or a reconnect starts a new chain. The request's end
+  marker does not prove earlier days or other clients were covered. Without
+  a proved interval the hold waits for the existing statement
+  reconciliation path; retained
   fills and receipt-time fallbacks cannot widen the interval. An execution of
   anything but a stock or an option, or without a contract id, multiplier
   or FX rate, explains nothing. The incident: on

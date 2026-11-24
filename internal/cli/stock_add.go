@@ -219,7 +219,7 @@ func runAddMarket(ctx context.Context, env *Env, args []string) int {
 		renderAddRequestHelp(env, []string{
 			"Stdin: one JSON object; unknown fields and extra objects are rejected. Output is always JSON, with or without --json.",
 			"underlying (required): stock contract with symbol, sec_type STK, currency and exchange SMART; con_id is optional when known.",
-			"right (optional): C (default) for calls, P for protective puts. Puts come back in puts with put_cover: the shares held, the shares long puts cover and the contracts that still fit.",
+			"right (optional): C (default) for calls, P for puts. Puts come back in puts with put_cover: for a stock, kind shares with the shares held, the shares long puts cover and the contracts that still fit; for a Rulebook hedge symbol, kind index_protection with rule 12's index_protection measurement and each row's hedge_room_contracts under the over-hedge line.",
 			"discover (optional boolean): discover candidates for USD stocks, one per horizon of the opportunity policy's [add] table. selected (optional contract): refresh one exact contract returned by discovery.",
 			"refresh (optional array): {horizon_days, contract} objects, one per horizon of that side at most, with unique horizons from the [add] table (calls 14, 30, 60 and 120 by default; puts 30, 60, 90 and 120). Do not combine refresh with discover. selected and refresh contracts must be exact USD SMART options for the underlying with the request's right, con_id, expiry, strike, multiplier 100 and trading_class.",
 			"Options require USD. Read option_mode and each row's planning or unavailable evidence: planning prices are not executable quotes. A row's delta_band is written without the sign; a put's quote delta keeps it. Use the returned exact contract for call-plan.",
@@ -263,7 +263,7 @@ func runAddCallPlan(ctx context.Context, env *Env, args []string) int {
 		renderAddRequestHelp(env, []string{
 			"Stdin: one JSON object; unknown fields and extra objects are rejected. Output is always JSON, with or without --json.",
 			"contract (required): copy the exact contract returned by add market. It must be a USD SMART option: sec_type OPT, right C or P, multiplier 100, positive con_id, trading_class and expiry YYYYMMDD more than seven days away; retain symbol and strike.",
-			"A put is sized within the held shares it may still protect; cover_capped says that held the size.",
+			"A put is sized within the held shares it may still protect, or on a Rulebook hedge symbol within rule 12's over-hedge line (index_protection; when unmeasured, its unmeasured reason and the option cap); cover_capped says that held the size.",
 			"limit_price (required): positive premium per underlying share in USD. budget (required): positive total USD debit including the broker fee bound, at most 1000000000.",
 			"round_size (optional boolean, default false): round to the nearest five contracts, retaining one or two. Rounding can exceed budget; inspect over_budget, debit, quantity and fee_bound in the result.",
 			"The options session must be open. Sizing returns no submission token and reserves no money. An exact order preview and separate owner confirmation are required to place an order.",

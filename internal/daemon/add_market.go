@@ -199,7 +199,20 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	if side.right == "P" {
 		// Discovery can take several broker round trips. Read remaining cover
 		// after them so earlier capacity is not returned as current.
-		out.PutCover = s.readAddPutCover(ctx, out.Underlying.ContractParams)
+		if s.rulebookPolicy().IsHedgeSymbol(out.Underlying.Symbol) {
+			spot, _ := quoteCurrentPrice(out.Quote)
+			n := s.readAddIndexProtection(ctx, rpc.ContractParams{Symbol: out.Underlying.Symbol, SecType: "OPT", Currency: out.Underlying.Currency, Right: "P", Multiplier: 100})
+			rows := make([]*rpc.AddCallCandidate, 0, len(out.Puts)+1)
+			for i := range out.Puts {
+				rows = append(rows, &out.Puts[i])
+			}
+			if out.Selected != nil {
+				rows = append(rows, out.Selected)
+			}
+			out.PutCover = addIndexPutCover(n, rows, spot, out.OptionCap)
+		} else {
+			out.PutCover = s.readAddPutCover(ctx, out.Underlying.ContractParams)
+		}
 	}
 	if !c.HistoricalSessionCurrent(binding) || !s.orderPreviewBrokerAuthorityCurrent(authority) {
 		return nil, fmt.Errorf("broker session changed during Add discovery")

@@ -142,16 +142,7 @@ func (s *Server) advanceEdgeFlexAcquisition(ctx context.Context, scopeFingerprin
 		err = &flexFetchFailure{reason: rpc.ReconReportReasonReportNotReady, retryable: true, detail: "IBKR Flex response did not prove the requested date range"}
 	}
 	if err == nil {
-		projectionCtx, cancel := context.WithTimeout(ctx, flexHTTPTimeout)
-		if s.flexProjectionFn != nil {
-			err = s.flexProjectionFn(projectionCtx)
-		} else {
-			err = s.refreshStatementProjection(projectionCtx)
-		}
-		cancel()
-		if err != nil {
-			err = &flexFetchFailure{reason: rpc.ReconReportReasonProjectionFailed, retryable: true, detail: "Edge statement projection refresh failed"}
-		}
+		err = s.projectRetainedStatements(ctx, "Edge statement projection refresh")
 	}
 	if err != nil {
 		reason, retryable := flexFailureStatus(err)

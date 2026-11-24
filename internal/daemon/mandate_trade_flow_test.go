@@ -239,21 +239,24 @@ func TestExecutionCoverageUsesOnlyDatedFillsInTheCurrentAccountAnswer(t *testing
 		return ibkrlib.OrderLifecycleEvent{Account: account, ExecTime: stamp}
 	}
 	for _, tc := range []struct {
-		name string
-		rows []ibkrlib.OrderLifecycleEvent
-		want time.Time
+		name   string
+		rows   []ibkrlib.OrderLifecycleEvent
+		want   time.Time
+		wantOK bool
 	}{
-		{"empty", nil, time.Time{}},
-		{"oldest current answer", []ibkrlib.OrderLifecycleEvent{fill("DU1234567", "20261103-14:00:00"), fill("DU1234567", "20261103-13:00:00")}, at.Add(-2 * time.Hour)},
-		{"another account cannot extend coverage", []ibkrlib.OrderLifecycleEvent{fill("DU7654321", "20261102-13:00:00"), fill("DU1234567", "20261103-14:00:00")}, at.Add(-time.Hour)},
-		{"receipt fallback not proof", []ibkrlib.OrderLifecycleEvent{fill("DU1234567", "20261103 14:00:00")}, time.Time{}},
-		{"one ambiguous timestamp", []ibkrlib.OrderLifecycleEvent{fill("DU1234567", "20261103-14:00:00"), fill("DU1234567", "")}, time.Time{}},
-		{"unknown account", []ibkrlib.OrderLifecycleEvent{fill("", "20261103-14:00:00")}, time.Time{}},
-		{"future execution", []ibkrlib.OrderLifecycleEvent{fill("DU1234567", "20261103-16:00:00")}, time.Time{}},
+		// An empty answer is evidence of no fills, not of no coverage: it
+		// dates nothing itself and extends the chain (executionCoverage).
+		{"empty", nil, time.Time{}, true},
+		{"oldest current answer", []ibkrlib.OrderLifecycleEvent{fill("DU1234567", "20261103-14:00:00"), fill("DU1234567", "20261103-13:00:00")}, at.Add(-2 * time.Hour), true},
+		{"another account cannot extend coverage", []ibkrlib.OrderLifecycleEvent{fill("DU7654321", "20261102-13:00:00"), fill("DU1234567", "20261103-14:00:00")}, at.Add(-time.Hour), true},
+		{"receipt fallback not proof", []ibkrlib.OrderLifecycleEvent{fill("DU1234567", "20261103 14:00:00")}, time.Time{}, false},
+		{"one ambiguous timestamp", []ibkrlib.OrderLifecycleEvent{fill("DU1234567", "20261103-14:00:00"), fill("DU1234567", "")}, time.Time{}, false},
+		{"unknown account", []ibkrlib.OrderLifecycleEvent{fill("", "20261103-14:00:00")}, time.Time{}, false},
+		{"future execution", []ibkrlib.OrderLifecycleEvent{fill("DU1234567", "20261103-16:00:00")}, time.Time{}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := executionCoverageFrom(tc.rows, "DU1234567", at); !got.Equal(tc.want) {
-				t.Fatalf("coverage starts at %v, want %v", got, tc.want)
+			if got, ok := executionCoverageFrom(tc.rows, "DU1234567", at); !got.Equal(tc.want) || ok != tc.wantOK {
+				t.Fatalf("coverage starts at %v (%v), want %v (%v)", got, ok, tc.want, tc.wantOK)
 			}
 		})
 	}

@@ -303,6 +303,7 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "mandate_register", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateRegister()}},
 		{name: "mandate_unknown", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateUnknown()}},
 		{name: "mandate_iv_fallback", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateIVFallback()}},
+		{name: "mandate_short_history", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateShortHistory()}},
 		{name: "mandate_unknown_held", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateHeld()}},
 		{name: "mandate_no_room", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateNoRoom()}},
 		{name: "mandate_index_hedge", argv: []string{"mandate"}, conn: goldenConn{rpc.MethodMandateRisk: goldenMandateIndexHedge()}},
@@ -325,6 +326,7 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "core_inactive", argv: []string{"core"}, conn: goldenConn{rpc.MethodCoreTarget: rpc.CoreTargetResult{AsOf: goldenAt, Status: rpc.CoreStatusInactive, ReadOnly: true, Message: "the risk constitution carries no [mandate.core] table; the core sleeve is inactive"}}},
 		{name: "strategies_list", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[6].res}},
 		{name: "strategies_list_named", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: goldenStrategiesNamed()}},
+		{name: "strategies_open_preview", argv: []string{"strategies", "open", "--units", "2", "--limit", "3.45"}, stdin: goldenStrategyOpenInput, conn: goldenConn{rpc.MethodStrategyPreview: goldenStrategyOpenPreview()}},
 		{name: "strategies_add_preview", argv: []string{"strategies", "add", "strat-aaa-1", "3", "--units", "2"}, conn: goldenConn{rpc.MethodStrategyPreview: goldenStrategyAddPreview()}},
 		{name: "strategies_list_empty", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[5].res}},
 		{name: "strategies_list_unavailable", argv: []string{"strategies", "list"}, conn: goldenConn{rpc.MethodPositionsList: strategiesAuthorityCases()[0].res}},
@@ -417,6 +419,7 @@ func renderGoldenCases() []renderGoldenCase {
 		{name: "reporting_performance", argv: []string{"reporting", "performance"}, conn: goldenConn{rpc.MethodReportingPerformance: goldenReportingPerformance()}},
 		{name: "account", argv: []string{"account"}, conn: goldenConn{rpc.MethodAccountSummary: goldenAccount()}},
 		{name: "orders_open", argv: []string{"orders", "open"}, conn: goldenConn{rpc.MethodOrdersOpen: goldenOrdersOpen()}},
+		{name: "orders_open_combination", argv: []string{"orders", "open"}, conn: goldenConn{rpc.MethodOrdersOpen: goldenOrdersOpenCombination()}},
 		{name: "order_status", argv: []string{"order", "status", "canary-20260905-113702"}, conn: goldenConn{rpc.MethodOrderStatus: goldenOrderStatus()}},
 		{name: "setups_evaluate_confirmed", argv: []string{"setups", "evaluate"}, render: func(env *Env) { renderSetupResult(env, goldenSetup()) }},
 		{name: "brief_details", argv: []string{"brief", "--details"}, conn: goldenConn{rpc.MethodBriefSnapshot: goldenBrief(true)}},
@@ -1005,6 +1008,17 @@ func goldenMandateIVFallback() rpc.MandateRiskResult {
 	ratio := 0.012
 	res.Verdict.IVFallback = &mandate.IVFallbackReport{IndexLossLowBase: 8100, IndexLossHighBase: 8700, UncertaintyBase: 300, RatioToRoom: &ratio, Tier: mandate.IVTierMeasured,
 		Legs: []mandate.IVFallbackLeg{{Symbol: "SYNA 20261218 110 C", Source: mandate.IVSourceMark, AsOf: goldenAt.Add(-14 * time.Hour), DaysToExpiry: 51, IV: 0.34, BandPct: 8}}}
+	return res
+}
+
+// goldenMandateShortHistory holds a newly listed name long: charged at its
+// whole value, not simulated, and named.
+func goldenMandateShortHistory() rpc.MandateRiskResult {
+	res := goldenMandate(mandate.StatusWithin)
+	v := res.Verdict
+	v.Legs = append(v.Legs, mandate.LegReport{ID: "con:9007", Symbol: "SYNN", Underlying: "SYNN", Kind: mandate.KindStock, Quantity: 50, ValueBase: 4100, ShortHistory: true})
+	v.Underlyings = append(v.Underlyings, mandate.UnderlyingReport{Underlying: "SYNN", ValueBase: 4100, GapShockPct: 25, GapDownLossBase: 1025, GapLossBase: 1025, GapCapBase: 22940, ShortHistory: true})
+	v.ShortHistory = []mandate.ShortHistoryLine{{Underlying: "SYNN", Lines: []string{"SYNN"}, Closes: 3, ClosesNeeded: mandate.Closes, ChargedBase: 4100}}
 	return res
 }
 

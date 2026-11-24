@@ -215,9 +215,12 @@ func inferStrategy(underlying string, rows []rpc.PositionView) (rpc.PositionStra
 
 	kind, name := classify(held)
 	fingerprint := strategyPositionFingerprint(underlying, legs)
-	identity := sha256.Sum256([]byte(strategyIdentityKey(underlying, legs)))
+	conIDs := make([]int, len(legs))
+	for i, leg := range legs {
+		conIDs[i] = leg.Contract.ConID
+	}
 	return rpc.PositionStrategy{
-		ID:                  "strategy-" + hex.EncodeToString(identity[:6]),
+		ID:                  StrategyID(underlying, conIDs...),
 		Revision:            1,
 		Underlying:          underlying,
 		Kind:                kind,
@@ -254,6 +257,18 @@ func positionContract(row rpc.PositionView) rpc.ContractParams {
 		Right:        strings.ToUpper(strings.TrimSpace(row.Right)),
 		Multiplier:   row.Multiplier,
 	}
+}
+
+// StrategyID is the ID InferStrategies gives the option legs of one
+// underlying, in any order: an order that opens a strategy records its
+// lineage under the ID the held group carries after the fill.
+func StrategyID(underlying string, conIDs ...int) string {
+	legs := make([]rpc.PositionStrategyLeg, 0, len(conIDs))
+	for _, id := range slices.Sorted(slices.Values(conIDs)) {
+		legs = append(legs, rpc.PositionStrategyLeg{Contract: rpc.ContractParams{ConID: id}})
+	}
+	identity := sha256.Sum256([]byte(strategyIdentityKey(underlying, legs)))
+	return "strategy-" + hex.EncodeToString(identity[:6])
 }
 
 func strategyIdentityKey(underlying string, legs []rpc.PositionStrategyLeg) string {

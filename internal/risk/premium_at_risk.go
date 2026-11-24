@@ -69,21 +69,61 @@ type PremiumAtRiskFigure struct {
 // premium and stays with the exposure and margin rules.
 func PremiumAtRiskLegs(legs []LegInput) []PremiumAtRiskFigure {
 	out := make([]PremiumAtRiskFigure, len(legs))
+	for i, l := range legs {
+		out[i].AtRisk, out[i].Note, out[i].OK, out[i].Why = PremiumAtRiskLeg(l)
+	}
+	pairs := make([]float64, len(legs))
+	for _, p := range SpreadPairs(legs) {
+		long, s := legs[p.Long], legs[p.Sold]
+		longShare, soldShare := p.Contracts/long.Quantity, p.Contracts/-s.Quantity
+		paid := *long.CostBasisBase*longShare - *s.CostBasisBase*soldShare
+		value := math.Abs(long.MarketValueBase)*longShare - math.Abs(s.MarketValueBase)*soldShare
+		pairs[p.Long] += math.Max(math.Max(paid, value), 0)
+		out[p.Long].Covered += p.Contracts
+	}
+	for i, l := range legs {
+		covered := out[i].Covered
+		if covered <= 0 {
+			continue
+		}
+		out[i].AtRisk = pairs[i] + out[i].AtRisk*(l.Quantity-covered)/l.Quantity
+		out[i].Note = "counted with the sold option against it, at what the pair can lose"
+		if covered < l.Quantity {
+			out[i].Note = fmt.Sprintf("%s of %s contracts counted with the sold option against them, at what the pair can lose",
+				strconv.FormatFloat(covered, 'f', -1, 64), strconv.FormatFloat(l.Quantity, 'f', -1, 64))
+		}
+	}
+	return out
+}
+
+// SpreadPair is a bought leg and a sold leg of one underlying that caps it,
+// index-aligned with the legs SpreadPairs read, and the contracts paired.
+type SpreadPair struct {
+	Long, Sold int
+	Contracts  float64
+}
+
+// SpreadPairs is the one pairing of bought and sold options into spreads,
+// which the premium at risk and the mandate's loss measure both read: the
+// bought leg nearest the money pairs first, each with the nearest sold
+// strike beyond it that spreadCovers, contract for contract. A leg without a
+// converted value, premium, contract size or expiry pairs with nothing, nor
+// does a bought leg whose own premium cannot be measured: what is left
+// unpaired counts alone, so a figure may overstate, never understate.
+func SpreadPairs(legs []LegInput) []SpreadPair {
 	open := make([]float64, len(legs))
 	var longs []int
 	for i, l := range legs {
-		out[i].AtRisk, out[i].Note, out[i].OK, out[i].Why = PremiumAtRiskLeg(l)
-		switch {
+		switch _, _, ok, _ := PremiumAtRiskLeg(l); {
 		case !spreadLegMeasured(l):
 		case l.Quantity < 0:
 			open[i] = -l.Quantity
-		case l.Quantity > 0 && out[i].OK:
+		case l.Quantity > 0 && ok:
 			longs = append(longs, i)
 		}
 	}
-	// The bought leg nearest the money pairs first, each with the nearest
-	// sold strike beyond it.
 	sort.SliceStable(longs, func(a, b int) bool { return spreadMoneyRank(legs[longs[a]]) < spreadMoneyRank(legs[longs[b]]) })
+	var out []SpreadPair
 	for _, i := range longs {
 		long := legs[i]
 		var sold []int
@@ -95,29 +135,15 @@ func PremiumAtRiskLegs(legs []LegInput) []PremiumAtRiskFigure {
 		sort.SliceStable(sold, func(a, b int) bool {
 			return math.Abs(legs[sold[a]].Strike-long.Strike) < math.Abs(legs[sold[b]].Strike-long.Strike)
 		})
-		covered, pairs := 0.0, 0.0
+		covered := 0.0
 		for _, j := range sold {
 			m := math.Min(long.Quantity-covered, open[j])
 			if m <= 0 {
 				break
 			}
-			s := legs[j]
-			longShare, soldShare := m/long.Quantity, m/-s.Quantity
-			paid := *long.CostBasisBase*longShare - *s.CostBasisBase*soldShare
-			value := math.Abs(long.MarketValueBase)*longShare - math.Abs(s.MarketValueBase)*soldShare
-			pairs += math.Max(math.Max(paid, value), 0)
+			out = append(out, SpreadPair{Long: i, Sold: j, Contracts: m})
 			covered += m
 			open[j] -= m
-		}
-		if covered <= 0 {
-			continue
-		}
-		out[i].AtRisk = pairs + out[i].AtRisk*(long.Quantity-covered)/long.Quantity
-		out[i].Covered = covered
-		out[i].Note = "counted with the sold option against it, at what the pair can lose"
-		if covered < long.Quantity {
-			out[i].Note = fmt.Sprintf("%s of %s contracts counted with the sold option against them, at what the pair can lose",
-				strconv.FormatFloat(covered, 'f', -1, 64), strconv.FormatFloat(long.Quantity, 'f', -1, 64))
 		}
 	}
 	return out

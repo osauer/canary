@@ -208,6 +208,8 @@ func (s *Server) routeTable() map[string]route {
 		api.OrderStatus.Name:                          serve(api.OrderStatus, "order history", s.handleOrderStatus),
 		api.OrderPreview.Name:                         serve(api.OrderPreview, "orders", s.handleOrderPreview),
 		api.StrategyPreview.Name:                      serve(api.StrategyPreview, "orders", s.handleStrategyPreview),
+		api.StrategySpreads.Name:                      serve(api.StrategySpreads, "option chains", s.handleStrategySpreads),
+		api.StrategySpreadPlan.Name:                   serve(api.StrategySpreadPlan, "orders", s.handleStrategySpreadPlan),
 		api.OrderPlace.Name:                           serve(api.OrderPlace, "orders", s.handleOrderPlace),
 		api.OrderModify.Name:                          serve(api.OrderModify, "orders", s.handleOrderModify),
 		api.OrderCancel.Name:                          serve(api.OrderCancel, "orders", s.handleOrderCancel),
