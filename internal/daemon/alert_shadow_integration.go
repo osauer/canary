@@ -269,7 +269,7 @@ func (s *Server) observeProtectionAlertShadowStable(ctx context.Context, binding
 	if s.protectionBeforeCommit != nil {
 		s.protectionBeforeCommit()
 	}
-	committed, err := s.withStableBrokerAndOrderEvidence(binding, input.orderJournal, input.orderAuthorityHeadSeq, func() error {
+	committed, err := s.withCheckedBrokerAndOrderEvidence(binding, input.orderJournal, input.orderAuthorityHeadSeq, func() error {
 		return s.commitProtectionAlertShadow(ctx, input)
 	})
 	if err != nil {
@@ -313,7 +313,7 @@ func (s *Server) observeOrderIntegrityAlertShadow(ctx context.Context, input ord
 	if s.orderIntegrityBeforeCommit != nil {
 		s.orderIntegrityBeforeCommit()
 	}
-	committed, err := s.withStableBrokerAndOrderEvidence(daemonBrokerEvidenceBinding{
+	committed, err := s.withCheckedBrokerAndOrderEvidence(daemonBrokerEvidenceBinding{
 		scope: input.Scope, connector: input.connector, connectorEpoch: input.connectorEpoch,
 		broker: input.brokerEvidence,
 	}, input.orderJournal, input.orderAuthorityHeadSeq, func() error {

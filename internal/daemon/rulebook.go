@@ -94,9 +94,12 @@ func (s *Server) cachedRulebookResult(binding rulebookCacheBinding, maxAge time.
 }
 
 // cacheRulebookResultStable publishes after the caller has either validated
-// an unbound/unavailable result or entered the exact Connector evidence
-// barrier. It must not call currentRulebookBinding while that write barrier is
-// held because doing so would recursively acquire its read side.
+// an unbound/unavailable result or checked the exact Connector evidence
+// (withCheckedBrokerEvidence). The cached result keeps the binding it was
+// judged on and is served only while that binding is current, so a result
+// whose evidence moved during the commit is never served. It must not call
+// currentRulebookBinding under a Connector evidence barrier, which would
+// recursively acquire its read side.
 func (s *Server) cacheRulebookResultStable(result *rpc.RulesResult, binding rulebookCacheBinding, cachedAt time.Time) bool {
 	copyResult := cloneRulesResult(result)
 	if copyResult == nil {
@@ -173,7 +176,7 @@ func (s *Server) publishCanonicalRulebookResult(ctx context.Context, result *rpc
 	if !binding.brokerCaptured {
 		return false
 	}
-	committed, err := s.withStableBrokerEvidence(daemonBrokerEvidenceBinding{
+	committed, err := s.withCheckedBrokerEvidence(daemonBrokerEvidenceBinding{
 		scope: binding.scope, connector: binding.connector, connectorEpoch: binding.connectorEpoch, broker: binding.broker,
 	}, func() error { return commit(result) })
 	return committed && err == nil

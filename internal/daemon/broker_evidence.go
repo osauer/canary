@@ -68,21 +68,75 @@ func (s *Server) withStableBrokerEvidence(binding daemonBrokerEvidenceBinding, c
 	return committed, commitErr
 }
 
-// withStableBrokerAndOrderEvidence extends the broker barrier through the
-// exact local order-event head used to derive Protection or Order Integrity.
-// Lock order is binding Connector -> order journal -> SQLite composer. False
-// with nil error means either frontier drifted and commit was not called.
-func (s *Server) withStableBrokerAndOrderEvidence(binding daemonBrokerEvidenceBinding, orderJournal *orderJournalStore, expectedOrderHead int64, commit func() error) (bool, error) {
+// withCheckedBrokerEvidence commits derived alert state (an alert-registry
+// observation and what publishes with it) judged on binding's evidence
+// without holding the broker evidence barrier while the commit runs.
+//
+// What it guarantees, as withStableBrokerEvidence did for these commits:
+//   - commit runs only if, at one instant, the check under the barrier's
+//     write side, the session, the order-callback frontier, the portfolio
+//     projection and the daemon's connector identity were exactly those the
+//     judgment was read from: an alert is never judged on evidence that
+//     changed underneath it;
+//   - evidence-bound alert commits run one at a time (alertEvidenceMu), each
+//     checking after the one before it finished, so they reach the registry
+//     in evidence order and a judgment of older evidence never lands after
+//     one of newer evidence.
+//
+// What it no longer does: hold the reader while the commit waits for the
+// alert producer and writes the store. On 2026-11-24 that hold reached
+// 19.5 s, and every order, error, notice and account frame on the socket
+// waited behind it. Worst case now: a frame accepted between the check and
+// the durable write is newer than the judgment being written, and the
+// registry shows the judgment of the evidence before it until the next
+// observation of that source (its 30 s cadence, or the drop-and-retry
+// rebuild) replaces it, the same lag a frame arriving just after the write
+// always had. Readers of a registry row never treated it as current with
+// the broker at the moment it became durable; the rulebook cache keeps the
+// binding it was judged on and is served only while that binding is current.
+// The reader still shares the store's single writer with the commit: an
+// order frame's own journal append can wait for one write in flight.
+//
+// Lock order: alertEvidenceMu, then briefly the Connector barriers and s.mu
+// (withStableBrokerEvidence), then the alert producer and the store inside
+// commit. Nothing that holds a barrier or the producer takes alertEvidenceMu.
+func (s *Server) withCheckedBrokerEvidence(binding daemonBrokerEvidenceBinding, commit func() error) (bool, error) {
+	return s.withCheckedEvidence(binding, nil, -1, commit)
+}
+
+// withCheckedBrokerAndOrderEvidence is withCheckedBrokerEvidence that also
+// checks the exact local order-event head Protection or Order Integrity was
+// derived from, under the journal's evidence lock and only for that check.
+// The journal check follows the broker check; both frontiers only advance, so
+// a head unchanged at the later check was unchanged at the earlier one, and
+// the broker check is the instant both held. False with nil error means
+// either frontier drifted and commit was not called.
+func (s *Server) withCheckedBrokerAndOrderEvidence(binding daemonBrokerEvidenceBinding, orderJournal *orderJournalStore, expectedOrderHead int64, commit func() error) (bool, error) {
 	if s == nil || orderJournal == nil || orderJournal != s.orderJournal || expectedOrderHead < 0 || commit == nil {
 		return false, nil
 	}
-	journalCommitted := false
-	brokerCommitted, err := s.withStableBrokerEvidence(binding, func() error {
-		var journalErr error
-		journalCommitted, journalErr = orderJournal.WithStableAuthorityHead(expectedOrderHead, commit)
-		return journalErr
-	})
-	return brokerCommitted && journalCommitted, err
+	return s.withCheckedEvidence(binding, orderJournal, expectedOrderHead, commit)
+}
+
+func (s *Server) withCheckedEvidence(binding daemonBrokerEvidenceBinding, orderJournal *orderJournalStore, expectedOrderHead int64, commit func() error) (bool, error) {
+	if s != nil && s.stableBrokerEvidenceForTest != nil {
+		return s.stableBrokerEvidenceForTest(binding, commit)
+	}
+	if s == nil || commit == nil {
+		return false, nil
+	}
+	s.alertEvidenceMu.Lock()
+	defer s.alertEvidenceMu.Unlock()
+	current, err := s.withStableBrokerEvidence(binding, func() error { return nil })
+	if err != nil || !current {
+		return false, err
+	}
+	if orderJournal != nil {
+		if current, err = orderJournal.WithStableAuthorityHead(expectedOrderHead, func() error { return nil }); err != nil || !current {
+			return false, err
+		}
+	}
+	return true, commit()
 }
 
 // withConnectorEvidencePublication changes the daemon's connector identity

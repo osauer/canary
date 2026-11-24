@@ -240,7 +240,7 @@ func (s *Server) observeRulebookAlertShadowHeartbeatWithReadContext(ctx context.
 		s.observeRulebookAlertShadow(ctx, unavailable, scope)
 		return
 	}
-	committed, commitErr := s.withStableBrokerEvidence(daemonBrokerEvidenceBinding{
+	committed, commitErr := s.withCheckedBrokerEvidence(daemonBrokerEvidenceBinding{
 		scope: binding.scope, connector: binding.connector, connectorEpoch: binding.connectorEpoch, broker: binding.broker,
 	}, func() error { return s.commitRulebookAlertShadow(ctx, result, scope) })
 	if commitErr != nil {

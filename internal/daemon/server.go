@@ -239,6 +239,9 @@ type Server struct {
 	serverCtx    context.Context
 	serverCancel context.CancelFunc
 
+	// alertEvidenceMu runs evidence-bound alert commits one at a time
+	// (withCheckedBrokerEvidence).
+	alertEvidenceMu sync.Mutex
 	// addContracts keeps option discovery's contract and chain lookups for
 	// the trading day (add_contract_cache.go).
 	addContracts addContractCache
