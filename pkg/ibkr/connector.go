@@ -5812,11 +5812,12 @@ func (c *Connector) WithStableBrokerEvidence(binding BrokerEvidenceBinding, comm
 	if c == nil || commit == nil {
 		return false
 	}
+	began := time.Now()
 	c.publicationBarrier.RLock()
 	defer c.publicationBarrier.RUnlock()
 	c.evidenceBarrier.Lock()
 	defer c.evidenceBarrier.Unlock()
-	defer c.noteEvidenceHold(time.Now())
+	defer c.noteEvidenceHold(began, time.Now())
 	if !c.SessionCurrent(binding.Session) || c.OrderLifecycleGeneration() != binding.OrderLifecycleGeneration ||
 		c.PortfolioProjectionGeneration() != binding.PortfolioProjectionGeneration {
 		return false
@@ -9569,8 +9570,7 @@ func (c *Connector) notifyOrderLifecycleReceiptFrom(conn *Connection, epoch uint
 	}
 	origin := ConnectorSessionBinding{connector: c, connection: conn, epoch: epoch}
 	// The reader holds the publication read side (rlockPublication).
-	c.evidenceBarrier.RLock()
-	defer c.evidenceBarrier.RUnlock()
+	defer c.rlockEvidenceForOrderFrame(ev.Type)()
 	current := c.SessionReceiptCurrent(origin)
 	if disposition == previewStatusUncertain {
 		c.dispatchOrderLifecycleReceiptUnderBarrier(origin, ev, current, true)
@@ -9671,8 +9671,7 @@ func (c *Connector) dispatchOrderLifecycle(ev OrderLifecycleEvent) {
 func (c *Connector) dispatchOrderLifecycleFrom(origin ConnectorSessionBinding, ev OrderLifecycleEvent) {
 	c.publicationBarrier.RLock()
 	defer c.publicationBarrier.RUnlock()
-	c.evidenceBarrier.RLock()
-	defer c.evidenceBarrier.RUnlock()
+	defer c.rlockEvidenceForOrderFrame(ev.Type)()
 	c.dispatchOrderLifecycleUnderBarrier(origin, ev, c.SessionReceiptCurrent(origin))
 }
 

@@ -160,3 +160,37 @@ func TestLongEvidenceCommitIsNamedInTheLog(t *testing.T) {
 		t.Fatalf("long commit not named once with its caller: %v", lines)
 	}
 }
+
+// An order frame that queues behind a long commit is named with how long it
+// waited, so the next occurrence in the daemon log can be told from a slow
+// journal append (which shows as the handled time instead).
+func TestOrderFrameWaitingForEvidenceIsNamedInTheLog(t *testing.T) {
+	logs := captureConnectorLogs(t)
+	c, _ := newCaptureBarrierConnector(t)
+	evidence, ok := c.CaptureBrokerEvidence()
+	if !ok {
+		t.Fatal("ready connector gave no evidence binding")
+	}
+	session, _ := c.CaptureSession()
+	committing := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		c.WithStableBrokerEvidence(evidence, func() bool {
+			close(committing)
+			time.Sleep(orderFrameWarnAfter + 100*time.Millisecond)
+			return true
+		})
+	}()
+	<-committing
+	c.dispatchOrderLifecycleFrom(session, OrderLifecycleEvent{Type: OrderLifecycleEventStatus, OrderID: 7})
+	<-done
+	lines := logLines(logs, "an order frame (orderStatus) waited")
+	if len(lines) != 1 {
+		t.Fatalf("order frame wait not named once: %v", lines)
+	}
+	c.dispatchOrderLifecycleFrom(session, OrderLifecycleEvent{Type: OrderLifecycleEventStatus, OrderID: 7})
+	if lines := logLines(logs, "an order frame (orderStatus) waited"); len(lines) != 1 {
+		t.Fatalf("a quick order frame was reported: %v", lines)
+	}
+}

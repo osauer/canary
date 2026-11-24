@@ -31,6 +31,7 @@ func (s *Server) attachAlertShadowAuthority(ctx context.Context) error {
 	}
 	s.alertEpisodes = registry
 	s.alertShadow = newAlertShadowComposer(registry)
+	s.alertShadow.warnf = s.warnf
 	return nil
 }
 

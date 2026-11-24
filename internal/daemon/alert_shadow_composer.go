@@ -156,6 +156,36 @@ type alertShadowComposer struct {
 	registry *alertEpisodeRegistry
 	now      func() time.Time
 	scopes   map[string]*alertShadowScopeState
+	// warnf names a slow observation (lockObservation); nil logs nothing.
+	warnf func(format string, args ...any)
+}
+
+// alertObservationWarnAfter is how long one observation may wait for the
+// producer lock and hold it before the log names both times. An alert commit
+// under the broker evidence barrier spends exactly these two, so the barrier's
+// hold line and this one together say which of them stalled the reader.
+const alertObservationWarnAfter = time.Second
+
+// lockObservation takes the producer lock for one observation of source and
+// returns its release. The release logs an observation that waited, or held
+// the lock (its registry read and durable write), for
+// alertObservationWarnAfter or longer.
+func (c *alertShadowComposer) lockObservation(ctx context.Context, source string) (release func(), err error) {
+	began := time.Now()
+	if err := c.mu.lockContext(ctx); err != nil {
+		if waited := time.Since(began); waited >= alertObservationWarnAfter && c.warnf != nil {
+			c.warnf("alert producer: %s observation gave up after waiting %s for the producer", source, waited.Round(time.Millisecond))
+		}
+		return nil, fmt.Errorf("wait for alert producer: %w", err)
+	}
+	acquired := time.Now()
+	return func() {
+		c.mu.Unlock()
+		waited, held := acquired.Sub(began), time.Since(acquired)
+		if waited+held >= alertObservationWarnAfter && c.warnf != nil {
+			c.warnf("alert producer: %s observation waited %s for the producer and held it %s", source, waited.Round(time.Millisecond), held.Round(time.Millisecond))
+		}
+	}, nil
 }
 
 type alertShadowScopeState struct {
@@ -410,10 +440,11 @@ func (c *alertShadowComposer) ObserveStress(ctx context.Context, scope alertShad
 		return rpc.AlertCandidateSnapshot{}, err
 	}
 
-	if err := c.mu.lockContext(ctx); err != nil {
-		return rpc.AlertCandidateSnapshot{}, fmt.Errorf("wait for alert producer: %w", err)
+	release, err := c.lockObservation(ctx, "Stress")
+	if err != nil {
+		return rpc.AlertCandidateSnapshot{}, err
 	}
-	defer c.mu.Unlock()
+	defer release()
 	state, err := c.scopeStateLocked(scope)
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
@@ -453,10 +484,11 @@ func (c *alertShadowComposer) ObserveNudges(ctx context.Context, input alertShad
 		return rpc.AlertCandidateSnapshot{}, err
 	}
 
-	if err := c.mu.lockContext(ctx); err != nil {
-		return rpc.AlertCandidateSnapshot{}, fmt.Errorf("wait for alert producer: %w", err)
+	release, err := c.lockObservation(ctx, "Nudges")
+	if err != nil {
+		return rpc.AlertCandidateSnapshot{}, err
 	}
-	defer c.mu.Unlock()
+	defer release()
 	state, err := c.scopeStateLocked(input.Scope)
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
@@ -513,10 +545,11 @@ func (c *alertShadowComposer) ObserveRegime(ctx context.Context, scope alertShad
 		return rpc.AlertCandidateSnapshot{}, err
 	}
 
-	if err := c.mu.lockContext(ctx); err != nil {
-		return rpc.AlertCandidateSnapshot{}, fmt.Errorf("wait for alert producer: %w", err)
+	release, err := c.lockObservation(ctx, "Regime")
+	if err != nil {
+		return rpc.AlertCandidateSnapshot{}, err
 	}
-	defer c.mu.Unlock()
+	defer release()
 	state, err := c.scopeStateLocked(scope)
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
@@ -571,10 +604,11 @@ func (c *alertShadowComposer) ObserveRulebook(ctx context.Context, scope alertSh
 		return rpc.AlertCandidateSnapshot{}, err
 	}
 
-	if err := c.mu.lockContext(ctx); err != nil {
-		return rpc.AlertCandidateSnapshot{}, fmt.Errorf("wait for alert producer: %w", err)
+	release, err := c.lockObservation(ctx, "Rulebook")
+	if err != nil {
+		return rpc.AlertCandidateSnapshot{}, err
 	}
-	defer c.mu.Unlock()
+	defer release()
 	state, err := c.scopeStateLocked(scope)
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
@@ -616,10 +650,11 @@ func (c *alertShadowComposer) ObserveProtection(ctx context.Context, input alert
 		return rpc.AlertCandidateSnapshot{}, err
 	}
 
-	if err := c.mu.lockContext(ctx); err != nil {
-		return rpc.AlertCandidateSnapshot{}, fmt.Errorf("wait for alert producer: %w", err)
+	release, err := c.lockObservation(ctx, "Protection")
+	if err != nil {
+		return rpc.AlertCandidateSnapshot{}, err
 	}
-	defer c.mu.Unlock()
+	defer release()
 	state, err := c.scopeStateLocked(input.Scope)
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
@@ -663,10 +698,11 @@ func (c *alertShadowComposer) ObserveOrderIntegrity(ctx context.Context, scope a
 		return rpc.AlertCandidateSnapshot{}, err
 	}
 
-	if err := c.mu.lockContext(ctx); err != nil {
-		return rpc.AlertCandidateSnapshot{}, fmt.Errorf("wait for alert producer: %w", err)
+	release, err := c.lockObservation(ctx, "Order Integrity")
+	if err != nil {
+		return rpc.AlertCandidateSnapshot{}, err
 	}
-	defer c.mu.Unlock()
+	defer release()
 	state, err := c.scopeStateLocked(scope)
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
@@ -709,10 +745,11 @@ func (c *alertShadowComposer) ObserveDataHealth(ctx context.Context, input alert
 		return rpc.AlertCandidateSnapshot{}, err
 	}
 
-	if err := c.mu.lockContext(ctx); err != nil {
-		return rpc.AlertCandidateSnapshot{}, fmt.Errorf("wait for alert producer: %w", err)
+	release, err := c.lockObservation(ctx, "Data Health")
+	if err != nil {
+		return rpc.AlertCandidateSnapshot{}, err
 	}
-	defer c.mu.Unlock()
+	defer release()
 	state, err := c.scopeStateLocked(input.Scope)
 	if err != nil {
 		return rpc.AlertCandidateSnapshot{}, err
