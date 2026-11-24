@@ -561,6 +561,14 @@ func (s *Store) criticalMutation(ctx context.Context, fn func(*sql.Tx) error) er
 // means this mutation latched the store; the caller delivers it once the lock
 // is released.
 func (s *Store) criticalMutationLocked(ctx context.Context, fn func(*sql.Tx) error) (*latchNotice, error) {
+	// A latched store refuses before queueing for writeMu, which the recovery
+	// proof holds while it runs: a writer queued behind it waited out the
+	// proof, and a broker-evidence commit kept IBKR's order frames waiting
+	// with it (2026-11-24). The check under the lock below stays authoritative
+	// for a latch that lands while this writer waits.
+	if !s.Health().Ready {
+		return nil, ErrBlocked
+	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if !s.Health().Ready {
@@ -884,6 +892,10 @@ func (s *Store) Checkpoint(ctx context.Context) (CheckpointResult, error) {
 }
 
 func (s *Store) checkpointLocked(ctx context.Context) (CheckpointResult, *latchNotice, error) {
+	// Refuse before queueing behind a recovery proof; see criticalMutationLocked.
+	if !s.Health().Ready {
+		return CheckpointResult{}, nil, ErrBlocked
+	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if !s.Health().Ready {

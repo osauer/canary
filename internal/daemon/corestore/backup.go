@@ -53,6 +53,10 @@ func (s *Store) Backup(ctx context.Context, destination string) (BackupInfo, err
 		return BackupInfo{}, err
 	}
 
+	// Refuse before queueing behind a recovery proof; see criticalMutationLocked.
+	if !s.Health().Ready {
+		return BackupInfo{}, ErrBlocked
+	}
 	s.writeMu.Lock()
 	if !s.Health().Ready {
 		s.writeMu.Unlock()

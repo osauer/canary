@@ -386,3 +386,56 @@ func TestAPermanentLatchReplacesTheRecoverableOne(t *testing.T) {
 		t.Fatalf("mutation after the outside opener = %v, want ErrBlocked", err)
 	}
 }
+
+// A latched store refuses a writer at once instead of queueing it behind the
+// recovery proof that holds writeMu. Queued, a broker-evidence commit kept the
+// order frames from IBKR waiting for 10m46s and 11m33s on 2026-11-24.
+func TestALatchedStoreRefusesWritersWithoutWaitingForTheProof(t *testing.T) {
+	writers := map[string]func(*testing.T, *recoveryFixture) error{
+		"mutation": func(t *testing.T, f *recoveryFixture) error { return f.mutate(t, "blocked") },
+		"checkpoint": func(t *testing.T, f *recoveryFixture) error {
+			_, err := f.store.Checkpoint(t.Context())
+			return err
+		},
+		"accepted state document": func(t *testing.T, f *recoveryFixture) error {
+			return f.store.WithAcceptedStateDocument(t.Context(), "test", "warm", func(StateDocument, bool) error { return nil })
+		},
+		"backup": func(t *testing.T, f *recoveryFixture) error {
+			_, err := f.store.Backup(t.Context(), filepath.Join(privateTempDir(t), "backup.db"))
+			return err
+		},
+	}
+	for name, write := range writers {
+		t.Run(name, func(t *testing.T) {
+			f := openRecoveryFixture(t)
+			committed, _ := f.latchByObserverFailure(t, 1)
+			requireEligibleHeadWatermarkLatch(t, f.store, committed)
+
+			proving := make(chan struct{})
+			release := make(chan struct{})
+			f.store.checkIntegrity = func(context.Context) (IntegrityReport, error) {
+				close(proving)
+				<-release
+				return IntegrityReport{}, context.DeadlineExceeded
+			}
+			proofDone := make(chan struct{})
+			go func() {
+				defer close(proofDone)
+				_, _ = f.store.RecoverTransientHeadWatermark(t.Context())
+			}()
+			<-proving
+			defer func() { close(release); <-proofDone }()
+
+			result := make(chan error, 1)
+			go func() { result <- write(t, f) }()
+			select {
+			case err := <-result:
+				if !errors.Is(err, ErrBlocked) {
+					t.Fatalf("%s while latched = %v, want ErrBlocked", name, err)
+				}
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s waited for the running proof instead of failing with ErrBlocked", name)
+			}
+		})
+	}
+}

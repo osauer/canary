@@ -100,6 +100,10 @@ func (s *Store) AppendEventsAtStateRevision(ctx context.Context, update StateDoc
 // while excluding all critical writers. A latched authority never invokes
 // accept. The callback must not call mutation methods on this Store.
 func (s *Store) WithAcceptedStateDocument(ctx context.Context, scope, kind string, accept func(StateDocument, bool) error) error {
+	// Refuse before queueing behind a recovery proof; see criticalMutationLocked.
+	if !s.Health().Ready {
+		return ErrBlocked
+	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if !s.Health().Ready {
