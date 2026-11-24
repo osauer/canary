@@ -38,6 +38,14 @@ const (
 	marketReadLeadersMinGapped   = 3
 	marketReadLeadersHoldShare   = 0.70
 	marketReadLeadersFadeShare   = 0.40
+	// marketReadNearLowPct: an indicated price within this percentage above
+	// the prior low is near it; marketReadNearLowShare of the quoted leaders
+	// near or below their lows raises leaders_near_prior_low.
+	marketReadNearLowPct   = 1.0
+	marketReadNearLowShare = 0.5
+	// marketReadRelativeGapPct is how many percentage points the Nasdaq's
+	// change must differ from the S&P 500's to name it.
+	marketReadRelativeGapPct = 0.5
 )
 
 const marketReadBar = marketReadBarMinutes * time.Minute
@@ -52,6 +60,7 @@ func marketReadThresholds() rpc.MarketReadThresholds {
 		VIXLine: marketReadVIXLine, VIXRisingPct: marketReadVIXRisingPct, VIXBand: marketReadVIXBand,
 		GapMinPct: marketReadGapMinPct, GapHoldFraction: marketReadGapHoldFraction, GapAdvanceFraction: marketReadGapAdvanceFraction,
 		LeadersMinGapped: marketReadLeadersMinGapped, LeadersHoldShare: marketReadLeadersHoldShare, LeadersFadeShare: marketReadLeadersFadeShare,
+		NearLowPct: marketReadNearLowPct, NearLowShare: marketReadNearLowShare, RelativeGapPct: marketReadRelativeGapPct,
 	}
 }
 
@@ -264,6 +273,26 @@ func marketReadLeaderCounts(rows []rpc.MarketReadLeader) (gappedUp, holding int)
 		}
 	}
 	return gappedUp, holding
+}
+
+// marketReadLeaderDownCounts counts the companies that gapped down by the
+// minimum and have a state, those of them holding the gap down (under the
+// prior low included: the gap down has only gone further) and those that
+// have reclaimed the prior close.
+func marketReadLeaderDownCounts(rows []rpc.MarketReadLeader) (gappedDown, holding, reclaimed int) {
+	for _, row := range rows {
+		if row.State == "" || row.GapPct == nil || *row.GapPct > -marketReadGapMinPct {
+			continue
+		}
+		gappedDown++
+		switch row.State {
+		case rpc.LeaderHoldsGapDown, rpc.LeaderBelowPriorLow:
+			holding++
+		case rpc.LeaderGapDownReclaimed:
+			reclaimed++
+		}
+	}
+	return gappedDown, holding, reclaimed
 }
 
 // marketReadTagInputs is everything the tags read, already measured.
@@ -536,7 +565,10 @@ func marketReadVIXSide(closes func(int) float64, k int) int {
 }
 
 // marketReadLeadersTag reads the current leader states. They come from
-// current quotes, which keep no history, so the tag has no since.
+// current quotes, which keep no history, so the tag has no since. Most
+// leaders under their prior low comes first; then the side with more gapped
+// names is read (the gap-up side on a tie), and the other side only when the
+// first names nothing.
 func marketReadLeadersTag(rows []rpc.MarketReadLeader) *rpc.MarketReadTag {
 	const since = "leader states are read from current quotes, which keep no history"
 	stated, below := marketReadLeaderBelowPriorLow(rows)
@@ -546,19 +578,128 @@ func marketReadLeadersTag(rows []rpc.MarketReadLeader) *rpc.MarketReadTag {
 		return &rpc.MarketReadTag{Code: "leaders_breaking_down", Scope: "leaders", Tone: "negative", SinceUnavailable: since,
 			Evidence: map[string]float64{"with_state": float64(stated), "below_prior_low": float64(below), "below_share": float64(below) / float64(stated)}}
 	}
-	gapped, holding := marketReadLeaderCounts(rows)
-	if gapped < marketReadLeadersMinGapped {
+	gappedUp, holdingUp := marketReadLeaderCounts(rows)
+	gappedDown, holdingDown, reclaimed := marketReadLeaderDownCounts(rows)
+	up := func() *rpc.MarketReadTag {
+		if gappedUp < marketReadLeadersMinGapped {
+			return nil
+		}
+		share := float64(holdingUp) / float64(gappedUp)
+		tag := &rpc.MarketReadTag{Scope: "leaders", SinceUnavailable: since, Evidence: map[string]float64{"gapped_up": float64(gappedUp), "holding_gap_up": float64(holdingUp), "holding_share": share}}
+		switch {
+		case share >= marketReadLeadersHoldShare:
+			tag.Code, tag.Tone = "leaders_hold", "positive"
+		case share <= marketReadLeadersFadeShare:
+			tag.Code, tag.Tone = "leaders_fading", "negative"
+		default:
+			return nil
+		}
+		return tag
+	}
+	down := func() *rpc.MarketReadTag {
+		if gappedDown < marketReadLeadersMinGapped {
+			return nil
+		}
+		n := float64(gappedDown)
+		tag := &rpc.MarketReadTag{Scope: "leaders", SinceUnavailable: since, Evidence: map[string]float64{"gapped_down": n, "holding_gap_down": float64(holdingDown), "reclaimed": float64(reclaimed),
+			"holding_share": float64(holdingDown) / n, "reclaimed_share": float64(reclaimed) / n}}
+		switch {
+		case float64(holdingDown) >= marketReadLeadersHoldShare*n:
+			tag.Code, tag.Tone = "leaders_gap_down_hold", "negative"
+		case float64(reclaimed) >= marketReadLeadersHoldShare*n:
+			tag.Code, tag.Tone = "leaders_reclaiming", "positive"
+		default:
+			return nil
+		}
+		return tag
+	}
+	first, second := up, down
+	if gappedDown > gappedUp {
+		first, second = down, up
+	}
+	if tag := first(); tag != nil {
+		return tag
+	}
+	return second()
+}
+
+// marketReadRelativeTag names the Nasdaq leading or lagging the S&P 500 by
+// their day changes. Both are current quotes, which keep no history, so the
+// tag has no since and no hold.
+func marketReadRelativeTag(rel *rpc.MarketReadRelative) *rpc.MarketReadTag {
+	if rel == nil || rel.SpreadPct == nil || rel.Nasdaq == nil || rel.SP500ChangePct == nil {
 		return nil
 	}
-	share := float64(holding) / float64(gapped)
-	tag := &rpc.MarketReadTag{Scope: "leaders", SinceUnavailable: since, Evidence: map[string]float64{"gapped_up": float64(gapped), "holding_gap_up": float64(holding), "holding_share": share}}
-	switch {
-	case share >= marketReadLeadersHoldShare:
-		tag.Code, tag.Tone = "leaders_hold", "positive"
-	case share <= marketReadLeadersFadeShare:
-		tag.Code, tag.Tone = "leaders_fading", "negative"
+	tag := &rpc.MarketReadTag{Scope: "relative", SinceUnavailable: "the day changes are read from current quotes, which keep no history",
+		Evidence: map[string]float64{"nasdaq_change_pct": rel.Nasdaq.ChangePct, "sp500_change_pct": *rel.SP500ChangePct, "spread_pct": *rel.SpreadPct}}
+	switch spread := *rel.SpreadPct; {
+	case spread <= -marketReadRelativeGapPct:
+		tag.Code, tag.Tone = "nasdaq_lagging", "caution"
+	case spread >= marketReadRelativeGapPct:
+		tag.Code, tag.Tone = "nasdaq_leading", "neutral"
 	default:
 		return nil
 	}
 	return tag
+}
+
+// marketReadIndications names what the pre-market prices indicate for the
+// open. Nothing here has held: each is one reading of thin trade.
+func marketReadIndications(ind *rpc.MarketReadIndicated, prior *rpc.MarketReadPrior) []rpc.MarketReadIndication {
+	out := []rpc.MarketReadIndication{}
+	if ind == nil {
+		return out
+	}
+	add := func(code, scope, tone string, evidence map[string]float64) {
+		out = append(out, rpc.MarketReadIndication{Code: code, Scope: scope, Tone: tone, Evidence: evidence})
+	}
+	if x := ind.Index; x != nil {
+		ev := func() map[string]float64 {
+			e := map[string]float64{"last": x.Last, "prior_close": x.PriorClose, "change_pct": x.ChangePct}
+			if x.ImpliedLevel != nil {
+				e["implied_level"] = *x.ImpliedLevel
+			}
+			if prior != nil {
+				e["prior_high"], e["prior_low"] = prior.High, prior.Low
+			}
+			return e
+		}
+		switch {
+		case x.ChangePct >= marketReadGapMinPct:
+			add("indicated_gap_up", "index", "positive", ev())
+		case x.ChangePct <= -marketReadGapMinPct:
+			add("indicated_gap_down", "index", "negative", ev())
+		}
+		switch x.ImpliedPosition {
+		case "above_prior_high":
+			add("indicated_above_prior_high", "index", "positive", ev())
+		case "below_prior_low":
+			add("indicated_below_prior_low", "index", "negative", ev())
+		}
+		if n := ind.Nasdaq; n != nil {
+			spread := n.ChangePct - x.ChangePct
+			e := map[string]float64{"nasdaq_change_pct": n.ChangePct, "sp500_change_pct": x.ChangePct, "spread_pct": spread}
+			switch {
+			case spread <= -marketReadRelativeGapPct:
+				add("nasdaq_indicated_weaker", "nasdaq", "caution", e)
+			case spread >= marketReadRelativeGapPct:
+				add("nasdaq_indicated_stronger", "nasdaq", "neutral", e)
+			}
+		}
+	}
+	if l := ind.Leaders; l != nil && l.Quoted >= marketReadLeadersMinGapped {
+		q := float64(l.Quoted)
+		e := map[string]float64{"quoted": q, "up": float64(l.Up), "down": float64(l.Down), "flat": float64(l.Flat),
+			"near_prior_low": float64(l.NearPriorLow), "below_prior_low": float64(l.BelowPriorLow)}
+		switch {
+		case float64(l.Up) >= marketReadLeadersHoldShare*q:
+			add("leaders_indicated_up", "leaders", "positive", e)
+		case float64(l.Down) >= marketReadLeadersHoldShare*q:
+			add("leaders_indicated_down", "leaders", "negative", e)
+		}
+		if float64(l.NearPriorLow+l.BelowPriorLow) >= marketReadNearLowShare*q {
+			add("leaders_near_prior_low", "leaders", "caution", e)
+		}
+	}
+	return out
 }

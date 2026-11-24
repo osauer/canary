@@ -21,6 +21,8 @@ persistent state and opens no standing market-data line.
 | VIX five-minute bars | `market.history` VIX `1D` | |
 | SPX, VIX and leader quotes | a brief look through the broker seam (`BriefQuote`), as the regime takes its quotes | Transient: four at a time, two seconds each, each line released after its read. The look returns the last trade or mark, the prior close and the session open (tick 14). |
 | Leader prior close and low | the market tape's leader daily series (`6M`) | Chart cache only; a missing series is read in the background. Without the bar, the prior close falls back to the quote's previous close (`prior_close_source: quote_previous_close`, before and during the session only); the prior low has no stand-in. |
+| ES and NQ front futures (state `pre` only) | resolved and quoted as `market.snapshot` does: the broker's front-contract resolution, then one transient quote snapshot of the dated contract, its line released when read | Each look runs beside the others inside the budget; a future that does not answer is `*_unavailable` in `indicated` and the rest still answers. |
+| NDX, else QQQ (state `open` only) | two more brief looks through the broker seam, in the same pool | QQQ serves only when the index does not quote, and `source` says so. No historical series is read for either. |
 | Leader open | the look's session open | Else the first regular bar of an intraday series the chart cache already holds. No history request is made per name for an open. |
 
 Contracts are spelled as the daemon's other readers spell them (SPX, VIX and
@@ -122,6 +124,59 @@ returned in `thresholds` with `heuristic: true`.
 | leaders | `leaders_breaking_down` | negative | at least 3 leaders have a state and ≥ 70% of them are under their prior low, whatever their gaps; ahead of the two below |
 | leaders | `leaders_hold` | positive | at least 3 leaders gapped up and ≥ 70% of them hold |
 | leaders | `leaders_fading` | negative | at least 3 gapped up and ≤ 40% hold |
+| leaders | `leaders_gap_down_hold` | negative | at least 3 leaders gapped down and ≥ 70% of them hold the gap down (`holds_gap_down`, or under the prior low: the gap has only gone further) |
+| leaders | `leaders_reclaiming` | positive | at least 3 gapped down and ≥ 70% of them have reclaimed the prior close |
+| relative | `nasdaq_lagging` | caution | the Nasdaq 100's day change is at least 0.5 points (`relative_gap_pct`) under the S&P 500's |
+| relative | `nasdaq_leading` | neutral | at least 0.5 points over it |
+
+Among the leader tags, `leaders_breaking_down` comes first; then the side
+with more gapped names is read (the gap-up side on a tie), and the other side
+only when the first names nothing. The leader and relative tags read current
+quotes, not bars: they have no hold and no `since`, and say why.
+
+## Nasdaq beside the S&P 500
+
+While the session is open, `relative` sets the Nasdaq 100's day change (the
+NDX index's last against its previous close, or QQQ's when the index does not
+quote, named in `source`) beside the S&P 500's (SPX's last against its prior
+session close) and their difference, `spread_pct`. It uses no second chart
+and no historical series. Before the open the Nasdaq is read in `indicated`;
+after the close `relative` is absent with a reason, because a quote's previous
+close can already name the day just ended.
+
+## Pre-market indication
+
+Before the open (state `pre` only) the read says what the open is indicated
+to do, in `indicated` and `indications`, kept apart from the tags. Nothing
+here has held: pre-market trade is thin, a price before the open is an
+indication and not a level the session has reached, and the read keeps no
+earlier pre-market reading.
+
+- `indicated.index`: the ES front future (the dated contract named in
+  `source`) against its previous close; `implied_level` applies that change to
+  SPX's prior session close, and `implied_position` places the level against
+  SPX's prior range (`above_prior_high`, `inside`, `below_prior_low`).
+- `indicated.nasdaq`: the NQ front future the same way.
+- `indicated.leaders`: the leaders with a pre-market price, counted `up`,
+  `down` or `flat` by `indicated_gap_pct` (the pre-market price against the
+  prior close, on each row) at the 0.25% gap minimum, and `near_prior_low`
+  (within 1%, `near_low_pct`, above the prior low) or `below_prior_low`. A
+  price that is still the prior close, or a trade from before the session's
+  day, is no indication and the row says so.
+
+`index.position` is not drawn before the open from the prior close: it is
+absent with `position_unavailable: "the session has not opened"`.
+
+| Scope | Code | Tone | Condition |
+| --- | --- | --- | --- |
+| index | `indicated_gap_up` / `indicated_gap_down` | positive / negative | ES change at or beyond the 0.25% gap minimum |
+| index | `indicated_above_prior_high` / `indicated_below_prior_low` | positive / negative | the implied level beyond SPX's prior range |
+| leaders | `leaders_indicated_up` / `leaders_indicated_down` | positive / negative | at least 3 leaders quoted and ≥ 70% of them indicated that way |
+| leaders | `leaders_near_prior_low` | caution | at least 3 quoted and at least half (`near_low_share`) near or below their prior low |
+| nasdaq | `nasdaq_indicated_weaker` / `nasdaq_indicated_stronger` | caution / neutral | NQ's change at least 0.5 points under / over ES's |
+
+Each carries its numbers in `evidence`. Without the quotes, or with too few
+leaders quoted, the indications are silent and each missing part says why.
 
 ## Leader states
 
@@ -209,3 +264,8 @@ without an open, the pre-market and weekend states, a closed session keeping
 its tags and its leaders' closing states, the tag timeline, `fear_easing`
 firing from fear and staying silent on a calm day, stale bars, absent values
 with reasons, and the shared 30-second result.
+`market_read_indicated_test.go` covers every indication code, their silence
+when quotes are missing or too few, the pre-market position rule, the
+gap-down leader tags and their precedence, the relative tags and the QQQ
+stand-in, and that unanswered futures and Nasdaq looks keep a read inside its
+budget.

@@ -52,6 +52,17 @@ type MarketReadResult struct {
 	VIXUnavailable     string               `json:"vix_unavailable,omitempty"`
 	Leaders            *MarketReadLeaders   `json:"leaders,omitempty"`
 	LeadersUnavailable string               `json:"leaders_unavailable,omitempty"`
+	// Indicated is what pre-market prices indicate for the open, in state pre
+	// only. Nothing in it has held: pre-market trade is thin and a price
+	// before the open is an indication, not a level the session has reached.
+	Indicated *MarketReadIndicated `json:"indicated,omitempty"`
+	// Indications name what the pre-market prices indicate; they are not tags
+	// and nothing in them has held. Empty outside state pre.
+	Indications []MarketReadIndication `json:"indications"`
+	// Relative is the Nasdaq 100 beside the S&P 500 while the session is open,
+	// from brief quote looks.
+	Relative            *MarketReadRelative `json:"relative,omitempty"`
+	RelativeUnavailable string              `json:"relative_unavailable,omitempty"`
 	// Tags name the conditions that hold at the session's latest completed
 	// bar: now while it is open, at its last bar once it has closed; none
 	// before the open.
@@ -113,6 +124,14 @@ type MarketReadThresholds struct {
 	LeadersMinGapped     int     `json:"leaders_min_gapped"`
 	LeadersHoldShare     float64 `json:"leaders_hold_share"`
 	LeadersFadeShare     float64 `json:"leaders_fade_share"`
+	// NearLowPct is how far above its prior low, in percent, an indicated
+	// price counts as near it; NearLowShare the share of quoted leaders near
+	// or below their prior lows that raises leaders_near_prior_low.
+	NearLowPct   float64 `json:"near_low_pct"`
+	NearLowShare float64 `json:"near_low_share"`
+	// RelativeGapPct is how many percentage points the Nasdaq's change must
+	// differ from the S&P 500's for a relative indication or tag.
+	RelativeGapPct float64 `json:"relative_gap_pct"`
 }
 
 // MarketReadBar is one completed regular-session bar.
@@ -224,12 +243,16 @@ type MarketReadLeader struct {
 	Open             *float64 `json:"open,omitempty"`
 	// OpenSource says where the open came from: the session's opening tick or
 	// the first regular-session bar.
-	OpenSource       string    `json:"open_source,omitempty"`
-	Last             *float64  `json:"last,omitempty"`
-	LastAt           time.Time `json:"last_at,omitzero"`
-	GapPct           *float64  `json:"gap_pct,omitempty"`
-	State            string    `json:"state,omitempty"`
-	StateUnavailable string    `json:"state_unavailable,omitempty"`
+	OpenSource string    `json:"open_source,omitempty"`
+	Last       *float64  `json:"last,omitempty"`
+	LastAt     time.Time `json:"last_at,omitzero"`
+	GapPct     *float64  `json:"gap_pct,omitempty"`
+	// IndicatedGapPct is, before the open, the pre-market price against the
+	// prior close. A price that is still the prior close is no indication.
+	IndicatedGapPct         *float64 `json:"indicated_gap_pct,omitempty"`
+	IndicatedGapUnavailable string   `json:"indicated_gap_unavailable,omitempty"`
+	State                   string   `json:"state,omitempty"`
+	StateUnavailable        string   `json:"state_unavailable,omitempty"`
 }
 
 // MarketReadLeaders reads one share line per company of a fixed basket.
@@ -243,6 +266,86 @@ type MarketReadLeaders struct {
 	// BelowPriorLow counts the companies with a state under their prior
 	// session's low, whatever their gap.
 	BelowPriorLow int `json:"below_prior_low"`
+	// GappedDown counts the companies that opened down by at least the gap
+	// minimum and have a state; HoldingGapDown those of them that hold it.
+	GappedDown     int `json:"gapped_down"`
+	HoldingGapDown int `json:"holding_gap_down"`
+}
+
+// MarketReadIndicated is what pre-market prices indicate for the open.
+type MarketReadIndicated struct {
+	AsOf               time.Time                   `json:"as_of"`
+	Index              *MarketReadIndicatedIndex   `json:"index,omitempty"`
+	IndexUnavailable   string                      `json:"index_unavailable,omitempty"`
+	Nasdaq             *MarketReadIndicatedFuture  `json:"nasdaq,omitempty"`
+	NasdaqUnavailable  string                      `json:"nasdaq_unavailable,omitempty"`
+	Leaders            *MarketReadIndicatedLeaders `json:"leaders,omitempty"`
+	LeadersUnavailable string                      `json:"leaders_unavailable,omitempty"`
+}
+
+// MarketReadIndicatedFuture is an index future's last price against its
+// prior close. Source names the dated contract.
+type MarketReadIndicatedFuture struct {
+	Source     string    `json:"source"`
+	Last       float64   `json:"last"`
+	LastAt     time.Time `json:"last_at,omitzero"`
+	PriorClose float64   `json:"prior_close"`
+	ChangePct  float64   `json:"change_pct"`
+}
+
+// MarketReadIndicatedIndex is the S&P 500 future's change applied to the
+// index's prior close, and where that level would open against the index's
+// prior range.
+type MarketReadIndicatedIndex struct {
+	Source             string    `json:"source"`
+	Last               float64   `json:"last"`
+	LastAt             time.Time `json:"last_at,omitzero"`
+	PriorClose         float64   `json:"prior_close"`
+	ChangePct          float64   `json:"change_pct"`
+	ImpliedLevel       *float64  `json:"implied_level,omitempty"`
+	ImpliedPosition    string    `json:"implied_position,omitempty"`
+	ImpliedUnavailable string    `json:"implied_unavailable,omitempty"`
+}
+
+// MarketReadIndicatedLeaders counts the leaders with a pre-market price by
+// their indicated gap at the gap minimum, and against their prior lows.
+type MarketReadIndicatedLeaders struct {
+	Quoted        int `json:"quoted"`
+	Up            int `json:"up"`
+	Down          int `json:"down"`
+	Flat          int `json:"flat"`
+	NearPriorLow  int `json:"near_prior_low"`
+	BelowPriorLow int `json:"below_prior_low"`
+}
+
+// MarketReadIndication names what pre-market prices indicate, with the
+// numbers it rests on. It has not held and carries no since.
+type MarketReadIndication struct {
+	Code     string             `json:"code"`
+	Scope    string             `json:"scope"`
+	Tone     string             `json:"tone"`
+	Evidence map[string]float64 `json:"evidence"`
+}
+
+// MarketReadRelative is the Nasdaq 100 beside the S&P 500 today.
+type MarketReadRelative struct {
+	Nasdaq                 *MarketReadRelativeLine `json:"nasdaq,omitempty"`
+	NasdaqUnavailable      string                  `json:"nasdaq_unavailable,omitempty"`
+	SP500ChangePct         *float64                `json:"sp500_change_pct,omitempty"`
+	SP500ChangeUnavailable string                  `json:"sp500_change_unavailable,omitempty"`
+	SpreadPct              *float64                `json:"spread_pct,omitempty"`
+	SpreadUnavailable      string                  `json:"spread_unavailable,omitempty"`
+}
+
+// MarketReadRelativeLine is the Nasdaq 100's day change from a brief quote
+// look: the index, or when it does not quote, QQQ, named in Source.
+type MarketReadRelativeLine struct {
+	Symbol     string    `json:"symbol"`
+	Source     string    `json:"source"`
+	Last       float64   `json:"last"`
+	LastAt     time.Time `json:"last_at,omitzero"`
+	PriorClose float64   `json:"prior_close"`
+	ChangePct  float64   `json:"change_pct"`
 }
 
 // MarketReadTag names one condition that holds. Since is when it began to

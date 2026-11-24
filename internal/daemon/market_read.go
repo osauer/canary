@@ -58,6 +58,11 @@ var (
 	marketReadSPX = rpc.ContractParams{Symbol: "SPX", SecType: "IND", Exchange: "CBOE", Currency: "USD"}
 	marketReadVIX = rpc.ContractParams{Symbol: "VIX", SecType: "IND", Exchange: "CBOE", Currency: "USD"}
 	marketReadSPY = rpc.ContractParams{Symbol: "SPY", SecType: "STK", Exchange: "SMART", Currency: "USD"}
+	marketReadNDX = rpc.ContractParams{Symbol: "NDX", SecType: "IND", Exchange: "NASDAQ", Currency: "USD"}
+	marketReadQQQ = rpc.ContractParams{Symbol: "QQQ", SecType: "STK", Exchange: "SMART", Currency: "USD"}
+	// The index futures roots, spelled as market.snapshot spells them.
+	marketReadES = rpc.ContractParams{Symbol: "ES", SecType: "FUT", Exchange: "CME", Currency: "USD"}
+	marketReadNQ = rpc.ContractParams{Symbol: "NQ", SecType: "FUT", Exchange: "CME", Currency: "USD"}
 )
 
 // marketReadLeaderContracts is the market tape's leader basket with one
@@ -131,6 +136,18 @@ type marketReadSources struct {
 	SPXQuote    *broker.BriefQuote
 	VIXQuote    *broker.BriefQuote
 	Leaders     []marketReadLeaderSource
+	// ES and NQ are the front index futures, looked at before the open only.
+	ES, NQ *marketReadFutureSource
+	// NDX and QQQ are looked at while the session is open; QQQ stands in
+	// when the index does not quote.
+	NDXQuote, QQQQuote *broker.BriefQuote
+}
+
+// marketReadFutureSource is one look at a front future: the dated contract
+// it resolved to and its line.
+type marketReadFutureSource struct {
+	Contract string
+	Quote    broker.BriefQuote
 }
 
 type marketReadLeaderSource struct {
@@ -211,7 +228,7 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 	reads := s.brokerReads()
 	sem := make(chan struct{}, marketReadQuoteParallel)
 	quote := func(dst **broker.BriefQuote, c rpc.ContractParams, open bool) {
-		if reads == nil {
+		if reads == nil && s.marketReadLookForTest == nil {
 			return
 		}
 		wg.Go(func() {
@@ -221,11 +238,17 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 				return
 			}
 			defer func() { <-sem }()
-			q, err := reads.BriefQuote(ctx, broker.Instrument{Symbol: c.Symbol, SecType: c.SecType, Currency: c.Currency}, nil, marketReadQuoteTimeout, func(q broker.BriefQuote) bool {
-				// A price and the prior close end the look; a company's look
-				// also waits for the session open while there is one.
-				return (q.Last > 0 || q.Mark > 0) && q.Close > 0 && (!open || q.Open > 0)
-			})
+			var q broker.BriefQuote
+			var err error
+			if s.marketReadLookForTest != nil {
+				q, _, err = s.marketReadLookForTest(ctx, c)
+			} else {
+				q, err = reads.BriefQuote(ctx, broker.Instrument{Symbol: c.Symbol, SecType: c.SecType, Currency: c.Currency}, nil, marketReadQuoteTimeout, func(q broker.BriefQuote) bool {
+					// A price and the prior close end the look; a company's look
+					// also waits for the session open while there is one.
+					return (q.Last > 0 || q.Mark > 0) && q.Close > 0 && (!open || q.Open > 0)
+				})
+			}
 			if err == nil || q.Last > 0 || q.Mark > 0 {
 				set(func() { *dst = &q })
 			}
@@ -235,6 +258,26 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 	quote(&src.VIXQuote, marketReadVIX, false)
 	for i, c := range contracts {
 		quote(&src.Leaders[i].Quote, c, state != rpc.MarketReadPre)
+	}
+	switch state {
+	case rpc.MarketReadPre:
+		// Before the open the index futures indicate where the session opens.
+		future := func(dst **marketReadFutureSource, root rpc.ContractParams) {
+			if reads == nil && s.marketReadLookForTest == nil {
+				return
+			}
+			wg.Go(func() {
+				q, contract, err := s.marketReadFrontLook(ctx, reads, root)
+				if err == nil && (q.Last > 0 || q.Mark > 0) {
+					set(func() { *dst = &marketReadFutureSource{Contract: contract, Quote: q} })
+				}
+			})
+		}
+		future(&src.ES, marketReadES)
+		future(&src.NQ, marketReadNQ)
+	case rpc.MarketReadOpen:
+		quote(&src.NDXQuote, marketReadNDX, false)
+		quote(&src.QQQQuote, marketReadQQQ, false)
 	}
 	done := make(chan struct{})
 	go func() {
@@ -258,6 +301,47 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 		s.seedMarketReadBaseline(session.Date)
 	}
 	return out, err
+}
+
+// marketReadFrontLook resolves a futures root to its front contract and takes
+// one brief quote of it, as market.snapshot does: the resolution with its own
+// short timeout and cache, the quote through the transient snapshot, which
+// releases its line when read.
+func (s *Server) marketReadFrontLook(ctx context.Context, reads broker.Reads, root rpc.ContractParams) (broker.BriefQuote, string, error) {
+	if s.marketReadLookForTest != nil {
+		return s.marketReadLookForTest(ctx, root)
+	}
+	c, err := reads.FrontContract(ctx, broker.Instrument{Symbol: root.Symbol, SecType: "FUT", Venue: root.Exchange, Currency: root.Currency}, s.nowUTC())
+	if err != nil {
+		return broker.BriefQuote{}, "", err
+	}
+	conID, _ := c.IDInt()
+	contract := rpc.ContractParams{ConID: conID, Symbol: c.Symbol, SecType: c.SecType, Exchange: c.Venue, Currency: c.Currency, Expiry: c.Expiry, LocalSymbol: c.LocalSymbol, TradingClass: c.TradingClass, Multiplier: c.Multiplier}
+	raw, err := json.Marshal(rpc.QuoteSnapshotParams{Contract: contract, TimeoutMs: int(marketReadQuoteTimeout / time.Millisecond)})
+	if err != nil {
+		return broker.BriefQuote{}, c.LocalSymbol, err
+	}
+	q, err := s.handleQuoteSnapshot(ctx, &rpc.Request{Params: raw})
+	if err != nil {
+		return broker.BriefQuote{}, c.LocalSymbol, err
+	}
+	if q == nil {
+		return broker.BriefQuote{}, c.LocalSymbol, errors.New("quote absent")
+	}
+	out := broker.BriefQuote{TradeAt: q.TradeAt, ObservedAt: q.QuotePriceAt}
+	if out.ObservedAt.IsZero() {
+		out.ObservedAt = q.ReceivedAt
+	}
+	for _, p := range []*float64{q.Last, q.Mark, q.QuotePrice} {
+		if p != nil && isFinitePrice(*p) {
+			out.Last = *p
+			break
+		}
+	}
+	if q.PrevClose != nil && isFinitePrice(*q.PrevClose) {
+		out.Close = *q.PrevClose
+	}
+	return out, c.LocalSymbol, nil
 }
 
 // requestMarketReadHistory reads one series in the background through the
@@ -469,6 +553,10 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 		index.Last, index.LastAt, index.LastSource, index.LastUnavailable = new(last.Close), last.At.Add(marketReadBar), "bar", ""
 	}
 	switch {
+	case state == rpc.MarketReadPre && index.LastSource == "prior_close":
+		// Yesterday's last print is no position for today; before the open the
+		// position the futures imply is in indicated.
+		index.PositionUnavailable = "the session has not opened"
 	case index.Prior == nil:
 		index.PositionUnavailable = "prior session range unavailable"
 	case index.Last == nil:
@@ -539,7 +627,11 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 			// such stand-in.
 			row.PriorClose, row.PriorCloseSource = new(l.Quote.Close), "quote_previous_close"
 		}
-		row.Last, row.LastAt, _, _ = marketReadQuoteLast(l.Quote, state, prior)
+		var lastSource string
+		row.Last, row.LastAt, lastSource, _ = marketReadQuoteLast(l.Quote, state, prior)
+		if state == rpc.MarketReadPre {
+			marketReadIndicatedGap(&row, lastSource, session)
+		}
 		closing := marketReadDailyBar(l.Daily, l.Symbol, session.Date)
 		if state == rpc.MarketReadClosed {
 			// A closed session is read at its close, never at a later print.
@@ -571,12 +663,188 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 		leaders.Rows = append(leaders.Rows, row)
 	}
 	leaders.GappedUp, leaders.HoldingGapUp = marketReadLeaderCounts(leaders.Rows)
+	leaders.GappedDown, leaders.HoldingGapDown, _ = marketReadLeaderDownCounts(leaders.Rows)
 	_, leaders.BelowPriorLow = marketReadLeaderBelowPriorLow(leaders.Rows)
 	out.Leaders = leaders
 	in.Leaders = leaders.Rows
 
 	out.Tags, out.TagEvents = marketReadTags(in)
+	out.Indications = []rpc.MarketReadIndication{}
+	switch state {
+	case rpc.MarketReadPre:
+		out.Indicated = marketReadIndicate(now, index.Prior, src, leaders.Rows)
+		out.Indications = marketReadIndications(out.Indicated, index.Prior)
+		out.RelativeUnavailable = "before the open the Nasdaq is read in indicated"
+	case rpc.MarketReadOpen:
+		out.Relative = marketReadRelate(index, src, state, prior)
+		if tag := marketReadRelativeTag(out.Relative); tag != nil {
+			out.Tags = append(out.Tags, *tag)
+		}
+	default:
+		out.RelativeUnavailable = "the session has closed; the Nasdaq beside the S&P 500 is read while it is open"
+	}
 	return out, nil
+}
+
+// marketReadIndicatedGap sets a leader's pre-market price against its prior
+// close, or says why there is none. A price that is still the prior close,
+// or a trade from before the session's day, indicates nothing about today.
+func marketReadIndicatedGap(row *rpc.MarketReadLeader, lastSource string, session marketcal.Session) {
+	loc, err := time.LoadLocation("America/New_York")
+	switch {
+	case row.PriorClose == nil:
+		row.IndicatedGapUnavailable = "prior close unavailable"
+	case row.Last == nil:
+		row.IndicatedGapUnavailable = "no pre-market price"
+	case lastSource == "prior_close":
+		row.IndicatedGapUnavailable = "no pre-market trade: the price is still the prior close"
+	case lastSource == "trade" && (err != nil || row.LastAt.In(loc).Format(time.DateOnly) != session.Date):
+		row.IndicatedGapUnavailable = "the last trade is from before today's pre-market"
+	default:
+		row.IndicatedGapPct = tapeFinite(100 * (*row.Last / *row.PriorClose - 1))
+		if row.IndicatedGapPct == nil {
+			row.IndicatedGapUnavailable = "indicated gap could not be measured"
+		}
+	}
+}
+
+// marketReadFuture is one front future's last price against its prior close,
+// or why it has none.
+func marketReadFuture(f *marketReadFutureSource, root string) (*rpc.MarketReadIndicatedFuture, string) {
+	if f == nil {
+		return nil, root + " front future not quoted"
+	}
+	last := f.Quote.Last
+	if !isFinitePrice(last) {
+		last = f.Quote.Mark
+	}
+	if !isFinitePrice(last) {
+		return nil, root + " front future quote has no price"
+	}
+	if !isFinitePrice(f.Quote.Close) {
+		return nil, root + " front future previous close not quoted"
+	}
+	change := tapeFinite(100 * (last/f.Quote.Close - 1))
+	if change == nil {
+		return nil, root + " front future change could not be measured"
+	}
+	source := root + " front future"
+	if f.Contract != "" {
+		source += " " + f.Contract
+	}
+	at := f.Quote.TradeAt
+	if at.IsZero() {
+		at = f.Quote.ObservedAt
+	}
+	return &rpc.MarketReadIndicatedFuture{Source: source, Last: last, LastAt: at, PriorClose: f.Quote.Close, ChangePct: *change}, ""
+}
+
+// marketReadIndicate measures what the pre-market prices indicate for the
+// open: the S&P 500 future's change applied to the index's prior close, the
+// Nasdaq future beside it, and the leaders by their indicated gaps.
+func marketReadIndicate(now time.Time, prior *rpc.MarketReadPrior, src marketReadSources, rows []rpc.MarketReadLeader) *rpc.MarketReadIndicated {
+	ind := &rpc.MarketReadIndicated{AsOf: now}
+	if es, reason := marketReadFuture(src.ES, "ES"); reason != "" {
+		ind.IndexUnavailable = reason
+	} else {
+		x := &rpc.MarketReadIndicatedIndex{Source: es.Source, Last: es.Last, LastAt: es.LastAt, PriorClose: es.PriorClose, ChangePct: es.ChangePct}
+		if prior == nil {
+			x.ImpliedUnavailable = "SPX prior session range unavailable"
+		} else {
+			level := prior.Close * (1 + es.ChangePct/100)
+			x.ImpliedLevel = &level
+			switch {
+			case level > prior.High:
+				x.ImpliedPosition = "above_prior_high"
+			case level < prior.Low:
+				x.ImpliedPosition = "below_prior_low"
+			default:
+				x.ImpliedPosition = "inside"
+			}
+		}
+		ind.Index = x
+	}
+	ind.Nasdaq, ind.NasdaqUnavailable = marketReadFuture(src.NQ, "NQ")
+	l := &rpc.MarketReadIndicatedLeaders{}
+	for _, row := range rows {
+		if row.IndicatedGapPct == nil || row.Last == nil {
+			continue
+		}
+		l.Quoted++
+		switch gap := *row.IndicatedGapPct; {
+		case gap >= marketReadGapMinPct:
+			l.Up++
+		case gap <= -marketReadGapMinPct:
+			l.Down++
+		default:
+			l.Flat++
+		}
+		if row.PriorLow != nil {
+			switch last, low := *row.Last, *row.PriorLow; {
+			case last < low:
+				l.BelowPriorLow++
+			case last <= low*(1+marketReadNearLowPct/100):
+				l.NearPriorLow++
+			}
+		}
+	}
+	if l.Quoted == 0 {
+		ind.LeadersUnavailable = "no leader has a pre-market price"
+	} else {
+		ind.Leaders = l
+	}
+	return ind
+}
+
+// marketReadNasdaqLine is the Nasdaq 100's day change from the index's look,
+// or from QQQ's when the index did not quote, or why neither serves.
+func marketReadNasdaqLine(ndx, qqq *broker.BriefQuote, state string, prior marketcal.Session) (*rpc.MarketReadRelativeLine, string) {
+	for _, c := range []struct {
+		q              *broker.BriefQuote
+		symbol, source string
+	}{{ndx, "NDX", "NDX index"}, {qqq, "QQQ", "QQQ ETF, the index did not quote"}} {
+		last, at, _, reason := marketReadQuoteLast(c.q, state, prior)
+		if reason != "" || !isFinitePrice(c.q.Close) {
+			continue
+		}
+		change := tapeFinite(100 * (*last/c.q.Close - 1))
+		if change == nil {
+			continue
+		}
+		return &rpc.MarketReadRelativeLine{Symbol: c.symbol, Source: c.source, Last: *last, LastAt: at, PriorClose: c.q.Close, ChangePct: *change}, ""
+	}
+	return nil, "neither the Nasdaq 100 index nor QQQ quoted a price and a previous close"
+}
+
+// marketReadRelate sets the Nasdaq 100 beside the S&P 500 by their day
+// changes, each from its own prior close.
+func marketReadRelate(index *rpc.MarketReadIndex, src marketReadSources, state string, prior marketcal.Session) *rpc.MarketReadRelative {
+	rel := &rpc.MarketReadRelative{}
+	rel.Nasdaq, rel.NasdaqUnavailable = marketReadNasdaqLine(src.NDXQuote, src.QQQQuote, state, prior)
+	var priorClose *float64
+	switch {
+	case index.Prior != nil:
+		priorClose = new(index.Prior.Close)
+	case src.SPXQuote != nil && isFinitePrice(src.SPXQuote.Close):
+		priorClose = new(src.SPXQuote.Close)
+	}
+	switch {
+	case index.Last == nil:
+		rel.SP500ChangeUnavailable = "SPX current price unavailable"
+	case priorClose == nil:
+		rel.SP500ChangeUnavailable = "SPX prior close unavailable"
+	default:
+		rel.SP500ChangePct = tapeFinite(100 * (*index.Last / *priorClose - 1))
+		if rel.SP500ChangePct == nil {
+			rel.SP500ChangeUnavailable = "SPX change could not be measured"
+		}
+	}
+	if rel.Nasdaq != nil && rel.SP500ChangePct != nil {
+		rel.SpreadPct = new(rel.Nasdaq.ChangePct - *rel.SP500ChangePct)
+	} else {
+		rel.SpreadUnavailable = "both day changes are needed"
+	}
+	return rel
 }
 
 // marketReadFirstBar is the bar that opened the session in a retained

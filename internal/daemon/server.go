@@ -523,6 +523,10 @@ type Server struct {
 	// marketHistoryFetchForTest replaces the broker read behind the shared
 	// bounded history request (market_cache.go). Tests only.
 	marketHistoryFetchForTest func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error)
+	// marketReadLookForTest replaces every quote look of market.read: an
+	// index or share line, or a futures root, for which it also names the
+	// dated contract.
+	marketReadLookForTest func(context.Context, rpc.ContractParams) (broker.BriefQuote, string, error)
 	// replayHistoryFetchForTest replaces the broker history read behind the
 	// Edge replay (replay_history.go) and stands in for an online gateway.
 	replayHistoryFetchForTest func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)
