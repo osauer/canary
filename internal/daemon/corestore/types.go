@@ -289,11 +289,9 @@ type QuiesceOptions struct {
 // Health is fail-closed mutation health. Critical failures caused by a full,
 // busy, readonly, corrupt, or I/O-failing SQLite store remain latched until an
 // explicit reopen. RecoveryEligible is true only for the narrow head-watermark
-// classes where a mutation committed but its external watermark is unproven:
-// reading the post-commit head hit the bounded context deadline, or the head
-// was read and CommitObserver failed to persist it. The live store may clear
-// that latch only after an integrity, identity, monotonic-head, and
-// external-watermark proof succeeds.
+// class where a mutation committed but CommitObserver failed to persist its
+// head. The live store may clear that latch only after an integrity, identity,
+// monotonic-head, and external-watermark proof succeeds.
 type Health struct {
 	Ready            bool
 	Code             string

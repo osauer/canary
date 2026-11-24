@@ -31,7 +31,6 @@ const walSizeLimit = 64 << 20
 type Store struct {
 	db             *sql.DB
 	path           string
-	busyTimeout    time.Duration
 	commitObserver func(AuthorityHead) error
 	healthObserver func(Health, error)
 	readHead       func(context.Context) (AuthorityHead, error)
@@ -193,7 +192,7 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 		return fail(err)
 	}
 	store := &Store{
-		db: db, path: path, busyTimeout: timeout,
+		db: db, path: path,
 		commitObserver:   opts.CommitObserver,
 		healthObserver:   opts.HealthObserver,
 		lastObservedHead: head,
@@ -481,10 +480,9 @@ func (s *Store) Close() error {
 }
 
 // Health returns mutation health. A false Ready value blocks critical
-// mutations. Only the explicitly eligible head-watermark latches (a post-commit
-// head-read timeout or a CommitObserver failure after the committed head was
-// read) can be proof-recovered in process; every other latch requires an
-// explicit reopen.
+// mutations. Only the head-watermark latch (a CommitObserver that could not
+// persist a committed head) can be proof-recovered in process; every other
+// latch requires an explicit reopen.
 func (s *Store) Health() Health {
 	s.healthMu.RLock()
 	defer s.healthMu.RUnlock()
@@ -568,6 +566,26 @@ func (s *Store) criticalMutationLocked(ctx context.Context, fn func(*sql.Tx) err
 	if err == nil {
 		err = fn(tx)
 	}
+	// The head this commit writes is read inside its own transaction, on the
+	// connection the transaction already holds. It used to be read after the
+	// commit through the pool, whose one connection the commit had just handed
+	// to a waiting reader; under machine load that wait passed its deadline and
+	// latched writes for a commit that was durable (2026-11-24 11:28, 22m48s).
+	//
+	// The in-transaction read is the committed head: the connection holds the
+	// file's exclusive lock and writeMu, so nothing else can write between this
+	// read and the commit, and a commit that returns nil makes exactly this
+	// state durable (synchronous FULL). A read after the commit could not see
+	// more: it went through the same connection's in-memory log index, so a
+	// lost commit is caught where it always was, by headNotBackTx at the next
+	// mutation and by the watermark at the next open. The head is published to
+	// the observer only after Commit returns nil. A failed or ambiguous commit
+	// publishes nothing: the watermark is a floor the database must reach, so
+	// it may lag a commit that did land but must never lead one that did not.
+	var head AuthorityHead
+	if err == nil && s.commitObserver != nil {
+		head, err = readAuthorityHead(ctx, tx)
+	}
 	if err == nil {
 		err = tx.Commit()
 	} else if tx != nil {
@@ -575,17 +593,7 @@ func (s *Store) criticalMutationLocked(ctx context.Context, fn func(*sql.Tx) err
 	}
 	latched := false
 	if err == nil && s.commitObserver != nil {
-		headCtx, cancel := context.WithTimeout(context.Background(), s.busyTimeout)
-		head, headErr := s.readCommittedHead(headCtx)
-		cancel()
-		if headErr != nil {
-			if errors.Is(headErr, context.DeadlineExceeded) {
-				latched = s.latchRecoverableHeadWatermarkTimeout()
-			} else {
-				latched = s.latchCritical(headErr) || s.latchHealth("head_watermark")
-			}
-			err = fmt.Errorf("read committed authority head: %w", headErr)
-		} else if observerErr := s.commitObserver(head); observerErr != nil {
+		if observerErr := s.commitObserver(head); observerErr != nil {
 			// The mutation is durable and its head was read; only the external
 			// watermark is unproven, so the committed head is the recovery floor.
 			latched = s.latchRecoverableObserverFailure(head)
@@ -685,11 +693,12 @@ func (s *Store) latchHealth(code string) bool {
 	return true
 }
 
-// latchRecoverableHeadWatermark records the one recovery-eligible latch class:
-// the mutation is durable but its external head watermark is unproven.
-// minimum is the newest head known durable; the proof must read a head at
-// least that new and persist it before writes may reopen.
-func (s *Store) latchRecoverableHeadWatermark(minimum AuthorityHead) bool {
+// latchRecoverableObserverFailure records the one recovery-eligible latch
+// class: a CommitObserver that could not persist a committed head. The
+// mutation is durable but its external head watermark is unproven. That head
+// is the floor: the proof must read a head at least that new and persist it
+// through the same observer before writes reopen.
+func (s *Store) latchRecoverableObserverFailure(minimum AuthorityHead) bool {
 	s.healthMu.Lock()
 	defer s.healthMu.Unlock()
 	if !s.health.Ready {
@@ -700,22 +709,6 @@ func (s *Store) latchRecoverableHeadWatermark(minimum AuthorityHead) bool {
 		Ready: false, Code: "head_watermark", BlockedAt: time.Now().UTC(), RecoveryEligible: true,
 	}
 	return true
-}
-
-// latchRecoverableHeadWatermarkTimeout covers a post-commit head read that hit
-// its bounded deadline. The caller holds writeMu, so lastObservedHead is the
-// exact head whose watermark was known durable before the just-committed
-// mutation; the committed head itself is unknown.
-func (s *Store) latchRecoverableHeadWatermarkTimeout() bool {
-	return s.latchRecoverableHeadWatermark(s.lastObservedHead)
-}
-
-// latchRecoverableObserverFailure covers a CommitObserver that could not
-// persist a successfully read committed head. That head is the floor: the
-// proof must read a head at least that new and persist it through the same
-// observer before writes reopen, exactly as for the timeout class.
-func (s *Store) latchRecoverableObserverFailure(head AuthorityHead) bool {
-	return s.latchRecoverableHeadWatermark(head)
 }
 
 // RecoverTransientHeadWatermark attempts the only supported in-process

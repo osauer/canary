@@ -173,9 +173,11 @@ and observation remain transactionally aligned, although the current schema
 stores no direct observation ID on the state row.
 
 One narrow transient can recover without reopening the daemon: if the SQLite
-commit succeeded but the bounded read of its new authority head reached its
-context deadline before the external watermark write began, every later
-mutation remains blocked while a background proof runs under the writer lock.
+commit succeeded but writing its authority head to the external watermark
+failed, every later mutation remains blocked while a background proof runs
+under the writer lock. The head is read inside the committing transaction and
+reaches the watermark only once the commit has succeeded, so a waiting reader
+cannot delay it and a failed commit never advances the watermark.
 The proof rechecks SQLite structure, foreign keys and selected payload hashes,
 requires the same authority epoch and a head no older than the last externally
 accepted head, then synchronously writes and fsyncs that current head through

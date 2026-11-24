@@ -2,13 +2,16 @@ package corestore
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 type healthTransition struct {
@@ -232,35 +235,130 @@ func TestObserverFailureRecoveryRefusesOlderOrForeignHead(t *testing.T) {
 	}
 }
 
-func TestHeadReadTimeoutLatchSharesTheRecoveryProof(t *testing.T) {
-	f := openRecoveryFixture(t)
-	if err := f.mutate(t, "warm"); err != nil {
+// A mutation whose commit lands while a reader waits for the store's one
+// connection stays Ready. The head used to be read after the commit through
+// the pool, which handed the released connection to the waiting reader first;
+// under load that wait passed the busy timeout and latched writes for a commit
+// that was durable (2026-11-24 11:28 CET, 22m48s).
+func TestACommitStaysReadyWhileAReaderWaitsForTheConnection(t *testing.T) {
+	var observed []AuthorityHead
+	store, err := Open(t.Context(), Options{
+		Path:        filepath.Join(privateTempDir(t), "daemon.db"),
+		BusyTimeout: 50 * time.Millisecond,
+		CommitObserver: func(head AuthorityHead) error {
+			observed = append(observed, head)
+			return nil
+		},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
-	observed := f.head(t)
-	realRead := f.store.readHead
-	f.store.readHead = func(context.Context) (AuthorityHead, error) { return AuthorityHead{}, context.DeadlineExceeded }
-	err := f.mutate(t, "latch")
-	if err == nil || !strings.Contains(err.Error(), "read committed authority head") {
-		t.Fatalf("timeout error=%v", err)
+	t.Cleanup(func() { _ = store.Close() })
+
+	release := make(chan struct{})
+	readerDone := make(chan error, 1)
+	var committed AuthorityHead
+	err = store.criticalMutation(t.Context(), func(tx *sql.Tx) error {
+		waits := store.db.Stats().WaitCount
+		go func() {
+			// A reader that does not take writeMu queues for the connection
+			// and, once it has it, holds it past the busy timeout.
+			conn, err := store.db.Conn(context.Background())
+			if err == nil {
+				<-release
+				err = conn.Close()
+			}
+			readerDone <- err
+		}()
+		for store.db.Stats().WaitCount == waits {
+			runtime.Gosched()
+		}
+		var err error
+		committed, err = advanceHeadTx(t.Context(), tx, 0, time.Now())
+		return err
+	})
+	close(release)
+	if readerErr := <-readerDone; readerErr != nil {
+		t.Fatal(readerErr)
 	}
-	// The committed head is unknown here, so the floor is the last head whose
-	// watermark was proven before this mutation.
-	requireEligibleHeadWatermarkLatch(t, f.store, observed)
-	seen := f.recorder.transitions(t, 1)
-	if seen[0].cause != err {
-		t.Fatalf("block transition cause=%v, want %v", seen[0].cause, err)
+	if err != nil {
+		t.Fatalf("mutation with a waiting reader = %v, want nil", err)
 	}
-	f.store.readHead = realRead
-	if recovered, err := f.store.RecoverTransientHeadWatermark(t.Context()); !recovered || err != nil {
-		t.Fatalf("timeout recovery=(%v,%v)", recovered, err)
+	if health := store.Health(); !health.Ready {
+		t.Fatalf("health after a durable commit = %+v, want Ready", health)
 	}
-	if err := f.mutate(t, "after"); err != nil {
-		t.Fatalf("mutation after recovery: %v", err)
+	if len(observed) != 1 || observed[0] != committed || store.lastObservedHead != committed {
+		t.Fatalf("observed=%+v lastObserved=%+v, want the committed head %+v once", observed, store.lastObservedHead, committed)
 	}
-	seen = f.recorder.transitions(t, 2)
-	if !seen[1].health.Ready || seen[1].cause != nil {
-		t.Fatalf("recovery transition=%+v", seen[1])
+}
+
+// A commit that fails publishes nothing: the head read inside the transaction
+// never reaches the watermark, the store keeps the last head it saw, and the
+// database keeps the old head. A watermark ahead of the database would read as
+// a rollback at the next open.
+func TestAFailedCommitPublishesNoHead(t *testing.T) {
+	var observed []AuthorityHead
+	store, err := Open(t.Context(), Options{
+		Path: filepath.Join(privateTempDir(t), "daemon.db"),
+		CommitObserver: func(head AuthorityHead) error {
+			observed = append(observed, head)
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	before, err := store.AuthorityHead(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A deferred foreign key is checked by COMMIT itself, so the statements
+	// all succeed and the commit is what fails.
+	statementsDone := false
+	err = store.criticalMutation(t.Context(), func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(t.Context(), `PRAGMA defer_foreign_keys=ON`); err != nil {
+			return err
+		}
+		if _, err := advanceHeadTx(t.Context(), tx, 0, time.Now()); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(t.Context(), `INSERT INTO consumed_preview_tokens
+(token_digest, scope_key, authority_epoch, signer_generation, head_generation, consumed_at)
+VALUES (?, 'no-such-scope', 'epoch', 1, 1, 'now')`, make([]byte, 32))
+		statementsDone = err == nil
+		return err
+	})
+	if !statementsDone {
+		t.Fatalf("the mutation failed before its commit: %v", err)
+	}
+	if err == nil || !strings.Contains(err.Error(), "FOREIGN KEY") {
+		t.Fatalf("commit with a dangling deferred key = %v, want the commit's foreign key failure", err)
+	}
+	if len(observed) != 0 || store.lastObservedHead != before {
+		t.Fatalf("a failed commit published observed=%+v lastObserved=%+v, want nothing past %+v", observed, store.lastObservedHead, before)
+	}
+	after, err := store.AuthorityHead(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("database head after a failed commit = %+v, want %+v", after, before)
+	}
+	if health := store.Health(); !health.Ready {
+		t.Fatalf("health after a refused commit = %+v, want Ready", health)
+	}
+	var next AuthorityHead
+	if err := store.criticalMutation(t.Context(), func(tx *sql.Tx) error {
+		var err error
+		next, err = advanceHeadTx(t.Context(), tx, 0, time.Now())
+		return err
+	}); err != nil {
+		t.Fatalf("mutation after a refused commit = %v", err)
+	}
+	if len(observed) != 1 || observed[0] != next || next.HeadGeneration != before.HeadGeneration+1 {
+		t.Fatalf("observed=%+v after the next commit %+v, want that head once", observed, next)
 	}
 }
 

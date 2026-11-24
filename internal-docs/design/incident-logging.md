@@ -82,12 +82,11 @@ Ready health through the same observer, and the incident closes with one WARN
 bookend carrying the blocked duration and the dependent failure count. The
 recovery loop no longer writes its own bookend.
 
-Two latch classes are recovery-eligible and share one proof (intact content,
-exact authority epoch, head no older than the latch's floor, successful
-synchronous watermark persistence): a post-commit head read that hit its
-bounded deadline, whose floor is the last proven head, and a watermark
-persistence failure after the committed head was read, whose floor is that
-committed head. Every other critical class stays latched until a restart.
+One latch class is recovery-eligible: a watermark persistence failure after a
+successful commit, whose floor is that commit's head. Its proof needs intact
+content, the exact authority epoch, a head no older than the floor and a
+successful synchronous watermark write. Every other critical class stays
+latched until a restart.
 
 ## Resource budget
 
