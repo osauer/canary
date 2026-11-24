@@ -57,7 +57,7 @@ func (s *Server) handleStrategySpreads(ctx context.Context, req *rpc.Request) (*
 	if !ok {
 		return nil, s.gatewayUnavailableError()
 	}
-	exact, err := c.ResolveOrderContractForSession(ctx, binding, ibkr.Contract{ConID: u.ConID, Symbol: u.Symbol, SecType: "STK", Currency: u.Currency, Exchange: u.Exchange}, 8*time.Second)
+	exact, err := s.addResolveContract(ctx, c, binding, ibkr.Contract{ConID: u.ConID, Symbol: u.Symbol, SecType: "STK", Currency: u.Currency, Exchange: u.Exchange}, 8*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -84,11 +84,11 @@ func (s *Server) handleStrategySpreads(ctx context.Context, req *rpc.Request) (*
 		defer cancel()
 		release(cleanup)
 	}()
-	longExact, err := c.ResolveOrderContractForSession(ctx, binding, ibkr.Contract{ConID: p.Long.ConID, Symbol: u.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: p.Long.Expiry, Strike: p.Long.Strike, Right: p.Long.Right, Multiplier: 100, TradingClass: p.Long.TradingClass}, 5*time.Second)
+	longExact, err := s.addResolveContract(ctx, c, binding, ibkr.Contract{ConID: p.Long.ConID, Symbol: u.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: p.Long.Expiry, Strike: p.Long.Strike, Right: p.Long.Right, Multiplier: 100, TradingClass: p.Long.TradingClass}, 5*time.Second)
 	if err != nil || ibkr.ValidateSetupOptionResolution(longExact, under, p.Long.Expiry, p.Long.Strike, p.Long.Right) != nil || longExact.Contract.ConID != p.Long.ConID {
 		return nil, errBadRequest("the bought option could not be resolved exactly at the broker")
 	}
-	listing, err := c.FetchSetupOptionStrikes(ctx, binding, under, 10*time.Second)
+	listing, err := s.addOptionChain(ctx, c, binding, under, 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func (s *Server) spreadShortContracts(ctx context.Context, c *ibkr.Connector, bi
 	for i, k := range beyond {
 		wg.Go(func() {
 			requested := ibkr.Contract{Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: long.Expiry, Strike: k, Right: long.Right, Multiplier: 100, TradingClass: long.TradingClass}
-			exact, err := c.ResolveOrderContractForSession(ctx, binding, requested, 5*time.Second)
+			exact, err := s.addResolveContract(ctx, c, binding, requested, 5*time.Second)
 			if err == nil && ibkr.ValidateSetupOptionResolution(exact, under, long.Expiry, k, long.Right) == nil {
 				found[i] = &exact
 			}
@@ -164,9 +164,10 @@ func (s *Server) spreadLeg(ctx context.Context, c *ibkr.Connector, binding ibkr.
 	row := rpc.AddCallCandidate{Contract: &contract, PriceIncrements: addPriceRules(ctx, c, binding, exact)}
 	switch class.of(exact).mode {
 	case "live":
-		row.Quote = s.spreadOptionQuote(ctx, c, binding, contract)
+		row.Quote = s.spreadOptionQuote(ctx, c, binding, contract, true)
 	case "planning":
-		row.Quote = s.spreadOptionQuote(ctx, c, binding, contract)
+		// A frozen quote carries no displayed sizes (addPlanningCallQuote).
+		row.Quote = s.spreadOptionQuote(ctx, c, binding, contract, false)
 		row.Planning = &rpc.AddCallPlanning{DeltaStatus: "unavailable"}
 		if mid, ok := spreadLegMid(row); ok {
 			row.Planning.Price, row.Planning.PriceSource, row.Planning.ObservedAt = &mid, "broker_midpoint", row.Quote.AsOf
@@ -202,8 +203,8 @@ func (s *Server) spreadReads() (broker.Reads, *ibkr.Connector, error) {
 // delta and volatility, read on the seam's session and kept only while that
 // session is current: live while the class trades, the broker's frozen
 // closing quote while it is closed. A failed read is a missing quote.
-func (s *Server) spreadOptionQuote(ctx context.Context, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, contract rpc.ContractParams) *rpc.SetupOptionQuote {
-	read, err := s.readExactContractQuote(ctx, c, binding, contract, setupQuoteBudget, true, true, true)
+func (s *Server) spreadOptionQuote(ctx context.Context, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, contract rpc.ContractParams, waitSizes bool) *rpc.SetupOptionQuote {
+	read, err := s.readExactContractQuote(ctx, c, binding, contract, setupQuoteBudget, true, waitSizes, true)
 	if err != nil || !c.SessionCurrent(binding) {
 		return &rpc.SetupOptionQuote{Status: rpc.SetupQuoteMissing}
 	}
@@ -363,8 +364,13 @@ func (s *Server) handleStrategySpreadPlan(ctx context.Context, req *rpc.Request)
 		need := s.readAddIndexProtection(ctx, p.Long)
 		var net, underlying *float64
 		if need.measured() && need.view.RoomBase > 0 {
-			ld, lu := s.addIndexPutModel(ctx, p.Long)
-			sd, _ := s.addIndexPutModel(ctx, p.Short)
+			// The two legs' models are read at once: each may take the
+			// quote budget while the broker computes it.
+			var ld, lu, sd *float64
+			var wg sync.WaitGroup
+			wg.Go(func() { ld, lu = s.addIndexPutModel(ctx, p.Long) })
+			wg.Go(func() { sd, _ = s.addIndexPutModel(ctx, p.Short) })
+			wg.Wait()
 			if ld != nil && sd != nil {
 				net, underlying = new(*ld-*sd), lu
 				out.NetDelta = net

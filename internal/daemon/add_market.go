@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/marketcal"
@@ -61,7 +62,7 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	started, mark := time.Now(), time.Now()
 	phase := map[string]time.Duration{}
 	lap := func(name string) { phase[name], mark = time.Since(mark), time.Now() }
-	exact, err := c.ResolveOrderContractForSession(ctx, binding, ibkr.Contract{ConID: u.ConID, Symbol: u.Symbol, SecType: "STK", Currency: u.Currency, Exchange: u.Exchange}, 8*time.Second)
+	exact, err := s.addResolveContract(ctx, c, binding, ibkr.Contract{ConID: u.ConID, Symbol: u.Symbol, SecType: "STK", Currency: u.Currency, Exchange: u.Exchange}, 8*time.Second)
 	lap("underlying")
 	if err != nil {
 		return nil, err
@@ -95,7 +96,7 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 	var expiries []rpc.SetupOptionExpiry
 	var listing map[string][]ibkr.ExpiryClassedStrikes
 	if p.Discover && session.mode != "unavailable" {
-		listing, err = c.FetchSetupOptionStrikes(ctx, binding, exact.Contract, 10*time.Second)
+		listing, err = s.addOptionChain(ctx, c, binding, exact.Contract, 10*time.Second)
 		if err != nil {
 			return nil, err
 		}
@@ -164,12 +165,12 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 					// broker's complete inventory, slower but exhaustive.
 					return c.FetchSetupExpiryOptions(ctx, binding, exact.Contract, date, side.right, 30*time.Second)
 				}
-				quote := func(call ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
-					return s.addResolvedCallForSession(ctx, side, c, binding, exact.Contract, call, class.of(call))
+				quote := func(round context.Context, call ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
+					return s.addResolvedCallForSession(round, side, c, binding, exact.Contract, call, class.of(call))
 				}
 				var spent string
 				var err error
-				row, spent, err = selectAddCallAimed(side, *spot, stockIV, dte, quote, near)
+				row, spent, err = selectAddCallAimed(ctx, side, *spot, stockIV, dte, quote, near)
 				timing[i] = fmt.Sprintf("%d:%s", target, spent)
 				// A failed inventory still answers for its horizon.
 				row.Horizon, row.DTE = target, dte
@@ -184,8 +185,14 @@ func (s *Server) handleAddMarket(ctx context.Context, req *rpc.Request) (*rpc.Ad
 			rows[i] = row
 		})
 		lap("horizons")
-		// The default log keeps warnings only; a slow discovery is one.
-		if time.Since(started) > 8*time.Second {
+		// The default log keeps warnings only; a discovery past its budget
+		// is one: rows in 3 s while the options session is open, 1.5 s on
+		// planning prices while it is closed (the owner's aim, 2026-11-24).
+		budget := 3 * time.Second
+		if session.mode != "live" {
+			budget = 1500 * time.Millisecond
+		}
+		if time.Since(started) > budget {
 			s.warnf("add.slow symbol=%s underlying_ms=%d rules_ms=%d listing_ms=%d spot_ms=%d horizons_ms=%d %s total_ms=%d", u.Symbol, phase["underlying"].Milliseconds(), phase["rules"].Milliseconds(), phase["listing"].Milliseconds(), phase["spot"].Milliseconds(), phase["horizons"].Milliseconds(), strings.Join(timing, " "), time.Since(started).Milliseconds())
 		}
 	}
@@ -274,23 +281,56 @@ func addInventoryFailureReason(err error) string {
 
 // Quote only the nearest actual contracts for this expiry. The broker's
 // separate SecDef expiry/strike sets must never consume these three slots.
-func selectAddCall(side addSide, calls []ibkr.ResolvedOrderContract, spot float64, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate) rpc.AddCallCandidate {
-	row, _ := selectAddCallNear(side, calls, spot, quote)
+func selectAddCall(ctx context.Context, side addSide, calls []ibkr.ResolvedOrderContract, spot float64, quote addQuote) rpc.AddCallCandidate {
+	row, _ := selectAddCallNear(ctx, side, calls, spot, quote)
 	return row
 }
 
+// addQuote reads one candidate's quote within ctx, which a round ends early
+// (selectAddCallNear).
+type addQuote func(context.Context, ibkr.ResolvedOrderContract) rpc.AddCallCandidate
+
+// addUsableCall reports whether a candidate could stand as its row: a live
+// in-range call, or a priced planning call. An answer outside the delta band
+// does not end its round's wait for the others.
+func addUsableCall(side addSide, row rpc.AddCallCandidate) bool {
+	return eligibleAddCall(side, row, time.Now()) || selectableAddPlanningCall(row) && row.Planning.Price != nil
+}
+
+// addRoundGrace is how long a round's other quotes may run on once one of
+// them has answered as a usable call (addUsableCall). Without it a strike the broker never quotes held its
+// whole round, and so its horizon and the whole discovery, for the full
+// quote budget: one of four strikes on 2026-11-24 before the open. A quote
+// that answers inside the grace still competes; one that does not is a
+// missing quote. Until the first answer the full budget stands, since a
+// frozen quote after a daemon restart has taken longer than 1.5 s.
+const addRoundGrace = time.Second
+
 // selectAddCallNear quotes the three actual contracts nearest ref at once and
-// keeps the best of them (pickAddCall). It also returns an implied
-// volatility it observed, to aim a further round.
-func selectAddCallNear(side addSide, calls []ibkr.ResolvedOrderContract, ref float64, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate) (rpc.AddCallCandidate, float64) {
+// keeps the best of them (pickAddCall). Once one has answered as a usable
+// call, the others get addRoundGrace. It also returns an implied volatility it
+// observed, to aim a further round.
+func selectAddCallNear(ctx context.Context, side addSide, calls []ibkr.ResolvedOrderContract, ref float64, quote addQuote) (rpc.AddCallCandidate, float64) {
 	calls = slices.Clone(calls)
 	slices.SortFunc(calls, func(a, b ibkr.ResolvedOrderContract) int {
 		return compareDistance(a.Contract.Strike, b.Contract.Strike, ref)
 	})
 	candidates := make([]rpc.AddCallCandidate, min(3, len(calls)))
+	round, end := context.WithCancel(ctx)
+	defer end()
+	var answered sync.Once
+	var graceEnded atomic.Bool
+	cut := make([]bool, len(candidates))
 	var wg sync.WaitGroup
 	for i := range candidates {
-		wg.Go(func() { candidates[i] = quote(calls[i]) })
+		wg.Go(func() {
+			candidates[i] = quote(round, calls[i])
+			if addUsableCall(side, candidates[i]) {
+				answered.Do(func() { time.AfterFunc(addRoundGrace, func() { graceEnded.Store(true); end() }) })
+			} else if graceEnded.Load() && ctx.Err() == nil {
+				cut[i] = true
+			}
+		})
 	}
 	wg.Wait()
 	iv := 0.0
@@ -299,7 +339,17 @@ func selectAddCallNear(side addSide, calls []ibkr.ResolvedOrderContract, ref flo
 			iv = *q.IV
 		}
 	}
-	return pickAddCall(side, candidates...), iv
+	row := pickAddCall(side, candidates...)
+	if row.Contract != nil {
+		// Say on the row which strikes it was chosen without: a late quote
+		// is never silently passed over.
+		for i, c := range calls[:len(candidates)] {
+			if cut[i] {
+				row.UnansweredStrikes = append(row.UnansweredStrikes, c.Contract.Strike)
+			}
+		}
+	}
+	return row, iv
 }
 
 // pickAddCall keeps, in order: a live in-range option nearest its band's
@@ -342,7 +392,7 @@ func pickAddCall(side addSide, candidates ...rpc.AddCallCandidate) rpc.AddCallCa
 // repeats the first when no quote returned one (a missed quote window). The
 // better call of the two rounds is kept, so a miss in one cannot empty the
 // row. It also says what each round took, in milliseconds.
-func selectAddCallAimed(side addSide, spot, stockIV float64, dte int, quote func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate, near func(float64) ([]ibkr.ResolvedOrderContract, error)) (rpc.AddCallCandidate, string, error) {
+func selectAddCallAimed(ctx context.Context, side addSide, spot, stockIV float64, dte int, quote addQuote, near func(float64) ([]ibkr.ResolvedOrderContract, error)) (rpc.AddCallCandidate, string, error) {
 	band := side.bandForDTE(dte)
 	// The aim formula solves for a call's delta; a put of delta -d sits
 	// where the call's delta is 1-d.
@@ -359,7 +409,7 @@ func selectAddCallAimed(side addSide, spot, stockIV float64, dte int, quote func
 			return rpc.AddCallCandidate{}, 0, err
 		}
 		started = time.Now()
-		row, iv := selectAddCallNear(side, calls, ref, quote)
+		row, iv := selectAddCallNear(ctx, side, calls, ref, quote)
 		notes = append(notes, fmt.Sprintf("resolve=%d,quote=%d", looked.Milliseconds(), time.Since(started).Milliseconds()))
 		return row, iv, nil
 	}
@@ -450,7 +500,7 @@ func (s *Server) addCallMarket(ctx context.Context, side addSide, c *ibkr.Connec
 		return row
 	}
 	requested := ibkr.Contract{Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: expiry, Strike: strike, Right: side.right, Multiplier: 100, TradingClass: under.Symbol}
-	exact, err := c.ResolveOrderContractForSession(ctx, binding, requested, 5*time.Second)
+	exact, err := s.addResolveContract(ctx, c, binding, requested, 5*time.Second)
 	if err != nil || ibkr.ValidateSetupOptionResolution(exact, under, expiry, strike, side.right) != nil {
 		return row
 	}
@@ -635,12 +685,15 @@ func (s *Server) addResolvedCallForSession(ctx context.Context, side addSide, c 
 // The broker's frozen closing quote is the only closed-session price: it
 // returned no option daily bars on 2026-10-22, and after a daemon restart its
 // frozen quote took longer than 1.5 s, so this read gets the setup budget.
+// It does not wait for displayed sizes: a frozen quote carries none (both
+// sides and the model, no sizes, on 2026-11-24), and waiting for them spent
+// the whole budget on every closed-session quote.
 func (s *Server) addPlanningCallQuote(ctx context.Context, c *ibkr.Connector, binding ibkr.ConnectorSessionBinding, call rpc.ContractParams) *rpc.SetupOptionQuote {
 	authority := s.setupQuoteAuthority(c, binding)
 	if authority == nil {
 		return &rpc.SetupOptionQuote{Status: rpc.SetupQuoteMissing}
 	}
-	snap, evidence, err := s.exactSessionContractQuoteModel(ctx, authority, call, setupQuoteBudget, true, true, true)
+	snap, evidence, err := s.exactSessionContractQuoteModel(ctx, authority, call, setupQuoteBudget, true, false, true)
 	if err != nil {
 		return &rpc.SetupOptionQuote{Status: rpc.SetupQuoteMissing}
 	}
@@ -686,7 +739,7 @@ func (s *Server) addNearestExpiryCalls(ctx context.Context, side addSide, c *ibk
 	}
 	return nearestResolvedCalls(listed, spot, func(k float64) (ibkr.ResolvedOrderContract, error) {
 		requested := ibkr.Contract{Symbol: under.Symbol, SecType: "OPT", Exchange: "SMART", Currency: "USD", Expiry: expiry, Strike: k, Right: side.right, Multiplier: 100, TradingClass: under.Symbol}
-		exact, err := c.ResolveOrderContractForSession(ctx, binding, requested, 5*time.Second)
+		exact, err := s.addResolveContract(ctx, c, binding, requested, 5*time.Second)
 		if err == nil {
 			err = ibkr.ValidateSetupOptionResolution(exact, under, expiry, k, side.right)
 		}

@@ -37,6 +37,11 @@ type AddCallCandidate struct {
 	// HedgeRoomContracts is, for a put on a hedge symbol, the contracts of
 	// this row that still fit under rule 12's over-hedge line.
 	HedgeRoomContracts *int `json:"hedge_room_contracts,omitempty"`
+	// UnansweredStrikes are the strikes quoted beside this row whose quotes
+	// had not answered when the round stopped waiting (one second after its
+	// first usable answer): the row was chosen without them, and one of them
+	// might have been nearer the delta target.
+	UnansweredStrikes []float64 `json:"unanswered_strikes,omitempty"`
 }
 
 // AddDeltaBand bounds a suggested option's live delta, inclusive, and names

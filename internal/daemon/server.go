@@ -239,6 +239,10 @@ type Server struct {
 	serverCtx    context.Context
 	serverCancel context.CancelFunc
 
+	// addContracts keeps option discovery's contract and chain lookups for
+	// the trading day (add_contract_cache.go).
+	addContracts addContractCache
+
 	orderLifecycleHandlersMu sync.Mutex
 	orderLifecycleHandlers   map[*ibkrlib.Connector]*orderLifecycleJournalBinding
 	// orderEndpointLogged remembers, per order and socket, that the daemon

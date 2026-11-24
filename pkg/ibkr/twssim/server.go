@@ -46,6 +46,11 @@ type Options struct {
 	// WhatIfDelay holds each WhatIf answer back this long, as a broker's
 	// margin simulation takes time (IBKR answers in about 50 to 150 ms).
 	WhatIfDelay time.Duration
+	// DefinitionDelay holds each contract-details and option-chain answer
+	// back this long, each on its own, as the broker answers lookups in
+	// parallel and each takes time (IBKR answered option contract details
+	// in about one to three seconds a horizon on 2026-11-24).
+	DefinitionDelay time.Duration
 	// RejectLegOpenClose answers a BAG whose leg carries an open/close
 	// instruction (1 open, 2 close) with error 10123, as an account that
 	// accepts only Same on combination legs does (assumed).
@@ -65,6 +70,7 @@ type Server struct {
 	rejectAttached     bool
 	childOnExpiry      string
 	whatIfDelay        time.Duration
+	definitionDelay    time.Duration
 	rejectLegOpenClose bool
 	done               chan struct{}
 	closeOne           sync.Once
@@ -96,7 +102,7 @@ func Listen(opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{ln: ln, book: opts.Book, now: opts.Now, rec: opts.Recorder, every: opts.AccountTimeEvery, rejectAttached: opts.RejectAttachedOrders, childOnExpiry: opts.ChildOnPartialExpiry, whatIfDelay: opts.WhatIfDelay, rejectLegOpenClose: opts.RejectLegOpenClose, closed: map[string]bool{}, done: make(chan struct{}), nextID: 1}
+	s := &Server{ln: ln, book: opts.Book, now: opts.Now, rec: opts.Recorder, every: opts.AccountTimeEvery, rejectAttached: opts.RejectAttachedOrders, childOnExpiry: opts.ChildOnPartialExpiry, whatIfDelay: opts.WhatIfDelay, definitionDelay: opts.DefinitionDelay, rejectLegOpenClose: opts.RejectLegOpenClose, closed: map[string]bool{}, done: make(chan struct{}), nextID: 1}
 	if s.book == nil {
 		s.book = Default()
 	}
@@ -517,16 +523,28 @@ func contractQueryOf(fs []string, at int) contractQuery {
 
 func (ss *session) contractDetails(reqID int, q contractQuery) {
 	found := ss.srv.book.lookupContract(q)
-	if len(found) == 0 {
-		ss.fail(reqID, 200, noSecurityDefinition)
+	ss.afterDefinitionDelay(func() {
+		if len(found) == 0 {
+			ss.fail(reqID, 200, noSecurityDefinition)
+			return
+		}
+		var out [][]byte
+		for _, in := range found {
+			out = append(out, textMessage(msgContractDetails, contractDetailsFields(reqID, in)...))
+		}
+		out = append(out, textMessage(msgContractDetailsEnd, "1", itoa(reqID)))
+		ss.send(out...)
+	})
+}
+
+// afterDefinitionDelay answers a lookup now, or after DefinitionDelay on its
+// own goroutine, so lookups in flight overlap as the broker's do.
+func (ss *session) afterDefinitionDelay(answer func()) {
+	if ss.srv.definitionDelay <= 0 {
+		answer()
 		return
 	}
-	var out [][]byte
-	for _, in := range found {
-		out = append(out, textMessage(msgContractDetails, contractDetailsFields(reqID, in)...))
-	}
-	out = append(out, textMessage(msgContractDetailsEnd, "1", itoa(reqID)))
-	ss.send(out...)
+	time.AfterFunc(ss.srv.definitionDelay, answer)
 }
 
 // contractDetailsFields is the server-version-203 contractData layout (no
@@ -561,6 +579,10 @@ const optionPositionExchange = "AMEX"
 // the end; an underlying with no options gets the end alone.
 func (ss *session) optionParams(reqID int, symbol string, underConID int) {
 	class, expiries, strikes := ss.srv.book.optionChain(underConID, symbol)
+	ss.afterDefinitionDelay(func() { ss.sendOptionParams(reqID, underConID, class, expiries, strikes) })
+}
+
+func (ss *session) sendOptionParams(reqID, underConID int, class string, expiries []string, strikes []float64) {
 	var out [][]byte
 	if len(expiries) > 0 {
 		fields := []string{itoa(reqID), "SMART", itoa(underConID), class, "100", itoa(len(expiries))}
@@ -610,6 +632,13 @@ func (ss *session) marketData(reqID int, cq contractQuery, snapshot bool) {
 	if feed == FeedDelayed {
 		dataType = "3"
 	}
+	// An option whose market is closed answers as IBKR did on 2026-11-24
+	// before the US open: frozen (type 2), both sides and the model, no
+	// displayed bid or ask size.
+	frozen := found[0].SecType == "OPT" && feed != FeedDelayed && !ss.srv.sessionOpen(marketOf(found[0]))
+	if frozen {
+		dataType = "2"
+	}
 	out := [][]byte{textMessage(msgMarketDataType, "1", id, dataType)}
 	price := func(tick int, v float64) {
 		if v > 0 {
@@ -623,7 +652,7 @@ func (ss *session) marketData(reqID int, cq contractQuery, snapshot bool) {
 	price(tickAsk, q.ask)
 	price(tickLast, q.last)
 	price(tickClose, q.close)
-	if q.bid > 0 {
+	if q.bid > 0 && !frozen {
 		size(tickBidSize, 100)
 		size(tickAskSize, 100)
 	}

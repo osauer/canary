@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"strings"
@@ -28,7 +29,7 @@ func TestAddClosedPlanningRetainsPricesWithoutGrantingLiveEligibility(t *testing
 			if err := json.Unmarshal(raw, &row); err != nil {
 				t.Fatal(err)
 			}
-			got := selectAddCall(testCallSide, []ibkr.ResolvedOrderContract{{Contract: ibkr.Contract{Strike: 110}}}, 110, func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate { return row })
+			got := selectAddCall(context.Background(), testCallSide, []ibkr.ResolvedOrderContract{{Contract: ibkr.Contract{Strike: 110}}}, 110, func(context.Context, ibkr.ResolvedOrderContract) rpc.AddCallCandidate { return row })
 			if got.Contract == nil {
 				t.Fatal("closed-session planning price was discarded")
 			}
@@ -101,7 +102,7 @@ func TestAddPlanningSkipsKnownOutOfRangeAndKeepsMissingDeltaUnqualified(t *testi
 	calls := []ibkr.ResolvedOrderContract{{Contract: ibkr.Contract{Strike: 100}}, {Contract: ibkr.Contract{Strike: 105}}, {Contract: ibkr.Contract{Strike: 110}}}
 	var quoted []float64
 	var mu sync.Mutex
-	got := selectAddCall(testCallSide, calls, 105, func(exact ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
+	got := selectAddCall(context.Background(), testCallSide, calls, 105, func(_ context.Context, exact ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
 		strike := exact.Contract.Strike
 		mu.Lock()
 		quoted = append(quoted, strike)
@@ -127,7 +128,7 @@ func TestAddPlanningPrefersKnownInRangeDeltaOverNearerUnknown(t *testing.T) {
 	calls := []ibkr.ResolvedOrderContract{{Contract: ibkr.Contract{Strike: 100}}, {Contract: ibkr.Contract{Strike: 105}}, {Contract: ibkr.Contract{Strike: 110}}}
 	var quoted []float64
 	var mu sync.Mutex
-	got := selectAddCall(testCallSide, calls, 105, func(exact ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
+	got := selectAddCall(context.Background(), testCallSide, calls, 105, func(_ context.Context, exact ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
 		strike := exact.Contract.Strike
 		mu.Lock()
 		quoted = append(quoted, strike)

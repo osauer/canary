@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"github.com/osauer/canary/v3/internal/rpc"
@@ -24,7 +25,7 @@ func TestAddCallSelectionUsesActualExpiryInventory(t *testing.T) {
 	}
 	var quoted []float64
 	var mu sync.Mutex
-	quote := func(exact ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
+	quote := func(_ context.Context, exact ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
 		k := exact.Contract.Strike
 		mu.Lock()
 		quoted = append(quoted, k)
@@ -40,13 +41,13 @@ func TestAddCallSelectionUsesActualExpiryInventory(t *testing.T) {
 		return rpc.AddCallCandidate{Contract: &contract, PriceIncrements: []rpc.SetupOptionPriceIncrement{{LowEdge: 0, Increment: .01}}, Quote: &rpc.SetupOptionQuote{Status: rpc.SetupQuoteQuoted, DataType: rpc.MarketDataLive, ModelDataType: rpc.MarketDataLive, AsOf: now, ModelAsOf: now, IV: new(.2), Delta: &delta}}
 	}
 	union := []ibkr.ResolvedOrderContract{call(765), call(770), call(772), call(773), call(774), call(775), call(780)}
-	before := selectAddCall(testCallSide, union, 772.94, quote)
+	before := selectAddCall(context.Background(), testCallSide, union, 772.94, quote)
 	if before.Contract != nil || !reflect.DeepEqual(sortedStrikes(quoted), []float64{772, 773, 774}) {
 		t.Fatalf("fixture did not reproduce the old union probe failure: %+v %v", before, quoted)
 	}
 	quoted = nil
 	actual := []ibkr.ResolvedOrderContract{call(765), call(770), call(775), call(780)}
-	after := selectAddCall(testCallSide, actual, 772.94, quote)
+	after := selectAddCall(context.Background(), testCallSide, actual, 772.94, quote)
 	if after.Contract == nil || after.Contract.Strike != 770 || !reflect.DeepEqual(sortedStrikes(quoted), []float64{770, 775, 780}) {
 		t.Fatalf("valid expiry call not selected: %+v %v", after, quoted)
 	}
@@ -60,7 +61,7 @@ func TestAddCallSelectionKeepsQuoteBoundAndEligibility(t *testing.T) {
 				calls[i].Contract.Strike = 100 + float64(i)
 			}
 			var count atomic.Int32
-			got := selectAddCall(testCallSide, calls, 100, func(ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
+			got := selectAddCall(context.Background(), testCallSide, calls, 100, func(context.Context, ibkr.ResolvedOrderContract) rpc.AddCallCandidate {
 				count.Add(1)
 				now := time.Now()
 				q := &rpc.SetupOptionQuote{Status: rpc.SetupQuoteQuoted, DataType: rpc.MarketDataLive, ModelDataType: rpc.MarketDataLive, AsOf: now, ModelAsOf: now, IV: new(.2), Delta: new(.6)}
