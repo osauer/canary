@@ -3,9 +3,11 @@ package daemon
 import (
 	"fmt"
 	"maps"
+	"math"
 	"math/rand/v2"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -88,29 +90,64 @@ func TestOrderJournalKeyAliasesMatchesTheReference(t *testing.T) {
 	}
 }
 
-// The alias pass and the projection build are linear in the journal: at
-// 50,000 events a rebuild costs a fraction of a second, not seconds.
-func TestOrderJournalProjectionBuildIsLinear(t *testing.T) {
+// syntheticOrderJournal is n events over n/10 working sell orders: a send
+// attempt and nine status updates each.
+func syntheticOrderJournal(n int) []orderJournalEvent {
 	base := time.Date(2026, 11, 1, 14, 0, 0, 0, time.UTC)
-	events := make([]orderJournalEvent, 0, 50000)
-	for i := range 50000 {
-		order := i / 10
-		ev := orderJournalEvent{At: base.Add(time.Duration(i) * time.Second), Type: orderJournalEventStatusUpdated, OrderRef: fmt.Sprintf("ref%05d", order),
-			ReservedOrderID: 1000 + order, ClientID: 15, Account: "U1234567", Endpoint: "127.0.0.1:4001", Mode: "live", Symbol: "SYNA", SecType: "STK", ConID: 900001,
-			Action: "SELL", OrderType: "LMT", Quantity: 10, Status: "Submitted", PermID: 500000 + order}
-		if i%10 == 0 {
-			ev.Type = orderJournalEventSendAttempted
+	events := make([]orderJournalEvent, 0, n)
+	for i := range n {
+		events = append(events, syntheticOrderJournalEvent(base, i))
+	}
+	return events
+}
+
+func syntheticOrderJournalEvent(base time.Time, i int) orderJournalEvent {
+	order := i / 10
+	ev := orderJournalEvent{At: base.Add(time.Duration(i) * time.Second), Type: orderJournalEventStatusUpdated, OrderRef: fmt.Sprintf("ref%05d", order),
+		ReservedOrderID: 1000 + order, ClientID: 15, Account: "U1234567", Endpoint: "127.0.0.1:4001", Mode: "live", Symbol: "SYNA", SecType: "STK", ConID: 900001,
+		Action: "SELL", OrderType: "LMT", Quantity: 10, Status: "Submitted", PermID: 500000 + order}
+	if i%10 == 0 {
+		ev.Type = orderJournalEventSendAttempted
+	}
+	return ev
+}
+
+// fastestOf is the shortest of reps timings of f, after a collection, so a
+// busy machine slows a measurement down without changing the comparison.
+func fastestOf(reps int, f func()) time.Duration {
+	best := time.Duration(math.MaxInt64)
+	for range reps {
+		runtime.GC()
+		start := time.Now()
+		f()
+		best = min(best, time.Since(start))
+	}
+	return best
+}
+
+// The alias pass and the projection build are linear in the journal. The
+// build is timed at two sizes in the same process, so the comparison holds
+// on any machine: four times the events cost about four times as much, and
+// at most eight. A pass quadratic in the journal costs sixteen times as much
+// (the old alias pass, kept above as the reference, took seconds at 50,000).
+func TestOrderJournalProjectionBuildIsLinear(t *testing.T) {
+	const small, large = 12500, 50000
+	build := func(events []orderJournalEvent) func() {
+		return func() {
+			if views := buildOrderViews(events); len(views) != len(events)/10 {
+				t.Fatalf("%d views from %d events", len(views), len(events))
+			}
+			_ = buildOrderEventsByKey(events)
 		}
-		events = append(events, ev)
 	}
-	start := time.Now()
-	views := buildOrderViews(events)
-	_ = buildOrderEventsByKey(events)
-	if took := time.Since(start); took > 1500*time.Millisecond || len(views) != 5000 {
-		t.Fatalf("a 50,000-event rebuild took %s (%d views)", took, len(views))
-	} else {
-		t.Logf("a 50,000-event rebuild took %s", took)
+	smallEvents, largeEvents := syntheticOrderJournal(small), syntheticOrderJournal(large)
+	tSmall := fastestOf(3, build(smallEvents))
+	tLarge := fastestOf(3, build(largeEvents))
+	ratio := float64(tLarge) / float64(tSmall)
+	if ratio > 8 {
+		t.Fatalf("four times the journal cost %.1f times as much to build (%s at %d events, %s at %d): not linear", ratio, tSmall, small, tLarge, large)
 	}
+	t.Logf("build: %s at %d events, %s at %d (x%.1f)", tSmall, small, tLarge, large, ratio)
 }
 
 // The read cache decodes only what was appended since its last read, and the
@@ -264,35 +301,30 @@ func buildOrderViewsByKey(v []rpc.OrderView) map[string]rpc.OrderView {
 	return out
 }
 
-// At 50,000 events an appended status folds in place in milliseconds.
+// An appended status folds into its one order: it never folds the whole
+// journal again. Timed in the same process, an append at 50,000 events costs
+// a small fraction of a whole fold of them (about a hundredth measured;
+// failing at a tenth), so an append that refolds the journal fails on any
+// machine and a slow one passes.
 func TestOrderReadStateAppendIsFast(t *testing.T) {
+	const n = 50000
 	base := time.Date(2026, 11, 1, 14, 0, 0, 0, time.UTC)
-	events := make([]orderJournalEvent, 0, 50000)
-	mk := func(i int) orderJournalEvent {
-		order := i / 10
-		ev := orderJournalEvent{At: base.Add(time.Duration(i) * time.Second), Type: orderJournalEventStatusUpdated, OrderRef: fmt.Sprintf("ref%05d", order),
-			ReservedOrderID: 1000 + order, ClientID: 15, Account: "U1234567", Endpoint: "127.0.0.1:4001", Mode: "live", Symbol: "SYNA", SecType: "STK", ConID: 900001,
-			Action: "SELL", OrderType: "LMT", Quantity: 10, Status: "Submitted", PermID: 500000 + order}
-		if i%10 == 0 {
-			ev.Type = orderJournalEventSendAttempted
+	events := syntheticOrderJournal(n)
+	var state *orderReadState
+	whole := fastestOf(3, func() { state = newOrderReadState(events) })
+	const appends = 32
+	perAppend := fastestOf(3, func() {
+		st := state
+		for i := range appends {
+			next, ok := st.apply([]orderJournalEvent{syntheticOrderJournalEvent(base, n-10+i%10)})
+			if !ok {
+				t.Fatal("an acknowledged order's status did not fold in place")
+			}
+			st = next
 		}
-		return ev
+	}) / appends
+	if perAppend*10 > whole {
+		t.Fatalf("an append took %s against %s for a whole fold of %d events: it is not folding in place", perAppend, whole, n)
 	}
-	for i := range 50000 {
-		events = append(events, mk(i))
-	}
-	state := newOrderReadState(events)
-	start := time.Now()
-	for i := range 32 {
-		next, ok := state.apply([]orderJournalEvent{mk(49990 + i%10)})
-		if !ok {
-			t.Fatal("an acknowledged order's status did not fold in place")
-		}
-		state = next
-	}
-	if per := time.Since(start) / 32; per > 25*time.Millisecond {
-		t.Fatalf("an append took %s", per)
-	} else {
-		t.Logf("an append took %s at 50,000 events", per)
-	}
+	t.Logf("an append took %s, a whole fold %s, at %d events", perAppend, whole, n)
 }
