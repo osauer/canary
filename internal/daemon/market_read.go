@@ -50,6 +50,8 @@ type marketReadCache struct {
 	flight    chan struct{}
 	requested map[string]time.Time
 	seeded    string
+	// scope is the account scope the result was read in.
+	scope brokerStateScope
 }
 
 // The contracts a read uses, spelled as the daemon's other readers spell
@@ -83,8 +85,14 @@ func (s *Server) handleMarketRead(ctx context.Context, req *rpc.Request) (*rpc.M
 		return nil, errBadRequest(err.Error())
 	}
 	cache := &s.marketRead
+	// The held block names the account's underlyings, so a read serves only
+	// the account scope it was taken in.
+	scope := s.currentBrokerStateScope()
 	for {
 		cache.mu.Lock()
+		if cache.result != nil && cache.scope != scope {
+			cache.result = nil
+		}
 		age := s.nowUTC().Sub(cache.at)
 		if cache.result != nil && age < marketReadCacheFor {
 			result := cache.result
@@ -116,7 +124,7 @@ func (s *Server) handleMarketRead(ctx context.Context, req *rpc.Request) (*rpc.M
 		cache.mu.Lock()
 		cache.flight = nil
 		if err == nil {
-			cache.result, cache.at = result, s.nowUTC()
+			cache.result, cache.at, cache.scope = result, s.nowUTC(), scope
 		}
 		cache.mu.Unlock()
 		close(flight)
@@ -141,6 +149,11 @@ type marketReadSources struct {
 	// NDX and QQQ are looked at while the session is open; QQQ stands in
 	// when the index does not quote.
 	NDXQuote, QQQQuote *broker.BriefQuote
+	// Held is one source per held underlying; HeldUnavailable says why there
+	// are none and HeldTruncated that the cap cut the list.
+	Held            []marketReadHeldSource
+	HeldUnavailable string
+	HeldTruncated   bool
 }
 
 // marketReadFutureSource is one look at a front future: the dated contract
@@ -279,6 +292,7 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 		quote(&src.NDXQuote, marketReadNDX, false)
 		quote(&src.QQQQuote, marketReadQQQ, false)
 	}
+	s.acquireMarketReadHeld(ctx, reads, contracts, &wg, set, daily, &src)
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -295,6 +309,7 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 	mu.Lock()
 	got := src
 	got.Leaders = append([]marketReadLeaderSource(nil), src.Leaders...)
+	got.Held = append([]marketReadHeldSource(nil), src.Held...)
 	mu.Unlock()
 	out, err := assembleMarketRead(now, sessions, got)
 	if err == nil && state != rpc.MarketReadClosed && out.Index.Volume != nil && out.Index.Volume.BaselineSessions < marketReadBaselineMinSessions {
@@ -629,59 +644,14 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	// Leaders.
 	leaders := &rpc.MarketReadLeaders{Method: tapeLeaderMethod + ", one share line per company", Rows: []rpc.MarketReadLeader{}}
 	for _, l := range src.Leaders {
-		row := rpc.MarketReadLeader{Symbol: l.Symbol}
-		if bar := marketReadDailyBar(l.Daily, l.Symbol, prior.Date); bar != nil {
-			row.PriorClose, row.PriorCloseSource = new(bar.Value), "daily_bar"
-			if bar.Low != nil {
-				row.PriorLow = new(*bar.Low)
-			}
-		} else if state != rpc.MarketReadClosed && l.Quote != nil && isFinitePrice(l.Quote.Close) {
-			// Before and during the session the quote's previous close is the
-			// prior session's close. After the close it can already name
-			// today's, so it stands in only until then. The prior low has no
-			// such stand-in.
-			row.PriorClose, row.PriorCloseSource = new(l.Quote.Close), "quote_previous_close"
-		}
-		var lastSource string
-		row.Last, row.LastAt, lastSource, _ = marketReadQuoteLast(l.Quote, state, session, prior)
-		if state == rpc.MarketReadPre {
-			marketReadIndicatedGap(&row, lastSource)
-		}
-		closing := marketReadDailyBar(l.Daily, l.Symbol, session.Date)
-		if state == rpc.MarketReadClosed {
-			// A closed session is read at its close, never at a later print.
-			row.Last, row.LastAt = nil, time.Time{}
-			if closing != nil {
-				row.Last, row.LastAt = new(closing.Value), session.Close.UTC()
-			}
-		}
-		if state == rpc.MarketReadClosed && closing != nil && closing.Open != nil && isFinitePrice(*closing.Open) {
-			row.Open, row.OpenSource = new(*closing.Open), "daily_bar"
-		} else if state != rpc.MarketReadPre {
-			// Before the open the opening tick still names the last session.
-			if l.Quote != nil && isFinitePrice(l.Quote.Open) {
-				row.Open, row.OpenSource = new(l.Quote.Open), "session_open"
-			} else if first := marketReadFirstBar(l.Intraday, l.Symbol, session); first != nil {
-				row.Open, row.OpenSource = new(first.Open), "first_bar"
-			} else {
-				row.StateUnavailable = "session open not quoted and no intraday bar retained"
-			}
-		}
-		switch {
-		case state == rpc.MarketReadPre:
-			row.StateUnavailable = "the session has not opened"
-		case state == rpc.MarketReadClosed && closing == nil:
-			row.StateUnavailable = "the session's close is not yet in the daily bars"
-		default:
-			marketReadLeaderState(&row)
-		}
-		leaders.Rows = append(leaders.Rows, row)
+		leaders.Rows = append(leaders.Rows, marketReadLeaderRow(l, state, session, prior))
 	}
 	leaders.GappedUp, leaders.HoldingGapUp = marketReadLeaderCounts(leaders.Rows)
 	leaders.GappedDown, leaders.HoldingGapDown, _ = marketReadLeaderDownCounts(leaders.Rows)
 	_, leaders.BelowPriorLow = marketReadLeaderBelowPriorLow(leaders.Rows)
 	out.Leaders = leaders
 	in.Leaders = leaders.Rows
+	out.Held = marketReadHeldBlock(now, state, session, prior, src, leaders.Rows)
 
 	out.Tags, out.TagEvents = marketReadTags(in)
 	out.Indications = []rpc.MarketReadIndication{}
@@ -699,6 +669,58 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 		out.RelativeUnavailable = "the session has closed; the Nasdaq beside the S&P 500 is read while it is open"
 	}
 	return out, nil
+}
+
+// marketReadLeaderRow reads one company against its opening gap: its prior
+// close and low, its open, its last and its state.
+func marketReadLeaderRow(l marketReadLeaderSource, state string, session, prior marketcal.Session) rpc.MarketReadLeader {
+	row := rpc.MarketReadLeader{Symbol: l.Symbol}
+	if bar := marketReadDailyBar(l.Daily, l.Symbol, prior.Date); bar != nil {
+		row.PriorClose, row.PriorCloseSource = new(bar.Value), "daily_bar"
+		if bar.Low != nil {
+			row.PriorLow = new(*bar.Low)
+		}
+	} else if state != rpc.MarketReadClosed && l.Quote != nil && isFinitePrice(l.Quote.Close) {
+		// Before and during the session the quote's previous close is the
+		// prior session's close. After the close it can already name
+		// today's, so it stands in only until then. The prior low has no
+		// such stand-in.
+		row.PriorClose, row.PriorCloseSource = new(l.Quote.Close), "quote_previous_close"
+	}
+	var lastSource string
+	row.Last, row.LastAt, lastSource, _ = marketReadQuoteLast(l.Quote, state, session, prior)
+	if state == rpc.MarketReadPre {
+		marketReadIndicatedGap(&row, lastSource)
+	}
+	closing := marketReadDailyBar(l.Daily, l.Symbol, session.Date)
+	if state == rpc.MarketReadClosed {
+		// A closed session is read at its close, never at a later print.
+		row.Last, row.LastAt = nil, time.Time{}
+		if closing != nil {
+			row.Last, row.LastAt = new(closing.Value), session.Close.UTC()
+		}
+	}
+	if state == rpc.MarketReadClosed && closing != nil && closing.Open != nil && isFinitePrice(*closing.Open) {
+		row.Open, row.OpenSource = new(*closing.Open), "daily_bar"
+	} else if state != rpc.MarketReadPre {
+		// Before the open the opening tick still names the last session.
+		if l.Quote != nil && isFinitePrice(l.Quote.Open) {
+			row.Open, row.OpenSource = new(l.Quote.Open), "session_open"
+		} else if first := marketReadFirstBar(l.Intraday, l.Symbol, session); first != nil {
+			row.Open, row.OpenSource = new(first.Open), "first_bar"
+		} else {
+			row.StateUnavailable = "session open not quoted and no intraday bar retained"
+		}
+	}
+	switch {
+	case state == rpc.MarketReadPre:
+		row.StateUnavailable = "the session has not opened"
+	case state == rpc.MarketReadClosed && closing == nil:
+		row.StateUnavailable = "the session's close is not yet in the daily bars"
+	default:
+		marketReadLeaderState(&row)
+	}
+	return row
 }
 
 // marketReadIndicatedGap sets a leader's pre-market price against its prior

@@ -536,6 +536,9 @@ type Server struct {
 	// index or share line, or a futures root, for which it also names the
 	// dated contract.
 	marketReadLookForTest func(context.Context, rpc.ContractParams) (broker.BriefQuote, string, error)
+	// marketReadPositionsForTest replaces the positions read behind
+	// market.read's held block. Tests only.
+	marketReadPositionsForTest func(context.Context) (*rpc.PositionsResult, error)
 	// replayHistoryFetchForTest replaces the broker history read behind the
 	// Edge replay (replay_history.go) and stands in for an online gateway.
 	replayHistoryFetchForTest func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)

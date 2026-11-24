@@ -507,6 +507,18 @@ func (m *subManager) Close() {
 	}
 }
 
+// heldKeys lists the keys of the lines the manager holds now, the keys the
+// broker's quote cache files them under.
+func (m *subManager) heldKeys() []string {
+	m.subsMu.Lock()
+	defer m.subsMu.Unlock()
+	out := make([]string, 0, len(m.subs))
+	for key := range m.subs {
+		out = append(out, key)
+	}
+	return out
+}
+
 // activeCount reports the number of distinct symbols currently held by
 // the manager. Used by tests; safe to call concurrently.
 func (m *subManager) activeCount() int {

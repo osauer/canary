@@ -52,6 +52,11 @@ type MarketReadResult struct {
 	VIXUnavailable     string               `json:"vix_unavailable,omitempty"`
 	Leaders            *MarketReadLeaders   `json:"leaders,omitempty"`
 	LeadersUnavailable string               `json:"leaders_unavailable,omitempty"`
+	// Held reads the underlyings of the account's current stock and option
+	// positions against their own prior session. It makes the read
+	// account-scoped: it names held underlyings, never quantities, values or
+	// account ids.
+	Held *MarketReadHeld `json:"held,omitempty"`
 	// Indicated is what pre-market prices indicate for the open, in state pre
 	// only. Nothing in it has held: pre-market trade is thin and a price
 	// before the open is an indication, not a level the session has reached.
@@ -270,6 +275,52 @@ type MarketReadLeaders struct {
 	// minimum and have a state; HoldingGapDown those of them that hold it.
 	GappedDown     int `json:"gapped_down"`
 	HoldingGapDown int `json:"holding_gap_down"`
+}
+
+// MarketReadHeld is one row per held underlying, in the order the positions
+// list them, at most market.snapshot's cap; Truncated says the cap cut the
+// list. RowsUnavailable says why there are no rows.
+type MarketReadHeld struct {
+	Rows            []MarketReadHeldRow `json:"rows"`
+	RowsUnavailable string              `json:"rows_unavailable,omitempty"`
+	Truncated       bool                `json:"truncated,omitempty"`
+}
+
+// MarketReadHeldRow is one held underlying against its prior regular session
+// and today's range so far. Open, Last and State follow the leader rules,
+// and a held leader carries the leader row's values.
+type MarketReadHeldRow struct {
+	Symbol           string           `json:"symbol"`
+	Prior            *MarketReadPrior `json:"prior,omitempty"`
+	PriorUnavailable string           `json:"prior_unavailable,omitempty"`
+	// OpenSource is session_open (the opening tick), first_bar (the first
+	// regular bar) or, after the close, daily_bar.
+	Open       *float64 `json:"open,omitempty"`
+	OpenSource string   `json:"open_source,omitempty"`
+	// DayHigh and DayLow are today's regular session so far, DayMid their
+	// midpoint. DaySource is bars (today's completed five-minute bars),
+	// quote (the quote's day high and low) or, after the close, daily_bar
+	// (the session's daily bar). While the session is open the range is
+	// widened to the current price, which can lie past the last completed
+	// bar.
+	DayHigh        *float64  `json:"day_high,omitempty"`
+	DayLow         *float64  `json:"day_low,omitempty"`
+	DayMid         *float64  `json:"day_mid,omitempty"`
+	DaySource      string    `json:"day_source,omitempty"`
+	DayUnavailable string    `json:"day_unavailable,omitempty"`
+	Last           *float64  `json:"last,omitempty"`
+	LastAt         time.Time `json:"last_at,omitzero"`
+	// LastSource is trade, quote, prior_close (before the open) or, after
+	// the close, daily_bar (the session's close).
+	LastSource      string `json:"last_source,omitempty"`
+	LastUnavailable string `json:"last_unavailable,omitempty"`
+	// Position is Last against the prior range: above_prior_high, inside or
+	// below_prior_low; absent before the open.
+	Position            string `json:"position,omitempty"`
+	PositionUnavailable string `json:"position_unavailable,omitempty"`
+	// State is one of the leader states.
+	State            string `json:"state,omitempty"`
+	StateUnavailable string `json:"state_unavailable,omitempty"`
 }
 
 // MarketReadIndicated is what pre-market prices indicate for the open.

@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 ## v3.46.1 — Unreleased
 
+### What's new
+
+- `canary market read` reads the names you hold. A new `held` block gives one row per held stock or option underlying (at most twelve): the prior session's high, low and close, today's regular-session high and low with their midpoint (`day_mid`, from today's five-minute bars or the quote), the last price against the prior range (`position`), and the open and gap state the leaders use. Before the open only the prior session and the last price are given; after the close, the finished session. The read now names held underlyings, never quantities or values, and answers only in the account it was read in. It still answers within its five seconds: a held name is priced from the line Canary already holds, and any other takes one quote look in a pool of its own.
+
 ### Fixed
 
 - Before the open `canary market read` placed the S&P 500 index inside, above or below its prior range from the previous session's last print, whenever that print differed from the official close. Before the open the index now has no position (`position_unavailable: "the session has not opened"`); the position the futures indicate is in `indicated`. A last trade timed before the session's day reads `last_source: prior_close` with its real time, for the index, VIX and the leaders; a trade of the same day, such as VIX's pre-market trade, stays current.

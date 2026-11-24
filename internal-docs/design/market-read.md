@@ -24,6 +24,9 @@ persistent state and opens no standing market-data line.
 | ES and NQ front futures (state `pre` only) | resolved and quoted as `market.snapshot` does: the broker's front-contract resolution, then one transient quote snapshot of the dated contract, its line released when read | Each look runs beside the others inside the budget; a future that does not answer is `*_unavailable` in `indicated` and the rest still answers. |
 | NDX, else QQQ (state `open` only) | two more brief looks through the broker seam, in the same pool | QQQ serves only when the index does not quote, and `source` says so. No historical series is read for either. |
 | Leader open | the look's session open | Else the first regular bar of an intraday series the chart cache already holds. No history request is made per name for an open. |
+| Held underlyings | the daemon's positions read, picked as `market.snapshot` picks them (stock and option underlyings, at most twelve) | Holdings must be available and current, else `held.rows_unavailable`. |
+| Held prior session, today's bars | the name's daily series (`6M`, the same chart series as `market.snapshot`'s `1Y`) and its `1D` series, spelled as `market.snapshot` spells the contract | Chart cache only. A missing daily series is read in the background like a leader's; the `1D` series is never requested by the read: `market.snapshot` follows it for every priced held row. |
+| Held price, day high and low | the line the daemon already holds for the name (the shared subscription manager, usually the display feed's) | Else one contract-exact transient quote snapshot, as `market.snapshot` takes it, in a pool of its own. No seam field was added. |
 
 Contracts are spelled as the daemon's other readers spell them (SPX, VIX and
 SPY as `market.snapshot`'s references; the leaders as the market tape's), so
@@ -41,9 +44,29 @@ are followed, so the refresh worker keeps them current. Quotes are twelve brief
 looks, six at a time, 1.5 seconds each; a look that has not answered by the
 budget is left out of that read.
 
+The positions read runs beside the other acquisitions, inside the budget:
+it can probe the broker while it prewarms quotes, so a slow one delays only
+the held block, which then says `positions not read within the read's
+budget` (`TestMarketReadHeldPositionsThatNeverAnswerStayInsideTheBudget`).
+The held names never take a slot from those looks. A held name whose line
+the daemon already holds (a held stock, which the display feed streams) is
+priced from that line with no look. Any other (typically the underlying of
+an option-only position) takes one quote snapshot of 1.5 seconds in a
+separate pool, four at a time. A held leader takes nothing of its own: its
+row is built from the leader's inputs. With eight held underlyings that
+means no extra look when all eight lines are held, and at most eight looks
+in two rounds, three seconds, when none is. At the cap of twelve it is
+three rounds, 4.5 seconds. A look still out at the budget is left out, its
+row says why, and the read answers at five seconds as before
+(`TestMarketReadHeldQuotesThatNeverAnswerStayInsideTheBudget`: eight held
+names whose quotes never answer). The held daily series add at most twelve
+background reads per ten minutes while they stay missing, so at most 24
+with the leaders and SPX, against the broker's 60.
+
 One result answers every caller for 30 seconds, and a read in flight is
 joined, not repeated. While a read is in flight, a last good read up to five
-minutes old answers at once, its `as_of` saying when.
+minutes old answers at once, its `as_of` saying when. A result answers only
+in the account scope it was read in.
 
 Steady state, with the series retained: no historical request per read; the
 followed intraday series cost what the refresh worker already spends on them.
@@ -199,6 +222,32 @@ counts the companies with a state whose gap is up by at least the minimum,
 whatever their state; `holding_gap_up` those that hold it; `below_prior_low`
 the companies with a state under their prior session's low.
 
+## Held underlyings
+
+`held` makes the read account-scoped: it names the underlyings of the
+current stock and option positions, never a quantity, value or account id.
+Each row reads the name as a desk reads a position on price: its prior
+regular session (`prior`: date, high, low, close, from the daily series as
+the index's), today's regular range so far (`day_high`, `day_low` and
+`day_mid`, their midpoint) and `last` against the prior range (`position`:
+`above_prior_high`, `inside`, `below_prior_low`). `open`, `last` and `state`
+follow the leader rules, and a held leader carries its leader row's values.
+
+- Open: today's range comes from the name's completed regular five-minute
+  bars when its `1D` series is retained and current (`day_source: bars`),
+  else from the quote's day high and low (`quote`). It is widened to `last`,
+  which can lie past the last completed bar.
+- Before the open: `prior` and `last` (with the pre-market rule above) only;
+  `day_*`, `position` and `state` are absent, because a quote's high, low and
+  open still name the prior session.
+- After the close: the session's daily bar gives the range (`daily_bar`, else
+  its bars), and `last` is its close (`last_source: daily_bar`), as the
+  leaders read it.
+- A holding that takes no market data, or a non-US listing (the read follows
+  the US session), gets a row with its reasons and no look. With nothing
+  held, `rows` is empty and `rows_unavailable` says so; `truncated` says the
+  cap of twelve cut the list.
+
 VIX holds a side of its line on two closes beyond it; once a side holds,
 crossing back needs two closes beyond the line by 0.5 (`vix_band`).
 
@@ -274,4 +323,9 @@ with reasons, and the shared 30-second result.
 when quotes are missing or too few, the pre-market position rule, the
 gap-down leader tags and their precedence, the relative tags and the QQQ
 stand-in, and that unanswered futures and Nasdaq looks keep a read inside its
-budget.
+budget. `market_read_held_test.go` covers the held rows: the range from bars,
+from the quote and from the daily bar after the close, the range widened to
+the price, each position and state, the pre-market and closed rules, every
+missing value's reason, a held leader matching its leader row, nothing held,
+the pick and cap of holdings, the shared chart series, which held line
+serves a name, and eight unanswered held quotes inside the budget.
