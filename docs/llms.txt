@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-23 08:30 CET. Current release: v3.45.0.
+Updated: 2026-11-24 13:22 CET. Current release: v3.46.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -15,6 +15,13 @@ https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
 (https://osauer.dev/canary/zh-hans/ and https://osauer.dev/canary/docs/zh-hans/);
 English is the master.
 
+Version 3.46 adds `canary market read --json`, today's US session against
+yesterday's with tags that name a condition once it holds. Add sizes index
+puts as protection for the book. `canary strategies open` opens a debit
+vertical as one combination order; none has yet been sent to a live broker.
+Exit plans sell a held long call when its stock falls back to a trailing line,
+for the day, a number of sessions or until cancelled. Orders show their
+combination legs and a trailing stop's current trigger.
 Version 3.45 adds `canary add search`, which finds a stock listing by symbol
 or company name. A stock add now keeps to the broker's board lot and, when
 `buy_stock_on_borrowed_currency` is on, may borrow its own currency. An entry

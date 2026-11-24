@@ -1,7 +1,29 @@
 # Canary full context
 
-Updated: 2026-11-23 08:30 CET
+Updated: 2026-11-24 13:22 CET
 
+Version 3.46 adds `canary market read --json` (MCP `canary_market_read`): the
+S&P 500 against the prior session's high and low, SPY volume against the same
+time of day in prior sessions, VIX against its 25 line and the largest
+companies against their opening gaps, with tags that name a condition only
+once it holds for two completed five-minute closes, a tag timeline, and before
+the open an indication from the ES and NQ futures and the leaders' pre-market
+prices; every threshold is returned and marked heuristic. `add market` and
+`add call-plan` size a put on a Rulebook hedge symbol against the book's long
+exposure under rule 12's over-hedge line (`index_protection`,
+`hedge_room_contracts`). `canary strategies spreads`, `strategies spread-plan`
+and `strategies open --units N --limit DEBIT` price, size and, with `--submit`, send a bull call
+or bear put spread as one combination order; credit, ratio, calendar and
+uncovered shapes are refused, and a held spread counts at its net value in the
+loss measure. None has yet been sent to a live broker. An `exit_plan` in
+`canary proposals queue prepare --stdin`, armed with the owner's signature, sells a
+held long call after the open and when its stock falls back to a trailing
+line, with `validity` `day`, `Nd` or `gtc`; it carries over sessions, rests at
+the mid on a quote wider than its spread limit, and covers only the calls
+outside a Canary spread. Orders show a combination's legs and a trailing
+stop's current trigger (`trail.stop_price`). The mandate charges a long line
+with too little history at its whole value instead of going unknown, and the
+day's first fills explain an equity move.
 Version 3.45 adds `canary add search PATTERN [--json]`, a read-only lookup
 through IBKR's symbol search by symbol or company name that names each
 listing's currency and the exchange Add asks on (IBKR connections only). A

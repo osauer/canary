@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.46.0 — Unreleased
+## v3.46.0 — 2026-11-24 13:22 CET
 
 ### What's new
 
@@ -10,15 +10,37 @@ All notable changes to this project are documented here. The project adheres to 
 
 Before the open the read says what the open is indicated to do, kept apart from the tags because nothing there has held and pre-market trade is thin: `indicated` sets the ES front future's change against SPX's prior close and range (`implied_level`, `implied_position`), the NQ front future beside it, and the leaders by their pre-market prices (`indicated_gap_pct` on each row; counts up, down, flat, near and below their prior lows), and `indications` names `indicated_gap_up` / `indicated_gap_down`, `indicated_above_prior_high` / `indicated_below_prior_low`, `leaders_indicated_up` / `leaders_indicated_down`, `leaders_near_prior_low` and `nasdaq_indicated_weaker` / `nasdaq_indicated_stronger`. Before the open `index.position` is no longer drawn from the prior close. During the session, leaders that gap down and hold it read `leaders_gap_down_hold` and those that win back the prior close `leaders_reclaiming` (the leader block counts `gapped_down` and `holding_gap_down`), and `relative` sets the Nasdaq 100's day change beside the S&P 500's, with `nasdaq_lagging` and `nasdaq_leading` tags. New thresholds `near_low_pct`, `near_low_share` and `relative_gap_pct` are returned with the rest.
 
+**Index puts sized as protection for the book.** `canary add market` and `canary add call-plan` with `right` set to `P` size a put on a Rulebook hedge symbol, such as an index fund, against the book's long exposure under rule 12's over-hedge line, not against shares held. `index_protection` carries that measurement, each row says how many more contracts fit under the line (`hedge_room_contracts`), and `cover_capped` says when the line, not the budget, set the size. When the book's long exposure cannot be measured, the put is still offered, held to the option contract cap and the budget, with the reason.
+
+**A debit spread opens as one order.** `canary strategies spreads` takes one option you would buy and lists the strikes you could sell against it in the same expiry, each with the net price, the most a spread can gain and lose, its breakeven and how much of the premium it takes back, and proposes one. `canary strategies spread-plan` sizes the spread for a budget from the broker's previews of the whole combination and says what held the size. `canary strategies open --units N --limit DEBIT` previews a bull call spread or a bear put spread as one combination order, both legs together, and sends it only with `--submit` after the broker accepts the preview. Only debit verticals open this way: credit, ratio, calendar and uncovered shapes are refused, and the sold leg is allowed because the bought leg covers it. A name that already holds other options can open one. A held spread counts at its net value in the loss measure and the premium figures. No spread has yet been opened this way at a live broker, so check the legs and the limit on the first preview before you send.
+
+**Exit plans for a long call.** An exit plan is a pair of orders you sign in advance for one held call: an optional first sale after the open, near the mid and never below a minimum if you set one, and an exit line on the underlying stock that follows the stock's high and sells the call when the stock falls back to it. The line triggers only after two price checks at least five seconds apart are both at or below it; a halted stock or an unusable quote never triggers it. The sale then starts at the mid and steps down to the bid until the call is sold. If the option's quote is wider than the spread limit you approved, the sale waits at the mid and steps down no further than the price a quote at that limit would bid. A plan approved during the session starts at once or up to 120 minutes later. `validity` keeps the line for the day, for a number of sessions (`3d`) or until cancelled (`gtc`, which ends at the latest on the option's last trading day). The high and the line carry over the night and restarts, and a sale unfinished at the close resumes at the next session from the mid. If the broker never confirmed how an earlier session's sale ended, Canary first reads what was filled, then sells what is still held. Buying more of the call never withdraws the plan: the line sells the whole position held when it triggers. When a Canary spread holds some of the same calls, the plan, like a reduction, sells only the calls outside the spread. Exit plans have run against the simulated broker only, so read the first plan's terms closely before you approve it.
+
+**Orders say when they are a combination, and where a trailing stop stands.** The open-orders view, order status and history show a combination's shape, operation, units and legs, a combination placed in TWS included. A trailing stop shows where the broker says it triggers now, with when that was read, not only where it started.
+
 ### Added
 
 - `quote.snapshot` returns the session's opening price as `day_open` when the broker quotes it.
 - A `1D` history read keeps the earlier days of five-minute bars the broker already sends with it, so an intraday series retains its prior sessions after one read. The selection served is unchanged.
 - The regime's HYG/SPY row says when HYG is at its 52-week low (`hyg_at_52w_low`, and "at its 52w low" in the row). Bands are unchanged.
+- `canary strategies spreads`, `canary strategies spread-plan` and `canary strategies open`.
+- `add market` and `add call-plan`: `index_protection`, `hedge_room_contracts` and `cover_capped` for puts on a Rulebook hedge symbol, and `unanswered_strikes` on a row chosen before every strike answered.
+- `exit_plan` in `canary proposals queue prepare --stdin`, with `validity` and `start_in_minutes`; `canary proposals queue arm --stdin` arms every order of a plan or none.
+- Orders carry `combination` and, for a trailing stop, `trail.stop_price`, `stop_price_at` and `stop_price_source`.
+- The mandate verdict's capital carries `hold` (`code`, `raised_at`, `reason`) while a cash flow is suspected, and `short_history` names a line charged at its whole value.
+- `canary-sim` (source tree only): per-contract quote feeds and spread overrides, outside orders, and trailing stops that move with the price.
 
 ### Fixed
 
 - A normal `canary market tape` read could find SPY, VIX and the leader basket missing once the chart cache had dropped their histories to make room for other series, and then archived that poorer capture over the complete one taken after the close. The tape now reads a dropped history again through the bounded history request, and a capture with fewer measured legs never replaces a fuller one for the same session.
+- The mandate went unknown while a name held only long had too little price history. Such a line is now charged at its whole value in every scenario and named in the verdict.
+- The day's first fills could leave the mandate's capital held as a suspected cash flow. The fills now explain the equity move, and the hold clears at the next poll.
+- The daily statement check could fail while processing a statement it had already downloaded, with nothing in the log, and wait 30 minutes to try again. Processing now has the check's whole budget, a failure is logged as a warning, and one that failed locally is retried in five minutes.
+- Call discovery in `add market` took up to 13 seconds before the open. Contract lookups are now kept for the day and option chains for 15 minutes, planning quotes no longer wait for displayed sizes, and a strike the broker never quotes no longer holds the others.
+- `add market` could answer a horizon whose expiry read failed with no horizon or days to expiry, and the whole answer was refused.
+- A stock Add was refused at random in market hours as changed while sizing, though nothing it sized from had changed. It is now refused only when a buy, an order on its contract, cash beyond a small tolerance, a position, a policy, the regime stage or the broker session changed. A missing commission bound now says why it is missing.
+- With a long order history, the broker's open-order snapshot could miss its deadline, leaving the open orders unread and every reduction held. Order updates are now folded in without rereading the whole history.
+- After a second failed open-order read within the hour, the open orders stayed unread until the hour passed. While a sale waits on them, the read is now retried at most once a minute.
 
 ## v3.45.0 — 2026-11-23 08:30 CET
 
