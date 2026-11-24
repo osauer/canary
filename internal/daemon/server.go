@@ -692,6 +692,9 @@ type Server struct {
 	// reducePositionsForTest replaces the positions read behind a reduce
 	// preview, sweep and tokened submit (reducePositions).
 	reducePositionsForTest func(context.Context) (*rpc.PositionsResult, error)
+	// heldOptionRowsForTest replaces the option rows an exit plan reads its
+	// line from (heldOptionRows).
+	heldOptionRowsForTest func(symbol string) ([]rpc.PositionView, error)
 	// optionUnderlyingCloseForTest replaces the quote read behind an
 	// option-only underlying's close (prewarmOptionUnderlyingCloses).
 	optionUnderlyingCloseForTest func(context.Context, rpc.ContractParams) (float64, bool)

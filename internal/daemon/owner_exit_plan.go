@@ -552,11 +552,18 @@ func (e *proposalEngine) prepareExitPlan(ctx context.Context, p rpc.TradeProposa
 		version, resumeWait = queuedPlanSessionsTermsVersion, max(plan.WaitMinutes, int(offset/time.Minute))
 		validUntil, trailEnd = s.exitPlanLastSession(market, stockMarket, day, stockDay, sessions, lastTrading)
 	}
-	position, err := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), contract, rpc.OrderActionSell, 1)
+	// The plan covers the option's line: what is held outside any strategy
+	// that sells against it (strategy_line.go), never a spread's bought leg.
+	position, err := s.captureOptionLinePosition(ctx, contract, rpc.OrderActionSell, 1)
 	if err != nil {
 		return block(previewPositionUnavailableCode, err.Error())
 	}
 	held := position.Impact.Before
+	if held < 1 {
+		if pos, perr := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), contract, rpc.OrderActionSell, 1); perr == nil && pos.Impact.Before >= 1 {
+			return block("queue_strategy_leg", "Every contract of this option held is a leg of a strategy; it leaves with its strategy, as one combination (canary strategies close or reduce), not on an exit plan.")
+		}
+	}
 	if held < 1 || math.Trunc(held) != held || held > 1000000 {
 		return block("queue_position_invalid", "An exit plan covers a held long option line of whole contracts.")
 	}

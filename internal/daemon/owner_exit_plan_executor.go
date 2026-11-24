@@ -230,7 +230,7 @@ func (e *proposalEngine) settleCarriedTrailSales(ctx context.Context) {
 		if _, found, unknown := sameContractWorkingOrder(snapshot, scope, probe); found || unknown {
 			continue
 		}
-		position, err := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), rec.Terms.Contract, rpc.OrderActionSell, 1)
+		position, err := s.captureOptionLinePosition(ctx, rec.Terms.Contract, rpc.OrderActionSell, 1)
 		if err != nil {
 			continue
 		}
@@ -427,7 +427,7 @@ func (e *proposalEngine) watchQueuedTrail(ctx context.Context, rec queuedAuthRec
 	// sells; read before the trigger is latched.
 	line := 0
 	if fire && st.WholeLine {
-		if position, err := e.server.capturePreviewOrderPositionAuthority(ctx, e.server.currentTradingStatus(), rec.Terms.Contract, rpc.OrderActionSell, 1); err == nil && position.Impact.Before > 0 {
+		if position, err := e.server.captureOptionLinePosition(ctx, rec.Terms.Contract, rpc.OrderActionSell, 1); err == nil && position.Impact.Before > 0 {
 			line = int(math.Trunc(position.Impact.Before))
 		}
 	}
@@ -491,7 +491,7 @@ func (e *proposalEngine) watchQueuedTrail(ctx context.Context, rec queuedAuthRec
 // cannot be read ends nothing.
 func (e *proposalEngine) endFlatPlan(ctx context.Context, rec queuedAuthRecord) bool {
 	s := e.server
-	position, err := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), rec.Terms.Contract, rpc.OrderActionSell, 1)
+	position, err := s.captureOptionLinePosition(ctx, rec.Terms.Contract, rpc.OrderActionSell, 1)
 	if err != nil || position.Impact.Before > 0 {
 		return false
 	}
@@ -863,7 +863,7 @@ func (e *proposalEngine) finishSoldTrail(ctx context.Context, rec queuedAuthReco
 		return false
 	}
 	s := e.server
-	position, err := s.capturePreviewOrderPositionAuthority(ctx, s.currentTradingStatus(), rec.Terms.Contract, rpc.OrderActionSell, 1)
+	position, err := s.captureOptionLinePosition(ctx, rec.Terms.Contract, rpc.OrderActionSell, 1)
 	if err != nil || position.Impact.Before > 0 {
 		return false
 	}

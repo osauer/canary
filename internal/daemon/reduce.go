@@ -231,17 +231,22 @@ func (s *Server) prepareReduce(ctx context.Context, p rpc.TradeProposalReducePar
 	return prep, blockers, nil
 }
 
-// reduceTargetRow resolves the holding a single reduction names and holds a
-// long option that is held against a sold one: it is reduced with it, as
-// whole units of the strategy, never alone (proposal_strategy_legs.go).
+// reduceTargetRow resolves the holding a single reduction names. A long
+// option held against a sold one is reduced with it, as whole units of the
+// strategy, never alone (proposal_strategy_legs.go); contracts of it held
+// outside the strategy are a line of their own, which reduces alone.
 func reduceTargetRow(pos *rpc.PositionsResult, conID int, symbol string) (rpc.PositionView, []rpc.TradingBlocker) {
 	row, blockers := findReducePosition(pos, conID, symbol)
 	if len(blockers) > 0 {
 		return rpc.PositionView{}, blockers
 	}
-	if b := soldAgainstBlocker(pos, row); b != nil {
+	// A contract a strategy also holds reduces only its own line, the
+	// contracts outside the strategy (strategy_line.go).
+	line, b := strategyFreeLine(pos, row)
+	if b != nil {
 		return row, []rpc.TradingBlocker{*b}
 	}
+	row.Quantity = line
 	return row, nil
 }
 
@@ -718,8 +723,12 @@ func reduceTokenPositionCheck(pos *rpc.PositionsResult, draft rpc.OrderDraft) (r
 		return row, []rpc.TradingBlocker{{Code: "position_changed", Message: fmt.Sprintf("%s is now %s, not on the reviewed side", strings.ToUpper(strings.TrimSpace(row.Symbol)), formatPositionQuantity(row.Quantity)), Action: "Preview the reduction again; nothing was sent."}}
 	}
 	// A short option opened against the line since the review makes it a leg.
-	if b := soldAgainstBlocker(pos, row); b != nil && sell {
-		return row, []rpc.TradingBlocker{*b}
+	if sell {
+		line, b := strategyFreeLine(pos, row)
+		if b != nil {
+			return row, []rpc.TradingBlocker{*b}
+		}
+		row.Quantity = line
 	}
 	held, _ := closeReduceQuantity(row.Quantity)
 	if draft.Quantity > held {

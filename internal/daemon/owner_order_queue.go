@@ -300,7 +300,15 @@ func (e *proposalEngine) prepareOwnerQueue(ctx context.Context, p rpc.TradePropo
 func (e *proposalEngine) resolveOwnerQueue(ctx context.Context, rec queuedAuthRecord) (rpc.TradeProposal, []rpc.TradingBlocker, string, string) {
 	t := rec.Terms
 	p := rpc.TradeProposal{Key: t.Key, Bucket: t.Bucket, Revision: t.RevisionAtQueue, Contract: t.Contract, Action: t.Action, Quantity: t.MaxQuantity, PositionQuantity: t.PositionQuantity, PositionEffect: t.PositionEffect, OrderType: t.OwnerOrder.OrderType, TIF: t.TIF, Trail: cloneTrailSpec(t.OwnerOrder.Trail)}
-	position, err := e.server.capturePreviewOrderPositionAuthority(ctx, e.server.currentTradingStatus(), t.Contract, t.Action, t.MaxQuantity)
+	capture := e.server.capturePreviewOrderPositionAuthority
+	if queuedPlanTrail(t) || queuedPlanFirstSale(t) {
+		// An exit plan sells from its option's line, re-read now: never a
+		// strategy's bought leg (strategy_line.go).
+		capture = func(ctx context.Context, _ rpc.TradingStatus, c rpc.ContractParams, action string, qty int) (orderPositionAuthority, error) {
+			return e.server.captureOptionLinePosition(ctx, c, action, qty)
+		}
+	}
+	position, err := capture(ctx, e.server.currentTradingStatus(), t.Contract, t.Action, t.MaxQuantity)
 	if err != nil {
 		return p, preparedBlocker(previewPositionUnavailableCode, err.Error()), "", ""
 	}
