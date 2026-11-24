@@ -303,12 +303,15 @@ type marketReadTagInputs struct {
 	Prior *rpc.MarketReadPrior
 	// SessionOpen is the index's opening price, from the bar that opened the
 	// session; nil without it.
-	SessionOpen   *float64
-	IndexBars     []rpc.MarketReadBar
-	Volume        *rpc.MarketReadVolume
-	VIXBars       []rpc.MarketReadVIXBar
-	VIXPriorClose *float64
-	Leaders       []rpc.MarketReadLeader
+	SessionOpen *float64
+	IndexBars   []rpc.MarketReadBar
+	// IndexStale and VIXStale say the bars are late: they show their events
+	// but draw no tags.
+	IndexStale, VIXStale bool
+	Volume               *rpc.MarketReadVolume
+	VIXBars              []rpc.MarketReadVIXBar
+	VIXPriorClose        *float64
+	Leaders              []rpc.MarketReadLeader
 }
 
 type marketReadTagAt struct {
@@ -329,7 +332,7 @@ func marketReadTags(in marketReadTagInputs) ([]rpc.MarketReadTag, []rpc.MarketRe
 	if in.State != rpc.MarketReadOpen && in.State != rpc.MarketReadClosed {
 		return tags, events
 	}
-	add := func(scope string, times []time.Time, at func(k int) *marketReadTagAt) {
+	add := func(scope string, stale bool, times []time.Time, at func(k int) *marketReadTagAt) {
 		var open *rpc.MarketReadTagEvent
 		var last *marketReadTagAt
 		for k := 1; k <= len(times); k++ {
@@ -348,14 +351,17 @@ func marketReadTags(in marketReadTagInputs) ([]rpc.MarketReadTag, []rpc.MarketRe
 			return
 		}
 		events = append(events, *open)
+		if stale {
+			return
+		}
 		tags = append(tags, rpc.MarketReadTag{Code: last.code, Scope: scope, Tone: last.tone, Since: open.From, Evidence: last.evidence})
 	}
 	indexTimes := make([]time.Time, len(in.IndexBars))
 	for i, b := range in.IndexBars {
 		indexTimes[i] = b.At
 	}
-	add("index", indexTimes, func(k int) *marketReadTagAt { return marketReadIndexTagAt(in, k) })
-	add("volume", indexTimes, func(k int) *marketReadTagAt {
+	add("index", in.IndexStale, indexTimes, func(k int) *marketReadTagAt { return marketReadIndexTagAt(in, k) })
+	add("volume", in.IndexStale, indexTimes, func(k int) *marketReadTagAt {
 		now := marketReadVolumeTagAt(in, k)
 		if now == nil || k < 2 {
 			return nil
@@ -370,7 +376,7 @@ func marketReadTags(in marketReadTagInputs) ([]rpc.MarketReadTag, []rpc.MarketRe
 	for i, b := range in.VIXBars {
 		vixTimes[i] = b.At
 	}
-	add("vix", vixTimes, func(k int) *marketReadTagAt { return marketReadVIXTagAt(in, k) })
+	add("vix", in.VIXStale, vixTimes, func(k int) *marketReadTagAt { return marketReadVIXTagAt(in, k) })
 	if tag := marketReadLeadersTag(in.Leaders); tag != nil {
 		tags = append(tags, *tag)
 	}

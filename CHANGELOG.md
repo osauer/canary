@@ -8,8 +8,11 @@ All notable changes to this project are documented here. The project adheres to 
 
 - `canary market read` reads the names you hold. A new `held` block gives one row per held stock or option underlying (at most twelve): the prior session's high, low and close, today's regular-session high and low with their midpoint (`day_mid`, from today's five-minute bars or the quote), the last price against the prior range (`position`), and the open and gap state the leaders use. Before the open only the prior session and the last price are given; after the close, the finished session. The read now names held underlyings, never quantities or values, and answers only in the account it was read in. It still answers within its five seconds: a held name is priced from the line Canary already holds, and any other takes one quote look in a pool of its own.
 
+- `canary market read` gives every leader and held row its day change, `change_pct`, the last price against the prior close, beside the opening gap. Before the open it is the pre-market indication of the day, after the close the session's close.
+
 ### Fixed
 
+- During the session the S&P 500 and SPY lines of `canary market read` could go more than twenty minutes without new bars while VIX stayed current. Canary refreshed the charts it follows one after another in a fixed order, and with dozens followed a round took longer than the bars' five-minute cadence. A chart someone is reading now comes round first. Bars that are late are no longer dropped: they are shown, marked `bars_stale` with when they were read (`bars_as_of`), and draw no tags.
 - Before the open `canary market read` placed the S&P 500 index inside, above or below its prior range from the previous session's last print, whenever that print differed from the official close. Before the open the index now has no position (`position_unavailable: "the session has not opened"`); the position the futures indicate is in `indicated`. A last trade timed before the session's day reads `last_source: prior_close` with its real time, for the index, VIX and the leaders; a trade of the same day, such as VIX's pre-market trade, stays current.
 
 ## v3.46.0 — 2026-11-24 13:22 CET

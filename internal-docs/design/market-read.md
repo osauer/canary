@@ -92,9 +92,33 @@ traded, `closed`. The prior session is the calendar session before it.
 ## Bars and holds
 
 A bar counts once it had completed when its series was read (its end at or
-before the series' fetch clock); a forming bar is never measured. During the
-session, bars whose last fetch is older than 15 minutes are unavailable and
-draw no tags.
+before the series' fetch clock); a forming bar is never measured. Every bar
+block (`index`, `index.volume`, `vix`) says when its bars were read in
+`bars_as_of`. During the session, bars read more than 15 minutes ago are still
+served, so a chart keeps its line, with `bars_stale: true` and
+`bars_stale_reason`; they draw no tags (a stale SPY series also leaves the
+index tags without relative volume), and their events in `tag_events` end at
+the last bar served. Before 2026-11-24 evening stale bars were dropped, and
+the S&P 500 line went blank exactly while the owner was looking.
+
+### Keeping the series current
+
+The index, SPY and VIX `1D` series are followed: each read asks for them
+again (`rememberMarketHistory`), and the daemon's refresh worker reads a
+followed intraday series once it is five minutes old. The worker takes up
+series one at a time, those asked for within the last five minutes first and
+the rest in turn, and takes a series up again once a 30-second tick has
+passed since its last turn. A read that finds one of its intraday series
+missing or stale also asks for it in the background, once per ten minutes.
+
+Live on 2026-11-24 (18:11Z, session open) SPX and SPY were 23 minutes old
+while VIX was 11. The chart cache showed why: the worker walked its
+sixty-odd followed series in key order once per sweep; with the history
+pacing shared with daily reads of other names, one paced read every 20 to 30
+seconds, a sweep ran past 20 minutes, and SPX (key `bd47…`) and SPY
+(`eb20…`) sat late in the order while VIX (`33ed…`) sat early. Nothing
+failed, so nothing was logged. Since then a series a reader keeps asking for
+comes round every tick (`TestMarketHistoryRefreshServesTheSeriesBeingReadFirst`).
 
 A level holds after two consecutive completed closes beyond it, so one print
 across never flips a tag. Each bar-based tag is evaluated at every completed
@@ -207,7 +231,11 @@ leaders quoted, the indications are silent and each missing part says why.
 ## Leader states
 
 One share line per company of the market tape's fixed basket (GOOGL, not
-GOOG). `gap_pct` is the open against the prior close. Under the prior
+GOOG). `gap_pct` is the open against the prior close; `change_pct` is the
+last price against it, so it moves through the day (on held rows too).
+Before the open it is the indicated gap of a same-day pre-market price and
+absent when the price is still the prior session's; after the close it is
+the session's close. Under the prior
 session's low is `below_prior_low`, ahead of every other state, `no_gap`
 included. A gap under 0.25% is `no_gap`. A gap up holds while the price is at
 least half the gap above the prior close and is filled at or under the prior

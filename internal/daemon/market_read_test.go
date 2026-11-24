@@ -353,13 +353,43 @@ func TestMarketReadBeforeTheOpenDrawsNoTags(t *testing.T) {
 	}
 }
 
-func TestMarketReadStaleBarsDrawNoTags(t *testing.T) {
+// Late bars are served, marked stale with when they were read, so a chart
+// keeps its line; no tag is drawn from them, and the events they show end at
+// the last bar served.
+func TestMarketReadStaleBarsAreServedButDrawNoTags(t *testing.T) {
 	m := newReadMarket(t)
 	now := m.at(10)
 	m.index(m.at(4), 95, 99, 101, 102)
+	m.volume(m.at(4), 3, 1000, 1500, 1500, 1500, 1500)
+	m.vix(m.at(4), 30, 31, 32, 33, 34)
 	r := m.read(now)
-	if r.Index.BarsUnavailable == "" || len(r.Index.Bars) != 0 || codeOf(r, "index") != "" {
-		t.Errorf("bars read %s ago: %+v, index tag %q", now.Sub(m.at(4)), r.Index, codeOf(r, "index"))
+	if len(r.Index.Bars) != 4 || !r.Index.BarsStale || r.Index.BarsStaleReason == "" || !r.Index.BarsAsOf.Equal(m.at(4)) || r.Index.BarsUnavailable != "" {
+		t.Fatalf("stale index bars: %+v", r.Index)
+	}
+	if strings.Contains(r.Index.BarsStaleReason, "T") && strings.Contains(r.Index.BarsStaleReason, ":") {
+		t.Errorf("reason embeds a timestamp: %q", r.Index.BarsStaleReason)
+	}
+	if r.Index.Volume == nil || !r.Index.Volume.BarsStale || !r.Index.Volume.BarsAsOf.Equal(m.at(4)) || r.Index.Volume.BarsStaleReason == "" {
+		t.Fatalf("stale volume: %+v (%s)", r.Index.Volume, r.Index.VolumeUnavailable)
+	}
+	if len(r.VIX.Bars) != 4 || !r.VIX.BarsStale || !r.VIX.BarsAsOf.Equal(m.at(4)) || r.VIX.BarsStaleReason == "" {
+		t.Fatalf("stale vix bars: %+v", r.VIX)
+	}
+	for _, scope := range []string{"index", "volume", "vix"} {
+		if code := codeOf(r, scope); code != "" {
+			t.Errorf("%s tag %q drawn from stale bars", scope, code)
+		}
+	}
+	last := m.session.Open.Add(4 * marketReadBar)
+	for _, e := range r.TagEvents {
+		if e.From.After(last) || e.To.After(last) {
+			t.Errorf("event past the last bar served: %+v", e)
+		}
+	}
+	// Fresh bars are not marked.
+	r = m.read(m.at(4))
+	if r.Index.BarsStale || r.VIX.BarsStale || r.Index.Volume.BarsStale || r.Index.BarsStaleReason != "" || !r.Index.BarsAsOf.Equal(m.at(4)) {
+		t.Fatalf("fresh bars marked stale: %+v", r.Index)
 	}
 }
 

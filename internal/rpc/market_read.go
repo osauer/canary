@@ -168,9 +168,15 @@ type MarketReadIndex struct {
 	// quote (a current indication, timed at receipt), prior_close (before
 	// the open, the prior session's close at its close time) or bar (the
 	// latest completed bar's close).
-	LastSource          string            `json:"last_source,omitempty"`
-	Bars                []MarketReadBar   `json:"bars"`
-	BarsUnavailable     string            `json:"bars_unavailable,omitempty"`
+	LastSource      string          `json:"last_source,omitempty"`
+	Bars            []MarketReadBar `json:"bars"`
+	BarsUnavailable string          `json:"bars_unavailable,omitempty"`
+	// BarsAsOf is when the bars were read. BarsStale says they were read
+	// longer ago than stale_after_minutes while the session is open: they are
+	// served for the chart, draw no tags, and BarsStaleReason says why.
+	BarsAsOf            time.Time         `json:"bars_as_of,omitzero"`
+	BarsStale           bool              `json:"bars_stale,omitempty"`
+	BarsStaleReason     string            `json:"bars_stale_reason,omitempty"`
 	Position            string            `json:"position,omitempty"`
 	PositionUnavailable string            `json:"position_unavailable,omitempty"`
 	Volume              *MarketReadVolume `json:"volume,omitempty"`
@@ -199,6 +205,12 @@ type MarketReadVolume struct {
 	// BaselineSessions is the fewest prior sessions any of today's buckets
 	// rests on.
 	BaselineSessions int `json:"baseline_sessions"`
+	// BarsAsOf is when the bars were read. BarsStale says they were read
+	// longer ago than stale_after_minutes while the session is open: they are
+	// served for the chart, draw no tags, and BarsStaleReason says why.
+	BarsAsOf        time.Time `json:"bars_as_of,omitzero"`
+	BarsStale       bool      `json:"bars_stale,omitempty"`
+	BarsStaleReason string    `json:"bars_stale_reason,omitempty"`
 }
 
 // MarketReadVIXBar is one completed VIX bar.
@@ -223,7 +235,13 @@ type MarketReadVIX struct {
 	Line                  float64            `json:"line"`
 	Bars                  []MarketReadVIXBar `json:"bars"`
 	BarsUnavailable       string             `json:"bars_unavailable,omitempty"`
-	Position              string             `json:"position,omitempty"`
+	// BarsAsOf is when the bars were read. BarsStale says they were read
+	// longer ago than stale_after_minutes while the session is open: they are
+	// served for the chart, draw no tags, and BarsStaleReason says why.
+	BarsAsOf        time.Time `json:"bars_as_of,omitzero"`
+	BarsStale       bool      `json:"bars_stale,omitempty"`
+	BarsStaleReason string    `json:"bars_stale_reason,omitempty"`
+	Position        string    `json:"position,omitempty"`
 }
 
 // The leader states.
@@ -252,6 +270,12 @@ type MarketReadLeader struct {
 	Last       *float64  `json:"last,omitempty"`
 	LastAt     time.Time `json:"last_at,omitzero"`
 	GapPct     *float64  `json:"gap_pct,omitempty"`
+	// ChangePct is Last against the prior close, in percent: in the session
+	// the current price, before the open a pre-market price of the same day
+	// (absent when the price is still the prior session's), after the close
+	// the session's close.
+	ChangePct         *float64 `json:"change_pct,omitempty"`
+	ChangeUnavailable string   `json:"change_unavailable,omitempty"`
 	// IndicatedGapPct is, before the open, the pre-market price against the
 	// prior close. A price that is still the prior close is no indication.
 	IndicatedGapPct         *float64 `json:"indicated_gap_pct,omitempty"`
@@ -314,6 +338,12 @@ type MarketReadHeldRow struct {
 	// the close, daily_bar (the session's close).
 	LastSource      string `json:"last_source,omitempty"`
 	LastUnavailable string `json:"last_unavailable,omitempty"`
+	// ChangePct is Last against the prior close, in percent: in the session
+	// the current price, before the open a pre-market price of the same day
+	// (absent when the price is still the prior session's), after the close
+	// the session's close.
+	ChangePct         *float64 `json:"change_pct,omitempty"`
+	ChangeUnavailable string   `json:"change_unavailable,omitempty"`
 	// Position is Last against the prior range: above_prior_high, inside or
 	// below_prior_low; absent before the open.
 	Position            string `json:"position,omitempty"`

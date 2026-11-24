@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -373,3 +374,43 @@ func TestMarketReadHeldPositionsThatNeverAnswerStayInsideTheBudget(t *testing.T)
 		t.Errorf("the positions read held up the leaders: %+v", r.Leaders)
 	}
 }
+
+// Every leader and held row carries its day change against the prior close:
+// in the session the last, before the open a same-day pre-market price (the
+// indicated gap), after the close the session's close.
+func TestMarketReadChangeAgainstThePriorClose(t *testing.T) {
+	m := newReadMarket(t)
+	m.leader("LDRA", new(102.0), new(103.0))
+	h := m.held("HLDA", 101, 98)
+	r := m.read(m.at(3))
+	if l := r.Leaders.Rows[0]; !nearPtr(l.ChangePct, 3) || l.ChangeUnavailable != "" || !nearPtr(l.GapPct, 2) {
+		t.Fatalf("leader change in the session: %+v", l)
+	}
+	if row := heldRow(t, r, "HLDA"); !nearPtr(row.ChangePct, -2) {
+		t.Fatalf("held change in the session: %+v", row)
+	}
+	// Before the open: a pre-market trade of today is the indicated gap; the
+	// prior session's price is no change.
+	pre := m.session.Open.Add(-30 * time.Minute)
+	m.src.Leaders[0].Quote.TradeAt = m.session.Open.Add(-time.Hour)
+	h.Quote.Last, h.Quote.TradeAt = 100, time.Time{}
+	r = m.read(pre)
+	if l := r.Leaders.Rows[0]; !nearPtr(l.ChangePct, 3) || l.IndicatedGapPct == nil || *l.ChangePct != *l.IndicatedGapPct {
+		t.Fatalf("leader change before the open: %+v", l)
+	}
+	if row := heldRow(t, r, "HLDA"); row.ChangePct != nil || row.ChangeUnavailable == "" {
+		t.Fatalf("prior close read as a change before the open: %+v", row)
+	}
+	// After the close: the session's close against the prior close.
+	sessionDay, _ := time.Parse(time.DateOnly, m.session.Date)
+	h.Daily.Points = append(h.Daily.Points, rpc.MarketHistoryPoint{At: sessionDay, Value: 105, Open: new(101.0), High: new(106.0), Low: new(100.0)})
+	r = m.read(m.session.Close.Add(time.Hour))
+	if row := heldRow(t, r, "HLDA"); !nearPtr(row.ChangePct, 5) {
+		t.Fatalf("held change after the close: %+v", row)
+	}
+	if l := r.Leaders.Rows[0]; l.ChangePct != nil || l.ChangeUnavailable == "" {
+		t.Fatalf("leader without its closing bar: %+v", l)
+	}
+}
+
+func nearPtr(p *float64, want float64) bool { return p != nil && math.Abs(*p-want) < 1e-9 }

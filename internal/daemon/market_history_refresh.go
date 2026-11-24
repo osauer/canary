@@ -3,7 +3,6 @@ package daemon
 import (
 	"context"
 	"errors"
-	"slices"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/rpc"
@@ -15,6 +14,8 @@ type marketHistoryInterest struct {
 	Until    time.Time
 	RetryAt  time.Time
 	Failures int
+	// TriedAt is when the refresh worker last took the series up.
+	TriedAt time.Time
 }
 
 // marketHistoryInterestLimit bounds the series the refresh worker follows.
@@ -95,21 +96,69 @@ func (s *Server) startMarketHistoryRefresh(ctx context.Context) {
 				return
 			case <-ticker.C:
 			}
-			s.marketData.mu.Lock()
-			keys := make([]string, 0, len(s.marketData.interest))
-			for key := range s.marketData.interest {
-				keys = append(keys, key)
-			}
-			slices.Sort(keys)
-			s.marketData.mu.Unlock()
-			for _, key := range keys {
-				if ctx.Err() != nil {
-					return
-				}
-				s.refreshMarketHistoryInterest(ctx, key, s.marketHistoryRequest)
-			}
+			s.refreshMarketHistoryDue(ctx, s.marketHistoryRequest)
 		}
 	})
+}
+
+// refreshMarketHistoryDue takes up followed series one at a time, those a
+// reader asked for within the last cadence first, the rest in turn, until every series has been taken up within the last
+// tick. A series is taken up again once a tick has passed since its last
+// turn, so one that a reader keeps asking for (market.read's index, volume
+// and VIX series, every thirty seconds) comes round every tick however long
+// the paced reads of the others take. Walking all series once per sweep in
+// key order let a sweep of sixty-odd paced reads run past twenty minutes, and
+// a series late in the key order waited all of it (2026-11-24: SPX and SPY 23
+// minutes unrefreshed in an open session). The other series share what the
+// pacing leaves, oldest turn first; a request for one reads it on demand.
+func (s *Server) refreshMarketHistoryDue(ctx context.Context, request func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)) {
+	for ctx.Err() == nil {
+		key, ok := s.nextMarketHistoryRefresh()
+		if !ok {
+			return
+		}
+		s.refreshMarketHistoryInterest(ctx, key, request)
+	}
+}
+
+// marketHistoryInUseFor is how recently a series must have been asked for to
+// count as being read: one intraday refresh cadence.
+const marketHistoryInUseFor = 5 * time.Minute
+
+// marketHistoryInUse reports whether a reader asked for the series within the
+// last intraday cadence.
+func marketHistoryInUse(item marketHistoryInterest, now time.Time) bool {
+	return now.Sub(item.Until.Add(-marketHistoryInterestFor)) < marketHistoryInUseFor
+}
+
+// nextMarketHistoryRefresh picks, among the followed series not taken up
+// within the last tick and not backing off, one being read ahead of the
+// rest, and within each the one taken up longest ago; it marks it taken up.
+func (s *Server) nextMarketHistoryRefresh() (string, bool) {
+	now := time.Now()
+	if s.now != nil {
+		now = s.now()
+	}
+	s.marketData.mu.Lock()
+	defer s.marketData.mu.Unlock()
+	var best string
+	var pick marketHistoryInterest
+	for key, item := range s.marketData.interest {
+		if now.After(item.Until) || now.Before(item.RetryAt) || now.Sub(item.TriedAt) < marketHistoryRefreshTick {
+			continue
+		}
+		inUse := marketHistoryInUse(item, now)
+		if best == "" || inUse && !marketHistoryInUse(pick, now) ||
+			inUse == marketHistoryInUse(pick, now) && (item.TriedAt.Before(pick.TriedAt) || item.TriedAt.Equal(pick.TriedAt) && key < best) {
+			best, pick = key, item
+		}
+	}
+	if best == "" {
+		return "", false
+	}
+	pick.TriedAt = now
+	s.marketData.interest[best] = pick
+	return best, true
 }
 
 // refreshMarketHistoryInterest reads one remembered series through the same

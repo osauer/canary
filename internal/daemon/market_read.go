@@ -202,7 +202,9 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 			p := rpc.MarketHistoryParams{Contract: c, Range: "1D"}
 			s.rememberMarketHistory(p)
 			r := s.retainedHistory(ctx, p)
-			if r == nil {
+			// A missing series, or one the refresh worker has let go stale,
+			// is read in the background, at most once per retry window.
+			if _, reason := marketReadIntraday(r, c.Symbol, state, now); reason != "" {
 				s.requestMarketReadHistory(p, now)
 			}
 			set(func() { *dst = r })
@@ -486,14 +488,26 @@ func historyFetchedAt(r *rpc.MarketHistoryResult) time.Time {
 // marketReadIntraday checks that r is the intraday series of symbol and
 // fresh enough for the session state, and says why not.
 func marketReadIntraday(r *rpc.MarketHistoryResult, symbol, state string, now time.Time) (time.Time, string) {
+	fetched, stale, reason := marketReadIntradaySeries(r, symbol, state, now)
+	if reason == "" && stale {
+		reason = marketReadStaleReason
+	}
+	return fetched, reason
+}
+
+// marketReadStaleReason says why bars are stale; when they were read is in
+// bars_as_of.
+var marketReadStaleReason = fmt.Sprintf("bars not refreshed in the last %d minutes", marketReadStaleAfterMinutes)
+
+// marketReadIntradaySeries checks that r is the intraday series of symbol,
+// saying why not, and reports when it was read and whether that is longer
+// ago than the session state allows.
+func marketReadIntradaySeries(r *rpc.MarketHistoryResult, symbol, state string, now time.Time) (fetched time.Time, stale bool, unavailable string) {
 	if r == nil || r.Contract.Symbol != symbol || r.Interval != "5 mins" {
-		return time.Time{}, symbol + " intraday bars unavailable"
+		return time.Time{}, false, symbol + " intraday bars unavailable"
 	}
-	fetched := historyFetchedAt(r)
-	if state == rpc.MarketReadOpen && now.Sub(fetched) > marketReadStaleAfterMinutes*time.Minute {
-		return fetched, fmt.Sprintf("%s bars were last read at %s, more than %d minutes ago", symbol, fetched.UTC().Format(time.RFC3339), marketReadStaleAfterMinutes)
-	}
-	return fetched, ""
+	fetched = historyFetchedAt(r)
+	return fetched, state == rpc.MarketReadOpen && now.Sub(fetched) > marketReadStaleAfterMinutes*time.Minute, ""
 }
 
 // marketReadDailyBar is the regular-session daily bar of date, or nil.
@@ -572,10 +586,15 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	} else {
 		index.PriorUnavailable = "SPX daily bar of " + prior.Date + " unavailable"
 	}
-	if _, reason := marketReadIntraday(src.SPXIntraday, "SPX", state, now); reason != "" {
+	indexStale := false
+	if fetched, stale, reason := marketReadIntradaySeries(src.SPXIntraday, "SPX", state, now); reason != "" {
 		index.BarsUnavailable = reason
 	} else {
-		index.Bars = marketReadBars(src.SPXIntraday.Points, session, historyFetchedAt(src.SPXIntraday))
+		// Late bars still draw the line; they draw no tags.
+		index.Bars, index.BarsAsOf, index.BarsStale, indexStale = marketReadBars(src.SPXIntraday.Points, session, fetched), fetched, stale, stale
+		if stale {
+			index.BarsStaleReason = marketReadStaleReason
+		}
 	}
 	index.Last, index.LastAt, index.LastSource, index.LastUnavailable = marketReadQuoteLast(src.SPXQuote, state, session, prior)
 	if index.Last == nil && len(index.Bars) > 0 {
@@ -598,14 +617,19 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	default:
 		index.Position = "inside"
 	}
-	if fetched, reason := marketReadIntraday(src.SPYIntraday, "SPY", state, now); reason != "" {
+	if fetched, stale, reason := marketReadIntradaySeries(src.SPYIntraday, "SPY", state, now); reason != "" {
 		index.VolumeUnavailable = reason
 	} else {
 		index.Volume = marketReadVolume(src.SPYIntraday.Points, session, priors, fetched)
-		in.Volume = index.Volume
+		index.Volume.BarsAsOf, index.Volume.BarsStale = fetched, stale
+		if stale {
+			index.Volume.BarsStaleReason = marketReadStaleReason
+		} else {
+			in.Volume = index.Volume
+		}
 	}
 	out.Index = index
-	in.Prior, in.IndexBars = index.Prior, index.Bars
+	in.Prior, in.IndexBars, in.IndexStale = index.Prior, index.Bars, indexStale
 	if first := marketReadFirstBar(src.SPXIntraday, "SPX", session); first != nil && len(index.Bars) > 0 && index.Bars[0].At.Equal(session.Open) {
 		in.SessionOpen = new(first.Open)
 	}
@@ -618,11 +642,15 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	} else {
 		vix.PriorCloseUnavailable = "VIX previous close not quoted"
 	}
-	if _, reason := marketReadIntraday(src.VIXIntraday, "VIX", state, now); reason != "" {
+	if fetched, stale, reason := marketReadIntradaySeries(src.VIXIntraday, "VIX", state, now); reason != "" {
 		vix.BarsUnavailable = reason
 	} else {
-		for _, b := range marketReadBars(src.VIXIntraday.Points, session, historyFetchedAt(src.VIXIntraday)) {
+		for _, b := range marketReadBars(src.VIXIntraday.Points, session, fetched) {
 			vix.Bars = append(vix.Bars, rpc.MarketReadVIXBar{At: b.At, Close: b.Close})
+		}
+		vix.BarsAsOf, vix.BarsStale, in.VIXStale = fetched, stale, stale
+		if stale {
+			vix.BarsStaleReason = marketReadStaleReason
 		}
 	}
 	if vix.Last == nil && len(vix.Bars) > 0 {
@@ -719,6 +747,21 @@ func marketReadLeaderRow(l marketReadLeaderSource, state string, session, prior 
 		row.StateUnavailable = "the session's close is not yet in the daily bars"
 	default:
 		marketReadLeaderState(&row)
+	}
+	switch {
+	case row.PriorClose == nil:
+		row.ChangeUnavailable = "prior close unavailable"
+	case row.Last == nil && state == rpc.MarketReadClosed:
+		row.ChangeUnavailable = "the session's close is not yet in the daily bars"
+	case row.Last == nil:
+		row.ChangeUnavailable = "current price unavailable"
+	case state == rpc.MarketReadPre && lastSource == "prior_close":
+		row.ChangeUnavailable = "no pre-market trade today: the price is the prior session's"
+	default:
+		row.ChangePct = tapeFinite(100 * (*row.Last / *row.PriorClose - 1))
+		if row.ChangePct == nil {
+			row.ChangeUnavailable = "change could not be measured"
+		}
 	}
 	return row
 }

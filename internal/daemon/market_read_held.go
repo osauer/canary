@@ -262,7 +262,7 @@ func marketReadHeldBlock(now time.Time, state string, session, prior marketcal.S
 // leader-rule row: the prior session's range, today's range so far and its
 // midpoint, and the current price against the prior range.
 func marketReadHeldRow(h marketReadHeldSource, base rpc.MarketReadLeader, now time.Time, state string, session, prior marketcal.Session) rpc.MarketReadHeldRow {
-	row := rpc.MarketReadHeldRow{Symbol: h.Symbol, Open: base.Open, OpenSource: base.OpenSource, Last: base.Last, LastAt: base.LastAt, State: base.State, StateUnavailable: base.StateUnavailable}
+	row := rpc.MarketReadHeldRow{Symbol: h.Symbol, Open: base.Open, OpenSource: base.OpenSource, Last: base.Last, LastAt: base.LastAt, ChangePct: base.ChangePct, ChangeUnavailable: base.ChangeUnavailable, State: base.State, StateUnavailable: base.StateUnavailable}
 	if bar := marketReadDailyBar(h.Daily, h.Symbol, prior.Date); bar != nil && bar.High != nil && bar.Low != nil {
 		row.Prior = &rpc.MarketReadPrior{Date: prior.Date, High: *bar.High, Low: *bar.Low, Close: bar.Value}
 	} else {
@@ -271,7 +271,7 @@ func marketReadHeldRow(h marketReadHeldSource, base rpc.MarketReadLeader, now ti
 	_, _, lastSource, lastReason := marketReadQuoteLast(h.Quote, state, session, prior)
 	switch {
 	case h.Unquoted != "":
-		row.LastUnavailable, row.StateUnavailable = h.Unquoted, h.Unquoted
+		row.LastUnavailable, row.StateUnavailable, row.ChangeUnavailable = h.Unquoted, h.Unquoted, h.Unquoted
 	case state == rpc.MarketReadClosed && row.Last != nil:
 		row.LastSource = "daily_bar"
 	case state == rpc.MarketReadClosed:
