@@ -518,6 +518,9 @@ type Server struct {
 	// the mandate reduction's state and open episode (mandate_episode.go).
 	mandateBreachForTest    func() (state, episode string)
 	mandatePositionsForTest func(context.Context) (*rpc.PositionsResult, error)
+	// marketHistoryFetchForTest replaces the broker read behind the shared
+	// bounded history request (market_cache.go). Tests only.
+	marketHistoryFetchForTest func(context.Context, rpc.MarketHistoryParams, int, time.Time) (*rpc.MarketHistoryResult, error)
 	// replayHistoryFetchForTest replaces the broker history read behind the
 	// Edge replay (replay_history.go) and stands in for an online gateway.
 	replayHistoryFetchForTest func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)

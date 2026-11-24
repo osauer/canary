@@ -36,21 +36,34 @@ func (s *Server) handleMarketTape(ctx context.Context, req *rpc.Request) (*rpc.M
 	}
 	return s.buildAndArchiveMarketTape(ctx, p, func(ctx context.Context, p rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error) {
 		if p.Contract.Symbol != "SPX" && p.Contract.Symbol != "QQQ" {
-			// Research reads use the collector's retained data, never register
-			// thirteen additional all-day interactive chart subscriptions.
-			key, params, err := marketHistoryIdentity(p)
-			if err != nil {
-				return nil, err
-			}
-			saved, storedAt, err := s.loadMarketHistory(ctx, key)
-			if err != nil || saved == nil {
-				return nil, err
-			}
-			return selectStoredHistory(saved, storedAt, params, time.Now(), "cache", "", false), nil
+			return s.retainedOrRequestedHistory(ctx, p, now)
 		}
 		raw, _ := json.Marshal(p)
 		return s.handleMarketHistory(ctx, &rpc.Request{Params: raw})
 	})
+}
+
+// retainedOrRequestedHistory serves a research series from the chart cache
+// and reads it through the bounded history request only when the cache no
+// longer holds it. The cache keeps a bounded number of series and drops the
+// least recently written, so a series the evening collection wrote can be
+// gone by the next morning; reading that as a missing measurement made an
+// interactive tape archive a capture without SPY, VIX and the leaders. The
+// request registers no follow interest, so no all-day chart refresh starts,
+// and a retained series costs no broker request at all.
+func (s *Server) retainedOrRequestedHistory(ctx context.Context, p rpc.MarketHistoryParams, now time.Time) (*rpc.MarketHistoryResult, error) {
+	key, params, err := marketHistoryIdentity(p)
+	if err != nil {
+		return nil, err
+	}
+	saved, storedAt, err := s.loadMarketHistory(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if saved != nil {
+		return selectStoredHistory(saved, storedAt, params, now, "cache", "", false), nil
+	}
+	return s.marketHistoryRequest(ctx, p)
 }
 
 func (s *Server) buildAndArchiveMarketTape(ctx context.Context, p rpc.MarketTapeParams, read func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)) (*rpc.MarketTapeResult, error) {

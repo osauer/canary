@@ -245,7 +245,13 @@ close +15 minutes through close +3 hours. That overlaps the existing breadth
 sweep without launching another constituent sweep. Initial missing current
 measurements or failed collection passes are retried; existing broker pacing,
 coalescing and the background request lane remain binding. Normal tape reads
-also retain their measured rows. Collection works only while the daemon runs;
+also retain their measured rows. A normal read takes the SPY, VIX and leader
+histories from the chart cache and, when the cache has dropped one (it keeps a
+bounded number of series and drops the least recently written, so a series
+written at the evening collection can be gone by morning), reads it once
+through the same bounded request, without following it all day. A capture
+with fewer measured legs than the session's latest one never replaces it; an
+equally complete correction does. Collection works only while the daemon runs;
 the worker does not defeat idle shutdown between collection passes. It uses the
 fixed SPX/QQQ/SPY/VIX and 11 leader six-month history reads, through existing bounded pacing, with no new paid source.
 

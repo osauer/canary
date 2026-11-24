@@ -149,7 +149,10 @@ func saveTapeDay(ctx context.Context, store *corestore.Store, capture rpc.Market
 		if err != nil {
 			return err
 		}
-		if exists && (day.Fingerprint == fingerprint || capture.CapturedAt.Before(day.Latest.CapturedAt)) {
+		// A later capture that measured fewer legs (a source unavailable at
+		// that moment) never replaces a fuller one; an equally complete
+		// correction does.
+		if exists && (day.Fingerprint == fingerprint || capture.CapturedAt.Before(day.Latest.CapturedAt) || tapeSessionLegs(capture.Session) < tapeSessionLegs(day.Latest.Session)) {
 			return nil
 		}
 		capture.Revision = doc.Revision + 1

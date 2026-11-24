@@ -8,6 +8,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 - The regime's HYG/SPY row says when HYG is at its 52-week low (`hyg_at_52w_low`, and "at its 52w low" in the row). Bands are unchanged.
 
+### Fixed
+
+- A normal `canary market tape` read could find SPY, VIX and the leader basket missing once the chart cache had dropped their histories to make room for other series, and then archived that poorer capture over the complete one taken after the close. The tape now reads a dropped history again through the bounded history request, and a capture with fewer measured legs never replaces a fuller one for the same session.
+
 ## v3.45.0 — 2026-11-23 08:30 CET
 
 ### What's new

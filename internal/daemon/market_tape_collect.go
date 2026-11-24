@@ -63,11 +63,32 @@ func (s *Server) collectMarketTape(ctx context.Context, read func(context.Contex
 	if len(result.Sessions) == 0 {
 		return false
 	}
-	latest := result.Sessions[len(result.Sessions)-1]
-	return latest.SPX != nil && latest.QQQ != nil && latest.Breadth != nil &&
-		latest.SPY != nil && latest.VIX != nil && latest.Leaders != nil && latest.Leaders.Price != nil &&
-		latest.Leaders.Companies.Coverage50 == latest.Leaders.Companies.CompanyCount &&
-		latest.Leaders.VolumeCoverage == len(tapeLeaderWeights)
+	return tapeSessionLegs(result.Sessions[len(result.Sessions)-1]) == tapeSessionLegCount
+}
+
+// tapeSessionLegCount is how many measured legs a complete session has; see
+// tapeSessionLegs.
+const tapeSessionLegCount = 8
+
+// tapeSessionLegs counts the measured legs of one session: the SPX and QQQ
+// closes, breadth, SPY, VIX, the leader basket's level, its company averages
+// for every company and its activity for every share line. The collector
+// stops for the evening at all of them, and the archive keeps the capture
+// with the most.
+func tapeSessionLegs(row rpc.MarketTapeSession) int {
+	leaders := row.Leaders != nil
+	n := 0
+	for _, measured := range []bool{
+		row.SPX != nil, row.QQQ != nil, row.Breadth != nil, row.SPY != nil, row.VIX != nil,
+		leaders && row.Leaders.Price != nil,
+		leaders && row.Leaders.Companies.Coverage50 == row.Leaders.Companies.CompanyCount,
+		leaders && row.Leaders.VolumeCoverage == len(tapeLeaderWeights),
+	} {
+		if measured {
+			n++
+		}
+	}
+	return n
 }
 
 func tapeCollectionDue(lastAttempt, now time.Time) bool {

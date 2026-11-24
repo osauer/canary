@@ -122,7 +122,11 @@ func (s *Server) marketHistoryRequest(ctx context.Context, p rpc.MarketHistoryPa
 	cache.mu.Unlock()
 	select {
 	case slots <- struct{}{}:
-		e.result, e.err = s.readRetainedHistory(ctx, key, p, time.Now(), s.fetchMarketHistoryDays)
+		fetch := s.fetchMarketHistoryDays
+		if s.marketHistoryFetchForTest != nil {
+			fetch = s.marketHistoryFetchForTest
+		}
+		e.result, e.err = s.readRetainedHistory(ctx, key, p, time.Now(), fetch)
 		<-slots
 	case <-ctx.Done():
 		e.err = ctx.Err()
