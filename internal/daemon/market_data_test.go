@@ -265,3 +265,38 @@ func TestMarketSnapshotFollowsHistoryOnlyForPricedRows(t *testing.T) {
 		t.Fatalf("interest = %d series, want the priced row's 1D and 1Y", len(s.marketData.interest))
 	}
 }
+
+// The broker answers a 1D read with several days of five-minute bars so the
+// session can be found. The days before it are retained with it, so an
+// intraday baseline rests on the sessions the broker already sent rather
+// than on the days a series happened to survive in the chart cache. The
+// served selection is still the one session.
+func TestMarketHistoryIntradayKeepsThePriorDaysTheBrokerSent(t *testing.T) {
+	ny, _ := time.LoadLocation("America/New_York")
+	now := time.Date(2026, 9, 23, 11, 0, 0, 0, ny)
+	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: "SYNTH", SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: "1D"}
+	got, err := fetchRetainedMarketHistory(t.Context(), p, 0, now, func(_ context.Context, c broker.Instrument, _ int, _ string, _ time.Duration) (broker.BarSeries, error) {
+		c.ID, c.Primary = "123456", "NYSE"
+		var bars []broker.Bar
+		for _, day := range []int{18, 21, 22, 23} {
+			bars = append(bars, broker.Bar{Time: time.Date(2026, 9, day, 9, 30, 0, 0, ny), Open: 100, High: 101, Low: 99, Close: 100, Volume: 1000})
+		}
+		bars = append(bars, broker.Bar{Time: time.Date(2026, 9, 21, 9, 35, 0, 0, ny), Close: -1}) // a bad print before the session is dropped, not fatal
+		slices.SortFunc(bars, func(a, b broker.Bar) int { return a.Time.Compare(b.Time) })
+		return broker.BarSeries{Instrument: c, WhatToShow: "TRADES", Bars: bars}, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Points) != 4 || !got.Start.Equal(got.Points[0].At) {
+		t.Fatalf("prior days not retained: %d points %+v", len(got.Points), got.Points)
+	}
+	session := time.Date(2026, 9, 23, 0, 0, 0, 0, ny)
+	if !got.RequestedStart.Equal(session) {
+		t.Errorf("requested start %s, want the session %s", got.RequestedStart, session)
+	}
+	served := selectStoredHistory(&storedMarketHistory{Result: *got}, now, p, now, "ibkr", "", false)
+	if len(served.Points) != 1 || served.Points[0].At.Day() != 23 {
+		t.Errorf("served selection is not the one session: %+v", served.Points)
+	}
+}

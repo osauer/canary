@@ -24,11 +24,20 @@ const (
 	marketReadSellingWindowVolume = 1.3
 	marketReadVIXLine             = 25.0
 	marketReadVIXRisingPct        = 5.0
-	marketReadGapMinPct           = 0.25
-	marketReadGapHoldFraction     = 0.5
-	marketReadLeadersMinGapped    = 3
-	marketReadLeadersHoldShare    = 0.70
-	marketReadLeadersFadeShare    = 0.40
+	// marketReadVIXBand is how far beyond the line two closes must be for VIX
+	// to cross back once a side holds. Replay of 2026-11-18, VIX between
+	// 23.6 and 25.2 all session, swapped fear_easing and stress_elevated
+	// three times without it.
+	marketReadVIXBand         = 0.5
+	marketReadGapMinPct       = 0.25
+	marketReadGapHoldFraction = 0.5
+	// marketReadGapAdvanceFraction: a session that opened beyond the prior
+	// range advances only once it has moved this fraction of its opening gap
+	// further; until then holding there is the gap holding.
+	marketReadGapAdvanceFraction = 0.5
+	marketReadLeadersMinGapped   = 3
+	marketReadLeadersHoldShare   = 0.70
+	marketReadLeadersFadeShare   = 0.40
 )
 
 const marketReadBar = marketReadBarMinutes * time.Minute
@@ -40,8 +49,8 @@ func marketReadThresholds() rpc.MarketReadThresholds {
 		ContinuationRelativeVolume: marketReadContinuationRelVol, ThinRelativeVolume: marketReadThinRelVol,
 		LookbackMinutes: marketReadLookbackMinutes, FadingWindowVolume: marketReadFadingWindowVolume,
 		FadingRelativeVolume: marketReadFadingRelVol, SellingWindowVolume: marketReadSellingWindowVolume,
-		VIXLine: marketReadVIXLine, VIXRisingPct: marketReadVIXRisingPct,
-		GapMinPct: marketReadGapMinPct, GapHoldFraction: marketReadGapHoldFraction,
+		VIXLine: marketReadVIXLine, VIXRisingPct: marketReadVIXRisingPct, VIXBand: marketReadVIXBand,
+		GapMinPct: marketReadGapMinPct, GapHoldFraction: marketReadGapHoldFraction, GapAdvanceFraction: marketReadGapAdvanceFraction,
 		LeadersMinGapped: marketReadLeadersMinGapped, LeadersHoldShare: marketReadLeadersHoldShare, LeadersFadeShare: marketReadLeadersFadeShare,
 	}
 }
@@ -246,8 +255,11 @@ func marketReadLeaderCounts(rows []rpc.MarketReadLeader) (gappedUp, holding int)
 // IndexBars, VolumeBars and VIXBars are completed regular-session bars of the
 // session, oldest first; an empty slice is a source not measured.
 type marketReadTagInputs struct {
-	State         string
-	Prior         *rpc.MarketReadPrior
+	State string
+	Prior *rpc.MarketReadPrior
+	// SessionOpen is the index's opening price, from the bar that opened the
+	// session; nil without it.
+	SessionOpen   *float64
 	IndexBars     []rpc.MarketReadBar
 	Volume        *rpc.MarketReadVolume
 	VIXBars       []rpc.MarketReadVIXBar
@@ -371,7 +383,18 @@ func marketReadIndexTagAt(in marketReadTagInputs, k int) *marketReadTagAt {
 	if relative != nil {
 		evidence["relative_volume"] = *relative
 	}
+	open, last := in.SessionOpen, closes(k-1)
+	if open != nil {
+		evidence["session_open"] = *open
+	}
 	switch {
+	case marketReadHolds(closes, k, func(c float64) bool { return c > in.Prior.High }) &&
+		open != nil && *open > in.Prior.High && last-*open < marketReadGapAdvanceFraction*(*open-in.Prior.Close):
+		// The whole move came with the open; the session has not added to it.
+		return &marketReadTagAt{"gap_holds", "neutral", evidence}
+	case marketReadHolds(closes, k, func(c float64) bool { return c < in.Prior.Low }) &&
+		open != nil && *open < in.Prior.Low && *open-last < marketReadGapAdvanceFraction*(in.Prior.Close-*open):
+		return &marketReadTagAt{"gap_down_holds", "neutral", evidence}
 	case marketReadHolds(closes, k, func(c float64) bool { return c > in.Prior.High }):
 		switch {
 		case relative != nil && *relative >= marketReadContinuationRelVol:
@@ -444,13 +467,18 @@ func marketReadVIXTagAt(in marketReadTagInputs, k int) *marketReadTagAt {
 			evidence["change_pct"] = *change
 		}
 	}
+	side := marketReadVIXSide(closes, k)
 	switch {
-	case marketReadHolds(closes, k, func(c float64) bool { return c > marketReadVIXLine }):
+	case side > 0:
 		if change != nil && *change >= marketReadVIXRisingPct {
 			return &marketReadTagAt{"stress_rising", "negative", evidence}
 		}
+		if change != nil && *change <= -marketReadVIXRisingPct {
+			// Still above the line, but falling as fast as a rising day climbs.
+			return &marketReadTagAt{"stress_easing", "neutral", evidence}
+		}
 		return &marketReadTagAt{"stress_elevated", "caution", evidence}
-	case marketReadHolds(closes, k, func(c float64) bool { return c < marketReadVIXLine }) && change != nil && *change < 0 &&
+	case side < 0 && change != nil && *change < 0 &&
 		(*in.VIXPriorClose >= marketReadVIXLine || *change <= -marketReadVIXRisingPct):
 		// Easing is news only from fear: VIX came down through the line, or
 		// fell by as much as a rising day would add. A calm day drifting lower
@@ -458,6 +486,29 @@ func marketReadVIXTagAt(in marketReadTagInputs, k int) *marketReadTagAt {
 		return &marketReadTagAt{"fear_easing", "positive", evidence}
 	}
 	return nil
+}
+
+// marketReadVIXSide is the side of its line VIX holds at bar k: +1 above,
+// -1 below, 0 neither yet. The first side needs two closes beyond the line;
+// once a side holds, crossing back needs two closes beyond the line by the
+// band, so VIX trading at the line does not swap sides every few bars.
+func marketReadVIXSide(closes func(int) float64, k int) int {
+	side := 0
+	for j := 1; j <= k; j++ {
+		up, down := marketReadVIXLine, marketReadVIXLine
+		switch side {
+		case 1:
+			down -= marketReadVIXBand
+		case -1:
+			up += marketReadVIXBand
+		}
+		if marketReadHolds(closes, j, func(c float64) bool { return c > up }) {
+			side = 1
+		} else if marketReadHolds(closes, j, func(c float64) bool { return c < down }) {
+			side = -1
+		}
+	}
+	return side
 }
 
 // marketReadLeadersTag reads the current leader states. They come from

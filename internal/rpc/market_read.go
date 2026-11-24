@@ -106,8 +106,10 @@ type MarketReadThresholds struct {
 	SellingWindowVolume  float64 `json:"selling_window_volume"`
 	VIXLine              float64 `json:"vix_line"`
 	VIXRisingPct         float64 `json:"vix_rising_pct"`
+	VIXBand              float64 `json:"vix_band"`
 	GapMinPct            float64 `json:"gap_min_pct"`
 	GapHoldFraction      float64 `json:"gap_hold_fraction"`
+	GapAdvanceFraction   float64 `json:"gap_advance_fraction"`
 	LeadersMinGapped     int     `json:"leaders_min_gapped"`
 	LeadersHoldShare     float64 `json:"leaders_hold_share"`
 	LeadersFadeShare     float64 `json:"leaders_fade_share"`

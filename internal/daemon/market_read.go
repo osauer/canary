@@ -342,6 +342,9 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	}
 	out.Index = index
 	in.Prior, in.IndexBars = index.Prior, index.Bars
+	if first := marketReadFirstBar(src.SPXIntraday, "SPX", session); first != nil && len(index.Bars) > 0 && index.Bars[0].At.Equal(session.Open) {
+		in.SessionOpen = new(first.Open)
+	}
 
 	// VIX.
 	vix := &rpc.MarketReadVIX{Line: marketReadVIXLine, Bars: []rpc.MarketReadVIXBar{}}

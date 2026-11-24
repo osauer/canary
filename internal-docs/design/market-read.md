@@ -17,7 +17,7 @@ persistent state and opens no standing market-data line.
 | --- | --- | --- |
 | SPX prior session high, low, close | `market.history` SPX `6M`, daily regular-session bars | Selected by the calendar's prior-session date, never "the last bar". The intraday series includes extended hours on stocks and is not used for this. |
 | SPX five-minute bars | `market.history` SPX `1D` | Followed, so the refresh worker keeps it current. |
-| SPY five-minute volume | `market.history` SPY `1D`, then the retained series | The index carries no volume; SPY is the named proxy. The selection keeps only the current day, so the baseline reads the retained series, which holds the prior sessions the daemon recorded (up to twenty venue dates). |
+| SPY five-minute volume | `market.history` SPY `1D`, then the retained series | The index carries no volume; SPY is the named proxy. The selection keeps only the current day, so the baseline reads the retained series, which holds the prior sessions the daemon recorded (up to twenty venue dates). Each 1D read also keeps the earlier days the broker sends with it (the read pads six days to find its session), so one read seeds about five prior sessions. |
 | VIX five-minute bars | `market.history` VIX `1D` | |
 | SPX, VIX and leader quotes | a brief look through the broker seam (`BriefQuote`), as the regime takes its quotes | Transient: four at a time, two seconds each, each line released after its read. The look returns the last trade or mark, the prior close and the session open (tick 14). |
 | Leader prior close and low | the market tape's leader daily series (`6M`) | Chart cache first; through the bounded history request only when the cache has no bar of the prior session. |
@@ -71,7 +71,8 @@ volume over the sum of the same buckets' baselines, so it means the same at
 any time of day; it is absent, with a reason, unless every completed bucket
 has a baseline. `baseline_sessions` is the fewest sessions any of today's
 buckets rests on. An early close only lacks its late buckets. The baseline is
-as deep as the daemon's recording: a series followed for two days has a
+as deep as the daemon's recording and the days each read brings with it: a
+series followed for two days has a
 two-day baseline and is reported as such.
 
 ## Tags
@@ -83,6 +84,8 @@ returned in `thresholds` with `heuristic: true`.
 
 | Scope | Code | Tone | Condition |
 | --- | --- | --- | --- |
+| index | `gap_holds` | neutral | opened above the prior high, holds above it, and has not advanced half the opening gap (open against prior close) past the open: the move came with the open |
+| index | `gap_down_holds` | neutral | the mirror below the prior low |
 | index | `continuation` | positive | holds above the prior high and relative volume ≥ 1.2 |
 | index | `breakout_thin_volume` | caution | holds above the prior high and relative volume < 0.8 |
 | index | `above_prior_high` | neutral | holds above the prior high, volume between or unavailable |
@@ -91,6 +94,7 @@ returned in `thresholds` with `heuristic: true`.
 | volume | `rally_fading` | caution | SPX above its close 30 minutes ago, the last 30 minutes of SPY volume < 0.7 × their baseline, and relative volume < 1.0 |
 | volume | `selling_on_volume` | negative | SPX below its close 30 minutes ago and the last 30 minutes of SPY volume ≥ 1.3 × their baseline |
 | vix | `stress_rising` | negative | holds above 25 and up ≥ 5% on the day |
+| vix | `stress_easing` | neutral | holds above 25 and down ≥ 5% on the day |
 | vix | `stress_elevated` | caution | holds above 25 otherwise |
 | vix | `fear_easing` | positive | holds below 25, down on the day, and either the prior close was at or above 25 or the fall is at least 5%; a calm day drifting lower is not it |
 | leaders | `leaders_hold` | positive | at least 3 leaders gapped up and ≥ 70% of them hold |
@@ -112,6 +116,38 @@ recorded. Before the open there are none: the opening tick still names the
 previous session. `gapped_up`
 counts the companies with a state whose gap is up by at least the minimum,
 whatever their state; `holding_gap_up` those that hold it.
+
+VIX holds a side of its line on two closes beyond it; once a side holds,
+crossing back needs two closes beyond the line by 0.5 (`vix_band`).
+
+## Replay, 2026-11-24
+
+`TestMarketReadReplay` (run with `MARKET_READ_REPLAY_DATA`; no data is
+committed) steps each recorded session five minutes at a time, giving the
+read only the bars completed by then and a baseline of earlier sessions only.
+Five-minute bars were recorded for 2026-11-23 alone; 2026-11-17 to 11-20 were
+replayed coarsely from 30-minute bars (a hold is then an hour, and the
+30-minute volume tags cannot fire). Leader states were replayed at the close
+only, from daily bars. What it showed, and what changed:
+
+- 11-23 opened 4.6% above the prior close and above the prior high, dipped
+  back inside the range for two bars, then held above it all day and closed
+  near its open. The read said `above_prior_high` from 09:55 to the close; with
+  a volume baseline it would have said `continuation`, though the session
+  added nothing after the open. Hence `gap_holds`.
+- 11-23 VIX opened near 29 from a 35.89 close and stayed between 26 and 29:
+  `stress_elevated` (caution) all day named the level and missed a 25% fall.
+  Hence `stress_easing`.
+- 11-18 VIX traded between 23.6 and 25.2 against a prior close of 25.46: the
+  tags swapped `fear_easing` and `stress_elevated` three times, one run lasting
+  30 minutes. Hence the band; with it the day reads `fear_easing` throughout.
+- 11-17 VIX broke its `stress_rising` run for an hour at the line; with the
+  band it stands from 11:35.
+- 11-23's volume baseline rested on one prior session, so relative volume was
+  unavailable all day although the session traded about 1.5 times its usual
+  volume. The chart cache had kept only 11-20 of SPY's five-minute history,
+  having dropped and rewritten the series. Hence keeping the padded days of
+  each 1D read.
 
 ## Missing values
 

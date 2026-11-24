@@ -507,3 +507,71 @@ func TestMarketReadTagEventsTraceEachRun(t *testing.T) {
 		t.Errorf("a standing run carries an end: %s", raw)
 	}
 }
+
+// A session that opens beyond the prior range and then moves sideways is a
+// gap that holds, not an advance: the whole move came before the first bar.
+func TestMarketReadGapThatHoldsIsNotContinuation(t *testing.T) {
+	// The prior session closed at 95 with a high of 100; this one opens at 105.
+	opening := func(m *readMarket, now time.Time, closes ...float64) {
+		m.index(now, closes...)
+		m.src.SPXIntraday.Points[0].Open, m.src.SPXIntraday.Points[0].High, m.src.SPXIntraday.Points[0].Low = new(105.0), new(106.0), new(104.0)
+	}
+	m := newReadMarket(t)
+	now := m.at(3)
+	opening(m, now, 105.2, 105.1, 105.3)
+	m.volume(now, 3, 100, 150, 150, 150)
+	if tag := tagOf(m.read(now), "index"); tag == nil || tag.Code != "gap_holds" || tag.Evidence["session_open"] != 105 {
+		t.Errorf("a gap above the range that went sideways: %+v", tag)
+	}
+	// Advancing at least half the gap past the open is continuation again.
+	m = newReadMarket(t)
+	opening(m, now, 105.5, 109, 111)
+	m.volume(now, 3, 100, 150, 150, 150)
+	if got := codeOf(m.read(now), "index"); got != "continuation" {
+		t.Errorf("an advance past the gap: %q", got)
+	}
+	// Mirror: a gap below the prior low that stays there.
+	m = newReadMarket(t)
+	m.index(now, 85.1, 85.2, 84.9)
+	m.src.SPXIntraday.Points[0].Open, m.src.SPXIntraday.Points[0].High, m.src.SPXIntraday.Points[0].Low = new(85.0), new(86.0), new(84.0)
+	if got := codeOf(m.read(now), "index"); got != "gap_down_holds" {
+		t.Errorf("a gap below the range that went sideways: %q", got)
+	}
+}
+
+// VIX far above its line but falling hard is easing, not stress building.
+func TestMarketReadVIXFallingAboveTheLineIsStressEasing(t *testing.T) {
+	m := newReadMarket(t)
+	now := m.at(2)
+	m.vix(now, 36, 27, 27.1)
+	if tag := tagOf(m.read(now), "vix"); tag == nil || tag.Code != "stress_easing" {
+		t.Errorf("VIX 36 to 27: %+v", tag)
+	}
+	m.vix(now, 28, 27, 27.1)
+	if got := codeOf(m.read(now), "vix"); got != "stress_elevated" {
+		t.Errorf("VIX 28 to 27: %q", got)
+	}
+}
+
+// VIX hovering at its line does not swap fear_easing and stress_elevated
+// every few bars: once a side holds, crossing back needs two closes beyond
+// the line by the band.
+func TestMarketReadVIXSideNeedsTheBandToCrossBack(t *testing.T) {
+	m := newReadMarket(t)
+	now := m.at(4)
+	m.vix(now, 26, 24.4, 24.3, 25.2, 25.3)
+	if got := codeOf(m.read(now), "vix"); got != "fear_easing" {
+		t.Errorf("two closes just over the line after holding below: %q, want fear_easing", got)
+	}
+	now = m.at(6)
+	m.vix(now, 26, 24.4, 24.3, 25.2, 25.3, 25.7, 25.8)
+	if got := codeOf(m.read(now), "vix"); got != "stress_elevated" {
+		t.Errorf("two closes beyond the band: %q, want stress_elevated", got)
+	}
+	// The first side still needs only two closes beyond the line.
+	now = m.at(2)
+	m.vix(now, 24.5, 25.1, 25.2)
+	if got := codeOf(m.read(now), "vix"); got != "stress_elevated" {
+		t.Errorf("first hold above the line: %q", got)
+	}
+}

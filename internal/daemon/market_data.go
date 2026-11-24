@@ -169,7 +169,7 @@ func marketHistoryWindow(r string, now time.Time) (int, string, error) {
 }
 
 func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time) (*rpc.MarketHistoryResult, error) {
-	return fetchMarketHistory(ctx, p, tailDays, now, func(ctx context.Context, in broker.Instrument, days int, interval string, timeout time.Duration) (broker.BarSeries, error) {
+	return fetchRetainedMarketHistory(ctx, p, tailDays, now, func(ctx context.Context, in broker.Instrument, days int, interval string, timeout time.Duration) (broker.BarSeries, error) {
 		a := s.brokerReads()
 		if a == nil {
 			return broker.BarSeries{}, s.sessionUnavailableError()
@@ -194,6 +194,20 @@ func (s *Server) fetchMarketHistoryDays(ctx context.Context, p rpc.MarketHistory
 // fetchMarketHistory composes acquisition and selection around the broker reader;
 // the reader owns exact contract resolution and session continuity.
 func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time, fetch func(context.Context, broker.Instrument, int, string, time.Duration) (broker.BarSeries, error)) (*rpc.MarketHistoryResult, error) {
+	return readMarketHistoryBars(ctx, p, tailDays, now, fetch, false)
+}
+
+// fetchRetainedMarketHistory is fetchMarketHistory for the retained record:
+// a 1D read also keeps the earlier days the broker sent while finding its
+// session. The record holds twenty venue dates, and an intraday baseline
+// needs the prior sessions; without them it rested only on the days a series
+// happened to survive in the chart cache. Selection still serves the session
+// alone.
+func fetchRetainedMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time, fetch func(context.Context, broker.Instrument, int, string, time.Duration) (broker.BarSeries, error)) (*rpc.MarketHistoryResult, error) {
+	return readMarketHistoryBars(ctx, p, tailDays, now, fetch, true)
+}
+
+func readMarketHistoryBars(ctx context.Context, p rpc.MarketHistoryParams, tailDays int, now time.Time, fetch func(context.Context, broker.Instrument, int, string, time.Duration) (broker.BarSeries, error), keepPadded bool) (*rpc.MarketHistoryResult, error) {
 	days, interval, err := marketHistoryWindow(p.Range, now)
 	if err != nil {
 		return nil, err
@@ -282,7 +296,10 @@ func fetchMarketHistory(ctx context.Context, p rpc.MarketHistoryParams, tailDays
 		// one zero close from 2024 refused a year of valid MOTS bars.
 		invalidTime := b.Time.IsZero() || b.Time.After(now.Add(time.Minute))
 		if !invalidTime && b.Time.Before(cutoff) {
-			continue
+			// See fetchRetainedMarketHistory; a bad price there is dropped.
+			if !keepPadded || p.Range != "1D" || math.IsNaN(b.Close) || math.IsInf(b.Close, 0) || b.Close <= 0 {
+				continue
+			}
 		}
 		if invalidTime || math.IsNaN(b.Close) || math.IsInf(b.Close, 0) || b.Close <= 0 {
 			at := b.Time.UTC().Format(time.RFC3339)
