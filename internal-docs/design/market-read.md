@@ -91,7 +91,9 @@ returned in `thresholds` with `heuristic: true`.
 | index | `above_prior_high` | neutral | holds above the prior high, volume between or unavailable |
 | index | `breakdown_on_volume` | negative | holds below the prior low and relative volume ≥ 1.2 |
 | index | `bounce_failed` | negative | holds below the prior low, volume under 1.2 or unavailable |
-| index | `inside_prior_range` | neutral | otherwise |
+| index | `testing_prior_high` | neutral | the latest completed close is above the prior high, not yet held (a gap above the range before it holds included) |
+| index | `testing_prior_low` | neutral | the mirror below the prior low |
+| index | `inside_prior_range` | neutral | the latest completed close is inside the prior range |
 | volume | `rally_fading` | caution | SPX above its close 30 minutes ago, the last 30 minutes of SPY volume < 0.7 × their baseline, and relative volume < 1.0 |
 | volume | `selling_on_volume` | negative | SPX below its close 30 minutes ago and the last 30 minutes of SPY volume ≥ 1.3 × their baseline |
 | vix | `stress_rising` | negative | holds above 25 and up ≥ 5% on the day |
@@ -156,6 +158,16 @@ A later round added `breakdown_on_volume` and `leaders_breaking_down`: the
 replay of 11-20, a heavy selloff on about twice the usual volume with every
 leader closing under its prior low, read only `bounce_failed` and no leader
 tag, because the leader tags looked only at gap-ups.
+
+Rendering the replay showed 11-20 at 10:30 reading `inside_prior_range`
+while the latest close was already under the prior low and `index.position`
+said `below_prior_low`: an unheld break fell through to "inside". It now
+reads `testing_prior_low`.
+
+Bar close times (`last_at` when no quote, `since`, event bounds) are a bar's
+start plus five minutes. Live reads serve five-minute series only (the read
+refuses any other interval), so that holds; the replay harness, which can
+feed coarse bars, moves those times to the coarse bar's end itself.
 
 ## Missing values
 

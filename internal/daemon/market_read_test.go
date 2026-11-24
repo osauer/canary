@@ -131,8 +131,8 @@ func TestMarketReadIndexLevelHoldsOnlyOnTwoCompletedCloses(t *testing.T) {
 	m := newReadMarket(t)
 	now := m.at(3)
 	m.index(now, 95, 99, 101) // one close above the prior high
-	if got := codeOf(m.read(now), "index"); got != "inside_prior_range" {
-		t.Fatalf("one close above the prior high: %q, want inside_prior_range", got)
+	if got := codeOf(m.read(now), "index"); got != "testing_prior_high" {
+		t.Fatalf("one close above the prior high: %q, want testing_prior_high (not yet held)", got)
 	}
 	now = m.at(4)
 	m.index(now, 95, 99, 101, 102)
@@ -154,7 +154,7 @@ func TestMarketReadIndexLevelHoldsOnlyOnTwoCompletedCloses(t *testing.T) {
 	}
 	// A bar still forming when the series was read draws no tag.
 	m.index(m.at(4).Add(-2*time.Minute), 95, 99, 101, 102)
-	if r := m.read(m.at(4)); len(r.Index.Bars) != 3 || codeOf(r, "index") != "inside_prior_range" {
+	if r := m.read(m.at(4)); len(r.Index.Bars) != 3 || codeOf(r, "index") != "testing_prior_high" {
 		t.Errorf("forming bar counted: %d bars, %q", len(r.Index.Bars), codeOf(r, "index"))
 	}
 	m.index(m.at(4), 95, 89, 88, 87)
@@ -477,7 +477,8 @@ func TestMarketReadTagEventsTraceEachRun(t *testing.T) {
 		}
 	}
 	want := []rpc.MarketReadTagEvent{
-		{Code: "inside_prior_range", Scope: "index", Tone: "neutral", From: end(1), To: end(3)},
+		{Code: "inside_prior_range", Scope: "index", Tone: "neutral", From: end(1), To: end(2)},
+		{Code: "testing_prior_high", Scope: "index", Tone: "neutral", From: end(2), To: end(3)},
 		{Code: "above_prior_high", Scope: "index", Tone: "neutral", From: end(3), To: end(4)},
 		{Code: "inside_prior_range", Scope: "index", Tone: "neutral", From: end(4)},
 	}
@@ -502,7 +503,7 @@ func TestMarketReadTagEventsTraceEachRun(t *testing.T) {
 	if len(vix) != 1 || vix[0].Code != "fear_easing" || !vix[0].From.Equal(end(5)) || !vix[0].To.IsZero() {
 		t.Errorf("vix events: %+v", vix)
 	}
-	raw, _ := json.Marshal(index[2])
+	raw, _ := json.Marshal(index[len(index)-1])
 	if strings.Contains(string(raw), `"to"`) {
 		t.Errorf("a standing run carries an end: %s", raw)
 	}
@@ -637,5 +638,40 @@ func TestMarketReadLeadersBreakingDown(t *testing.T) {
 	m.leader("EEE", new(99.5), new(99.4))
 	if got := codeOf(m.read(now), "leaders"); got != "leaders_fading" {
 		t.Errorf("two of five below: %q, want leaders_fading", got)
+	}
+}
+
+// inside_prior_range means the latest completed close is inside the range.
+// A close beyond a level that has not yet held is testing it.
+func TestMarketReadUnheldBreakIsTestingNotInside(t *testing.T) {
+	m := newReadMarket(t)
+	now := m.at(2)
+	m.index(now, 95, 88) // the latest close is under the prior low of 90
+	r := m.read(now)
+	if got := codeOf(r, "index"); got != "testing_prior_low" || r.Index.Position != "below_prior_low" {
+		t.Errorf("one close under the low: %q, position %q", got, r.Index.Position)
+	}
+	m.index(now, 95, 101)
+	if tag := tagOf(m.read(now), "index"); tag == nil || tag.Code != "testing_prior_high" || tag.Tone != "neutral" {
+		t.Errorf("one close over the high: %+v", tag)
+	}
+	// A session that opened beyond the range and has not held yet tests it.
+	m.index(m.at(1), 105.2)
+	m.src.SPXIntraday.Points[0].Open, m.src.SPXIntraday.Points[0].High, m.src.SPXIntraday.Points[0].Low = new(105.0), new(106.0), new(104.0)
+	if got := codeOf(m.read(m.at(1)), "index"); got != "testing_prior_high" {
+		t.Errorf("first bar of a gap above the range: %q", got)
+	}
+	// Back inside, it is inside again, and the timeline carries each code.
+	now = m.at(4)
+	m.index(now, 95, 101, 99, 98)
+	r = m.read(now)
+	var codes []string
+	for _, e := range r.TagEvents {
+		if e.Scope == "index" {
+			codes = append(codes, e.Code)
+		}
+	}
+	if strings.Join(codes, ",") != "inside_prior_range,testing_prior_high,inside_prior_range" {
+		t.Errorf("index timeline: %v", codes)
 	}
 }

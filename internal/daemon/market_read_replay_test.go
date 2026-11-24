@@ -30,8 +30,9 @@ import (
 // one. MARKET_READ_REPLAY_OUT, when set, receives <date>/<HHMM>.json and
 // <date>/closed.json, and summary.txt. A session is replayed from its SPX
 // five-minute bars, or, labelled coarse, from thirty-minute bars when only
-// those are recorded: then a hold is two half-hour closes, times are bar
-// starts plus five minutes, and the 30-minute volume tags cannot fire. At each step the read sees only the bars
+// those are recorded: then a hold is two half-hour closes, close times are
+// moved to the half-hour bar's end, and the 30-minute volume tags cannot
+// fire. At each step the read sees only the bars
 // completed by then; the volume baseline sees only the sessions before the
 // replayed one. No intraday leader series is recorded, so leader states are
 // replayed at the close only, from daily bars.
@@ -149,6 +150,25 @@ func TestMarketReadReplay(t *testing.T) {
 			r, err := assembleMarketRead(now, sessions, src)
 			if err != nil {
 				t.Fatal(err)
+			}
+			// The read serves five-minute bars only and dates a bar's close
+			// at its start plus five minutes. Coarse bars close later: move
+			// every bar-derived close time to the bar's real end.
+			if shift := step - marketReadBar; shift > 0 {
+				move := func(at *time.Time) {
+					if !at.IsZero() {
+						*at = at.Add(shift)
+					}
+				}
+				move(&r.Index.LastAt)
+				move(&r.VIX.LastAt)
+				for i := range r.Tags {
+					move(&r.Tags[i].Since)
+				}
+				for i := range r.TagEvents {
+					move(&r.TagEvents[i].From)
+					move(&r.TagEvents[i].To)
+				}
 			}
 			return r
 		}

@@ -424,6 +424,12 @@ func marketReadIndexTagAt(in marketReadTagInputs, k int) *marketReadTagAt {
 			return &marketReadTagAt{"breakdown_on_volume", "negative", evidence}
 		}
 		return &marketReadTagAt{"bounce_failed", "negative", evidence}
+	case last > in.Prior.High:
+		// Beyond the level, not yet held: the read says the level is being
+		// tested, never that the close is inside a range it has left.
+		return &marketReadTagAt{"testing_prior_high", "neutral", evidence}
+	case last < in.Prior.Low:
+		return &marketReadTagAt{"testing_prior_low", "neutral", evidence}
 	default:
 		return &marketReadTagAt{"inside_prior_range", "neutral", evidence}
 	}
