@@ -291,6 +291,20 @@ type Positions interface {
 	Positions() ([]Position, PositionsHealth, error)
 }
 
+// PortfolioHold is a held book: the account reports positions that the
+// broker's portfolio download does not account for, and the stream has been
+// repaired since Since. Its rows are not served as the book meanwhile.
+type PortfolioHold struct {
+	Since   time.Time
+	Repairs int
+}
+
+// PortfolioHolds is implemented by a broker whose portfolio stream can be
+// held (IBKR); a broker without one never holds its book.
+type PortfolioHolds interface {
+	PortfolioHold() (PortfolioHold, bool)
+}
+
 // Quote is one instrument's quote line as the broker's cache holds it.
 // FeedType is the broker's data mode (for IBKR 1 live to 4 delayed-frozen).
 // Delivery says whether the line streams or came from a snapshot batch.

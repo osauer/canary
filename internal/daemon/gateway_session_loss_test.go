@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -870,4 +871,68 @@ func TestPoisonedOpenOrderSnapshotRedialsWhileASaleWaits(t *testing.T) {
 	if lines := settledLog(out, mark); !strings.Contains(lines, "a sale waits on the open orders, so it is redialled again") {
 		t.Fatalf("the sale's redial was not logged:\n%s", lines)
 	}
+}
+
+// A portfolio book held on one session is redialled once it has been held
+// portfolioHoldRedialAfter, and again only after portfolioHoldRedialEvery;
+// never under a broker write and never while TWS has no link to IBKR. While
+// held, status names it as a degraded portfolio with its start, and a
+// positions read carries the start as held_since. On 2026-11-24 the book was
+// held seven minutes before the open on a socket whose repairs got nothing,
+// and a restart's new socket downloaded it at once.
+func TestHeldPortfolioRedialsThePrimarySession(t *testing.T) {
+	f := startFakeTWS(t)
+	s, out := sessionLossServer(t, f, "2026-11-24T11:52:39Z")
+	old := s.gatewayConnectorForTest()
+	now := s.now()
+	since := now
+	s.portfolioHoldFn = func(*ibkrlib.Connector) (ibkrlib.PortfolioHold, bool) {
+		return ibkrlib.PortfolioHold{Since: since, Repairs: 4}, true
+	}
+
+	sub, ok := s.portfolioSubsystemHealth(now.Add(90 * time.Second))
+	if !ok || sub.Name != "portfolio" || sub.Status != "degraded" || !sub.StartedAt.Equal(since) || !strings.Contains(sub.Message, "1m30s") {
+		t.Fatalf("held book not in status: %+v %v", sub, ok)
+	}
+	res := &rpc.PositionsResult{Authority: &rpc.AccountDataAuthority{Availability: rpc.AccountDataUnavailable}}
+	markPortfolioHold(res, old, s.portfolioHoldFn)
+	if !res.Authority.HeldSince.Equal(since) {
+		t.Fatalf("positions read lacks held_since: %+v", res.Authority)
+	}
+
+	s.redialHeldPortfolio(old, now.Add(portfolioHoldRedialAfter-time.Second))
+	s.backendLinkFn = func(*ibkrlib.Connector) ibkrlib.BackendLinkReport { return ibkrlib.BackendLinkReport{Down: true} }
+	s.redialHeldPortfolio(old, now.Add(portfolioHoldRedialAfter))
+	s.backendLinkFn = nil
+	s.brokerWriteMu.Lock()
+	s.redialHeldPortfolio(old, now.Add(portfolioHoldRedialAfter))
+	s.brokerWriteMu.Unlock()
+	time.Sleep(50 * time.Millisecond)
+	if !old.IsReady() {
+		t.Fatal("redialled before the hold was due, without the IBKR link or under a broker write")
+	}
+
+	mark := len(out.String())
+	s.redialHeldPortfolio(old, now.Add(portfolioHoldRedialAfter))
+	waitSessionLost(t, old)
+	reconnectForTest(t, s)
+	lines := logLinesAt(settledLog(out, mark), "WARN")
+	if !slices.ContainsFunc(lines, func(l string) bool {
+		return strings.Contains(l, "has not sent the whole portfolio") && strings.Contains(l, "redialled")
+	}) {
+		t.Fatalf("no redial line:\n%s", strings.Join(lines, "\n"))
+	}
+	fresh := s.gatewayConnectorForTest()
+	if fresh == nil || fresh == old || !fresh.IsReady() {
+		t.Fatal("the primary session was not redialled")
+	}
+
+	since = now.Add(portfolioHoldRedialAfter)
+	s.redialHeldPortfolio(fresh, now.Add(portfolioHoldRedialEvery))
+	time.Sleep(50 * time.Millisecond)
+	if !fresh.IsReady() {
+		t.Fatal("redialled again inside portfolioHoldRedialEvery")
+	}
+	s.redialHeldPortfolio(fresh, now.Add(portfolioHoldRedialAfter+portfolioHoldRedialEvery))
+	waitSessionLost(t, fresh)
 }

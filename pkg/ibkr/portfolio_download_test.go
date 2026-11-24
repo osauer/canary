@@ -145,7 +145,7 @@ func TestShortPortfolioDownloadResubscribesWhileRowsAreRetained(t *testing.T) {
 	subscribes := func() int {
 		count := 0
 		for _, frame := range decodeOutboundFrames(t, conn, oldSocket.Bytes()) {
-			if len(frame) > 0 && frame[0] == strconv.Itoa(reqAcctData) {
+			if len(frame) > 2 && frame[0] == strconv.Itoa(reqAcctData) && frame[2] == "1" {
 				count++
 			}
 		}
@@ -224,8 +224,9 @@ func TestSelfHealKeepsTheShortGenerationUntilRowsFootIt(t *testing.T) {
 // value, a download ended with no rows, and the 30-second resubscribe ran 660
 // times with a warning each, none of which said whether IBKR answered. The
 // hold is now one episode: a warning when the repair starts, one once it has
-// lasted portfolioHeldWarnAfter naming what was sent and what came back, and
-// one when the book is current again.
+// lasted portfolioHeldWarnAfter naming what was sent and what came back,
+// repeated every portfolioHeldWarnEvery while it lasts, and one when the book
+// is current again.
 func TestHeldPortfolioBookIsOneEpisode(t *testing.T) {
 	buf := captureConnectorLogs(t)
 	conn, connector, _, _, gate := newQueuedInstructionReconnectFixture(t)
@@ -249,13 +250,21 @@ func TestHeldPortfolioBookIsOneEpisode(t *testing.T) {
 		t.Fatalf("want one warning when the repair starts, got %d:\n%s", len(got), strings.Join(got, "\n"))
 	}
 	held := logLines(buf, "Portfolio book held as not current")
-	if len(held) != 1 {
-		t.Fatalf("want one warning once the hold lasts %s, got %d:\n%s", portfolioHeldWarnAfter, len(held), buf.Bytes())
+	if len(held) != 3 {
+		t.Fatalf("want the hold said after %s and every %s after, got %d:\n%s", portfolioHeldWarnAfter, portfolioHeldWarnEvery, len(held), buf.Bytes())
 	}
-	for _, want := range []string{"level=WARN", "for 10m0s", "21 resubscribes sent", "0 failed to send", "0 portfolio rows", "0 download end markers", "open dialog"} {
+	for _, want := range []string{"level=WARN", "for 1m0s", "3 resubscribes sent", "0 failed to send", "0 portfolio rows", "0 download end markers", "open dialog"} {
 		if !strings.Contains(held[0], want) {
 			t.Errorf("hold warning lacks %q: %s", want, held[0])
 		}
+	}
+	for i, want := range []string{"for 6m0s", "for 11m0s"} {
+		if !strings.Contains(held[i+1], "level=WARN") || !strings.Contains(held[i+1], want) {
+			t.Errorf("repeated hold warning %d lacks %q: %s", i+1, want, held[i+1])
+		}
+	}
+	if hold, ok := connector.PortfolioHold(); !ok || hold.Repairs != 25 || !hold.Since.Equal(time.Date(2026, 11, 19, 22, 45, 48, 0, time.UTC)) {
+		t.Fatalf("hold not reported to readers: %+v %v", hold, ok)
 	}
 
 	feedAccountValues(conn, account)
@@ -267,6 +276,9 @@ func TestHeldPortfolioBookIsOneEpisode(t *testing.T) {
 		if rows, health, err := connector.CachedPositionsWithHealth(); err != nil || len(rows) != syntheticBookRows || health.InitialCompletedAt.IsZero() {
 			t.Fatalf("complete download not current: rows=%d completed=%v err=%v", len(rows), health.InitialCompletedAt, err)
 		}
+	}
+	if _, ok := connector.PortfolioHold(); ok {
+		t.Fatal("hold still reported after the book is current")
 	}
 	recovered := logLines(buf, "Portfolio book current again")
 	if len(recovered) != 1 || !strings.Contains(recovered[0], "level=WARN") || !strings.Contains(recovered[0], "after 12m0s") || !strings.Contains(recovered[0], "25 resubscribes") {
@@ -339,4 +351,58 @@ func TestPortfolioFootingDoesNotTakeTheUnitRateForARate(t *testing.T) {
 			t.Fatalf("no provable coverage must not hold the book: completed=%v short=%v", alone.Health.InitialCompletedAt, alone.Health.DownloadShortAt)
 		}
 	})
+}
+
+// TestHeldBookRepairEndsTheLiveSubscriptionFirst replays 2026-11-24 12:52:
+// TWS, logged in a minute earlier, answered the reconnected session's
+// subscription with account values and an end marker but no rows. Every
+// repair repeated the subscribe on the live subscription, which TWS does not
+// answer (2026-11-21: 439 repeats, no row, no end marker), so the book stayed
+// held until a restart's new socket downloaded it at once. A repair ends the
+// subscription before it subscribes again.
+func TestHeldBookRepairEndsTheLiveSubscriptionFirst(t *testing.T) {
+	conn, connector, socket, _, gate := newQueuedInstructionReconnectFixture(t)
+	account := gate.Account
+	now := time.Date(2026, 11, 24, 11, 52, 8, 0, time.UTC)
+	connector.acctUpdatesNow = func() time.Time { return now }
+	if err := connector.RequestAccountUpdates(account); err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	feedAccountValues(conn, account)
+	feedDownloadEnd(conn, account)
+
+	accountFrames := func() []string {
+		var out []string
+		for _, frame := range decodeOutboundFrames(t, conn, socket.Bytes()) {
+			if len(frame) > 0 && frame[0] == strconv.Itoa(reqAcctData) {
+				out = append(out, strings.TrimSuffix(strings.Join(frame[1:], ","), ","))
+			}
+		}
+		return out
+	}
+	for _, reason := range []string{"short download", "scope conflict"} {
+		before := len(accountFrames())
+		if reason == "scope conflict" {
+			feedOptionRow(conn, "U9999999", 800001)
+		}
+		now = now.Add(acctUpdatesResubscribeThrottle)
+		if _, health, err := connector.CachedPositionsWithHealth(); err != nil || !health.InitialCompletedAt.IsZero() {
+			t.Fatalf("%s: held book read as current (err %v)", reason, err)
+		}
+		got := accountFrames()[before:]
+		want := []string{"2,0," + account, "2,1," + account}
+		if strings.Join(got, " ") != strings.Join(want, " ") {
+			t.Fatalf("%s repair sent %q, want %q", reason, got, want)
+		}
+	}
+
+	// The fresh download the second subscribe asks for completes the book.
+	feedAccountValues(conn, account)
+	for conID := 1; conID <= syntheticBookRows; conID++ {
+		feedOptionRow(conn, account, 800000+conID)
+	}
+	feedDownloadEnd(conn, account)
+	if rows, health, err := connector.CachedPositionsWithHealth(); err != nil || len(rows) != syntheticBookRows || health.InitialCompletedAt.IsZero() {
+		t.Fatalf("fresh download not current: rows=%d completed=%v err=%v", len(rows), health.InitialCompletedAt, err)
+	}
 }

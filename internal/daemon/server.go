@@ -440,6 +440,8 @@ type Server struct {
 	snapshotPoisonedFn func(*ibkrlib.Connector) (time.Time, error, bool)
 	// saleWaitsFn replaces saleWaitsOnOpenOrders in tests.
 	saleWaitsFn func(time.Time) bool
+	// portfolioHoldFn replaces Connector.PortfolioHold in tests.
+	portfolioHoldFn func(*ibkrlib.Connector) (ibkrlib.PortfolioHold, bool)
 	// backendLinkFn replaces Connector.BackendLink in tests of the same.
 	backendLinkFn                    func(*ibkrlib.Connector) ibkrlib.BackendLinkReport
 	openOrderSnapshotProtocolTimeout time.Duration

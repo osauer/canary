@@ -83,8 +83,11 @@ func (c *Connector) resubscribeAccountUpdatesForSession(origin ConnectorSessionB
 	account := c.acctUpdatesAccount
 	c.acctUpdatesMu.Unlock()
 	conn := origin.connection
+	// The live subscription is ended in the same frame group first: TWS does
+	// not answer a subscribe on one (see Connection.RefreshAccountUpdates).
+	unsubscribe := conn.encodeMsg(reqAcctData, "2", "0", account)
 	msg := conn.encodeMsg(reqAcctData, "2", "1", account)
-	return conn.sendMessageWithTypeContextForEpochGuarded(context.Background(), msg, RequestTypeGeneral, origin.epoch, true, func() error {
+	return conn.sendBoundFrames(context.Background(), unsubscribe, RequestTypeGeneral, origin.epoch, true, func() error {
 		if !c.SessionCurrent(origin) {
 			return ErrIBKRUnavailable
 		}
@@ -94,5 +97,5 @@ func (c *Connector) resubscribeAccountUpdatesForSession(origin ConnectorSessionB
 		c.acctUpdatesMu.Unlock()
 		conn.resetPortfolioStreamHealthUnderEvidence(account, now.UTC())
 		return nil
-	})
+	}, 0, [][]byte{msg})
 }

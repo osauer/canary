@@ -470,6 +470,7 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	}
 	defer func() {
 		if healthErr == nil {
+			markPortfolioHold(healthResult, c, s.portfolioHoldFn)
 			s.observeAccountRPC(healthResult, sessionOf(a), a.BindingFor(healthBinding))
 		}
 	}()
@@ -686,6 +687,20 @@ func (s *Server) handlePositionsListCapturedForScope(ctx context.Context, req *r
 	}
 	res.AsOf = positionsResultAuthorityAsOf(authorityScope, health, completedAt)
 	return res, nil
+}
+
+// markPortfolioHold stamps an unavailable positions read with the start of a
+// held book, so a reader can say how long the book has been held.
+func markPortfolioHold(res *rpc.PositionsResult, c *ibkrlib.Connector, holdFn func(*ibkrlib.Connector) (ibkrlib.PortfolioHold, bool)) {
+	if res == nil || res.Authority == nil || res.Authority.Availability != rpc.AccountDataUnavailable || c == nil {
+		return
+	}
+	if holdFn == nil {
+		holdFn = (*ibkrlib.Connector).PortfolioHold
+	}
+	if hold, held := holdFn(c); held {
+		res.Authority.HeldSince = hold.Since.UTC()
+	}
 }
 
 func newPositionsResult(scope brokerStateScope, health ibkrlib.PortfolioStreamHealth, completedAt time.Time) *rpc.PositionsResult {
@@ -3930,7 +3945,34 @@ func (s *Server) subsystemHealth(connected bool, farms []ibkrlib.DataFarmStatus)
 	if sub, ok := s.terminalEvidenceSubsystemHealth(); ok {
 		out = append(out, sub)
 	}
+	if sub, ok := s.portfolioSubsystemHealth(now); ok {
+		out = append(out, sub)
+	}
 	return out
+}
+
+// portfolioSubsystemHealth reports a held portfolio book while it lasts, with
+// its start in StartedAt: the account reports positions that IBKR's portfolio
+// download does not account for, so no positions read is current. Absent
+// otherwise.
+func (s *Server) portfolioSubsystemHealth(now time.Time) (rpc.SubsystemHealth, bool) {
+	var hold broker.PortfolioHold
+	held := false
+	if s.portfolioHoldFn != nil {
+		var h ibkrlib.PortfolioHold
+		h, held = s.portfolioHoldFn(nil)
+		hold = broker.PortfolioHold{Since: h.Since, Repairs: h.Repairs}
+	} else if holds, ok := s.brokerReads().(broker.PortfolioHolds); ok {
+		hold, held = holds.PortfolioHold()
+	}
+	if !held {
+		return rpc.SubsystemHealth{}, false
+	}
+	age := max(now.Sub(hold.Since), 0).Round(time.Second)
+	return rpc.SubsystemHealth{
+		Name: "portfolio", Status: "degraded", StartedAt: hold.Since.UTC(),
+		Message: fmt.Sprintf("IBKR has not sent the whole portfolio for %s; positions, the mandate and proposals wait for it", age),
+	}, true
 }
 
 // terminalEvidenceSubsystemHealth reports a configured

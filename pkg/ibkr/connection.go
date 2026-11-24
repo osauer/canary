@@ -7701,16 +7701,24 @@ func (c *Connection) RequestAccountUpdates(account string) error {
 	return c.sendMessage(msg)
 }
 
-// RepeatAccountUpdates re-sends the subscription for a self-heal. While a
-// generation for the same account and broker session is still staging, its
-// rows and short marker stay: TWS answered none of 434 repeats on 2026-11-21
-// with an end marker but kept sending rows, which complete the staged
-// generation once they foot. Any other state starts a fresh generation.
-func (c *Connection) RepeatAccountUpdates(account string) error {
+// RefreshAccountUpdates ends the account-updates subscription and starts it
+// again, for a self-heal. TWS does not answer a subscribe on a live
+// subscription with a download: after its nightly restart on 2026-11-21 it
+// sent no row and no end marker to the first 21 repeats, and the book stayed
+// held for 3h40m; on 2026-11-24 the repeats got nothing for seven minutes
+// until a restart's new socket downloaded the whole book at once.
+// While a generation for the same account and broker session is still
+// staging, its rows and short marker stay, so rows TWS sends late still
+// complete it once they foot; fresh, or any other state, starts a new
+// generation.
+func (c *Connection) RefreshAccountUpdates(account string, fresh bool) error {
 	if !c.IsConnected() {
 		return fmt.Errorf("not connected to IBKR")
 	}
-	if !c.portfolioStagingContinues(account) {
+	if err := c.sendMessage(c.encodeMsg(reqAcctData, "2", "0", account)); err != nil {
+		return err
+	}
+	if fresh || !c.portfolioStagingContinues(account) {
 		return c.RequestAccountUpdates(account)
 	}
 	return c.sendMessage(c.encodeMsg(reqAcctData, "2", "1", account))

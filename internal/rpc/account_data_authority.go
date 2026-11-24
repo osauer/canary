@@ -32,6 +32,10 @@ type AccountDataAuthority struct {
 	LedgerCurrencyCount int `json:"ledger_currency_count,omitempty"`
 	// PortfolioComplete is true only for the unfiltered whole stream view.
 	PortfolioComplete bool `json:"portfolio_complete,omitempty"`
+	// HeldSince is set on an unavailable portfolio read while the account
+	// reports positions that IBKR's portfolio download does not account for:
+	// the book is held, and repaired, since then. Zero otherwise.
+	HeldSince time.Time `json:"held_since,omitzero"`
 }
 
 // BrokerReadSession identifies the original producer's socket generation.

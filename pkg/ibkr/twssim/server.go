@@ -86,6 +86,10 @@ type Server struct {
 	// beforeWhatIf runs once before the next WhatIf answer is sent.
 	beforeWhatIf func()
 	accepted     int
+	// portfolioUnloaded and portfolioSocketBound model a TWS that has just
+	// logged in (see SetPortfolioLoaded).
+	portfolioUnloaded    bool
+	portfolioSocketBound bool
 }
 
 // Listen starts a simulator on a loopback address. It refuses any other
@@ -200,6 +204,12 @@ type session struct {
 	wmu      sync.Mutex
 	// accountUpdates is set while the client subscribes to reqAccountUpdates.
 	accountUpdates bool
+	// portfolioWithheld is set on a subscription TWS answered before it had
+	// loaded the portfolio: it hears account values but no portfolio rows
+	// until it is unsubscribed. sawUnloaded records that this socket
+	// subscribed while the portfolio was not loaded.
+	portfolioWithheld bool
+	sawUnloaded       bool
 }
 
 func (ss *session) send(bodies ...[]byte) {
@@ -423,26 +433,61 @@ func (ss *session) dispatch(f Frame) {
 func (ss *session) accountUpdatesRequest(subscribe bool, account string) {
 	s := ss.srv
 	s.mu.Lock()
-	ss.accountUpdates = subscribe
-	s.mu.Unlock()
 	if !subscribe {
+		ss.accountUpdates, ss.portfolioWithheld = false, false
+		s.mu.Unlock()
+		return
+	}
+	if ss.accountUpdates {
+		// A subscribe on a live subscription is not a refresh: on 2026-11-21
+		// TWS answered none of 21 repeats in ten minutes with a row or an end
+		// marker.
+		s.mu.Unlock()
 		return
 	}
 	if account != "" && account != s.book.Account() {
+		s.mu.Unlock()
 		ss.fail(-1, 321, "Error validating request.-'bW' : cause - Invalid account code")
 		return
 	}
-	ss.send(ss.srv.accountFrames()...)
+	ss.accountUpdates = true
+	if s.portfolioUnloaded {
+		ss.sawUnloaded = true
+	}
+	ss.portfolioWithheld = s.portfolioUnloaded || (s.portfolioSocketBound && ss.sawUnloaded)
+	withheld := ss.portfolioWithheld
+	s.mu.Unlock()
+	ss.send(ss.srv.accountFrames(!withheld)...)
 	ss.text(msgAccountDownloadEnd, "1", s.book.Account())
+}
+
+// SetPortfolioLoaded says whether the simulated TWS has loaded the account's
+// portfolio. While it has not, as a TWS just after its login, a subscription
+// is answered with the account values (gross position value included) and an
+// end marker but no portfolio rows, and it hears no rows later either.
+// Loading the portfolio changes nothing for a live subscription; an
+// unsubscribe and a new subscribe, or a new session, downloads the book.
+// socketBound is the pessimistic case: the withheld state sticks to every
+// socket that subscribed while unloaded, so only a new session gets the book.
+// Whether a real TWS answers an unsubscribe and subscribe on the same socket
+// with the book is not on record; a new socket got it on 2026-11-24.
+func (s *Server) SetPortfolioLoaded(loaded, socketBound bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.portfolioUnloaded = !loaded
+	s.portfolioSocketBound = socketBound
 }
 
 // accountFrames are the account values, every portfolio row and the account
 // time, as reqAccountUpdates streams them.
-func (s *Server) accountFrames() [][]byte {
+func (s *Server) accountFrames(withRows bool) [][]byte {
 	b := s.book
 	b.mu.Lock()
 	values := b.accountValuesLocked()
-	rows := b.portfolioLocked()
+	var rows []portfolioRow
+	if withRows {
+		rows = b.portfolioLocked()
+	}
 	b.mu.Unlock()
 	var out [][]byte
 	for _, v := range values {
@@ -837,9 +882,16 @@ func commissionFrame(ex Execution) []byte {
 // pushAccount streams the account and portfolio to every subscribed session
 // after the book changed.
 func (s *Server) pushAccount() {
-	frames := s.accountFrames()
+	full, values := s.accountFrames(true), s.accountFrames(false)
 	for _, ss := range s.subscribed() {
-		ss.send(frames...)
+		s.mu.Lock()
+		withheld := ss.portfolioWithheld
+		s.mu.Unlock()
+		if withheld {
+			ss.send(values...)
+			continue
+		}
+		ss.send(full...)
 	}
 }
 

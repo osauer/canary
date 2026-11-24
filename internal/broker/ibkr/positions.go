@@ -60,3 +60,12 @@ func (a *Adapter) Positions() ([]broker.Position, broker.PositionsHealth, error)
 	}
 	return Positions(rows), PositionsHealth(health), nil
 }
+
+// PortfolioHold reports the session's held book, if any.
+func (a *Adapter) PortfolioHold() (broker.PortfolioHold, bool) {
+	if a == nil || a.conn == nil {
+		return broker.PortfolioHold{}, false
+	}
+	hold, held := a.conn.PortfolioHold()
+	return broker.PortfolioHold{Since: hold.Since, Repairs: hold.Repairs}, held
+}

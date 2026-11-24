@@ -6288,21 +6288,22 @@ func (c *Connector) RequestAccountUpdates(account string) error {
 	return c.conn.RequestAccountUpdates(account)
 }
 
-// resubscribeAccountUpdates re-issues the subscription with the account the
-// stream is already bound to. The self-heal paths must not pass "": on a
-// multi-account login that resolves through the raw managedAccounts list to
-// the operator's pinned account and makes the pinned account's own frames
+// resubscribeAccountUpdates ends and re-issues the subscription with the
+// account the stream is already bound to. The self-heal paths must not pass
+// "": on a multi-account login that resolves through the raw managedAccounts
+// list to the operator's pinned account and makes the pinned account's own
+// frames look foreign.
 //
-// A scope conflict starts a fresh generation; every other repair repeats the
-// subscription and keeps a same-session generation still staging.
+// A scope conflict starts a fresh generation; every other repair keeps a
+// same-session generation still staging (see Connection.RefreshAccountUpdates).
 func (c *Connector) resubscribeAccountUpdates(reason accountUpdatesRepair) error {
 	c.acctUpdatesMu.Lock()
 	account := c.acctUpdatesAccount
 	c.acctUpdatesMu.Unlock()
-	if reason == repairScopeConflict || !accountCodeConcrete(account) || !c.isConnected() {
+	if !accountCodeConcrete(account) || !c.isConnected() {
 		return c.RequestAccountUpdates(account)
 	}
-	return c.conn.RepeatAccountUpdates(account)
+	return c.conn.RefreshAccountUpdates(account, reason == repairScopeConflict)
 }
 
 // acctUpdatesResubscribeThrottle bounds the dead-stream self-heal below to
@@ -6310,11 +6311,15 @@ func (c *Connector) resubscribeAccountUpdates(reason accountUpdatesRepair) error
 const acctUpdatesResubscribeThrottle = 30 * time.Second
 
 // portfolioHeldWarnAfter is how long the repair below may run before the hold
-// is reported with what was sent and what came back. Ten minutes matches the
-// answer-path redial wait. Nothing is redialled here: a TWS that has not
-// loaded the portfolio (2026-11-19, behind an open dialog) still answers
-// account values, and a new socket does not load it.
-const portfolioHeldWarnAfter = 10 * time.Minute
+// is reported with what was sent and what came back; portfolioHeldWarnEvery
+// repeats the report while the hold lasts. The book held silently for seven
+// minutes before the open on 2026-11-24 and for 3h40m on 2026-11-21: a hold
+// of the whole book is said within a minute and again until it ends. The
+// daemon redials a session whose book stays held (see PortfolioHold).
+const (
+	portfolioHeldWarnAfter = time.Minute
+	portfolioHeldWarnEvery = 5 * time.Minute
+)
 
 func (c *Connector) acctUpdatesClock() time.Time {
 	if c.acctUpdatesNow != nil {
@@ -6386,17 +6391,41 @@ func (c *Connector) maybeResubscribeAccountUpdatesForReason(reason accountUpdate
 }
 
 // portfolioHeldEpisode is one stretch of account-updates repairs, from the
-// first resubscribe until a positions read sees a completed download. Only
-// its first repair warns; the rest log at debug, and the hold is reported
-// once at portfolioHeldWarnAfter with the evidence that tells a subscribe that
-// never left from a Gateway that sent nothing back.
+// first resubscribe until a positions read sees a completed download. Its
+// first repair warns and the rest log at debug; the hold is reported at
+// portfolioHeldWarnAfter and every portfolioHeldWarnEvery after, with the
+// evidence that tells a subscribe that never left from a Gateway that sent
+// nothing back.
 type portfolioHeldEpisode struct {
 	since      time.Time
 	repairs    int
 	sendErrors int
 	lastErr    error
 	wire       portfolioWireCounts // as the first repair was sent
-	reported   bool
+	reportedAt time.Time
+}
+
+// PortfolioHold is a held book: the account summary reports positions while
+// the portfolio download does not account for them, and the connector has
+// been repairing the stream since Since. The rows are not served as the book
+// meanwhile.
+type PortfolioHold struct {
+	Since   time.Time
+	Repairs int
+}
+
+// PortfolioHold reports the current session's held book, if any.
+func (c *Connector) PortfolioHold() (PortfolioHold, bool) {
+	if c == nil {
+		return PortfolioHold{}, false
+	}
+	c.acctUpdatesMu.Lock()
+	defer c.acctUpdatesMu.Unlock()
+	held := c.acctUpdatesHeld
+	if held.since.IsZero() {
+		return PortfolioHold{}, false
+	}
+	return PortfolioHold{Since: held.since, Repairs: held.repairs}, true
 }
 
 func (c *Connector) noteHeldPortfolioRepair(now time.Time, err error) {
@@ -6410,11 +6439,15 @@ func (c *Connector) noteHeldPortfolioRepair(now time.Time, err error) {
 		held.sendErrors++
 		held.lastErr = err
 	}
-	if held.reported || now.Sub(held.since) < portfolioHeldWarnAfter {
+	due := now.Sub(held.since) >= portfolioHeldWarnAfter
+	if !held.reportedAt.IsZero() {
+		due = now.Sub(held.reportedAt) >= portfolioHeldWarnEvery
+	}
+	if !due {
 		c.acctUpdatesMu.Unlock()
 		return
 	}
-	held.reported = true
+	held.reportedAt = now
 	ep := *held
 	c.acctUpdatesMu.Unlock()
 	wire := c.conn.portfolioWireCounts().since(ep.wire)
@@ -6453,7 +6486,7 @@ func (c *Connector) endHeldPortfolioEpisode(health PortfolioStreamHealth) {
 	c.acctUpdatesHeld = portfolioHeldEpisode{}
 	c.acctUpdatesMu.Unlock()
 	logf := ibkrLogger.Infof
-	if ep.reported {
+	if !ep.reportedAt.IsZero() {
 		logf = ibkrLogger.Warnf
 	}
 	logf("Portfolio book current again after %s; %d resubscribes sent during the hold",

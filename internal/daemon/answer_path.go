@@ -46,6 +46,8 @@ type answerPathLane struct {
 	snapshotOutageSeen bool
 	snapshotPoisonedAt time.Time
 	snapshotDropped    *ibkrlib.Connector
+	// portfolioRedialedAt is the last redial for a held portfolio book.
+	portfolioRedialedAt time.Time
 }
 
 type answerPathSupervisor struct {
@@ -168,6 +170,7 @@ func (s *Server) superviseAnswerPaths(now time.Time) {
 		if lane.name == rpc.AnswerPathLanePrimary {
 			s.redialPoisonedOpenOrderSnapshot(lane.c, now)
 			s.noteOpenOrderSnapshotRecovered(lane.c, now)
+			s.redialHeldPortfolio(lane.c, now)
 		}
 	}
 }
@@ -304,6 +307,63 @@ func (s *Server) noteOpenOrderSnapshotRecovered(c *ibkrlib.Connector, now time.T
 		logf = s.warnf
 	}
 	logf("IBKR open-order snapshot complete again at %s on the connection redialled at %s (poisoned at %s)", localTimeOnly(completed), localTimeOnly(redialedAt), localTimeOnly(poisonedAt))
+}
+
+// A portfolio book held portfolioHoldRedialAfter on one session is redialled,
+// at most once per portfolioHoldRedialEvery. The connector ends and restarts
+// the account-updates subscription every 30 seconds while the book is held;
+// the redial is the rung after it. On 2026-11-24 TWS, logged in a minute
+// before, answered the reconnected session with no portfolio rows, the
+// repairs on that socket got nothing for seven minutes, and the new socket of
+// a restart downloaded the whole book at once. A new socket does not always
+// help (2026-11-19: TWS behind an open dialog loaded the portfolio for none),
+// so the redial is spaced. Worst case: four reconnects an hour for as long as
+// TWS keeps the portfolio back with its link to IBKR up; each drops the
+// market-data and order subscriptions for a few seconds, never during a
+// broker write. While TWS has no link to IBKR nothing is redialled.
+const (
+	portfolioHoldRedialAfter = 2 * time.Minute
+	portfolioHoldRedialEvery = 15 * time.Minute
+)
+
+// redialHeldPortfolio drops the primary session whose portfolio book has
+// been held portfolioHoldRedialAfter, so a new socket downloads it.
+func (s *Server) redialHeldPortfolio(c *ibkrlib.Connector, now time.Time) {
+	holdFn := (*ibkrlib.Connector).PortfolioHold
+	if s.portfolioHoldFn != nil {
+		holdFn = s.portfolioHoldFn
+	}
+	hold, held := holdFn(c)
+	if !held || now.Sub(hold.Since) < portfolioHoldRedialAfter {
+		return
+	}
+	linkFn := (*ibkrlib.Connector).BackendLink
+	if s.backendLinkFn != nil {
+		linkFn = s.backendLinkFn
+	}
+	if link := linkFn(c); link.Down || link.Broken {
+		return
+	}
+	s.answerPath.mu.Lock()
+	lane := s.answerPath.lane(rpc.AnswerPathLanePrimary)
+	last := lane.portfolioRedialedAt
+	s.answerPath.mu.Unlock()
+	if !last.IsZero() && now.Sub(last) < portfolioHoldRedialEvery {
+		return
+	}
+	if !s.brokerWriteMu.TryLock() {
+		return // a broker write is in progress; the next check tries again
+	}
+	dropped := c.DropSession(fmt.Errorf("%w: portfolio book held since %s", errAnswerPathRedial, localTimeOnly(hold.Since)))
+	s.brokerWriteMu.Unlock()
+	if !dropped {
+		return
+	}
+	s.answerPath.mu.Lock()
+	lane.portfolioRedialedAt = now
+	s.answerPath.mu.Unlock()
+	s.warnf("IBKR has not sent the whole portfolio on this connection since %s although the account reports positions; %d repairs got no complete download, so the connection is redialled", localTimeOnly(hold.Since), hold.Repairs)
+	s.triggerReconnect()
 }
 
 // localTimeOnly is the clock time a log line names, on the machine's clock:
