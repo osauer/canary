@@ -427,6 +427,8 @@ type BriefQuote struct {
 	Bid, Ask, Last, Mark, Close, Open, Week52High float64
 	FeedType                                      int
 	ObservedAt                                    time.Time
+	// TradeAt is the broker's time of the last trade, when it sends one.
+	TradeAt time.Time
 }
 
 // Snapshots takes one brief look at an instrument named by symbol and kind:

@@ -134,12 +134,17 @@ type MarketReadPrior struct {
 
 // MarketReadIndex is the S&P 500 index against its prior session.
 type MarketReadIndex struct {
-	Symbol              string            `json:"symbol"`
-	Prior               *MarketReadPrior  `json:"prior,omitempty"`
-	PriorUnavailable    string            `json:"prior_unavailable,omitempty"`
-	Last                *float64          `json:"last,omitempty"`
-	LastAt              time.Time         `json:"last_at,omitzero"`
-	LastUnavailable     string            `json:"last_unavailable,omitempty"`
+	Symbol           string           `json:"symbol"`
+	Prior            *MarketReadPrior `json:"prior,omitempty"`
+	PriorUnavailable string           `json:"prior_unavailable,omitempty"`
+	Last             *float64         `json:"last,omitempty"`
+	LastAt           time.Time        `json:"last_at,omitzero"`
+	LastUnavailable  string           `json:"last_unavailable,omitempty"`
+	// LastSource says what Last is: trade (with the broker's trade time),
+	// quote (a current indication, timed at receipt), prior_close (before
+	// the open, the prior session's close at its close time) or bar (the
+	// latest completed bar's close).
+	LastSource          string            `json:"last_source,omitempty"`
 	Bars                []MarketReadBar   `json:"bars"`
 	BarsUnavailable     string            `json:"bars_unavailable,omitempty"`
 	Position            string            `json:"position,omitempty"`
@@ -180,9 +185,14 @@ type MarketReadVIXBar struct {
 
 // MarketReadVIX is VIX against its line and its prior close.
 type MarketReadVIX struct {
-	Last                  *float64           `json:"last,omitempty"`
-	LastAt                time.Time          `json:"last_at,omitzero"`
-	LastUnavailable       string             `json:"last_unavailable,omitempty"`
+	Last            *float64  `json:"last,omitempty"`
+	LastAt          time.Time `json:"last_at,omitzero"`
+	LastUnavailable string    `json:"last_unavailable,omitempty"`
+	// LastSource says what Last is: trade (with the broker's trade time),
+	// quote (a current indication, timed at receipt), prior_close (before
+	// the open, the prior session's close at its close time) or bar (the
+	// latest completed bar's close).
+	LastSource            string             `json:"last_source,omitempty"`
 	PriorClose            *float64           `json:"prior_close,omitempty"`
 	PriorCloseUnavailable string             `json:"prior_close_unavailable,omitempty"`
 	ChangePct             *float64           `json:"change_pct,omitempty"`
@@ -206,8 +216,12 @@ const (
 type MarketReadLeader struct {
 	Symbol     string   `json:"symbol"`
 	PriorClose *float64 `json:"prior_close,omitempty"`
-	PriorLow   *float64 `json:"prior_low,omitempty"`
-	Open       *float64 `json:"open,omitempty"`
+	// PriorCloseSource names where the prior close came from: the prior
+	// session's daily bar, or the quote's previous close when that bar is
+	// not retained.
+	PriorCloseSource string   `json:"prior_close_source,omitempty"`
+	PriorLow         *float64 `json:"prior_low,omitempty"`
+	Open             *float64 `json:"open,omitempty"`
 	// OpenSource says where the open came from: the session's opening tick or
 	// the first regular-session bar.
 	OpenSource       string    `json:"open_source,omitempty"`

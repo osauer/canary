@@ -45,6 +45,7 @@ func BriefQuote(ctx context.Context, c *ibkrlib.Connector, symbol string, fields
 			Bid: d.Bid, Ask: d.Ask, Last: d.Last, Mark: d.MarkPrice, Close: d.Close, Open: d.Open, Week52High: d.Week52High,
 			FeedType:   c.MarketDataTypeForSymbol(sym),
 			ObservedAt: d.LastPriceTickAt,
+			TradeAt:    d.LastTradeTime,
 		}
 		return done(seen)
 	}

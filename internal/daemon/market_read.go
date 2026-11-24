@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/osauer/canary/v3/internal/broker"
 	"github.com/osauer/canary/v3/internal/marketcal"
 	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 // marketReadCacheFor is how long one read answers every caller. A console
@@ -18,20 +20,36 @@ import (
 // pollers there are.
 const marketReadCacheFor = 30 * time.Second
 
+// marketReadBudget is how long a read waits for its inputs. What has not
+// arrived by then is unavailable with a reason; the slow acquisitions go on
+// without the caller and land in a later read.
+const marketReadBudget = 5 * time.Second
+
+// marketReadServeLastFor is how old a last good read may be and still answer
+// a caller while the next read is in flight.
+const marketReadServeLastFor = 5 * time.Minute
+
+// marketReadRetryAfter spaces the background history reads the read starts
+// for a series it found missing, so a poller does not ask every window.
+const marketReadRetryAfter = 10 * time.Minute
+
 // marketReadQuoteParallel and marketReadQuoteTimeout bound the transient
-// quote looks, as market.snapshot bounds its quote reads.
+// quote looks, so all twelve fit inside the budget.
 const (
-	marketReadQuoteParallel = 4
-	marketReadQuoteTimeout  = 2 * time.Second
+	marketReadQuoteParallel = 6
+	marketReadQuoteTimeout  = 1500 * time.Millisecond
 )
 
-// marketReadCache holds the last read and the one in flight. It is memory
-// only: nothing of a read outlives the process.
+// marketReadCache holds the last read and the one in flight, the background
+// history reads started recently, and the session whose volume baseline was
+// seeded. It is memory only: nothing of a read outlives the process.
 type marketReadCache struct {
-	mu     sync.Mutex
-	result *rpc.MarketReadResult
-	at     time.Time
-	flight chan struct{}
+	mu        sync.Mutex
+	result    *rpc.MarketReadResult
+	at        time.Time
+	flight    chan struct{}
+	requested map[string]time.Time
+	seeded    string
 }
 
 // The contracts a read uses, spelled as the daemon's other readers spell
@@ -62,12 +80,20 @@ func (s *Server) handleMarketRead(ctx context.Context, req *rpc.Request) (*rpc.M
 	cache := &s.marketRead
 	for {
 		cache.mu.Lock()
-		if cache.result != nil && s.nowUTC().Sub(cache.at) < marketReadCacheFor {
+		age := s.nowUTC().Sub(cache.at)
+		if cache.result != nil && age < marketReadCacheFor {
 			result := cache.result
 			cache.mu.Unlock()
 			return result, nil
 		}
 		if flight := cache.flight; flight != nil {
+			// A read is in flight: a recent last read answers now, its as_of
+			// saying when; otherwise wait for the read.
+			if cache.result != nil && age < marketReadServeLastFor {
+				result := cache.result
+				cache.mu.Unlock()
+				return result, nil
+			}
 			cache.mu.Unlock()
 			select {
 			case <-ctx.Done():
@@ -80,10 +106,8 @@ func (s *Server) handleMarketRead(ctx context.Context, req *rpc.Request) (*rpc.M
 		cache.flight = flight
 		cache.mu.Unlock()
 		// One read serves every waiting caller, so the first caller leaving
-		// does not cancel it for the rest.
-		readCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		result, err := s.readMarket(readCtx)
-		cancel()
+		// does not cancel it for the rest. It returns at its budget.
+		result, err := s.readMarket(context.WithoutCancel(ctx))
 		cache.mu.Lock()
 		cache.flight = nil
 		if err == nil {
@@ -118,9 +142,13 @@ type marketReadLeaderSource struct {
 	Intraday *rpc.MarketHistoryResult
 }
 
-// readMarket acquires the read's inputs through the daemon's existing paths:
-// cached chart history (followed, so the refresh worker keeps it current) and
-// brief quote looks through the broker seam, each line released when read.
+// readMarket acquires the read's inputs and assembles what has arrived
+// within the budget. History comes from the chart cache only: a series the
+// cache does not hold, or holds without a bar the read needs, is read in the
+// background through the bounded history request on the background pacing
+// lane and serves a later read. The intraday series are followed, so the
+// refresh worker keeps them current. Quotes are brief looks through the
+// broker seam, each line released when read.
 func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) {
 	now := s.nowUTC()
 	sessions, err := tapeArchiveCalendar(now.AddDate(0, 0, -45), 46)
@@ -131,60 +159,53 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 	if !ok {
 		return nil, fmt.Errorf("US equity session calendar unavailable for %s", now.UTC().Format(time.DateOnly))
 	}
+	var mu sync.Mutex
 	var src marketReadSources
+	set := func(f func()) {
+		mu.Lock()
+		f()
+		mu.Unlock()
+	}
 	var wg sync.WaitGroup
-	history := func(dst **rpc.MarketHistoryResult, c rpc.ContractParams, r string) {
+	intraday := func(dst **rpc.MarketHistoryResult, c rpc.ContractParams) {
 		wg.Go(func() {
-			raw, _ := json.Marshal(rpc.MarketHistoryParams{Contract: c, Range: r})
-			*dst, _ = s.handleMarketHistory(ctx, &rpc.Request{Params: raw})
+			p := rpc.MarketHistoryParams{Contract: c, Range: "1D"}
+			s.rememberMarketHistory(p)
+			r := s.retainedHistory(ctx, p)
+			if r == nil {
+				s.requestMarketReadHistory(p, now)
+			}
+			set(func() { *dst = r })
 		})
 	}
-	// daily reads a daily series from the chart cache, and through the
-	// bounded history request only when the cache lacks a bar the read needs
-	// (the prior session's, and once the session has closed its own): gone
-	// from the cache, or last read before that session closed.
-	daily := func(c rpc.ContractParams, cached func() *rpc.MarketHistoryResult) *rpc.MarketHistoryResult {
-		r := cached()
-		if marketReadDailyBar(r, c.Symbol, prior.Date) != nil && (state != rpc.MarketReadClosed || marketReadDailyBar(r, c.Symbol, session.Date) != nil) {
-			return r
-		}
-		if fresh, err := s.marketHistoryRequest(ctx, rpc.MarketHistoryParams{Contract: c, Range: "6M"}); err == nil {
-			return fresh
-		}
-		return r
-	}
-	wg.Go(func() {
-		src.SPXDaily = daily(marketReadSPX, func() *rpc.MarketHistoryResult {
-			raw, _ := json.Marshal(rpc.MarketHistoryParams{Contract: marketReadSPX, Range: "6M"})
-			r, _ := s.handleMarketHistory(ctx, &rpc.Request{Params: raw})
-			return r
+	// daily serves a daily series from the chart cache; one without the bars
+	// the read needs (the prior session's, and once the session has closed
+	// its own) is read in the background.
+	daily := func(c rpc.ContractParams, follow bool, dst func(*rpc.MarketHistoryResult)) {
+		wg.Go(func() {
+			p := rpc.MarketHistoryParams{Contract: c, Range: "6M"}
+			if follow {
+				s.rememberMarketHistory(p)
+			}
+			r := s.retainedHistory(ctx, p)
+			if marketReadDailyBar(r, c.Symbol, prior.Date) == nil || state == rpc.MarketReadClosed && marketReadDailyBar(r, c.Symbol, session.Date) == nil {
+				s.requestMarketReadHistory(p, now)
+			}
+			set(func() { dst(r) })
 		})
-	})
-	history(&src.SPXIntraday, marketReadSPX, "1D")
-	history(&src.VIXIntraday, marketReadVIX, "1D")
-	wg.Go(func() {
-		raw, _ := json.Marshal(rpc.MarketHistoryParams{Contract: marketReadSPY, Range: "1D"})
-		selected, err := s.handleMarketHistory(ctx, &rpc.Request{Params: raw})
-		if err != nil || selected == nil {
-			return
-		}
-		src.SPYIntraday = selected
-		// The selection keeps only the current day; the retained series
-		// holds the prior sessions the baseline needs.
-		if whole := s.retainedHistory(ctx, rpc.MarketHistoryParams{Contract: marketReadSPY, Range: "1D"}); whole != nil {
-			src.SPYIntraday = whole
-		}
-	})
+	}
+	daily(marketReadSPX, true, func(r *rpc.MarketHistoryResult) { src.SPXDaily = r })
+	intraday(&src.SPXIntraday, marketReadSPX)
+	intraday(&src.VIXIntraday, marketReadVIX)
+	intraday(&src.SPYIntraday, marketReadSPY)
 	contracts := marketReadLeaderContracts()
 	src.Leaders = make([]marketReadLeaderSource, len(contracts))
 	for i, c := range contracts {
 		src.Leaders[i].Symbol = c.Symbol
+		daily(c, false, func(r *rpc.MarketHistoryResult) { src.Leaders[i].Daily = r })
 		wg.Go(func() {
-			src.Leaders[i].Daily = daily(c, func() *rpc.MarketHistoryResult {
-				r, _ := s.retainedOrRequestedHistory(ctx, rpc.MarketHistoryParams{Contract: c, Range: "6M"}, now)
-				return r
-			})
-			src.Leaders[i].Intraday = s.retainedHistory(ctx, rpc.MarketHistoryParams{Contract: c, Range: "1D"})
+			r := s.retainedHistory(ctx, rpc.MarketHistoryParams{Contract: c, Range: "1D"})
+			set(func() { src.Leaders[i].Intraday = r })
 		})
 	}
 	reads := s.brokerReads()
@@ -206,7 +227,7 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 				return (q.Last > 0 || q.Mark > 0) && q.Close > 0 && (!open || q.Open > 0)
 			})
 			if err == nil || q.Last > 0 || q.Mark > 0 {
-				*dst = &q
+				set(func() { *dst = &q })
 			}
 		})
 	}
@@ -215,11 +236,128 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 	for i, c := range contracts {
 		quote(&src.Leaders[i].Quote, c, state != rpc.MarketReadPre)
 	}
-	wg.Wait()
-	if err := ctx.Err(); err != nil {
-		return nil, err
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	budget := time.NewTimer(marketReadBudget)
+	defer budget.Stop()
+	select {
+	case <-done:
+	case <-budget.C:
+	case <-ctx.Done():
 	}
-	return assembleMarketRead(now, sessions, src)
+	// Take what has arrived; anything later is left to the next read.
+	mu.Lock()
+	got := src
+	got.Leaders = append([]marketReadLeaderSource(nil), src.Leaders...)
+	mu.Unlock()
+	out, err := assembleMarketRead(now, sessions, got)
+	if err == nil && state != rpc.MarketReadClosed && out.Index.Volume != nil && out.Index.Volume.BaselineSessions < marketReadBaselineMinSessions {
+		s.seedMarketReadBaseline(session.Date)
+	}
+	return out, err
+}
+
+// requestMarketReadHistory reads one series in the background through the
+// bounded, coalescing history request, at most once per retry window, on the
+// background pacing lane so it never waits ahead of an interactive request.
+func (s *Server) requestMarketReadHistory(p rpc.MarketHistoryParams, now time.Time) {
+	key, _, err := marketHistoryIdentity(p)
+	if err != nil {
+		return
+	}
+	cache := &s.marketRead
+	cache.mu.Lock()
+	if at, ok := cache.requested[key]; ok && now.Sub(at) < marketReadRetryAfter {
+		cache.mu.Unlock()
+		return
+	}
+	if cache.requested == nil {
+		cache.requested = map[string]time.Time{}
+	}
+	for k, at := range cache.requested {
+		if now.Sub(at) >= marketReadRetryAfter {
+			delete(cache.requested, k)
+		}
+	}
+	cache.requested[key] = now
+	cache.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(context.Background(), ibkrlib.PriorityBackground), marketHistoryRefreshWindow)
+		defer cancel()
+		_, _ = s.marketHistoryRequest(ctx, p)
+	}()
+}
+
+// seedMarketReadBaseline reads SPY's intraday window in full once per
+// session, in the background, when the retained series holds too few prior
+// sessions for a volume baseline. A routine refresh reads only the recent
+// tail, so a record that lost its earlier days would otherwise stay short.
+func (s *Server) seedMarketReadBaseline(date string) {
+	cache := &s.marketRead
+	cache.mu.Lock()
+	if cache.seeded == date {
+		cache.mu.Unlock()
+		return
+	}
+	cache.seeded = date
+	cache.mu.Unlock()
+	go func() {
+		ctx, cancel := context.WithTimeout(ibkrlib.WithRequestPriority(context.Background(), ibkrlib.PriorityBackground), marketHistoryRefreshWindow)
+		defer cancel()
+		_ = s.seedIntradayHistory(ctx, rpc.MarketHistoryParams{Contract: marketReadSPY, Range: "1D"})
+	}()
+}
+
+// seedIntradayHistory reads an intraday series' whole padded window from the
+// broker and adds it to the retained record, removing nothing recorded.
+func (s *Server) seedIntradayHistory(ctx context.Context, p rpc.MarketHistoryParams) error {
+	key, p, err := marketHistoryIdentity(p)
+	if err != nil {
+		return err
+	}
+	fetch := s.fetchMarketHistoryDays
+	if s.marketHistoryFetchForTest != nil {
+		fetch = s.marketHistoryFetchForTest
+	}
+	now := time.Now()
+	fresh, err := fetch(ctx, p, 0, now)
+	if err == nil && fresh == nil {
+		err = errors.New("history response absent")
+	}
+	if err == nil {
+		err = s.validStoredHistory(*fresh)
+	}
+	if err == nil && !historyResponseMatches(p, *fresh, now) {
+		err = errors.New("history response identity or clock changed")
+	}
+	if err != nil {
+		return err
+	}
+	s.marketData.storeMu.Lock()
+	defer s.marketData.storeMu.Unlock()
+	latest, _, err := s.loadMarketHistory(ctx, key)
+	if err != nil {
+		return err
+	}
+	if latest != nil && (latest.Result.Contract != fresh.Contract || latest.Result.PriceBasis != fresh.PriceBasis) {
+		return errors.New("retained series changed identity")
+	}
+	if latest != nil && latest.Result.AsOf.After(fresh.AsOf) {
+		return nil // a newer read landed meanwhile; the next seed can add the days
+	}
+	next := mergeMarketHistory(key, latest, *fresh, false, now)
+	if s.coreStore == nil {
+		return nil
+	}
+	payload, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	_, err = s.coreStore.SaveChartCache(ctx, key, payload)
+	return err
 }
 
 // retainedHistory is a series exactly as the chart cache retains it, every
@@ -272,20 +410,28 @@ func marketReadDailyBar(r *rpc.MarketHistoryResult, symbol, date string) *rpc.Ma
 	return nil
 }
 
-// marketReadQuoteLast is a quote's current price, the last trade or else the
-// broker's mark, or why it has none. A close alone is not a current price.
-func marketReadQuoteLast(q *broker.BriefQuote) (*float64, time.Time, string) {
+// marketReadQuoteLast is a quote's price, the last trade or else the broker's
+// mark, with its time and what it is, or why there is none. A broker trade
+// time is carried as it is. Before the session opens a price equal to the
+// previous close is that close and carries the prior session's close time:
+// a line opened now delivers the old print with a fresh receipt time.
+func marketReadQuoteLast(q *broker.BriefQuote, state string, prior marketcal.Session) (*float64, time.Time, string, string) {
 	if q == nil {
-		return nil, time.Time{}, "quote unavailable"
+		return nil, time.Time{}, "", "quote unavailable"
 	}
 	price := q.Last
 	if !isFinitePrice(price) {
 		price = q.Mark
 	}
-	if !isFinitePrice(price) {
-		return nil, time.Time{}, "quote has no current price"
+	switch {
+	case !isFinitePrice(price):
+		return nil, time.Time{}, "", "quote has no current price"
+	case state == rpc.MarketReadPre && q.Close > 0 && price == q.Close:
+		return new(price), prior.Close.UTC(), "prior_close", ""
+	case !q.TradeAt.IsZero():
+		return new(price), q.TradeAt, "trade", ""
 	}
-	return new(price), q.ObservedAt, ""
+	return new(price), q.ObservedAt, "quote", ""
 }
 
 // assembleMarketRead measures the acquired inputs and draws the tags. It
@@ -317,10 +463,10 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	} else {
 		index.Bars = marketReadBars(src.SPXIntraday.Points, session, historyFetchedAt(src.SPXIntraday))
 	}
-	index.Last, index.LastAt, index.LastUnavailable = marketReadQuoteLast(src.SPXQuote)
+	index.Last, index.LastAt, index.LastSource, index.LastUnavailable = marketReadQuoteLast(src.SPXQuote, state, prior)
 	if index.Last == nil && len(index.Bars) > 0 {
 		last := index.Bars[len(index.Bars)-1]
-		index.Last, index.LastAt, index.LastUnavailable = new(last.Close), last.At.Add(marketReadBar), ""
+		index.Last, index.LastAt, index.LastSource, index.LastUnavailable = new(last.Close), last.At.Add(marketReadBar), "bar", ""
 	}
 	switch {
 	case index.Prior == nil:
@@ -348,7 +494,7 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 
 	// VIX.
 	vix := &rpc.MarketReadVIX{Line: marketReadVIXLine, Bars: []rpc.MarketReadVIXBar{}}
-	vix.Last, vix.LastAt, vix.LastUnavailable = marketReadQuoteLast(src.VIXQuote)
+	vix.Last, vix.LastAt, vix.LastSource, vix.LastUnavailable = marketReadQuoteLast(src.VIXQuote, state, prior)
 	if src.VIXQuote != nil && isFinitePrice(src.VIXQuote.Close) {
 		vix.PriorClose = new(src.VIXQuote.Close)
 	} else {
@@ -363,7 +509,7 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	}
 	if vix.Last == nil && len(vix.Bars) > 0 {
 		last := vix.Bars[len(vix.Bars)-1]
-		vix.Last, vix.LastAt, vix.LastUnavailable = new(last.Close), last.At.Add(marketReadBar), ""
+		vix.Last, vix.LastAt, vix.LastSource, vix.LastUnavailable = new(last.Close), last.At.Add(marketReadBar), "bar", ""
 	}
 	if vix.Last != nil {
 		vix.Position = "below_line"
@@ -382,12 +528,18 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	for _, l := range src.Leaders {
 		row := rpc.MarketReadLeader{Symbol: l.Symbol}
 		if bar := marketReadDailyBar(l.Daily, l.Symbol, prior.Date); bar != nil {
-			row.PriorClose = new(bar.Value)
+			row.PriorClose, row.PriorCloseSource = new(bar.Value), "daily_bar"
 			if bar.Low != nil {
 				row.PriorLow = new(*bar.Low)
 			}
+		} else if state != rpc.MarketReadClosed && l.Quote != nil && isFinitePrice(l.Quote.Close) {
+			// Before and during the session the quote's previous close is the
+			// prior session's close. After the close it can already name
+			// today's, so it stands in only until then. The prior low has no
+			// such stand-in.
+			row.PriorClose, row.PriorCloseSource = new(l.Quote.Close), "quote_previous_close"
 		}
-		row.Last, row.LastAt, _ = marketReadQuoteLast(l.Quote)
+		row.Last, row.LastAt, _, _ = marketReadQuoteLast(l.Quote, state, prior)
 		closing := marketReadDailyBar(l.Daily, l.Symbol, session.Date)
 		if state == rpc.MarketReadClosed {
 			// A closed session is read at its close, never at a later print.

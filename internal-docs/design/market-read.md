@@ -20,24 +20,43 @@ persistent state and opens no standing market-data line.
 | SPY five-minute volume | `market.history` SPY `1D`, then the retained series | The index carries no volume; SPY is the named proxy. The selection keeps only the current day, so the baseline reads the retained series, which holds the prior sessions the daemon recorded (up to twenty venue dates). Each 1D read also keeps the earlier days the broker sends with it (the read pads six days to find its session), so one read seeds about five prior sessions. |
 | VIX five-minute bars | `market.history` VIX `1D` | |
 | SPX, VIX and leader quotes | a brief look through the broker seam (`BriefQuote`), as the regime takes its quotes | Transient: four at a time, two seconds each, each line released after its read. The look returns the last trade or mark, the prior close and the session open (tick 14). |
-| Leader prior close and low | the market tape's leader daily series (`6M`) | Chart cache first; through the bounded history request only when the cache has no bar of the prior session. |
+| Leader prior close and low | the market tape's leader daily series (`6M`) | Chart cache only; a missing series is read in the background. Without the bar, the prior close falls back to the quote's previous close (`prior_close_source: quote_previous_close`, before and during the session only); the prior low has no stand-in. |
 | Leader open | the look's session open | Else the first regular bar of an intraday series the chart cache already holds. No history request is made per name for an open. |
 
 Contracts are spelled as the daemon's other readers spell them (SPX, VIX and
 SPY as `market.snapshot`'s references; the leaders as the market tape's), so
 the read shares their chart series instead of starting new ones.
 
-## Cost
+## Cost and budget
 
-A read is answered from one in-memory result for 30 seconds, and a read in
-flight is joined, not repeated, so a console polling it costs the broker one
-read per window. In steady state a read makes no historical request: the
-intraday and SPX daily series are followed and refreshed by the worker, and
-the leaders' daily series are read from the chart cache. A cold or evicted
-cache costs at most one daily read per leader and one per index series, at
-interactive priority through the two-slot, coalescing request path, which
-the historical pacing (60 requests per ten minutes) still governs. Quotes are
-twelve brief looks.
+A read answers within a five-second budget. Its history comes from the chart
+cache only and never waits on the broker: a series the cache does not hold,
+or holds without a bar the read needs, is marked unavailable for this read and
+read in the background through the bounded, coalescing history request on the
+background pacing lane, at most once per series per ten minutes, to serve a
+later read. The intraday series (SPX, SPY, VIX `1D`) and SPX's daily series
+are followed, so the refresh worker keeps them current. Quotes are twelve brief
+looks, six at a time, 1.5 seconds each; a look that has not answered by the
+budget is left out of that read.
+
+One result answers every caller for 30 seconds, and a read in flight is
+joined, not repeated. While a read is in flight, a last good read up to five
+minutes old answers at once, its `as_of` saying when.
+
+Steady state, with the series retained: no historical request per read; the
+followed intraday series cost what the refresh worker already spends on them.
+When series are missing (the chart cache drops the least recently written,
+and the leaders' daily series are written once each evening), at most eleven
+background daily reads per ten minutes while they stay missing, against the
+broker's 60 per ten minutes, plus one full read of SPY's intraday window per
+session when its record holds fewer prior sessions than the baseline needs (a
+routine refresh reads only the recent tail).
+
+Before 2026-11-24 the read fetched a missing daily series inline at
+interactive priority; with the leaders' series evicted it queued eleven reads
+behind the two shared history slots and the pacing, and timed out at 30
+seconds. Those two slots also serve charts, the tape and the refresh worker,
+which waited behind it.
 
 ## Session
 
@@ -168,6 +187,12 @@ Bar close times (`last_at` when no quote, `since`, event bounds) are a bar's
 start plus five minutes. Live reads serve five-minute series only (the read
 refuses any other interval), so that holds; the replay harness, which can
 feed coarse bars, moves those times to the coarse bar's end itself.
+
+`last_at` is the broker's trade time when it sends one (`last_source:
+trade`). Before the open a price equal to the previous close is that close,
+stamped with the prior session's close time (`prior_close`); a line opened
+pre-market delivers the old print with a fresh receipt time, which was shown
+as current until 2026-11-24.
 
 ## Missing values
 
