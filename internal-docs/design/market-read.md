@@ -164,8 +164,11 @@ earlier pre-market reading.
   price that is still the prior close, or a trade from before the session's
   day, is no indication and the row says so.
 
-`index.position` is not drawn before the open from the prior close: it is
-absent with `position_unavailable: "the session has not opened"`.
+Before the open `index.position` is absent, whatever the index's last price,
+with `position_unavailable: "the session has not opened"`; the position the
+futures imply is `indicated.index.implied_position`. The first live
+pre-market read, 2026-11-24, drew `inside` from the index's last print of the
+day before, which differed from the official close and so passed as a trade.
 
 | Scope | Code | Tone | Condition |
 | --- | --- | --- | --- |
@@ -247,7 +250,10 @@ feed coarse bars, moves those times to the coarse bar's end itself.
 trade`). Before the open a price equal to the previous close is that close,
 stamped with the prior session's close time (`prior_close`); a line opened
 pre-market delivers the old print with a fresh receipt time, which was shown
-as current until 2026-11-24.
+as current until 2026-11-24. Before the open a trade timed before the
+session's New York day is also the prior session's (`prior_close`), keeping
+its real time, whatever it differs from the official close by; a trade timed
+that day, such as VIX's pre-market trade, stays `trade`.
 
 ## Missing values
 

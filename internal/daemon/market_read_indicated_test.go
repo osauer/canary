@@ -359,3 +359,30 @@ func TestMarketReadQuoteLooksStayInsideTheBudget(t *testing.T) {
 		}
 	}
 }
+
+// Before the open, yesterday's last print at a price other than the official
+// close is still yesterday's: it is the prior close's source, keeps its real
+// time, and draws no position. A VIX trade from today stays live.
+func TestMarketReadPreMarketLastPrintOfYesterdayIsNotToday(t *testing.T) {
+	m := newReadMarket(t)
+	pre := m.session.Open.Add(-time.Hour)
+	yesterday := m.prior.Close.Add(-time.Second)
+	m.src.SPXQuote = &broker.BriefQuote{Last: 95.4, Close: 95.3, TradeAt: yesterday}
+	today := pre.Add(-10 * time.Minute)
+	m.src.VIXQuote = &broker.BriefQuote{Last: 21, Close: 20, TradeAt: today}
+	r := m.read(pre)
+	if r.Index.LastSource != "prior_close" || r.Index.Last == nil || *r.Index.Last != 95.4 || !r.Index.LastAt.Equal(yesterday) {
+		t.Errorf("index last: %v at %s (%s)", r.Index.Last, r.Index.LastAt, r.Index.LastSource)
+	}
+	if r.Index.Position != "" || r.Index.PositionUnavailable != "the session has not opened" {
+		t.Errorf("pre-market position from yesterday's print: %q (%s)", r.Index.Position, r.Index.PositionUnavailable)
+	}
+	if r.VIX.LastSource != "trade" || !r.VIX.LastAt.Equal(today) {
+		t.Errorf("today's VIX trade: %s (%s)", r.VIX.LastAt, r.VIX.LastSource)
+	}
+	// Even a current pre-market index price draws no position before the open.
+	m.src.SPXQuote = &broker.BriefQuote{Last: 101, Close: 95.3, TradeAt: today}
+	if r := m.read(pre); r.Index.Position != "" || r.Index.PositionUnavailable != "the session has not opened" {
+		t.Errorf("pre-market position: %q", r.Index.Position)
+	}
+}

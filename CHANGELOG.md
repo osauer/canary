@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.46.1 — Unreleased
+
+### Fixed
+
+- Before the open `canary market read` placed the S&P 500 index inside, above or below its prior range from the previous session's last print, whenever that print differed from the official close. Before the open the index now has no position (`position_unavailable: "the session has not opened"`); the position the futures indicate is in `indicated`. A last trade timed before the session's day reads `last_source: prior_close` with its real time, for the index, VIX and the leaders; a trade of the same day, such as VIX's pre-market trade, stays current.
+
 ## v3.46.0 — 2026-11-24 13:22 CET
 
 ### What's new

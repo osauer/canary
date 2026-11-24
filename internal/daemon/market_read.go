@@ -498,8 +498,11 @@ func marketReadDailyBar(r *rpc.MarketHistoryResult, symbol, date string) *rpc.Ma
 // mark, with its time and what it is, or why there is none. A broker trade
 // time is carried as it is. Before the session opens a price equal to the
 // previous close is that close and carries the prior session's close time:
-// a line opened now delivers the old print with a fresh receipt time.
-func marketReadQuoteLast(q *broker.BriefQuote, state string, prior marketcal.Session) (*float64, time.Time, string, string) {
+// a line opened now delivers the old print with a fresh receipt time. A trade
+// timed before the session's New York day is the prior session's last print,
+// not a price of today, whatever it differs from the official close by; it
+// keeps its real time.
+func marketReadQuoteLast(q *broker.BriefQuote, state string, session, prior marketcal.Session) (*float64, time.Time, string, string) {
 	if q == nil {
 		return nil, time.Time{}, "", "quote unavailable"
 	}
@@ -512,10 +515,22 @@ func marketReadQuoteLast(q *broker.BriefQuote, state string, prior marketcal.Ses
 		return nil, time.Time{}, "", "quote has no current price"
 	case state == rpc.MarketReadPre && q.Close > 0 && price == q.Close:
 		return new(price), prior.Close.UTC(), "prior_close", ""
+	case state == rpc.MarketReadPre && !q.TradeAt.IsZero() && q.TradeAt.Before(marketReadDayStart(session)):
+		return new(price), q.TradeAt, "prior_close", ""
 	case !q.TradeAt.IsZero():
 		return new(price), q.TradeAt, "trade", ""
 	}
 	return new(price), q.ObservedAt, "quote", ""
+}
+
+// marketReadDayStart is midnight in New York of the session's day.
+func marketReadDayStart(session marketcal.Session) time.Time {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return session.Open
+	}
+	open := session.Open.In(loc)
+	return time.Date(open.Year(), open.Month(), open.Day(), 0, 0, 0, 0, loc)
 }
 
 // assembleMarketRead measures the acquired inputs and draws the tags. It
@@ -547,15 +562,15 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	} else {
 		index.Bars = marketReadBars(src.SPXIntraday.Points, session, historyFetchedAt(src.SPXIntraday))
 	}
-	index.Last, index.LastAt, index.LastSource, index.LastUnavailable = marketReadQuoteLast(src.SPXQuote, state, prior)
+	index.Last, index.LastAt, index.LastSource, index.LastUnavailable = marketReadQuoteLast(src.SPXQuote, state, session, prior)
 	if index.Last == nil && len(index.Bars) > 0 {
 		last := index.Bars[len(index.Bars)-1]
 		index.Last, index.LastAt, index.LastSource, index.LastUnavailable = new(last.Close), last.At.Add(marketReadBar), "bar", ""
 	}
 	switch {
-	case state == rpc.MarketReadPre && index.LastSource == "prior_close":
-		// Yesterday's last print is no position for today; before the open the
-		// position the futures imply is in indicated.
+	case state == rpc.MarketReadPre:
+		// Before the open the index has no position of today, whatever its last
+		// price; the position the futures imply is in indicated.
 		index.PositionUnavailable = "the session has not opened"
 	case index.Prior == nil:
 		index.PositionUnavailable = "prior session range unavailable"
@@ -582,7 +597,7 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 
 	// VIX.
 	vix := &rpc.MarketReadVIX{Line: marketReadVIXLine, Bars: []rpc.MarketReadVIXBar{}}
-	vix.Last, vix.LastAt, vix.LastSource, vix.LastUnavailable = marketReadQuoteLast(src.VIXQuote, state, prior)
+	vix.Last, vix.LastAt, vix.LastSource, vix.LastUnavailable = marketReadQuoteLast(src.VIXQuote, state, session, prior)
 	if src.VIXQuote != nil && isFinitePrice(src.VIXQuote.Close) {
 		vix.PriorClose = new(src.VIXQuote.Close)
 	} else {
@@ -628,9 +643,9 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 			row.PriorClose, row.PriorCloseSource = new(l.Quote.Close), "quote_previous_close"
 		}
 		var lastSource string
-		row.Last, row.LastAt, lastSource, _ = marketReadQuoteLast(l.Quote, state, prior)
+		row.Last, row.LastAt, lastSource, _ = marketReadQuoteLast(l.Quote, state, session, prior)
 		if state == rpc.MarketReadPre {
-			marketReadIndicatedGap(&row, lastSource, session)
+			marketReadIndicatedGap(&row, lastSource)
 		}
 		closing := marketReadDailyBar(l.Daily, l.Symbol, session.Date)
 		if state == rpc.MarketReadClosed {
@@ -676,7 +691,7 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 		out.Indications = marketReadIndications(out.Indicated, index.Prior)
 		out.RelativeUnavailable = "before the open the Nasdaq is read in indicated"
 	case rpc.MarketReadOpen:
-		out.Relative = marketReadRelate(index, src, state, prior)
+		out.Relative = marketReadRelate(index, src, state, session, prior)
 		if tag := marketReadRelativeTag(out.Relative); tag != nil {
 			out.Tags = append(out.Tags, *tag)
 		}
@@ -687,19 +702,17 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 }
 
 // marketReadIndicatedGap sets a leader's pre-market price against its prior
-// close, or says why there is none. A price that is still the prior close,
-// or a trade from before the session's day, indicates nothing about today.
-func marketReadIndicatedGap(row *rpc.MarketReadLeader, lastSource string, session marketcal.Session) {
-	loc, err := time.LoadLocation("America/New_York")
+// close, or says why there is none. A price of the prior session (its close,
+// or its last print timed before the session's day) indicates nothing about
+// today.
+func marketReadIndicatedGap(row *rpc.MarketReadLeader, lastSource string) {
 	switch {
 	case row.PriorClose == nil:
 		row.IndicatedGapUnavailable = "prior close unavailable"
 	case row.Last == nil:
 		row.IndicatedGapUnavailable = "no pre-market price"
 	case lastSource == "prior_close":
-		row.IndicatedGapUnavailable = "no pre-market trade: the price is still the prior close"
-	case lastSource == "trade" && (err != nil || row.LastAt.In(loc).Format(time.DateOnly) != session.Date):
-		row.IndicatedGapUnavailable = "the last trade is from before today's pre-market"
+		row.IndicatedGapUnavailable = "no pre-market trade today: the price is the prior session's"
 	default:
 		row.IndicatedGapPct = tapeFinite(100 * (*row.Last / *row.PriorClose - 1))
 		if row.IndicatedGapPct == nil {
@@ -798,12 +811,12 @@ func marketReadIndicate(now time.Time, prior *rpc.MarketReadPrior, src marketRea
 
 // marketReadNasdaqLine is the Nasdaq 100's day change from the index's look,
 // or from QQQ's when the index did not quote, or why neither serves.
-func marketReadNasdaqLine(ndx, qqq *broker.BriefQuote, state string, prior marketcal.Session) (*rpc.MarketReadRelativeLine, string) {
+func marketReadNasdaqLine(ndx, qqq *broker.BriefQuote, state string, session, prior marketcal.Session) (*rpc.MarketReadRelativeLine, string) {
 	for _, c := range []struct {
 		q              *broker.BriefQuote
 		symbol, source string
 	}{{ndx, "NDX", "NDX index"}, {qqq, "QQQ", "QQQ ETF, the index did not quote"}} {
-		last, at, _, reason := marketReadQuoteLast(c.q, state, prior)
+		last, at, _, reason := marketReadQuoteLast(c.q, state, session, prior)
 		if reason != "" || !isFinitePrice(c.q.Close) {
 			continue
 		}
@@ -818,9 +831,9 @@ func marketReadNasdaqLine(ndx, qqq *broker.BriefQuote, state string, prior marke
 
 // marketReadRelate sets the Nasdaq 100 beside the S&P 500 by their day
 // changes, each from its own prior close.
-func marketReadRelate(index *rpc.MarketReadIndex, src marketReadSources, state string, prior marketcal.Session) *rpc.MarketReadRelative {
+func marketReadRelate(index *rpc.MarketReadIndex, src marketReadSources, state string, session, prior marketcal.Session) *rpc.MarketReadRelative {
 	rel := &rpc.MarketReadRelative{}
-	rel.Nasdaq, rel.NasdaqUnavailable = marketReadNasdaqLine(src.NDXQuote, src.QQQQuote, state, prior)
+	rel.Nasdaq, rel.NasdaqUnavailable = marketReadNasdaqLine(src.NDXQuote, src.QQQQuote, state, session, prior)
 	var priorClose *float64
 	switch {
 	case index.Prior != nil:
