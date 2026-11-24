@@ -1384,6 +1384,7 @@ type RegimeHYGSPYDivergence struct {
 	SPYChangeBasis string          `json:"spy_change_basis,omitempty"`
 	HYGDataType    string          `json:"hyg_data_type,omitempty"`
 	HYGRange52W    *RegimeRange52W `json:"hyg_range_52w,omitempty"`
+	HYGAt52WLow    bool            `json:"hyg_at_52w_low,omitempty"` // HYGRange52W.Pos is 0; display context, never banded
 	Notes          string          `json:"notes,omitempty"`
 	ErrorMessage   string          `json:"error_message,omitempty"`
 	FieldsMissing  []string        `json:"fields_missing,omitempty"`

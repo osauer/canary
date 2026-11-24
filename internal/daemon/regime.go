@@ -1112,6 +1112,9 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 
 	if out.HYGPrice != nil {
 		out.HYGRange52W = range52WFromBars(bars, *out.HYGPrice, now)
+		// The range folds the current price into its low, so a print at or
+		// under the year's lowest close lands exactly on 0.
+		out.HYGAt52WLow = out.HYGRange52W != nil && out.HYGRange52W.Pos == 0
 	}
 
 	if out.HYGPrice == nil || out.SPYPrice == nil {

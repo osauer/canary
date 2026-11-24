@@ -280,7 +280,11 @@ func rowHYGSPY(now time.Time, r rpc.RegimeHYGSPYDivergence) Row {
 		}
 		row.Value = fmt.Sprintf("HYG %.2f · %.2f%% %s 50d %.2f", *r.HYGPrice, gap, relation, *r.HYG50DMA)
 	}
-	row.Value += range52WMarker(r.HYGRange52W)
+	if r.HYGAt52WLow {
+		row.Value += " · at its 52w low"
+	} else {
+		row.Value += range52WMarker(r.HYGRange52W)
+	}
 	row.Quality = qualityTag(now, r.HYGQuality, r.HYG50DMAQuality, r.SPYQuality, r.SPY52WHighQuality)
 	// Banding. HYG below 50dma while SPY is near highs is the credit-
 	switch {

@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.46.0 — Unreleased
+
+### Added
+
+- The regime's HYG/SPY row says when HYG is at its 52-week low (`hyg_at_52w_low`, and "at its 52w low" in the row). Bands are unchanged.
+
 ## v3.45.0 — 2026-11-23 08:30 CET
 
 ### What's new
