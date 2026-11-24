@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"math"
+	"slices"
 	"time"
 
 	"github.com/osauer/canary/v3/internal/marketcal"
@@ -259,32 +260,39 @@ type marketReadTagAt struct {
 	evidence   map[string]float64
 }
 
-// marketReadTags names the conditions that hold now. They are drawn only
-// while the regular session is open. Each bar-based tag is evaluated at every
-// completed bar, and its since is the close of the first bar of the unbroken
-// run that ends at the latest one.
-func marketReadTags(in marketReadTagInputs) []rpc.MarketReadTag {
-	tags := []rpc.MarketReadTag{}
-	if in.State != rpc.MarketReadOpen {
-		return tags
+// marketReadTags names the conditions that hold at the session's latest
+// completed bar, and the timeline of every bar-based condition over the
+// session. While the session is open that is now; once it has closed, the
+// read keeps the tags as they stood at its last bar. Before the open there are
+// none. Each bar-based tag is evaluated at every completed bar; consecutive
+// bars with the same code are one event, from the close of its first bar to
+// the close of the bar that ended it, and a tag's since is the start of the
+// event still standing at the latest bar.
+func marketReadTags(in marketReadTagInputs) ([]rpc.MarketReadTag, []rpc.MarketReadTagEvent) {
+	tags, events := []rpc.MarketReadTag{}, []rpc.MarketReadTagEvent{}
+	if in.State != rpc.MarketReadOpen && in.State != rpc.MarketReadClosed {
+		return tags, events
 	}
 	add := func(scope string, times []time.Time, at func(k int) *marketReadTagAt) {
-		n := len(times)
-		if n == 0 {
-			return
-		}
-		last := at(n)
-		if last == nil {
-			return
-		}
-		since := n
-		for k := n - 1; k >= 1; k-- {
-			if earlier := at(k); earlier == nil || earlier.code != last.code {
-				break
+		var open *rpc.MarketReadTagEvent
+		var last *marketReadTagAt
+		for k := 1; k <= len(times); k++ {
+			closed := times[k-1].Add(marketReadBar)
+			last = at(k)
+			if open != nil && (last == nil || last.code != open.Code) {
+				open.To = closed
+				events = append(events, *open)
+				open = nil
 			}
-			since = k
+			if last != nil && open == nil {
+				open = &rpc.MarketReadTagEvent{Code: last.code, Scope: scope, Tone: last.tone, From: closed}
+			}
 		}
-		tags = append(tags, rpc.MarketReadTag{Code: last.code, Scope: scope, Tone: last.tone, Since: times[since-1].Add(marketReadBar), Evidence: last.evidence})
+		if open == nil {
+			return
+		}
+		events = append(events, *open)
+		tags = append(tags, rpc.MarketReadTag{Code: last.code, Scope: scope, Tone: last.tone, Since: open.From, Evidence: last.evidence})
 	}
 	indexTimes := make([]time.Time, len(in.IndexBars))
 	for i, b := range in.IndexBars {
@@ -310,7 +318,8 @@ func marketReadTags(in marketReadTagInputs) []rpc.MarketReadTag {
 	if tag := marketReadLeadersTag(in.Leaders); tag != nil {
 		tags = append(tags, *tag)
 	}
-	return tags
+	slices.SortStableFunc(events, func(a, b rpc.MarketReadTagEvent) int { return a.From.Compare(b.From) })
+	return tags, events
 }
 
 // marketReadHolds reports whether the last HoldBars closes up to bar k all
@@ -441,7 +450,11 @@ func marketReadVIXTagAt(in marketReadTagInputs, k int) *marketReadTagAt {
 			return &marketReadTagAt{"stress_rising", "negative", evidence}
 		}
 		return &marketReadTagAt{"stress_elevated", "caution", evidence}
-	case marketReadHolds(closes, k, func(c float64) bool { return c < marketReadVIXLine }) && change != nil && *change < 0:
+	case marketReadHolds(closes, k, func(c float64) bool { return c < marketReadVIXLine }) && change != nil && *change < 0 &&
+		(*in.VIXPriorClose >= marketReadVIXLine || *change <= -marketReadVIXRisingPct):
+		// Easing is news only from fear: VIX came down through the line, or
+		// fell by as much as a rising day would add. A calm day drifting lower
+		// is not it.
 		return &marketReadTagAt{"fear_easing", "positive", evidence}
 	}
 	return nil

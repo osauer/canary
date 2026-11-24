@@ -54,10 +54,13 @@ draw no tags.
 
 A level holds after two consecutive completed closes beyond it, so one print
 across never flips a tag. Each bar-based tag is evaluated at every completed
-bar; `since` is the close of the first bar of the unbroken run that ends now.
-The volume tags hold only when their condition was met at the last two
-completed bars. The leader tag reads current quotes, which keep no history,
-so it has no `since` and says why.
+bar. Consecutive bars with the same code are one event in `tag_events`
+(index, volume and vix, oldest first, `inside_prior_range` included): `from`
+is the close of its first bar, `to` the close of the bar that ended it, absent
+while the run still stands at the latest bar. A standing tag's `since` is its
+event's `from`. The volume tags hold only when their condition was met at the
+last two completed bars. The leader tag reads leader states, not bars, so it
+has no `since` and says why.
 
 ## Volume baseline
 
@@ -73,7 +76,9 @@ two-day baseline and is reported as such.
 
 ## Tags
 
-Drawn only while the session is open. All levels are named constants,
+Drawn while the session is open, as of its latest completed bar; once it has
+closed, the read keeps the tags and events as they stood at its last bar.
+Before the open there are none. All levels are named constants,
 returned in `thresholds` with `heuristic: true`.
 
 | Scope | Code | Tone | Condition |
@@ -87,7 +92,7 @@ returned in `thresholds` with `heuristic: true`.
 | volume | `selling_on_volume` | negative | SPX below its close 30 minutes ago and the last 30 minutes of SPY volume ≥ 1.3 × their baseline |
 | vix | `stress_rising` | negative | holds above 25 and up ≥ 5% on the day |
 | vix | `stress_elevated` | caution | holds above 25 otherwise |
-| vix | `fear_easing` | positive | holds below 25 and down on the day |
+| vix | `fear_easing` | positive | holds below 25, down on the day, and either the prior close was at or above 25 or the fall is at least 5%; a calm day drifting lower is not it |
 | leaders | `leaders_hold` | positive | at least 3 leaders gapped up and ≥ 70% of them hold |
 | leaders | `leaders_fading` | negative | at least 3 gapped up and ≤ 40% hold |
 
@@ -100,8 +105,11 @@ included. A gap under 0.25% is `no_gap`. A gap up holds while the price is at
 least half the gap above the prior close and is filled at or under the prior
 close; between the two a single read, which keeps no earlier state, still
 reads it as held. Gaps down mirror this (`holds_gap_down`,
-`gap_down_reclaimed`). States are drawn only while the session is open:
-before it the opening tick still names the previous session. `gapped_up`
+`gap_down_reclaimed`). States are drawn while the session is open from the
+current price, and once it has closed from the session's daily bar (its open
+and close; a later print is never used), unavailable until that bar is
+recorded. Before the open there are none: the opening tick still names the
+previous session. `gapped_up`
 counts the companies with a state whose gap is up by at least the minimum,
 whatever their state; `holding_gap_up` those that hold it.
 
@@ -116,5 +124,7 @@ read is not served: OpenD supplies neither index.
 `internal/daemon/market_read_test.go` drives the pure assembly with synthetic
 bars and quotes: the hold rule and the forming bar, each index, volume, VIX
 and leader tag, every leader state, a baseline under three sessions, a leader
-without an open, the pre-market and weekend states, stale bars, absent values
+without an open, the pre-market and weekend states, a closed session keeping
+its tags and its leaders' closing states, the tag timeline, `fear_easing`
+firing from fear and staying silent on a calm day, stale bars, absent values
 with reasons, and the shared 30-second result.

@@ -127,7 +127,7 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 	if err != nil {
 		return nil, err
 	}
-	_, prior, state, ok := marketReadSessions(sessions, now)
+	session, prior, state, ok := marketReadSessions(sessions, now)
 	if !ok {
 		return nil, fmt.Errorf("US equity session calendar unavailable for %s", now.UTC().Format(time.DateOnly))
 	}
@@ -140,11 +140,12 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 		})
 	}
 	// daily reads a daily series from the chart cache, and through the
-	// bounded history request only when the cache has no bar of the prior
-	// session: gone from the cache, or last read before that session closed.
+	// bounded history request only when the cache lacks a bar the read needs
+	// (the prior session's, and once the session has closed its own): gone
+	// from the cache, or last read before that session closed.
 	daily := func(c rpc.ContractParams, cached func() *rpc.MarketHistoryResult) *rpc.MarketHistoryResult {
 		r := cached()
-		if marketReadDailyBar(r, c.Symbol, prior.Date) != nil {
+		if marketReadDailyBar(r, c.Symbol, prior.Date) != nil && (state != rpc.MarketReadClosed || marketReadDailyBar(r, c.Symbol, session.Date) != nil) {
 			return r
 		}
 		if fresh, err := s.marketHistoryRequest(ctx, rpc.MarketHistoryParams{Contract: c, Range: "6M"}); err == nil {
@@ -384,7 +385,17 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 			}
 		}
 		row.Last, row.LastAt, _ = marketReadQuoteLast(l.Quote)
-		if state != rpc.MarketReadPre {
+		closing := marketReadDailyBar(l.Daily, l.Symbol, session.Date)
+		if state == rpc.MarketReadClosed {
+			// A closed session is read at its close, never at a later print.
+			row.Last, row.LastAt = nil, time.Time{}
+			if closing != nil {
+				row.Last, row.LastAt = new(closing.Value), session.Close.UTC()
+			}
+		}
+		if state == rpc.MarketReadClosed && closing != nil && closing.Open != nil && isFinitePrice(*closing.Open) {
+			row.Open, row.OpenSource = new(*closing.Open), "daily_bar"
+		} else if state != rpc.MarketReadPre {
 			// Before the open the opening tick still names the last session.
 			if l.Quote != nil && isFinitePrice(l.Quote.Open) {
 				row.Open, row.OpenSource = new(l.Quote.Open), "session_open"
@@ -394,10 +405,13 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 				row.StateUnavailable = "session open not quoted and no intraday bar retained"
 			}
 		}
-		if state == rpc.MarketReadOpen {
+		switch {
+		case state == rpc.MarketReadPre:
+			row.StateUnavailable = "the session has not opened"
+		case state == rpc.MarketReadClosed && closing == nil:
+			row.StateUnavailable = "the session's close is not yet in the daily bars"
+		default:
 			marketReadLeaderState(&row)
-		} else {
-			row.StateUnavailable = "states are read while the session is open"
 		}
 		leaders.Rows = append(leaders.Rows, row)
 	}
@@ -405,7 +419,7 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 	out.Leaders = leaders
 	in.Leaders = leaders.Rows
 
-	out.Tags = marketReadTags(in)
+	out.Tags, out.TagEvents = marketReadTags(in)
 	return out, nil
 }
 

@@ -247,7 +247,10 @@ func TestMarketReadVIXTags(t *testing.T) {
 		closes []float64
 		code   string
 	}{
-		{"easing below the line", 22, []float64{21, 20.5}, "fear_easing"},
+		{"falling through the line", 26, []float64{24, 23.5}, "fear_easing"},
+		{"a fall as large as a rising day", 20, []float64{18.8, 18.5}, "fear_easing"},
+		{"a calm day drifting lower", 14, []float64{13.9, 13.86}, ""},
+		{"a small fall under the line", 20, []float64{19.5, 19.4}, ""},
 		{"below the line but up", 20, []float64{21, 20.5}, ""},
 		{"above the line", 26, []float64{26.5, 26.8}, "stress_elevated"},
 		{"above the line and up 5%", 25, []float64{26.5, 26.8}, "stress_rising"},
@@ -321,14 +324,14 @@ func TestMarketReadLeadersTagCountsGapsThatHold(t *testing.T) {
 	}
 }
 
-func TestMarketReadOutsideTheSessionDrawsNoTags(t *testing.T) {
+func TestMarketReadBeforeTheOpenDrawsNoTags(t *testing.T) {
 	m := newReadMarket(t)
 	open := m.session.Open
 	m.index(open.Add(-time.Hour), 101, 102, 103)
 	m.vix(open.Add(-time.Hour), 22, 21, 20)
 	m.leader("AAA", new(102.0), new(101.8))
 	pre := m.read(open.Add(-time.Hour))
-	if pre.Session.State != rpc.MarketReadPre || pre.Session.Date != m.session.Date || len(pre.Tags) != 0 {
+	if pre.Session.State != rpc.MarketReadPre || pre.Session.Date != m.session.Date || len(pre.Tags) != 0 || len(pre.TagEvents) != 0 {
 		t.Fatalf("before the open: %+v, tags %+v", pre.Session, pre.Tags)
 	}
 	if row := pre.Leaders.Rows[0]; row.Open != nil || row.State != "" || row.StateUnavailable == "" {
@@ -342,8 +345,8 @@ func TestMarketReadOutsideTheSessionDrawsNoTags(t *testing.T) {
 	saturday := time.Date(2026, 9, 26, 15, 0, 0, 0, time.UTC)
 	m.index(saturday, 101, 102, 103)
 	closed := m.read(saturday)
-	if closed.Session.State != rpc.MarketReadClosed || closed.Session.Date != "2026-09-25" || len(closed.Tags) != 0 {
-		t.Fatalf("weekend: %+v, tags %+v", closed.Session, closed.Tags)
+	if closed.Session.State != rpc.MarketReadClosed || closed.Session.Date != "2026-09-25" || len(closed.Tags) != 0 || len(closed.TagEvents) != 0 {
+		t.Fatalf("weekend without Friday's bars: %+v, tags %+v", closed.Session, closed.Tags)
 	}
 	if closed.Index.Prior != nil || closed.Index.PriorUnavailable == "" {
 		t.Errorf("Friday's prior session has no bar in the fixture, yet: %+v", closed.Index.Prior)
@@ -414,5 +417,93 @@ func TestMarketReadAnswersPollersFromOneRead(t *testing.T) {
 	}
 	if _, err := s.handleMarketRead(t.Context(), &rpc.Request{Params: []byte(`{"symbol":"SPY"}`)}); err == nil {
 		t.Error("a caller-supplied symbol was accepted")
+	}
+}
+
+// Once the session has closed the read keeps what stood at its last bar:
+// the tags, and the leaders' states at their closing prices.
+func TestMarketReadClosedSessionKeepsItsRead(t *testing.T) {
+	m := newReadMarket(t)
+	after := m.session.Close.Add(time.Hour)
+	m.index(after, 95, 101, 102)
+	m.vix(after, 26, 24, 23.5)
+	sessionDay, _ := time.Parse(time.DateOnly, m.session.Date)
+	for _, last := range []float64{101.8, 101.9, 101.7} {
+		m.leader("L", new(102.0), new(90.0)) // an after-hours print the read must not use
+		l := &m.src.Leaders[len(m.src.Leaders)-1]
+		l.Daily.Points = append(l.Daily.Points, rpc.MarketHistoryPoint{At: sessionDay, Value: last, Open: new(102.0), High: new(103.0), Low: new(101.0)})
+	}
+	r := m.read(after)
+	if r.Session.State != rpc.MarketReadClosed {
+		t.Fatalf("state %q", r.Session.State)
+	}
+	if got := codeOf(r, "index"); got != "above_prior_high" {
+		t.Errorf("index tag at the close: %q", got)
+	}
+	if got := codeOf(r, "vix"); got != "fear_easing" {
+		t.Errorf("vix tag at the close: %q", got)
+	}
+	for _, row := range r.Leaders.Rows {
+		if row.State != rpc.LeaderHoldsGapUp || row.Last == nil || *row.Last < 101 || !row.LastAt.Equal(m.session.Close) {
+			t.Errorf("leader at the close: %+v", row)
+		}
+	}
+	if got := codeOf(r, "leaders"); got != "leaders_hold" {
+		t.Errorf("leader tag at the close: %q", got)
+	}
+	// Without the session's daily bar there is no closing price to read.
+	m.src.Leaders[0].Daily.Points = m.src.Leaders[0].Daily.Points[:1]
+	if row := m.read(after).Leaders.Rows[0]; row.State != "" || row.StateUnavailable == "" || row.Last != nil {
+		t.Errorf("leader without its close: %+v", row)
+	}
+}
+
+// Each run of a bar-based tag is one event, from the close of its first bar
+// to the close of the bar that ended it; the run still standing has no end.
+func TestMarketReadTagEventsTraceEachRun(t *testing.T) {
+	m := newReadMarket(t)
+	now := m.at(5)
+	m.index(now, 95, 101, 102, 99, 98)
+	m.vix(now, 20, 19.5, 19.4, 19.2, 19.1, 18.5)
+	r := m.read(now)
+	end := func(bar int) time.Time { return m.session.Open.Add(time.Duration(bar) * marketReadBar) }
+	var index []rpc.MarketReadTagEvent
+	for i, e := range r.TagEvents {
+		if i > 0 && e.From.Before(r.TagEvents[i-1].From) {
+			t.Errorf("events out of order: %+v", r.TagEvents)
+		}
+		if e.Scope == "index" {
+			index = append(index, e)
+		}
+	}
+	want := []rpc.MarketReadTagEvent{
+		{Code: "inside_prior_range", Scope: "index", Tone: "neutral", From: end(1), To: end(3)},
+		{Code: "above_prior_high", Scope: "index", Tone: "neutral", From: end(3), To: end(4)},
+		{Code: "inside_prior_range", Scope: "index", Tone: "neutral", From: end(4)},
+	}
+	if len(index) != len(want) {
+		t.Fatalf("index events: %+v", index)
+	}
+	for i := range want {
+		if index[i] != want[i] {
+			t.Errorf("event %d: %+v, want %+v", i, index[i], want[i])
+		}
+	}
+	if tag := tagOf(r, "index"); tag == nil || !tag.Since.Equal(end(4)) {
+		t.Errorf("standing tag since: %+v", tag)
+	}
+	// VIX fell 7.5% only at its fifth bar: one standing fear_easing event.
+	var vix []rpc.MarketReadTagEvent
+	for _, e := range r.TagEvents {
+		if e.Scope == "vix" {
+			vix = append(vix, e)
+		}
+	}
+	if len(vix) != 1 || vix[0].Code != "fear_easing" || !vix[0].From.Equal(end(5)) || !vix[0].To.IsZero() {
+		t.Errorf("vix events: %+v", vix)
+	}
+	raw, _ := json.Marshal(index[2])
+	if strings.Contains(string(raw), `"to"`) {
+		t.Errorf("a standing run carries an end: %s", raw)
 	}
 }

@@ -52,8 +52,24 @@ type MarketReadResult struct {
 	VIXUnavailable     string               `json:"vix_unavailable,omitempty"`
 	Leaders            *MarketReadLeaders   `json:"leaders,omitempty"`
 	LeadersUnavailable string               `json:"leaders_unavailable,omitempty"`
-	// Tags name conditions that hold now; empty outside the regular session.
+	// Tags name the conditions that hold at the session's latest completed
+	// bar: now while it is open, at its last bar once it has closed; none
+	// before the open.
 	Tags []MarketReadTag `json:"tags"`
+	// TagEvents is the timeline of the bar-based tags (index, volume, vix)
+	// over the session, oldest first.
+	TagEvents []MarketReadTagEvent `json:"tag_events"`
+}
+
+// MarketReadTagEvent is one unbroken run of a bar-based tag: From is the
+// close of its first bar, To the close of the bar that ended it, absent while
+// the run still stands at the latest bar.
+type MarketReadTagEvent struct {
+	Code  string    `json:"code"`
+	Scope string    `json:"scope"`
+	Tone  string    `json:"tone"`
+	From  time.Time `json:"from"`
+	To    time.Time `json:"to,omitzero"`
 }
 
 // MarketReadSession is the official US cash session the read describes:
