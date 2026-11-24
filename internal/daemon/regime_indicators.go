@@ -90,8 +90,8 @@ func (hygSpyStreaks) bandAndValue(res *rpc.RegimeSnapshotResult) (string, float6
 	}
 	band := classifyHYGSPYBand(res.HYGSPYDivergence)
 	var value float64
-	if res.HYGSPYDivergence.HYGClose != nil {
-		value = *res.HYGSPYDivergence.HYGClose
+	if p := hygMeasuredPrice(res.HYGSPYDivergence); p != nil {
+		value = *p
 	}
 	return band, value
 }
@@ -585,11 +585,28 @@ func (h hygSpyStreaks) displayBand(res *rpc.RegimeSnapshotResult) string {
 // Depth in percent below the 50DMA: (dma − price) / dma × 100.
 func (hygSpyStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 	r := res.HYGSPYDivergence
-	if r.HYGClose == nil || r.HYG50DMA == nil || *r.HYG50DMA <= 0 {
+	p := hygMeasuredPrice(r)
+	if p == nil || r.HYG50DMA == nil || *r.HYG50DMA <= 0 {
 		return nil
 	}
-	d := (*r.HYG50DMA - *r.HYGClose) / *r.HYG50DMA * 100
+	d := (*r.HYG50DMA - *p) / *r.HYG50DMA * 100
 	return &d
+}
+
+// hygMeasuredPrice is the price the streak value and the eligibility depth
+// are measured on: the settled close the row is judged on, or, on a snapshot
+// written before closes-only (no hyg_close, owner decision 2026-11-24 18:26
+// CET), the hyg_price that build measured them on. Start-up reconcile
+// re-derives the streak and decision projections from the persisted
+// snapshot with this code and demands the stored content back exactly
+// (regime_projection_recovery.go), so the derivation of an older snapshot
+// must not change. A live red always carries hyg_close, so the fallback
+// never decides an eligibility.
+func hygMeasuredPrice(r rpc.RegimeHYGSPYDivergence) *float64 {
+	if r.HYGClose != nil {
+		return r.HYGClose
+	}
+	return r.HYGPrice
 }
 
 // HYG freshness: an RTH tick or the latest official close (the off-hours
