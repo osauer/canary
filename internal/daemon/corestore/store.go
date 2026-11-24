@@ -204,7 +204,10 @@ func openWithPlan(ctx context.Context, opts Options, plan []migration) (*Store, 
 	store.checkIntegrity = func(ctx context.Context) (IntegrityReport, error) {
 		return checkIntegrityDB(ctx, store.db)
 	}
-	if _, err := store.LogChanged(ctx); err != nil {
+	// Learn the log under Open's own context. Nothing else holds the store's
+	// connection yet, so the periodic check's wait bound would only fail an
+	// open on a loaded machine, as it did in another session's gate run.
+	if _, err := store.logChanged(ctx); err != nil {
 		return fail(fmt.Errorf("learn the authority's log: %w", err))
 	}
 	return store, nil
@@ -230,10 +233,14 @@ const logCheckWait = 200 * time.Millisecond
 //
 // A reopen and an outside change between two checks read as the reopen.
 func (s *Store) LogChanged(ctx context.Context) (string, error) {
-	s.logMu.Lock()
-	defer s.logMu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, logCheckWait)
 	defer cancel()
+	return s.logChanged(ctx)
+}
+
+func (s *Store) logChanged(ctx context.Context) (string, error) {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return "", err
