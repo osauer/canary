@@ -798,7 +798,8 @@ test-support: ## Run command, Go client and CI/release support tests under -race
 # (internal-docs/guides/tws-simulator.md). The normal gate runs only their
 # smoke; the rest take minutes, so they run here, on demand.
 test-sim: ## Run every TWS simulator scenario (real daemon against pkg/ibkr/twssim; minutes)
-	CANARY_TEST_SIM=1 $(LEG) sim go test -tags trading -count=1 -timeout=3600s -run '^TestSimulatedTWS' ./internal/daemon
+	@# The full tier took 3492.8 s on 2026-11-24, 107 s inside the old 3600 s limit.
+	CANARY_TEST_SIM=1 $(LEG) sim go test -tags trading -count=1 -timeout=7200s -run '^TestSimulatedTWS' ./internal/daemon
 
 test-integration: ## Run hermetic CLI/daemon lifecycle integration tests; never probes a live Gateway
 	INTEGRATION_TEST_MODE=hermetic $(LEG) integration go test -race -count=1 -timeout=420s -run '^TestLifecycle_' ./test/integration/...
