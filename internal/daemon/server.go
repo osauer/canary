@@ -79,6 +79,8 @@ type Server struct {
 	// stays idle unless chains.recorder.enabled is set.
 	chainRecorder           chainRecorderRuntime
 	marketTapeArchiveFailed atomic.Bool
+	// marketRead answers market.read callers from one recent read.
+	marketRead marketReadCache
 
 	dataHealth    dataHealthState
 	marketData    marketDataCache

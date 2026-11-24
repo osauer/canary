@@ -571,7 +571,7 @@ func (a *Adapter) BriefQuote(ctx context.Context, in broker.Instrument, _ []stri
 	}
 	q := rows[0]
 	seen := broker.BriefQuote{
-		Bid: q.Bid, Ask: q.Ask, Last: q.Last, Mark: q.Last, Close: q.PrevClose, Week52High: q.Week52High,
+		Bid: q.Bid, Ask: q.Ask, Last: q.Last, Mark: q.Last, Close: q.PrevClose, Open: q.Open, Week52High: q.Week52High,
 		FeedType:   openDFeedType(q.At, a.now()),
 		ObservedAt: q.At,
 	}

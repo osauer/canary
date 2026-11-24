@@ -2599,6 +2599,7 @@ func fillQuoteMarketData(q *rpc.Quote, d *ibkrlib.MarketData) {
 	q.Last = ptrIfPos(d.Last)
 	q.Mark = ptrIfPos(d.MarkPrice)
 	q.PrevClose = ptrIfPos(d.Close)
+	q.DayOpen = ptrIfPos(d.Open)
 	q.DayHigh = ptrIfPos(d.High)
 	q.DayLow = ptrIfPos(d.Low)
 	q.Week52High = ptrIfPos(d.Week52High)

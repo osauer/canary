@@ -4,7 +4,7 @@
 
 Canary reads one brokerage account through IBKR (TWS or IB Gateway) or through OpenD (moomoo, Futu). Most of what it shows is computed by Canary from what the broker supplies: the regime, portfolio stress, Edge and gamma are Canary's, not the broker's. So this page has two tables. The first says what each broker supplies. The second says how each capability runs on each broker and, where OpenD falls short, why. The same table decides what the daemon refuses under OpenD.
 
-On OpenD, of 44 capabilities: 1 served, 8 partial, 19 unverified, 2 refused, 14 not served. Of those not fully served, 7 need data OpenD does not supply, 0 wait on a check of what OpenD supplies, and 9 have what they need from OpenD but are not yet read there.
+On OpenD, of 45 capabilities: 1 served, 8 partial, 19 unverified, 2 refused, 15 not served. Of those not fully served, 7 need data OpenD does not supply, 0 wait on a check of what OpenD supplies, and 10 have what they need from OpenD but are not yet read there.
 
 ## What each broker supplies
 
@@ -42,6 +42,7 @@ Statuses: *served* works and a test or live check shows it; *partial* works with
 | market overview | quotes, price bars | served | partial |   | prices the held names and the US ETF references from OpenD; OpenD gives no index or futures data, so those rows are named as missing and the overview reads partial; history is not followed for OpenD rows, so price bars are not drawn here; tested on the simulator only |
 | portfolio allocation | account and positions, quotes | served | not served | Canary | reads the IBKR connector |
 | market tape | quotes, price bars | served | not served | Canary | joins on IBKR contract ids |
+| market read | quotes, price bars | served | not served | Canary | reads the S&P 500 and VIX indices, which OpenD does not supply |
 | technical analysis | price bars | served | not served | Canary | reads the IBKR connector |
 | option chains | option chains and Greeks | served | not served | Canary | reads the IBKR connector, as do the option picker and setup option discovery |
 | recorded option chains | option chains and Greeks | served | unverified |   |   |
@@ -93,6 +94,7 @@ Tests run without a live broker; the wire smoke reads a live IBKR gateway (`scri
 | market overview |   | `TestOpenDMarketOverviewPricesWhatOpenDCarriesAndNamesTheRest` | `market.snapshot` |
 | portfolio allocation |   | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp` | `portfolio.snapshot` |
 | market tape |   | `TestMarketTapeCollectionDoesNotStartUnderOpenD` | `market.tape` |
+| market read |   | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp` | `market.read` |
 | technical analysis |   | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp` | `technical.snapshot` |
 | option chains | live smoke `chain-iv` | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp`; `TestOpenDUpNeverAnswersGatewayUnavailable` | `add.market`, `chain.expiries`, `chain.fetch`, `setups.options`, `strategy.spreads` |
 | recorded option chains |   |   | `chains.recorded`, `chains.recorded_rows` |

@@ -4,8 +4,13 @@ All notable changes to this project are documented here. The project adheres to 
 
 ## v3.46.0 — Unreleased
 
+### What's new
+
+**A read of today's session against yesterday's.** `canary market read --json` and the MCP tool `canary_market_read` place the S&P 500 index against the prior session's high and low with today's five-minute bars, SPY volume against the same time of day in the prior sessions Canary recorded, VIX against its 25 line and its prior close, and the largest companies (one share line each) against their opening gaps. Tags such as `continuation`, `breakout_thin_volume`, `bounce_failed`, `rally_fading`, `selling_on_volume`, `stress_rising`, `fear_easing`, `leaders_hold` and `leaders_fading` appear only while the regular session is open and only once their condition holds for two completed five-minute closes; each carries its numbers and when it began. Every threshold is returned and marked heuristic, and a value that could not be measured is absent with a reason. The read uses the daemon's existing chart history and transient quotes, keeps nothing on disk and answers every caller within 30 seconds from one read. It is not served under OpenD.
+
 ### Added
 
+- `quote.snapshot` returns the session's opening price as `day_open` when the broker quotes it.
 - The regime's HYG/SPY row says when HYG is at its 52-week low (`hyg_at_52w_low`, and "at its 52w low" in the row). Bands are unchanged.
 
 ### Fixed

@@ -14,6 +14,9 @@ func runMarket(ctx context.Context, env *Env, args []string) int {
 	if idx := firstPositionalIndex(args); idx >= 0 && args[idx] == "tape" {
 		return runMarketTape(ctx, env, append(append([]string{}, args[:idx]...), args[idx+1:]...))
 	}
+	if idx := firstPositionalIndex(args); idx >= 0 && args[idx] == "read" {
+		return runMarketRead(ctx, env, append(append([]string{}, args[:idx]...), args[idx+1:]...))
+	}
 	fs := flagSet(env, "market")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	watch := fs.Bool("watch", false, "stream complete display snapshots as NDJSON")

@@ -212,9 +212,10 @@ Guard `read-only`. Also available as an MCP tool.
 ```text
 canary market [--symbol SYMBOL --range 1D] [--json]
 canary market tape [--history] [--before YYYY-MM-DD] [--sessions 5] [--explain] [--json]
+canary market read [--json]
 ```
 
-Subcommands: `tape`.
+Subcommands: `tape`, `read`.
 
 **Flags**
 

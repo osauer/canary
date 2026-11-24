@@ -500,6 +500,7 @@ func rpcQuoteOf(contract rpc.ContractParams, q *broker.Quote) *rpc.Quote {
 		QuotePrice:   positive(q.Last),
 		QuotePriceAt: q.LastAt,
 		PrevClose:    positive(q.Close),
+		DayOpen:      positive(q.Open),
 		DayHigh:      positive(q.High),
 		DayLow:       positive(q.Low),
 	}

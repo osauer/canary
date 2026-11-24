@@ -1713,6 +1713,7 @@ type Quote struct {
 	PrevClose           *float64  `json:"prev_close"`
 	Change              *float64  `json:"change"`
 	ChangePct           *float64  `json:"change_pct"`
+	DayOpen             *float64  `json:"day_open,omitempty"` // session open as quoted; before the open it can name the previous session's
 	DayHigh             *float64  `json:"day_high,omitempty"`
 	DayLow              *float64  `json:"day_low,omitempty"`
 	Week52High          *float64  `json:"week_52_high,omitempty"`

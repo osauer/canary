@@ -79,6 +79,7 @@ func (s *Server) routeTable() map[string]route {
 		api.MarketHistory.Name:      serve(api.MarketHistory, "price history", s.handleMarketHistory),
 		api.MarketBond.Name:         serve(api.MarketBond, "bond lookup", s.handleMarketBond),
 		api.MarketTape.Name:         serve(api.MarketTape, "market tape", s.handleMarketTape),
+		api.MarketRead.Name:         serve(api.MarketRead, "market read", s.handleMarketRead),
 		api.QuoteSnapshot.Name:      serve(api.QuoteSnapshot, "quotes", s.handleQuoteSnapshot),
 		api.ChainFetch.Name:         serve(api.ChainFetch, "option chains", s.handleChainFetch),
 		api.ChainExpiries.Name:      serve(api.ChainExpiries, "option chains", s.handleChainExpiries),

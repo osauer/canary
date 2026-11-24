@@ -422,9 +422,11 @@ type DailyBars interface {
 // broker's data mode (FeedType, numbered as on [Quote]) and when the last
 // price was observed.
 type BriefQuote struct {
-	Bid, Ask, Last, Mark, Close, Week52High float64
-	FeedType                                int
-	ObservedAt                              time.Time
+	// Open is the session's opening price; before a session opens a broker
+	// can still quote the previous session's.
+	Bid, Ask, Last, Mark, Close, Open, Week52High float64
+	FeedType                                      int
+	ObservedAt                                    time.Time
 }
 
 // Snapshots takes one brief look at an instrument named by symbol and kind:

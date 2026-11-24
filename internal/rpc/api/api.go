@@ -27,6 +27,7 @@ var (
 	MarketHistory                        = rpc.Define[rpc.MarketHistoryParams, rpc.MarketHistoryResult](rpc.MethodMarketHistory)
 	MarketBond                           = rpc.Define[rpc.MarketBondParams, rpc.MarketBondResult](rpc.MethodMarketBond)
 	MarketTape                           = rpc.Define[rpc.MarketTapeParams, rpc.MarketTapeResult](rpc.MethodMarketTape)
+	MarketRead                           = rpc.Define[rpc.NoParams, rpc.MarketReadResult](rpc.MethodMarketRead)
 	QuoteSnapshot                        = rpc.Define[rpc.QuoteSnapshotParams, rpc.Quote](rpc.MethodQuoteSnapshot)
 	ChainFetch                           = rpc.Define[rpc.ChainFetchParams, rpc.ChainResult](rpc.MethodChainFetch)
 	ChainExpiries                        = rpc.Define[rpc.ChainExpiriesParams, rpc.ChainExpiriesResult](rpc.MethodChainExpiries)

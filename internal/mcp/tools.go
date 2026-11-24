@@ -177,6 +177,7 @@ var Tools = []Tool{
 			return json.Marshal(res)
 		},
 	},
+	marketReadTool(),
 	{
 		Name:               "canary_status",
 		RPCMethods:         []string{rpc.MethodStatusHealth, rpc.MethodSettingsGet},

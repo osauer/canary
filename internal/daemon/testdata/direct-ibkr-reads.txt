@@ -32,6 +32,7 @@ holding_locks.replace
 mandate.risk
 market.bond
 market.history
+market.read
 market.snapshot
 market.tape
 market_events.snapshot

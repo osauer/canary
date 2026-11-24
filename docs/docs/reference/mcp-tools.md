@@ -4,7 +4,7 @@
 
 These are the tools `canary mcp` exposes to MCP clients (Claude Code, Claude Desktop, or any other MCP host). Every public tool uses the canonical `canary_*` namespace. Each entry lists the tool name an LLM picks against, the description the LLM reads to decide whether to invoke, and the parameter schema the LLM binds against.
 
-**45 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
+**46 tools** total. Listed in registration order, aligned with the agent-appropriate CLI commands. Local lifecycle commands such as `setup`, `update`, `restart`, `mcp`, `daemon`, and `version` are intentionally excluded from MCP tools.
 
 ## `canary_add`
 
@@ -126,6 +126,12 @@ Compare rallies and reversals with daily SPX/SPY/QQQ prices, a fixed 11-share-li
 | `before` | string | no | Only with history=true: exclusive YYYY-MM-DD session date. Use history.next_before to read earlier pages beyond the rolling 60-day view. |
 | `history` | boolean | no | Default false. Read the durable archive with first/latest captures and one/three/five-session price changes. No score or trading rule. |
 | `sessions` | integer | no | Number of completed US equity sessions to align; default 20, maximum 60 per page. Missing observations remain null. |
+
+## `canary_market_read`
+
+Read what today's US stock session is doing against yesterday's: the S&P 500 index against the prior session's high and low with today's five-minute bars, SPY volume against the same time of day in the prior recorded sessions, VIX against its 25 line and its prior close, and the largest companies (one share line each) against their opening gaps. Tags such as continuation, breakout_thin_volume, bounce_failed, rally_fading, stress_rising or leaders_fading appear only while the regular session is open and only once their condition holds for two completed five-minute closes; each carries the numbers it rests on and when it began. Every level comes from data and every threshold is returned, marked heuristic. A value that could not be measured is absent with a reason, never zero. Use canary_market_tape for completed-session history, canary_regime for the risk regime, canary_market_history for one instrument's chart. Read-only and descriptive: no forecast, no effect on any decision or order.
+
+*No parameters.*
 
 ## `canary_status`
 
