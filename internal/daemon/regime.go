@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -450,7 +451,11 @@ type regimeDeps struct {
 	snapshot            func(ctx context.Context, sym string, timeout time.Duration) snapshotQuote
 	snapshotWith52WHigh func(ctx context.Context, sym string, timeout time.Duration) snapshotQuote
 	// history takes ctx instead of an explicit timeout so cancellation
-	history        func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error)
+	history func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error)
+	// settledHistory is history with a bar of an unsettled session left out,
+	// judged by when the cached copy was fetched; nil falls back to history
+	// read as fetched now.
+	settledHistory func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error)
 	officialSeries func(ctx context.Context, seriesID string) ([]regimeSeriesPoint, error)
 	vvixSeries     func(ctx context.Context) ([]regimeSeriesPoint, error)
 	vix3mSeries    func(ctx context.Context) ([]regimeSeriesPoint, error)
@@ -510,6 +515,12 @@ func productionRegimeDeps(reads broker.Reads, sources regimeSources, logWarnf fu
 			}
 			gaps.add(sym, brokerRefusal(err))
 			return bars, err
+		},
+		settledHistory: func(ctx context.Context, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
+			now := time.Now()
+			bars, fetched, err := regimeSettledFetch(ctx, historyCache, reads, sym, days, now)
+			gaps.add(sym, brokerRefusal(err))
+			return settledBarsAt(bars, fetched, now), err
 		},
 		gaps:           gaps,
 		officialSeries: officialSeries,
@@ -986,7 +997,7 @@ func fetchRegimeVolOfVol(ctx context.Context, deps *regimeDeps) rpc.RegimeVolOfV
 	return out
 }
 
-var hygSpyNotes = "HYG (high-yield corporate bond ETF) vs SPY context. Spec thresholds: green when HYG is above its 50-day SMA; yellow when HYG breaks below its 50-day SMA; red when HYG is below its 50-day SMA while SPY remains within 3% of its 52-week high. Use the row's streak.sessions to distinguish an early one-session divergence from a sustained 5+ session credit downtrend. Observation window 2-4 weeks; single-day moves are noise. Confirmation gate: a red is eligible only when HYG is at least 0.25% below the 50DMA for 2 sessions (or 1.0% below day one); outside regular hours the banding input is the latest official close, never a thin pre/post-market print. When the live HYG spot is unavailable, the latest official close serves as the banding input and the row is marked stale. On official non-trading dates the SPY day-change fields are pinned to the official daily closes of the last two completed sessions (spy_change_basis names them), so a closed-date header shows the last completed session's true change, never a drifted weekend anchor. Exit rule: once red, the row stays red until HYG is back at or above its 50-day average, even after SPY falls more than 3% from its high (red_held says so; streak.since is the session the red began). The 50-day average is the mean of the last 50 daily closes of the history read, the same bars and the same mean as the mandate regime gate's credit reading (hyg_50dma_quality.as_of names the last close in it); the row compares the banding price (the live tick in regular hours) with it, while the gate compares each settled close, reads above only when strictly above, and flips only after two closes agree, so its since date can trail hyg_50dma_run.since by a session." + regimeRoleNote(rpc.RegimeIndicatorHYGSPY)
+var hygSpyNotes = "HYG (high-yield corporate bond ETF) vs SPY context. Spec thresholds: green when HYG is above its 50-day SMA; yellow when HYG breaks below its 50-day SMA; red when HYG is below its 50-day SMA while SPY remains within 3% of its 52-week high. Use the row's streak.sessions to distinguish an early one-session divergence from a sustained 5+ session credit downtrend. Observation window 2-4 weeks; single-day moves are noise. Confirmation gate: a red is eligible only when HYG is at least 0.25% below the 50DMA for 2 sessions (or 1.0% below day one); the band is judged on settled daily closes only (owner decision 2026-11-24 18:26 CET): HYG's latest settled close (hyg_close) against the mean of the 50 settled closes to it, and SPY's close of the same session (spy_close) against its highest high over the 252 settled sessions to it (spy_close_52w_high); a bar of a session not yet settled is never read, by the regime gate's own rule. hyg_price, spy_price and spy_52w_high are the live quotes, shown and never banded. When the live HYG spot is unavailable the row is marked stale. On official non-trading dates the SPY day-change fields are pinned to the official daily closes of the last two completed sessions (spy_change_basis names them), so a closed-date header shows the last completed session's true change, never a drifted weekend anchor. Exit rule: once red, the row stays red until HYG closes at or above its 50-day average, even after SPY falls more than 3% from its high (red_held says so; streak.since is the session the red began). The 50-day average and the close are the mandate regime gate's credit reading's, on the same settled bars; the gate reads above only when strictly above and flips only after two closes agree, so its since date can trail hyg_50dma_run.since by a session." + regimeRoleNote(rpc.RegimeIndicatorHYGSPY)
 
 // HYGLookbackDays is the calendar-day window passed to the HMDS
 // history fetch. The 50-day SMA needs only the newest 50 bars; the
@@ -1046,6 +1057,12 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 		pct := diff / spyPrev * 100
 		out.SPYChangePct = &pct
 	}
+	// SPY's settled daily bars: the red condition's close and 52-week high,
+	// and the 52-week high's fallback when tick 165 is absent. Request 400
+	// calendar days (broker duration 2 Y) to cover 252 observations.
+	sctx, scancel := context.WithTimeout(ctx, 20*time.Second)
+	spyBars, spyErr := regimeSettledHistory(sctx, deps, "SPY", 400)
+	scancel()
 	if spy52 > 0 {
 		out.SPY52WHigh = new(spy52)
 		out.SPY52WHighQuality = firmTickQuality(spyQ.observedAt, regimeNow(deps), spyQ.dataType, "SPY tick 165 (Misc Stats)")
@@ -1053,12 +1070,9 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 		// Frozen-mode fallback: in MarketDataType=2 the gateway sends
 		// tick 165 (Misc Stats) never arrives, no matter the budget.
 		// Request 400 calendar days (broker duration 2 Y) to cover 252 observations.
-		hctx, hcancel := context.WithTimeout(ctx, 20*time.Second)
-		spyBars, err := deps.history(hctx, "SPY", 400)
-		hcancel()
 		switch {
-		case err != nil:
-			warnDeps(deps, "regime: SPY 52w high history fetch failed: %v", err)
+		case spyErr != nil:
+			warnDeps(deps, "regime: SPY 52w high history fetch failed: %v", spyErr)
 		case len(spyBars) < 252:
 			warnDeps(deps, "regime: SPY 52w high insufficient bars: got %d, want ~252", len(spyBars))
 		default:
@@ -1076,7 +1090,7 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 	// 50-day SMA on HYG. See HYGLookbackDays for the
 	// calendar-day window's holiday-clipping rationale.
 	hctx, hcancel := context.WithTimeout(ctx, 20*time.Second)
-	bars, err := deps.history(hctx, "HYG", HYGLookbackDays)
+	bars, err := regimeSettledHistory(hctx, deps, "HYG", HYGLookbackDays)
 	hcancel()
 	switch {
 	case err != nil:
@@ -1114,15 +1128,34 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 		}
 	}
 
-	if out.HYGPrice != nil && out.HYG50DMA != nil {
-		pct := (*out.HYGPrice - *out.HYG50DMA) / *out.HYG50DMA * 100
-		out.HYGVs50DMAPct = &pct
-	}
-	if out.HYGPrice != nil {
-		out.HYGRange52W = range52WFromBars(bars, *out.HYGPrice, now)
-		// The range folds the current price into its low, so a print at or
-		// under the year's lowest close lands exactly on 0.
+	// The band is judged on settled closes only (owner decision 2026-11-24
+	// 18:26 CET, "Yes, closes only"): HYG's latest settled close against the
+	// average of the 50 settled closes to it, and SPY's close of the same
+	// session against its 252-session high. The live quotes above are shown,
+	// never banded.
+	if len(bars) > 0 && bars[len(bars)-1].Close > 0 {
+		last := bars[len(bars)-1]
+		out.HYGClose, out.CloseSession = new(last.Close), historyBarSessionDate(last)
+		if out.HYG50DMA != nil {
+			pct := (last.Close - *out.HYG50DMA) / *out.HYG50DMA * 100
+			out.HYGVs50DMAPct = &pct
+		}
+		out.HYGRange52W = range52WFromBars(bars, last.Close, now)
+		// The range folds the close into its low, so a close at or under the
+		// year's lowest close lands exactly on 0.
 		out.HYGAt52WLow = out.HYGRange52W != nil && out.HYGRange52W.Pos == 0
+	}
+	if spyErr == nil && len(spyBars) >= 252 && out.CloseSession != "" {
+		last := spyBars[len(spyBars)-1]
+		if historyBarSessionDate(last) == out.CloseSession && last.Close > 0 {
+			out.SPYClose = new(last.Close)
+			if hi := maxHigh(spyBars, 252); hi > 0 {
+				out.SPYClose52WHigh = new(hi)
+			}
+		}
+	}
+	if out.HYG50DMA != nil && !regimeHistoryCurrent(spyBars, now) && !slices.Contains(out.FieldsMissing, "spy_history_stale") {
+		out.FieldsMissing = append(out.FieldsMissing, "spy_history_stale")
 	}
 
 	if out.HYGPrice == nil || out.SPYPrice == nil {
@@ -1693,6 +1726,17 @@ func modelledQuality(at time.Time, method string) *rpc.Quality {
 		Confidence:     rpc.ConfidenceProxy,
 		Source:         method,
 	}
+}
+
+// regimeSettledHistory is sym's daily bars with any bar of a session not yet
+// settled left out (settledBars, the regime gate's rule).
+func regimeSettledHistory(ctx context.Context, deps *regimeDeps, sym string, days int) ([]ibkrlib.HistoricalBar, error) {
+	if deps.settledHistory != nil {
+		return deps.settledHistory(ctx, sym, days)
+	}
+	bars, err := deps.history(ctx, sym, days)
+	now := regimeNow(deps)
+	return settledBarsAt(bars, now, now), err
 }
 
 // averageClose returns the simple average of the last N daily closes

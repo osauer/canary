@@ -152,6 +152,7 @@ func TestStressCoSignIndicatorIsContext(t *testing.T) {
 		r.HYGSPYDivergence.Eligibility.Reasons = []string{"depth_below_min"}
 		r.HYGSPYDivergence.HYGPrice, r.HYGSPYDivergence.HYG50DMA = new(79.5), new(79.7)
 		r.HYGSPYDivergence.SPYPrice, r.HYGSPYDivergence.SPY52WHigh = new(95.0), new(100.0)
+		r.HYGSPYDivergence.HYGClose, r.HYGSPYDivergence.SPYClose, r.HYGSPYDivergence.SPYClose52WHigh = new(79.5), new(95.0), new(100.0)
 	}), "HYG vs SPY")
 	if held.Status != "amber" || strings.Contains(held.Comment, "Provisional") || !strings.Contains(held.Comment, "; context, not a stress reading on its own") {
 		t.Fatalf("held proxy red: status %q, comment %q; want amber and the context sentence", held.Status, held.Comment)

@@ -18,6 +18,8 @@ func coSignRedSnapshot() *rpc.RegimeSnapshotResult {
 	r.VolOfVol = rpc.RegimeVolOfVol{Status: rpc.RegimeStatusOK, Last: new(85.0)}
 	r.HYGSPYDivergence = rpc.RegimeHYGSPYDivergence{
 		Status: rpc.RegimeStatusOK, HYGPrice: new(78.0), HYG50DMA: new(80.0), SPYPrice: new(100.0), SPY52WHigh: new(100.0),
+		// The band reads the settled closes (owner, 2026-11-24 18:26 CET).
+		HYGClose: new(78.0), SPYClose: new(100.0), SPYClose52WHigh: new(100.0),
 	}
 	r.CreditSpreads = rpc.RegimeCreditSpreads{Status: rpc.RegimeStatusOK, HYOAS: new(3.0)}
 	r.FundingStress = rpc.RegimeFundingStress{Status: rpc.RegimeStatusOK, SpreadBps: new(10.0)}

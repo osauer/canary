@@ -1369,6 +1369,17 @@ type RegimeHYGSPYDivergence struct {
 	HYG50DMA   *float64 `json:"hyg_50dma"` // 50-day SMA of HYG daily close
 	SPYPrice   *float64 `json:"spy_price"`
 	SPY52WHigh *float64 `json:"spy_52w_high"`
+	// HYGClose and SPYClose are the latest settled daily closes, both of
+	// session CloseSession, and SPYClose52WHigh SPY's highest high over the
+	// 252 settled sessions to it. The band, its entry and its exit are
+	// judged on these alone (owner decision 2026-11-24 18:26 CET, "Yes,
+	// closes only"): HYGClose against HYG50DMA, SPYClose against 97% of
+	// SPYClose52WHigh. HYGPrice, SPYPrice and SPY52WHigh are the live
+	// quotes, shown for information.
+	HYGClose        *float64 `json:"hyg_close,omitempty"`
+	SPYClose        *float64 `json:"spy_close,omitempty"`
+	SPYClose52WHigh *float64 `json:"spy_close_52w_high,omitempty"`
+	CloseSession    string   `json:"close_session,omitempty"`
 	// SPY previous regular-session close plus the day's dollar and
 	// percent change. Trading dates: tick 9, emitted automatically
 	// alongside the price triple. Official non-trading dates: pinned to
@@ -1385,10 +1396,8 @@ type RegimeHYGSPYDivergence struct {
 	HYGDataType    string          `json:"hyg_data_type,omitempty"`
 	HYGRange52W    *RegimeRange52W `json:"hyg_range_52w,omitempty"`
 	HYGAt52WLow    bool            `json:"hyg_at_52w_low,omitempty"` // HYGRange52W.Pos is 0; display context, never banded
-	// HYGVs50DMAPct is the banding price's distance from HYG50DMA in
-	// percent, (price − average) / average × 100, negative below. The price
-	// is the live tick in regular hours and the latest close outside them.
-	// Display context, never banded.
+	// HYGVs50DMAPct is HYGClose's distance from HYG50DMA in percent,
+	// (close − average) / average × 100, negative below. Display context.
 	HYGVs50DMAPct *float64 `json:"hyg_vs_50dma_pct,omitempty"`
 	// HYG50DMARun is how long HYG has closed on one side of its 50-day
 	// average, on the same daily closes the average is taken from. Display
@@ -1396,7 +1405,7 @@ type RegimeHYGSPYDivergence struct {
 	HYG50DMARun *RegimeAverageRun `json:"hyg_50dma_run,omitempty"`
 	// RedHeld is set while the row is red only by its exit rule: the red
 	// condition (SPY within 3% of its 52-week high) no longer holds, and
-	// the band stays red until HYG is back at or above its 50-day average.
+	// the band stays red until HYG closes at or above its 50-day average.
 	// Streak.Since is the session the red began.
 	RedHeld       bool     `json:"red_held,omitempty"`
 	Notes         string   `json:"notes,omitempty"`

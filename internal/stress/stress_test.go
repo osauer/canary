@@ -446,6 +446,8 @@ func TestHYGSPYIndicatorShowsGapAndProvisionalConfirmation(t *testing.T) {
 	r.HYGSPYDivergence.HYG50DMA = &average
 	r.HYGSPYDivergence.SPYPrice = &spy
 	r.HYGSPYDivergence.SPY52WHigh = &high
+	// The row is judged on settled closes (owner, 2026-11-24 18:26 CET).
+	r.HYGSPYDivergence.HYGClose, r.HYGSPYDivergence.SPYClose, r.HYGSPYDivergence.SPYClose52WHigh = &hyg, &spy, &high
 	r.HYGSPYDivergence.Band = "red"
 	r.HYGSPYDivergence.Eligibility = &rpc.RegimeEligibility{Reasons: []string{"depth_below_min"}}
 

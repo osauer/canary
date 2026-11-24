@@ -111,26 +111,34 @@ func (s *Server) measureRegimeGate(ctx context.Context, c *risk.Constitution, no
 // afresh when the cached copy predates the latest session's settle, and
 // reports when the bars were fetched.
 func (s *Server) regimeGateBars(ctx context.Context, reads broker.Reads, sym string, days int, now time.Time) ([]ibkrlib.HistoricalBar, time.Time) {
+	bars, fetched, _ := regimeSettledFetch(ctx, s.regimeHistory, reads, sym, days, now)
+	return bars, fetched
+}
+
+// regimeSettledFetch reads the regime engine's cached bars for sym, fetching
+// afresh when the cached copy predates the latest session's settle, and
+// reports when the bars were fetched, so settledBars can drop a partial bar.
+func regimeSettledFetch(ctx context.Context, cache *regimeHistoryCache, reads broker.Reads, sym string, days int, now time.Time) ([]ibkrlib.HistoricalBar, time.Time, error) {
 	fetch := regimeDailyBars(reads)
-	if s.regimeHistory == nil {
-		bars, _ := fetch(ctx, sym, days)
-		return bars, now
+	if cache == nil {
+		bars, err := fetch(ctx, sym, days)
+		return bars, now, err
 	}
 	settled := regimeGateSettledAt(spx.CompletedSessionKey(now), now)
-	if e, ok := s.regimeHistory.get(sym, days); ok && e.FetchedAt.Before(settled) && reads != nil {
+	if e, ok := cache.get(sym, days); ok && e.FetchedAt.Before(settled) && reads != nil {
 		if bars, err := fetch(ctx, sym, days); err == nil && len(bars) >= regimeHistoryMinBars(days) {
-			s.regimeHistory.put(sym, days, bars, now)
-			return bars, now
+			cache.put(sym, days, bars, now)
+			return bars, now, nil
 		}
 	}
-	bars, err := s.regimeHistory.fetch(ctx, sym, days, fetch)
+	bars, err := cache.fetch(ctx, sym, days, fetch)
 	if err != nil {
-		return nil, time.Time{}
+		return nil, time.Time{}, err
 	}
-	if e, ok := s.regimeHistory.get(sym, days); ok {
-		return bars, e.FetchedAt
+	if e, ok := cache.get(sym, days); ok {
+		return bars, e.FetchedAt, nil
 	}
-	return bars, now
+	return bars, now, nil
 }
 
 // regimeGateSettledAt is when the session's daily bar is final: its
@@ -145,18 +153,35 @@ func regimeGateSettledAt(session string, now time.Time) time.Time {
 	return res.Session.Close.Add(regimeGateSettle)
 }
 
-// settledSeries is the bars' closes on or before latest; a copy fetched
-// before latest settled loses its bar for that session, which was partial.
-func settledSeries(bars []ibkrlib.HistoricalBar, fetched time.Time, latest string, settled time.Time) core.Series {
-	var s core.Series
+// settledBars is the bars on or before latest; a copy fetched before latest
+// settled loses its bar for that session, which was partial. It is the one
+// settled-bar rule: the gate and the regime's HYG/SPY row both read it.
+func settledBars(bars []ibkrlib.HistoricalBar, fetched time.Time, latest string, settled time.Time) []ibkrlib.HistoricalBar {
+	var out []ibkrlib.HistoricalBar
 	for _, b := range bars {
 		d := historyBarSessionDate(b)
 		if d == "" || d > latest || (d == latest && fetched.Before(settled)) {
 			continue
 		}
-		s.Dates, s.Closes = append(s.Dates, d), append(s.Closes, b.Close)
+		out = append(out, b)
+	}
+	return out
+}
+
+// settledSeries is settledBars' closes.
+func settledSeries(bars []ibkrlib.HistoricalBar, fetched time.Time, latest string, settled time.Time) core.Series {
+	var s core.Series
+	for _, b := range settledBars(bars, fetched, latest, settled) {
+		s.Dates, s.Closes = append(s.Dates, historyBarSessionDate(b)), append(s.Closes, b.Close)
 	}
 	return s
+}
+
+// settledBarsAt is settledBars at now: the latest completed session and its
+// settle time come from the calendar.
+func settledBarsAt(bars []ibkrlib.HistoricalBar, fetched, now time.Time) []ibkrlib.HistoricalBar {
+	latest := spx.CompletedSessionKey(now)
+	return settledBars(bars, fetched, latest, regimeGateSettledAt(latest, now))
 }
 
 // regimeGateInputs is what one measurement read.

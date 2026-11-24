@@ -15,23 +15,22 @@ import (
 
 // Spec thresholds, baked from docs/docs/internals/regime-dashboard.md. The
 const (
-	vixRatioGreen      = 0.92 // VIX/VIX3M below this is healthy contango
-	vixRatioRed        = 1.00 // above this is backwardation
-	vvixYellow         = 90.0
-	vvixRed            = 120.0
-	vvixRise5D         = 3.0 // % rise over 5 sessions that makes an at-level VVIX an amber transition (vvix_daily_v3)
-	hyOASYellow        = 4.0
-	hyOASRed           = 5.5
-	hyOASWidenYellow   = rpc.RegimeCreditWideningYellowPP // percentage points over ~20 observations
-	hyOASWidenRed      = 1.00
-	fundingYellowBps   = 25.0
-	fundingRedBps      = 75.0
-	fundingRise5Bps    = 10.0 // bp rise over 5 CP publications that makes an at-level spread an amber transition (funding_cp_tbill_v2)
-	usdJpyMoveYellow   = 1.0  // % weekly yen strengthening
-	usdJpyMoveRed      = 2.0  // % weekly yen strengthening
-	hygSpyNearHighProx = 0.97 // SPY ≥ 0.97 × 52-w high = "near highs"
-	breadthGreen       = 55.0 // % SPX constituents above 50-DMA
-	breadthRed         = 40.0 // < this with SPX at highs is classic divergence
+	vixRatioGreen    = 0.92 // VIX/VIX3M below this is healthy contango
+	vixRatioRed      = 1.00 // above this is backwardation
+	vvixYellow       = 90.0
+	vvixRed          = 120.0
+	vvixRise5D       = 3.0 // % rise over 5 sessions that makes an at-level VVIX an amber transition (vvix_daily_v3)
+	hyOASYellow      = 4.0
+	hyOASRed         = 5.5
+	hyOASWidenYellow = rpc.RegimeCreditWideningYellowPP // percentage points over ~20 observations
+	hyOASWidenRed    = 1.00
+	fundingYellowBps = 25.0
+	fundingRedBps    = 75.0
+	fundingRise5Bps  = 10.0 // bp rise over 5 CP publications that makes an at-level spread an amber transition (funding_cp_tbill_v2)
+	usdJpyMoveYellow = 1.0  // % weekly yen strengthening
+	usdJpyMoveRed    = 2.0  // % weekly yen strengthening
+	breadthGreen     = 55.0 // % SPX constituents above 50-DMA
+	breadthRed       = 40.0 // < this with SPX at highs is classic divergence
 )
 
 // Band is the classified state of one indicator. unranked covers
@@ -280,11 +279,13 @@ func rowHYGSPY(now time.Time, r rpc.RegimeHYGSPYDivergence) Row {
 	switch {
 	case r.HYG50DMA == nil:
 		row.Band, row.Reason = BandUnranked, "need HYG 50-day average"
-	case *r.HYGPrice >= *r.HYG50DMA:
+	case r.HYGClose == nil:
+		row.Band, row.Reason = BandUnranked, "need HYG's settled close"
+	case rpc.HYGSPYCloseBand(r) == "green":
 		row.Band, row.Reason = BandGreen, "credit holding above trend"
-	case r.SPY52WHigh != nil && r.SPYPrice != nil && *r.SPYPrice >= hygSpyNearHighProx**r.SPY52WHigh:
+	case rpc.HYGSPYCloseBand(r) == "red":
 		row.Band, row.Reason = BandRed, "credit lagging while SPY is near highs"
-	case r.SPY52WHigh != nil:
+	case rpc.HYGSPYCloseBand(r) == "yellow":
 		row.Band, row.Reason = BandYellow, "credit slipped below trend"
 	default:
 		// HYG < 50dma + SPY 52w high missing: we can't tell whether

@@ -249,6 +249,8 @@ func hygSpyRedSnapshot(at time.Time) *rpc.RegimeSnapshotResult {
 			HYG50DMA:   new(80.0),
 			SPYPrice:   new(757.67),
 			SPY52WHigh: new(760.40),
+			// The band reads the settled closes (owner, 2026-11-24 18:26 CET).
+			HYGClose: new(78.0), SPYClose: new(757.67), SPYClose52WHigh: new(760.40),
 			HYGQuality: &rpc.Quality{AsOf: at, FreshnessClass: rpc.FreshnessLive, Confidence: rpc.ConfidenceFirm},
 		},
 	}

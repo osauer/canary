@@ -186,7 +186,7 @@ func TestServedSnapshotCarriesRowStandings(t *testing.T) {
 // and the proxy red beside a cash red that may not confirm is context.
 func TestRegimeSummaryReadsServedBandsRowByRow(t *testing.T) {
 	r := coSignRedSnapshot()
-	r.HYGSPYDivergence.HYGPrice = new(81.0) // back above its average: calm
+	r.HYGSPYDivergence.HYGClose = new(81.0) // closed back above its average: calm
 	r.VolOfVol.Last = new(116.0)
 	annotateCurrentRows(r)
 	r.VolOfVol.Band = "red" // held by exit hysteresis since a close at 121

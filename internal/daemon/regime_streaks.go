@@ -490,22 +490,7 @@ const vvixRise5DPct = 3.0
 // sessions count emerges naturally from the streak counter itself —
 // "red · day 5" reads the same as the spec's "5+ sessions" requirement.
 func classifyHYGSPYBand(r rpc.RegimeHYGSPYDivergence) string {
-	if r.HYGPrice == nil || r.HYG50DMA == nil {
-		return ""
-	}
-	if *r.HYGPrice >= *r.HYG50DMA {
-		return "green"
-	}
-	// HYG below 50dma. Yellow vs red depends on SPY proximity to highs.
-	if r.SPY52WHigh == nil || r.SPYPrice == nil {
-		// Can't classify without the SPY anchor — freeze.
-		return ""
-	}
-	const nearHigh = 0.97 // SPY ≥ 0.97 × 52w high = "near highs"
-	if *r.SPYPrice >= nearHigh**r.SPY52WHigh {
-		return "red"
-	}
-	return "yellow"
+	return rpc.HYGSPYCloseBand(r)
 }
 
 func classifyCreditSpreadsBand(r rpc.RegimeCreditSpreads) string {

@@ -712,7 +712,7 @@ func goldenRegime(authority rpc.RegimeAuthorityHealth) rpc.RegimeSnapshotResult 
 		},
 		HYGSPYDivergence: rpc.RegimeHYGSPYDivergence{
 			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green", BandReason: "HYG above its 50-day average", Thresholds: thresholds("HYG above 50-day average", "HYG below average, SPY near high", "HYG below average, SPY falling")},
-			Status:              rpc.RegimeStatusOK, HYGPrice: new(80.0), HYG50DMA: new(79.0), SPYPrice: new(500.0), SPYChangePct: new(0.5),
+			Status:              rpc.RegimeStatusOK, HYGPrice: new(80.0), HYGClose: new(79.8), HYG50DMA: new(79.0), SPYPrice: new(500.0), SPYChangePct: new(0.5),
 		},
 		CreditSpreads: rpc.RegimeCreditSpreads{
 			RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{Band: "green", BandReason: "high-yield spreads stable", AsOf: daily("2026-09-03", "FRED")},

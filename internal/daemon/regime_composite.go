@@ -568,21 +568,7 @@ func bandForHYGSPY(r rpc.RegimeHYGSPYDivergence) string {
 	if r.Status != rpc.RegimeStatusOK && r.Status != rpc.RegimeStatusStale {
 		return ""
 	}
-	if r.HYG50DMA == nil || r.HYGPrice == nil {
-		return ""
-	}
-	if *r.HYGPrice >= *r.HYG50DMA {
-		return "green"
-	}
-	// HYG below 50dma. Red requires SPY near highs; otherwise the row is
-	// yellow. The unranked case is "SPY 52w-high context missing".
-	if r.SPY52WHigh == nil || r.SPYPrice == nil {
-		return ""
-	}
-	if *r.SPYPrice >= 0.97**r.SPY52WHigh {
-		return "red"
-	}
-	return "yellow"
+	return rpc.HYGSPYCloseBand(r)
 }
 
 func bandForCreditSpreads(r rpc.RegimeCreditSpreads) string {

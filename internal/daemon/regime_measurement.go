@@ -16,10 +16,15 @@ func regimeHistoryCurrent(bars []ibkrlib.HistoricalBar, now time.Time) bool {
 	return date != "" && date >= spx.CompletedSessionKey(now) && date <= nySessionKey(now)
 }
 
-// HYG's tick and historical baseline are separate clocks. A current quote
+// The row is judged on settled daily closes, so its clock is the session of
+// those closes (owner decision 2026-11-24 18:26 CET, "Yes, closes only"); the
+// live quotes carry their own times in their qualities. A current quote
 // cannot freshen a stale SMA or annual-high baseline in the source summary.
 func hygSPYRowAsOf(now time.Time, r rpc.RegimeHYGSPYDivergence) *rpc.RegimeAsOfSummary {
 	out := gatewayAsOf(now, r.Status, r.HYGDataType, "IBKR HYG/SPY quotes plus HMDS daily bars", r.HYGQuality, r.HYG50DMAQuality, r.SPYQuality, r.SPY52WHighQuality)
+	if r.CloseSession != "" && (r.Status == rpc.RegimeStatusOK || r.Status == rpc.RegimeStatusStale) {
+		out = officialRowAsOf(now, r.CloseSession, "IBKR HMDS settled daily closes (HYG, SPY); live quotes shown, not banded", r.Status)
+	}
 	for _, missing := range r.FieldsMissing {
 		var q *rpc.Quality
 		if missing == "hyg_history_stale" {

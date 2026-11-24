@@ -181,6 +181,18 @@ funding or cash credit has started; alone or together they read yellow in the
 cluster count and confirm nothing. The rule, its evidence and the two
 incidents behind it (2026-10-05 and 2026-09-10) are in Part 8.
 
+**HYG/SPY judges settled closes only** (owner decision 2026-11-24 18:26 CET,
+asked "Should the HYG row judge on settled daily closes only, as its design
+note says?", answered "Yes, closes only"). Entry, the red condition and the
+exit read HYG's latest settled close against the mean of the 50 settled
+closes to it, and SPY's close of the same session against its highest high
+over the 252 settled sessions to it. A bar of a session that has not settled
+(a copy fetched before the close plus 20 minutes) is never read, by the
+regime gate's rule (`settledBars`, `internal/daemon/regime_gate.go`). The live
+HYG and SPY quotes stay on the row for information and are never banded.
+Until then the row compared HYG's live tick in regular hours, and its
+average could take in the session's forming bar.
+
 Known residual: the HYG 50DMA is built from unadjusted
 `TRADES` closes, so each monthly distribution (≈0.5% of price) steps the price
 below a lagging average. In a flat-spread tape the proxy therefore sits a few
@@ -203,7 +215,7 @@ includes hysteresis.
 |---|---|---|---|---|---|---|
 | VIX term (VIX/VIX3M) | ratio ≥ 1.00 | ratio ≥ 1.00 (inversion is already discrete) | ratio ≥ 1.05 | 2 | both legs live during their shared 09:31–16:15 ET window for confirmation; VIX3M prior-close carry is typed `not_due` outside that window only when VIX satisfies its own 03:15–09:25 and 09:31–16:15 ET schedule | leave red only when ratio < 0.98; re-enter at ≥ 1.00 |
 | VVIX | ≥ 120 (`vvix_daily_v3`, 2026-11-18; was ≥ 110, see Part 8) | ≥ 110 (unchanged; every red is deeper, so it no longer binds) | ≥ 120 (every red reaches it on its first session) | 2 | latest official daily close (newest possible observation) | leave red < 115 (was < 105) |
-| HYG/SPY credit proxy | HYG < 50DMA and SPY ≥ 97% of 52w high | HYG ≥ 0.25% below 50DMA | HYG ≥ 1.0% below 50DMA | 2 | RTH tick, or latest official close outside RTH (never a thin pre/post-market tick) | leave red only after HYG closes back above 50DMA |
+| HYG/SPY credit proxy | HYG's settled close < its 50DMA and SPY's settled close ≥ 97% of its 252-session high (closes only, see below) | HYG ≥ 0.25% below 50DMA | HYG ≥ 1.0% below 50DMA | 2 | the latest completed session's settled daily bars | leave red only after HYG closes back at or above its 50DMA |
 | Credit spreads (HY OAS) | ≥ 5.5 or 20-obs widening ≥ 1.00 pp | levels are already deep — no extra depth | n/a (official daily series) | 1 | series ≤ 7d old (as today) | leave red < 5.25 and widening < 0.85 pp |
 | Funding (CP−T-bill) | ≥ 75 bp | ≥ 75 bp | n/a | 1 | series ≤ 7d old (as today) | leave red < 65 bp |
 | USD/JPY | yen +≥2%/week | ≥ 2% (speed *is* the depth; Aug-2024-calibrated) | ≥ 2% in 3 days (existing spec prose, now enforced) | 1 | same-day tick or same-day close | leave red < 1.5% |

@@ -90,8 +90,8 @@ func (hygSpyStreaks) bandAndValue(res *rpc.RegimeSnapshotResult) (string, float6
 	}
 	band := classifyHYGSPYBand(res.HYGSPYDivergence)
 	var value float64
-	if res.HYGSPYDivergence.HYGPrice != nil {
-		value = *res.HYGSPYDivergence.HYGPrice
+	if res.HYGSPYDivergence.HYGClose != nil {
+		value = *res.HYGSPYDivergence.HYGClose
 	}
 	return band, value
 }
@@ -585,10 +585,10 @@ func (h hygSpyStreaks) displayBand(res *rpc.RegimeSnapshotResult) string {
 // Depth in percent below the 50DMA: (dma − price) / dma × 100.
 func (hygSpyStreaks) depth(res *rpc.RegimeSnapshotResult) *float64 {
 	r := res.HYGSPYDivergence
-	if r.HYGPrice == nil || r.HYG50DMA == nil || *r.HYG50DMA <= 0 {
+	if r.HYGClose == nil || r.HYG50DMA == nil || *r.HYG50DMA <= 0 {
 		return nil
 	}
-	d := (*r.HYG50DMA - *r.HYGPrice) / *r.HYG50DMA * 100
+	d := (*r.HYG50DMA - *r.HYGClose) / *r.HYG50DMA * 100
 	return &d
 }
 
@@ -600,7 +600,7 @@ func (hygSpyStreaks) fresh(res *rpc.RegimeSnapshotResult, _ time.Time) bool {
 // Exit hysteresis: leave red only after HYG closes back above its 50DMA —
 func (hygSpyStreaks) exitHoldsRed(res *rpc.RegimeSnapshotResult) bool {
 	r := res.HYGSPYDivergence
-	return r.HYGPrice != nil && r.HYG50DMA != nil && *r.HYGPrice < *r.HYG50DMA
+	return r.HYGClose != nil && r.HYG50DMA != nil && *r.HYGClose < *r.HYG50DMA
 }
 
 func (c creditSpreadsStreaks) displayBand(res *rpc.RegimeSnapshotResult) string {
