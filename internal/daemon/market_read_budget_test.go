@@ -2,7 +2,10 @@ package daemon
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,49 +42,102 @@ func TestMarketReadAnswersWithinItsBudgetWhileHistoryIsSlow(t *testing.T) {
 	if r.Index.PriorUnavailable == "" || r.Index.BarsUnavailable == "" || len(r.Leaders.Rows) == 0 || r.Leaders.Rows[0].PriorClose != nil {
 		t.Errorf("missing inputs are not marked unavailable: %+v", r.Index)
 	}
-	// The slow reads were asked for, on the background lane, and a second
-	// read inside the retry window does not ask again. The read records each
-	// background request before it returns and sends it from its own
-	// goroutine, so a first request can reach the broker after the read has
-	// answered. Wait until every first request that can reach this broker
-	// has: the bounded request lets as many through as it has slots, and
-	// this broker never answers, so the rest wait for a slot. The baseline
-	// seed, when the read starts one, reads outside the slots. Then drain,
-	// then read again: a late first request is not a repeat.
 	select {
-	case <-requested: // the bounded request has made its slots by now
+	case <-requested:
 	case <-time.After(10 * time.Second):
 		t.Fatal("no background history request was made")
 	}
-	s.marketRead.mu.Lock()
-	recorded, seeded := len(s.marketRead.requested), s.marketRead.seeded != ""
-	s.marketRead.mu.Unlock()
-	s.marketData.mu.Lock()
-	slots := cap(s.marketData.slots)
-	s.marketData.mu.Unlock()
-	expected := min(recorded, slots)
-	if seeded {
-		expected++
+}
+
+// A series the read finds missing is asked of the broker once per retry
+// window, however many reads find it missing meanwhile. The synthetic broker
+// answers every request at once with a failure, so its slots free and the
+// series stays missing; what reaches it is counted per series. Between reads
+// the history request's own short memo of results is aged past its expiry, as
+// real time would, so only the read's rule can stop a repeat.
+func TestMarketReadAsksForAMissingSeriesOncePerRetryWindow(t *testing.T) {
+	store := tapeArchiveTestStore(t, filepath.Join(privateTestDir(t), "daemon.db"))
+	var mu sync.Mutex
+	asked := map[string]int{}
+	count := func(series string) int {
+		mu.Lock()
+		defer mu.Unlock()
+		return asked[series]
 	}
-	for seen := 1; seen < expected; seen++ {
-		select {
-		case <-requested:
-		case <-time.After(10 * time.Second):
-			t.Fatalf("%d of %d background history requests reached the broker", seen, expected)
+	repeats := func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		var out []string
+		for series, n := range asked {
+			if n > 1 {
+				out = append(out, fmt.Sprintf("%s ×%d", series, n))
+			}
+		}
+		return out
+	}
+	now := time.Date(2026, 9, 23, 15, 0, 0, 0, time.UTC)
+	var clock sync.Mutex
+	s := &Server{coreStore: store, now: func() time.Time { clock.Lock(); defer clock.Unlock(); return now },
+		marketHistoryFetchForTest: func(_ context.Context, p rpc.MarketHistoryParams, _ int, _ time.Time) (*rpc.MarketHistoryResult, error) {
+			mu.Lock()
+			asked[p.Contract.Symbol+" "+p.Range]++
+			mu.Unlock()
+			return nil, errors.New("synthetic broker: no data")
+		}}
+	advance := func(d time.Duration) {
+		clock.Lock()
+		now = now.Add(d)
+		clock.Unlock()
+	}
+	ageMemo := func() {
+		s.marketData.mu.Lock()
+		defer s.marketData.mu.Unlock()
+		for _, e := range s.marketData.history {
+			select {
+			case <-e.done:
+				e.expires = time.Time{}
+			default:
+			}
 		}
 	}
-	for len(requested) > 0 {
-		<-requested
+	read := func() {
+		t.Helper()
+		if _, err := s.handleMarketRead(t.Context(), &rpc.Request{}); err != nil {
+			t.Fatal(err)
+		}
 	}
-	now = now.Add(marketReadCacheFor + time.Second)
-	if _, err := s.handleMarketRead(t.Context(), &rpc.Request{}); err != nil {
-		t.Fatal(err)
+	waitFor := func(what string, ok func() bool) {
+		t.Helper()
+		for deadline := time.Now().Add(10 * time.Second); !ok(); {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
-	select {
-	case p := <-requested:
-		t.Errorf("a series already being read was asked for again: %s %s", p.Contract.Symbol, p.Range)
-	case <-time.After(200 * time.Millisecond):
+	const spxDaily = "SPX 6M"
+
+	read()
+	waitFor("the first request for SPX's daily series", func() bool { return count(spxDaily) == 1 })
+
+	// Inside the retry window: a later read finds the series still missing
+	// and asks for nothing again. A first request still on its way is no
+	// repeat; a second one for any series is.
+	for range 3 {
+		advance(marketReadCacheFor + time.Second)
+		ageMemo()
+		read()
+		time.Sleep(300 * time.Millisecond) // a repeat answers at once
+		if got := repeats(); len(got) > 0 {
+			t.Fatalf("asked again inside the retry window: %v", got)
+		}
 	}
+
+	// After the window the read may ask again.
+	advance(marketReadRetryAfter)
+	ageMemo()
+	read()
+	waitFor("the request after the retry window", func() bool { return count(spxDaily) == 2 })
 }
 
 // While a new read is in flight, callers get the last good read (its as_of
