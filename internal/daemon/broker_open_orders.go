@@ -195,5 +195,47 @@ func untrackedOrderView(order ibkrlib.OrderLifecycleEvent, scope brokerStateScop
 		view.ClientID = order.ClientID
 	}
 	view.Combination = brokerOrderCombination(order)
+	setTrailStop(view.Trail, order, asOf)
 	return view
+}
+
+// setTrailStop sets a trailing stop row's current stop from the broker's
+// open-order report read at asOf. A report without a positive stop sets
+// nothing: Canary never guesses where the broker's stop sits.
+func setTrailStop(trail *rpc.OrderTrailSpec, order ibkrlib.OrderLifecycleEvent, asOf time.Time) {
+	if trail == nil || !positiveFinite(order.TrailStopPrice) || asOf.IsZero() {
+		return
+	}
+	trail.StopPrice, trail.StopPriceAt, trail.StopPriceSource = order.TrailStopPrice, asOf.UTC(), rpc.OrderTrailStopSourceBroker
+}
+
+// attachTrailStops sets the current stop of each tracked trailing-stop row
+// from the broker's last complete open-order read (the Protection producer
+// keeps it at most a minute old; it waits at most ordersOpenInventoryWait
+// for one). A row the read does not show keeps no current stop.
+func (s *Server) attachTrailStops(ctx context.Context, views []rpc.OrderView, scope brokerStateScope) {
+	if ctx == nil || !brokerScopeConcrete(scope) || !slices.ContainsFunc(views, func(v rpc.OrderView) bool { return v.Trail != nil && v.Open }) {
+		return
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, ordersOpenInventoryWait)
+	defer cancel()
+	snapshot, inventoryScope, err := s.brokerOpenOrderInventory(waitCtx, false)
+	if err != nil || !sameBrokerScope(inventoryScope, scope) {
+		return
+	}
+	for i := range views {
+		v := &views[i]
+		if v.Trail == nil || !v.Open {
+			continue
+		}
+		for _, order := range snapshot.Orders {
+			same := v.PermID != 0 && order.PermID == v.PermID ||
+				v.PermID == 0 && v.ReservedOrderID != 0 && order.OrderID == v.ReservedOrderID && order.ClientIDPresent && order.ClientID == v.ClientID
+			if same && order.ConID == v.ConID {
+				v.Trail = cloneTrailSpec(v.Trail)
+				setTrailStop(v.Trail, order, snapshot.AsOf)
+				break
+			}
+		}
+	}
 }

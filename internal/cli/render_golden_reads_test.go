@@ -182,7 +182,12 @@ func goldenOrdersOpen() rpc.OrdersOpenResult {
 		Limitations:        []string{"Orders placed in another session appear only once the broker reports them."},
 		Orders:             []rpc.OrderView{goldenWorkingOrder()},
 		Untracked: []rpc.OrderView{{PermID: 900000583, Symbol: "SYNB", Action: "SELL", OrderType: "STP", TIF: "GTC", Quantity: 19,
-			Status: "PreSubmitted", LifecycleStatus: "working", TriggerMethod: rpc.OrderTriggerMethodLast, CancelEligible: true}},
+			Status: "PreSubmitted", LifecycleStatus: "working", TriggerMethod: rpc.OrderTriggerMethodLast, CancelEligible: true},
+			// A trailing stop that has ratcheted: where it started and where
+			// the broker says it triggers now.
+			{PermID: 900000584, Symbol: "SYNC", Action: "SELL", OrderType: "TRAIL", TIF: "GTC", Quantity: 40, Status: "Submitted", LifecycleStatus: "working",
+				Trail: &rpc.OrderTrailSpec{OffsetType: rpc.OrderTrailOffsetAmount, TrailingAmount: new(18.5), InitialStopPrice: 270,
+					StopPrice: 288, StopPriceAt: goldenAt.Add(-4 * time.Minute), StopPriceSource: rpc.OrderTrailStopSourceBroker}}},
 		UntrackedStatus: rpc.OrdersUntrackedCurrent, UntrackedAsOf: goldenAt.Add(-4 * time.Minute), UntrackedControl: "on"}
 }
 

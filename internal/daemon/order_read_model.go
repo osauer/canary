@@ -71,6 +71,7 @@ func (s *Server) handleOrdersOpen(ctx context.Context, req *rpc.Request) (*rpc.O
 		}
 	}
 	sortOrderViews(out)
+	s.attachTrailStops(ctx, out, scope)
 	result := &rpc.OrdersOpenResult{
 		Orders:             out,
 		AsOf:               s.orderNow(),
@@ -206,6 +207,15 @@ func (s *Server) handleOrderStatus(ctx context.Context, req *rpc.Request) (*rpc.
 		}
 		events := append([]rpc.OrderEvent{}, eventsByKey[orderViewKey(view)]...)
 		lastLocalEventAt := latestOrderEventAt(events)
+		rows := []rpc.OrderView{view}
+		if child != nil {
+			rows = append(rows, *child)
+		}
+		s.attachTrailStops(ctx, rows, scope)
+		view = rows[0]
+		if child != nil {
+			*child = rows[1]
+		}
 		return &rpc.OrderStatusResult{
 			Found:              true,
 			Order:              view,

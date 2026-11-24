@@ -171,6 +171,10 @@ or the real exchange calendar:
   consecutive sessions, the k-th dated k days after the first, so a
   carry-over exit plan crosses simulated nights in minutes;
 - a DAY order ends only when the scenario calls `EndDay`.
+- a sell trailing stop ratchets and triggers only through `MovePrice`
+  (`AddOutsideTrail` lists one entered in TWS); the ratcheted stop is
+  reported as `trailStopPrice` in the next openOrder a client reads, and no
+  frame is pushed when only the stop moves (assumed).
 
 ## Test tiers
 

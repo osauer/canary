@@ -549,7 +549,15 @@ func formatOrderTrail(trail *rpc.OrderTrailSpec) string {
 		parts = append(parts, fmt.Sprintf("trail %.4f", *trail.TrailingAmount))
 	}
 	if trail.InitialStopPrice > 0 {
-		parts = append(parts, fmt.Sprintf("stop %.4f", trail.InitialStopPrice))
+		label := "stop"
+		if trail.StopPrice > 0 {
+			label = "initial stop"
+		}
+		parts = append(parts, fmt.Sprintf("%s %.4f", label, trail.InitialStopPrice))
+	}
+	if trail.StopPrice > 0 {
+		// Where the broker's trailing stop triggers now, as it last said.
+		parts = append(parts, fmt.Sprintf("now %.4f (broker, %s)", trail.StopPrice, trail.StopPriceAt.Local().Format("15:04")))
 	}
 	if trail.LimitOffset != nil {
 		parts = append(parts, fmt.Sprintf("limit_offset %.4f", *trail.LimitOffset))

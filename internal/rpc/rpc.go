@@ -3154,7 +3154,20 @@ type OrderTrailSpec struct {
 	TrailingAmount   *float64 `json:"trailing_amount,omitempty"`
 	InitialStopPrice float64  `json:"initial_stop_price"`
 	LimitOffset      *float64 `json:"limit_offset,omitempty"`
+	// StopPrice is where a working trailing stop triggers now: the stop price
+	// the broker last reported for it (IBKR openOrder trailStopPrice), which
+	// ratchets with the price while InitialStopPrice stays where it started.
+	// StopPriceAt is when that report was read and StopPriceSource names it
+	// (OrderTrailStopSourceBroker). Read rows only; a request never carries
+	// them, and they never enter signed terms.
+	StopPrice       float64   `json:"stop_price,omitempty"`
+	StopPriceAt     time.Time `json:"stop_price_at,omitzero"`
+	StopPriceSource string    `json:"stop_price_source,omitempty"`
 }
+
+// OrderTrailStopSourceBroker is a trailing stop's current stop as the
+// broker's last complete open-order read reported it.
+const OrderTrailStopSourceBroker = "broker_open_order"
 
 // OrderQuoteSnapshot captures the market-data inputs used by preview pricing.
 type OrderQuoteSnapshot struct {

@@ -14,6 +14,8 @@ Limitations:
 Working at the broker, not placed by Canary (inventory 2026-09-05T13:56:00+02:00):
   perm 900000583  SELL 19 SYNB STP trigger=LAST GTC
     working  PreSubmitted  origin none  tws-cancel by perm id
+  perm 900000584  SELL 40 SYNC TRAIL trail 18.5000 initial stop 270.0000 now 288.0000 (broker, 13:56) GTC
+    working  Submitted  origin none  control on
 
 # canary orders open · COLUMNS=80 · colour on, ESC written as \x1b
 
@@ -31,4 +33,6 @@ Limitations:
 Working at the broker, not placed by Canary (inventory 2026-09-05T13:56:00+02:00):
   perm 900000583  SELL 19 SYNB STP trigger=LAST GTC
     working  PreSubmitted  origin none  tws-cancel by perm id
+  perm 900000584  SELL 40 SYNC TRAIL trail 18.5000 initial stop 270.0000 now 288.0000 (broker, 13:56) GTC
+    working  Submitted  origin none  control on
 

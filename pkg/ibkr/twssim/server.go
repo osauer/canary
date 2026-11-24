@@ -777,6 +777,10 @@ func openOrderFrame(o Order, in Instrument, account string, w *whatIf) []byte {
 	if o.AuxPrice != 0 {
 		order = order.double(10, o.AuxPrice)
 	}
+	if o.OrderType == "TRAIL" && o.TrailStopPrice != 0 {
+		// The stop where the trail stands now (MovePrice ratchets it).
+		order = order.double(23, o.TrailStopPrice)
+	}
 	order = order.str(11, o.TIF).str(12, account).boolean(19, o.OutsideRTH).str(27, o.OcaGroup).str(28, o.OrderRef).str(61, o.AlgoStrategy)
 	for _, k := range slices.Sorted(maps.Keys(o.AlgoParams)) {
 		var entry protoWriter

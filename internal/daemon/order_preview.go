@@ -1308,6 +1308,9 @@ func previewTrailSpec(action, orderType string, raw *rpc.OrderTrailSpec, contrac
 		return nil, errBadRequest("TRAIL order preview requires trail fields")
 	}
 	out := cloneTrailSpec(raw)
+	// The current stop is the broker's to report on a read row; a request
+	// that echoes one back sends only its own terms.
+	out.StopPrice, out.StopPriceAt, out.StopPriceSource = 0, time.Time{}, ""
 	out.Basis = strings.ToLower(strings.TrimSpace(out.Basis))
 	if out.Basis == "" {
 		out.Basis = rpc.OrderTrailBasisInstrumentPrice
