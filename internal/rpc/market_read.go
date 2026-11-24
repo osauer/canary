@@ -226,6 +226,9 @@ type MarketReadLeaders struct {
 	Rows         []MarketReadLeader `json:"rows"`
 	GappedUp     int                `json:"gapped_up"`
 	HoldingGapUp int                `json:"holding_gap_up"`
+	// BelowPriorLow counts the companies with a state under their prior
+	// session's low, whatever their gap.
+	BelowPriorLow int `json:"below_prior_low"`
 }
 
 // MarketReadTag names one condition that holds. Since is when it began to

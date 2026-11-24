@@ -419,6 +419,7 @@ func assembleMarketRead(now time.Time, sessions []marketcal.Session, src marketR
 		leaders.Rows = append(leaders.Rows, row)
 	}
 	leaders.GappedUp, leaders.HoldingGapUp = marketReadLeaderCounts(leaders.Rows)
+	_, leaders.BelowPriorLow = marketReadLeaderBelowPriorLow(leaders.Rows)
 	out.Leaders = leaders
 	in.Leaders = leaders.Rows
 

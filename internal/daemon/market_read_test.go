@@ -575,3 +575,67 @@ func TestMarketReadVIXSideNeedsTheBandToCrossBack(t *testing.T) {
 		t.Errorf("first hold above the line: %q", got)
 	}
 }
+
+// Holding below the prior low on heavy volume is a breakdown; without the
+// volume, or without a baseline, it stays bounce_failed.
+func TestMarketReadBreakdownNeedsVolume(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		sessions int
+		today    int64
+		code     string
+	}{
+		{"heavy volume", 3, 130, "breakdown_on_volume"},
+		{"usual volume", 3, 100, "bounce_failed"},
+		{"no baseline", 2, 130, "bounce_failed"},
+	} {
+		m := newReadMarket(t)
+		now := m.at(3)
+		m.index(now, 89, 88, 87)
+		m.volume(now, tc.sessions, 100, tc.today, tc.today, tc.today)
+		tag := tagOf(m.read(now), "index")
+		if tag == nil || tag.Code != tc.code || tag.Tone != "negative" {
+			t.Errorf("%s: %+v, want %s", tc.name, tag, tc.code)
+		}
+	}
+	// A gap down that only holds still reads gap_down_holds, heavy volume or not.
+	m := newReadMarket(t)
+	now := m.at(3)
+	m.index(now, 85.1, 85.2, 84.9)
+	m.src.SPXIntraday.Points[0].Open, m.src.SPXIntraday.Points[0].High, m.src.SPXIntraday.Points[0].Low = new(85.0), new(86.0), new(84.0)
+	m.volume(now, 3, 100, 130, 130, 130)
+	if got := codeOf(m.read(now), "index"); got != "gap_down_holds" {
+		t.Errorf("gap down that holds, on volume: %q", got)
+	}
+}
+
+// Most leaders under their prior low is a breakdown among them, ahead of
+// leaders_fading.
+func TestMarketReadLeadersBreakingDown(t *testing.T) {
+	m := newReadMarket(t)
+	now := m.at(3)
+	open := new(102.0)
+	m.leader("AAA", open, new(97.0)) // gapped up, now below its prior low
+	m.leader("BBB", open, new(97.5))
+	m.leader("CCC", open, new(101.8))
+	m.leader("DDD", new(99.0), new(97.0))
+	m.leader("EEE", new(99.5), new(96.0))
+	r := m.read(now)
+	if r.Leaders.BelowPriorLow != 4 {
+		t.Errorf("below prior low count %d, want 4", r.Leaders.BelowPriorLow)
+	}
+	if tag := tagOf(r, "leaders"); tag == nil || tag.Code != "leaders_breaking_down" || tag.Tone != "negative" || tag.Evidence["below_prior_low"] != 4 {
+		t.Errorf("four of five below their prior low: %+v", tag)
+	}
+	// Two of five below is not a breakdown; with one of three gap-ups holding
+	// it is fading.
+	m = newReadMarket(t)
+	m.leader("AAA", open, new(97.0))
+	m.leader("BBB", open, new(99.9))
+	m.leader("CCC", open, new(101.8))
+	m.leader("DDD", new(99.0), new(97.0))
+	m.leader("EEE", new(99.5), new(99.4))
+	if got := codeOf(m.read(now), "leaders"); got != "leaders_fading" {
+		t.Errorf("two of five below: %q, want leaders_fading", got)
+	}
+}

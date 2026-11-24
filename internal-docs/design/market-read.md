@@ -89,7 +89,8 @@ returned in `thresholds` with `heuristic: true`.
 | index | `continuation` | positive | holds above the prior high and relative volume ≥ 1.2 |
 | index | `breakout_thin_volume` | caution | holds above the prior high and relative volume < 0.8 |
 | index | `above_prior_high` | neutral | holds above the prior high, volume between or unavailable |
-| index | `bounce_failed` | negative | holds below the prior low |
+| index | `breakdown_on_volume` | negative | holds below the prior low and relative volume ≥ 1.2 |
+| index | `bounce_failed` | negative | holds below the prior low, volume under 1.2 or unavailable |
 | index | `inside_prior_range` | neutral | otherwise |
 | volume | `rally_fading` | caution | SPX above its close 30 minutes ago, the last 30 minutes of SPY volume < 0.7 × their baseline, and relative volume < 1.0 |
 | volume | `selling_on_volume` | negative | SPX below its close 30 minutes ago and the last 30 minutes of SPY volume ≥ 1.3 × their baseline |
@@ -97,6 +98,7 @@ returned in `thresholds` with `heuristic: true`.
 | vix | `stress_easing` | neutral | holds above 25 and down ≥ 5% on the day |
 | vix | `stress_elevated` | caution | holds above 25 otherwise |
 | vix | `fear_easing` | positive | holds below 25, down on the day, and either the prior close was at or above 25 or the fall is at least 5%; a calm day drifting lower is not it |
+| leaders | `leaders_breaking_down` | negative | at least 3 leaders have a state and ≥ 70% of them are under their prior low, whatever their gaps; ahead of the two below |
 | leaders | `leaders_hold` | positive | at least 3 leaders gapped up and ≥ 70% of them hold |
 | leaders | `leaders_fading` | negative | at least 3 gapped up and ≤ 40% hold |
 
@@ -115,7 +117,8 @@ and close; a later print is never used), unavailable until that bar is
 recorded. Before the open there are none: the opening tick still names the
 previous session. `gapped_up`
 counts the companies with a state whose gap is up by at least the minimum,
-whatever their state; `holding_gap_up` those that hold it.
+whatever their state; `holding_gap_up` those that hold it; `below_prior_low`
+the companies with a state under their prior session's low.
 
 VIX holds a side of its line on two closes beyond it; once a side holds,
 crossing back needs two closes beyond the line by 0.5 (`vix_band`).
@@ -148,6 +151,11 @@ only, from daily bars. What it showed, and what changed:
   volume. The chart cache had kept only 11-20 of SPY's five-minute history,
   having dropped and rewritten the series. Hence keeping the padded days of
   each 1D read.
+
+A later round added `breakdown_on_volume` and `leaders_breaking_down`: the
+replay of 11-20, a heavy selloff on about twice the usual volume with every
+leader closing under its prior low, read only `bounce_failed` and no leader
+tag, because the leader tags looked only at gap-ups.
 
 ## Missing values
 

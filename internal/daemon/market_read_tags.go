@@ -236,6 +236,21 @@ func marketReadLeaderState(row *rpc.MarketReadLeader) {
 	}
 }
 
+// marketReadLeaderBelowPriorLow counts the companies with a state and those
+// of them under their prior session's low.
+func marketReadLeaderBelowPriorLow(rows []rpc.MarketReadLeader) (stated, below int) {
+	for _, row := range rows {
+		if row.State == "" {
+			continue
+		}
+		stated++
+		if row.State == rpc.LeaderBelowPriorLow {
+			below++
+		}
+	}
+	return stated, below
+}
+
 // marketReadLeaderCounts counts the companies that gapped up by the minimum
 // and have a state, whatever it is, and those of them holding the gap.
 func marketReadLeaderCounts(rows []rpc.MarketReadLeader) (gappedUp, holding int) {
@@ -405,6 +420,9 @@ func marketReadIndexTagAt(in marketReadTagInputs, k int) *marketReadTagAt {
 			return &marketReadTagAt{"above_prior_high", "neutral", evidence}
 		}
 	case marketReadHolds(closes, k, func(c float64) bool { return c < in.Prior.Low }):
+		if relative != nil && *relative >= marketReadContinuationRelVol {
+			return &marketReadTagAt{"breakdown_on_volume", "negative", evidence}
+		}
 		return &marketReadTagAt{"bounce_failed", "negative", evidence}
 	default:
 		return &marketReadTagAt{"inside_prior_range", "neutral", evidence}
@@ -514,12 +532,20 @@ func marketReadVIXSide(closes func(int) float64, k int) int {
 // marketReadLeadersTag reads the current leader states. They come from
 // current quotes, which keep no history, so the tag has no since.
 func marketReadLeadersTag(rows []rpc.MarketReadLeader) *rpc.MarketReadTag {
+	const since = "leader states are read from current quotes, which keep no history"
+	stated, below := marketReadLeaderBelowPriorLow(rows)
+	// Most leaders under their prior low is a breakdown among them, whatever
+	// their gaps; it comes before fading.
+	if stated >= marketReadLeadersMinGapped && float64(below) >= marketReadLeadersHoldShare*float64(stated) {
+		return &rpc.MarketReadTag{Code: "leaders_breaking_down", Scope: "leaders", Tone: "negative", SinceUnavailable: since,
+			Evidence: map[string]float64{"with_state": float64(stated), "below_prior_low": float64(below), "below_share": float64(below) / float64(stated)}}
+	}
 	gapped, holding := marketReadLeaderCounts(rows)
 	if gapped < marketReadLeadersMinGapped {
 		return nil
 	}
 	share := float64(holding) / float64(gapped)
-	tag := &rpc.MarketReadTag{Scope: "leaders", SinceUnavailable: "leader states are read from current quotes, which keep no history", Evidence: map[string]float64{"gapped_up": float64(gapped), "holding_gap_up": float64(holding), "holding_share": share}}
+	tag := &rpc.MarketReadTag{Scope: "leaders", SinceUnavailable: since, Evidence: map[string]float64{"gapped_up": float64(gapped), "holding_gap_up": float64(holding), "holding_share": share}}
 	switch {
 	case share >= marketReadLeadersHoldShare:
 		tag.Code, tag.Tone = "leaders_hold", "positive"
