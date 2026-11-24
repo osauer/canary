@@ -52,20 +52,26 @@ func TestHYGRowStatesItsAverageAndSinceWhen(t *testing.T) {
 	if run := r.HYG50DMARun; run == nil || run.Side != "below" || run.Since != first || run.Sessions != 12 || run.Through != last {
 		t.Fatalf("run %+v, want below since %s for 12 sessions through %s", run, first, last)
 	}
-	reading := rpc.HYGSPYReading(r)
+	reading, context := rpc.HYGSPYReading(r), rpc.HYGSPYContext(r)
 	for _, want := range []string{
-		"HYG 39.00 at the " + readingDayOf(t, last) + " close",
-		"below its 50-day average 39.76",
-		"closing below it since " + readingDayOf(t, first) + " (12 sessions)",
-		"SPY 530.00",
-		"5.4% below its 52-week high",
+		"HYG 39.00 at close",
+		"below 50-day avg 39.76 since " + readingDayOf(t, first),
 	} {
 		if !strings.Contains(reading, want) {
 			t.Errorf("reading %q lacks %q", reading, want)
 		}
 	}
-	if strings.Contains(reading, "held") {
-		t.Errorf("a row never held red speaks of a hold: %q", reading)
+	for _, want := range []string{
+		"50-day average of the closes to " + readingDayOf(t, last) + ", below it at 12 closes running",
+		"SPY 530.00",
+		"5.4% below its 52-week high",
+	} {
+		if !strings.Contains(context, want) {
+			t.Errorf("context %q lacks %q", context, want)
+		}
+	}
+	if strings.Contains(reading+context, "held") {
+		t.Errorf("a row never held red speaks of a hold: %q / %q", reading, context)
 	}
 
 	// The cross is said only when the bars reach back to it.
@@ -84,7 +90,7 @@ func TestHYGReadingDropsTheSinceDateWhenTheLivePriceCrossed(t *testing.T) {
 		HYG50DMARun: &rpc.RegimeAverageRun{Side: "below", Since: "2026-03-02", Sessions: 9, Through: "2026-03-12"},
 	}
 	got := rpc.HYGSPYReading(r)
-	if !strings.Contains(got, "1.2% above its 50-day average 40.00") || strings.Contains(got, "since") {
+	if !strings.Contains(got, "1.2% above 50-day avg 40.00") || strings.Contains(got, "since") {
 		t.Errorf("reading %q", got)
 	}
 }
@@ -116,7 +122,7 @@ func TestHYGHeldRedIsSaidOnlyWhileTheExitRuleHoldsIt(t *testing.T) {
 		red.HYGSPYDivergence.Eligibility == nil || !red.HYGSPYDivergence.Eligibility.Latched {
 		t.Fatalf("a red on its own terms: band %q, held %v, eligibility %+v", red.HYGSPYDivergence.Band, red.HYGSPYDivergence.RedHeld, red.HYGSPYDivergence.Eligibility)
 	}
-	if got := rpc.HYGSPYReading(red.HYGSPYDivergence); strings.Contains(got, "held") {
+	if got := rpc.HYGSPYReading(red.HYGSPYDivergence) + red.HYGSPYDivergence.BandReason; strings.Contains(got, "held") {
 		t.Errorf("a latched red the red condition still holds speaks of a hold: %q", got)
 	}
 
@@ -126,10 +132,17 @@ func TestHYGHeldRedIsSaidOnlyWhileTheExitRuleHoldsIt(t *testing.T) {
 		t.Fatalf("held red: band %q, held %v, streak %+v", h.Band, h.RedHeld, h.Streak)
 	}
 	got := rpc.HYGSPYReading(h)
-	if !strings.Contains(got, "red since 2 Mar") || !strings.Contains(got, "held until HYG is back at or above its average") {
+	full := h // with every clause the reading can carry
+	full.HYGRange52W = &rpc.RegimeRange52W{Low: 39.45, High: 43.12, Pos: 1}
+	full.HYG50DMARun = &rpc.RegimeAverageRun{Side: "below", Since: "2026-01-27", Sessions: 25, Through: "2026-03-04"}
+	if long := rpc.HYGSPYReading(full); len([]rune(long)) > 140 {
+		t.Errorf("a held row's reading runs %d characters, over one cell: %q", len([]rune(long)), long)
+	}
+	if !strings.Contains(got, "red held since 2 Mar until HYG regains the avg") {
 		t.Errorf("held reading %q", got)
 	}
-	if !strings.Contains(h.BandReason, "SPY no longer near highs") || strings.Contains(h.BandReason, "hysteresis") {
+	if !strings.Contains(h.BandReason, "SPY no longer near highs") || strings.Contains(h.BandReason, "hysteresis") ||
+		!strings.Contains(h.BandReason, "red since 2 Mar, when HYG fell below its average with shares within 3% of their high; held until HYG is back at or above its average") {
 		t.Errorf("held band reason %q", h.BandReason)
 	}
 	unworded := *held
@@ -142,7 +155,7 @@ func TestHYGHeldRedIsSaidOnlyWhileTheExitRuleHoldsIt(t *testing.T) {
 	}
 
 	released := evaluate(day(6), 40, 90) // back at its average
-	if r := released.HYGSPYDivergence; r.Band == "red" || r.RedHeld || strings.Contains(rpc.HYGSPYReading(r), "held") {
+	if r := released.HYGSPYDivergence; r.Band == "red" || r.RedHeld || strings.Contains(rpc.HYGSPYReading(r)+r.BandReason, "held") {
 		t.Errorf("released: band %q, held %v, reading %q", r.Band, r.RedHeld, rpc.HYGSPYReading(r))
 	}
 }

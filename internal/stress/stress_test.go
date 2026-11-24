@@ -460,7 +460,7 @@ func TestHYGSPYIndicatorShowsGapAndProvisionalConfirmation(t *testing.T) {
 	if got.Status != "amber" {
 		t.Fatalf("status = %q, want amber while the proxy red counts for nothing", got.Status)
 	}
-	if !strings.Contains(got.Reading, "0.24% below its 50-day average 79.70") {
+	if !strings.Contains(got.Reading, "0.24% below 50-day avg 79.70") {
 		t.Fatalf("reading = %q, want measured gap and average", got.Reading)
 	}
 	if !strings.Contains(got.Comment, "counts beside a stress witness from 0.25% below the 50-day average") {

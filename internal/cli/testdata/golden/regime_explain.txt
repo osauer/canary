@@ -20,11 +20,9 @@ Indicators
     Observed · 2026-09-04 · Cboe
     Thresholds · green: 5d change below 5% · yellow: 5d change 5% to 15% ·
       red: 5d change above 15%
-  GREEN  HYG/SPY         HYG 80.00, 1.3% above its 50-day average 79.00; SPY
-                         500.00 (+0.50% on the day)
+  GREEN  HYG/SPY         HYG 80.00 · 1.3% above 50-day avg 79.00
          HYG above its 50-day average
-    Full reading · HYG 80.00, 1.3% above its 50-day average 79.00; SPY 500.00
-      (+0.50% on the day)
+    Full reading · HYG 80.00 · 1.3% above 50-day avg 79.00
     Thresholds · green: HYG above 50-day average · yellow: HYG below average,
       SPY near high · red: HYG below average, SPY falling
   GREEN  Credit spreads  HY 3.00% · +0.10 pp / 20d
@@ -74,11 +72,9 @@ Clusters · 1 red, 1 amber, 5 green of 8 clusters
     Observed · 2026-09-04 · Cboe
     Thresholds · green: 5d change below 5% · yellow: 5d change 5% to 15% ·
       red: 5d change above 15%
-  \x1b[32mGREEN\x1b[0m  HYG/SPY         HYG 80.00, 1.3% above its 50-day average 79.00; SPY
-                         500.00 (+0.50% on the day)
+  \x1b[32mGREEN\x1b[0m  HYG/SPY         HYG 80.00 · 1.3% above 50-day avg 79.00
          \x1b[2mHYG above its 50-day average\x1b[0m
-    Full reading · HYG 80.00, 1.3% above its 50-day average 79.00; SPY 500.00
-      (+0.50% on the day)
+    Full reading · HYG 80.00 · 1.3% above 50-day avg 79.00
     Thresholds · green: HYG above 50-day average · yellow: HYG below average,
       SPY near high · red: HYG below average, SPY falling
   \x1b[32mGREEN\x1b[0m  Credit spreads  HY 3.00% · +0.10 pp / 20d

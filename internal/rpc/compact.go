@@ -605,54 +605,70 @@ func range52WReading(r *RegimeRange52W) string {
 	return fmt.Sprintf("52w %.2f-%.2f (pos %.0f%%)", r.Low, r.High, r.Pos)
 }
 
-// HYGSPYReading is the credit-proxy row in a trader's words, on one line:
-// HYG against its 50-day average (the mean of the last 50 daily closes, to
-// the session named) and since when it has closed on that side, HYG against
-// its 52-week low, SPY against its 52-week high and, while the exit rule
-// holds the row red, when the red began and what ends it. Every surface
-// that prints the row reads it from here. Display only: nothing bands on it.
+// HYGSPYReading is the credit-proxy row's short reading, the one cell a
+// dashboard shows: HYG against its 50-day average and since which close it
+// has been on that side, HYG against its 52-week range and, while the exit
+// rule holds the row red, since when and until what. HYGSPYContext is the
+// rest. Every surface that prints the row reads both from here. Display
+// only: nothing bands on them.
 func HYGSPYReading(r RegimeHYGSPYDivergence) string {
-	var hyg, low, spy, held string
+	var hyg, low, held string
 	if r.HYGPrice != nil {
 		price := *r.HYGPrice
 		hyg = fmt.Sprintf("HYG %.2f", price)
-		if r.HYGDataType == "close" && r.HYGQuality != nil && !r.HYGQuality.AsOf.IsZero() {
-			hyg += " at the " + readingDay(r.HYGQuality.AsOf.UTC().Format("2006-01-02")) + " close"
+		if r.HYGDataType == "close" {
+			hyg += " at close"
 		}
 		if r.HYG50DMA != nil && *r.HYG50DMA > 0 {
 			avg := *r.HYG50DMA
 			pct := (price - avg) / avg * 100
-			side := "above"
-			if price < avg {
-				side = "below"
-			}
+			side := hygSide(price, avg)
 			if math.Abs(pct) < 0.005 {
-				hyg += fmt.Sprintf(", at its 50-day average %.2f", avg)
+				hyg += fmt.Sprintf(" · at 50-day avg %.2f", avg)
 			} else {
-				hyg += fmt.Sprintf(", %s %s its 50-day average %.2f", readingPct(math.Abs(pct)), side, avg)
-			}
-			// The average's clock, unless the price is that same close.
-			if q := r.HYG50DMAQuality; q != nil && !q.AsOf.IsZero() &&
-				(r.HYGDataType != "close" || r.HYGQuality == nil || !sameUTCDay(q.AsOf, r.HYGQuality.AsOf)) {
-				hyg += " (closes to " + readingDay(q.AsOf.UTC().Format("2006-01-02")) + ")"
+				hyg += fmt.Sprintf(" · %s %s 50-day avg %.2f", readingPct(math.Abs(pct)), side, avg)
 			}
 			if run := r.HYG50DMARun; run != nil && run.Side == side && run.Since != "" {
-				hyg += fmt.Sprintf(", closing %s it since %s (%d %s)", side, readingDay(run.Since), run.Sessions, plural(run.Sessions, "session", "sessions"))
+				hyg += " since " + readingDay(run.Since)
 			}
 		}
-		switch rg := r.HYGRange52W; {
-		case r.HYGAt52WLow:
-			low = "at its 52-week low"
-		case rg != nil && rg.Low > 0:
+		if rg := r.HYGRange52W; rg != nil && rg.Low > 0 {
+			span := fmt.Sprintf(" (%.2f–%.2f)", rg.Low, rg.High)
 			cents := math.Round(price*100) - math.Round(rg.Low*100)
 			switch {
+			case r.HYGAt52WLow:
+				low = "at 52w low" + span
 			case cents < 1:
-				low = "within a cent of its 52-week low"
+				low = "within a cent of 52w low" + span
 			case cents < 100:
-				low = fmt.Sprintf("%.0f %s above its 52-week low", cents, plural(int(cents), "cent", "cents"))
+				low = fmt.Sprintf("%.0f %s above 52w low", cents, plural(int(cents), "cent", "cents")) + span
 			default:
-				low = readingPct((price-rg.Low)/rg.Low*100) + " above its 52-week low"
+				low = readingPct((price-rg.Low)/rg.Low*100) + " above 52w low" + span
 			}
+		} else if r.HYGAt52WLow {
+			low = "at 52w low"
+		}
+	}
+	if r.RedHeld {
+		held = "red held until HYG regains the avg"
+		if since := hygRedSince(r); since != "" {
+			held = "red held since " + readingDay(since) + " until HYG regains the avg"
+		}
+	}
+	return strings.Join(slices.DeleteFunc([]string{hyg, low, held}, func(s string) bool { return s == "" }), " · ")
+}
+
+// HYGSPYContext is what the short reading leaves out: the average's clock
+// and run length, SPY against its 52-week high, and, while the exit rule
+// holds the row red, why the red began and what ends it.
+func HYGSPYContext(r RegimeHYGSPYDivergence) string {
+	var avg, spy, held string
+	if r.HYG50DMA != nil && *r.HYG50DMA > 0 {
+		if q := r.HYG50DMAQuality; q != nil && !q.AsOf.IsZero() {
+			avg = "50-day average of the closes to " + readingDay(q.AsOf.UTC().Format("2006-01-02"))
+		}
+		if run := r.HYG50DMARun; run != nil && run.Sessions > 0 && avg != "" {
+			avg += fmt.Sprintf(", %s it at %d %s running", run.Side, run.Sessions, plural(run.Sessions, "close", "closes"))
 		}
 	}
 	if r.SPYPrice != nil {
@@ -670,11 +686,25 @@ func HYGSPYReading(r RegimeHYGSPYDivergence) string {
 	}
 	if r.RedHeld {
 		held = "red held until HYG is back at or above its average"
-		if r.Streak != nil && r.Streak.Band == "red" && r.Streak.Since != "" {
-			held = "red since " + readingDay(r.Streak.Since) + ", when HYG fell below its average with SPY within 3% of its high; held until HYG is back at or above its average"
+		if since := hygRedSince(r); since != "" {
+			held = "red since " + readingDay(since) + ", when HYG fell below its average with shares within 3% of their high; held until HYG is back at or above its average"
 		}
 	}
-	return readingJoin(hyg, low, spy, held)
+	return readingJoin(avg, spy, held)
+}
+
+func hygSide(price, avg float64) string {
+	if price < avg {
+		return "below"
+	}
+	return "above"
+}
+
+func hygRedSince(r RegimeHYGSPYDivergence) string {
+	if r.Streak != nil && r.Streak.Band == "red" {
+		return r.Streak.Since
+	}
+	return ""
 }
 
 // readingPct is a distance in percent: two decimals under 1%, one above.
@@ -683,10 +713,6 @@ func readingPct(pct float64) string {
 		return fmt.Sprintf("%.2f%%", pct)
 	}
 	return fmt.Sprintf("%.1f%%", pct)
-}
-
-func sameUTCDay(a, b time.Time) bool {
-	return a.UTC().Format("2006-01-02") == b.UTC().Format("2006-01-02")
 }
 
 // readingDay writes a session date as "4 Sep".
