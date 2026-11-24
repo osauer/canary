@@ -268,22 +268,12 @@ func rowHYGSPY(now time.Time, r rpc.RegimeHYGSPYDivergence) Row {
 		row.Reason = shortUnavailableReason(r.ErrorMessage, "HYG not in this read")
 		return row
 	}
-	// State the size of the break as well as the two prices. Two rounded
-	// prices can look identical even when the unrounded comparison crossed.
-	row.Value = fmt.Sprintf("HYG %.2f · 50d unavailable", *r.HYGPrice)
-	if r.HYG50DMA != nil && *r.HYG50DMA > 0 {
-		gap := (*r.HYGPrice - *r.HYG50DMA) / *r.HYG50DMA * 100
-		relation := "above"
-		if gap < 0 {
-			relation = "below"
-			gap = -gap
-		}
-		row.Value = fmt.Sprintf("HYG %.2f · %.2f%% %s 50d %.2f", *r.HYGPrice, gap, relation, *r.HYG50DMA)
-	}
-	if r.HYGAt52WLow {
-		row.Value += " · at its 52w low"
-	} else {
-		row.Value += range52WMarker(r.HYGRange52W)
+	// The shared sentence states the size of the break as well as the two
+	// prices: two rounded prices can look identical even when the unrounded
+	// comparison crossed.
+	row.Value = rpc.HYGSPYReading(r)
+	if r.HYG50DMA == nil || *r.HYG50DMA <= 0 {
+		row.Value = fmt.Sprintf("HYG %.2f · 50d unavailable", *r.HYGPrice) + range52WMarker(r.HYGRange52W)
 	}
 	row.Quality = qualityTag(now, r.HYGQuality, r.HYG50DMAQuality, r.SPYQuality, r.SPY52WHighQuality)
 	// Banding. HYG below 50dma while SPY is near highs is the credit-

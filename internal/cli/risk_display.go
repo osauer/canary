@@ -75,7 +75,7 @@ func regimeDisplayValues(r rpc.RegimeSnapshotResult) map[string]regimeDisplayVal
 	return map[string]regimeDisplayValue{
 		"VIX/VIX3M":      {value(r.VIXTermStructure.Ratio, "%.2f") + "  30-day / 3-month volatility", r.VIXTermStructure.BandReason},
 		"VVIX":           {value(r.VolOfVol.Last, "%.1f") + "  volatility of VIX · " + value(r.VolOfVol.Change5D, "%+.1f%% / 5 sessions"), r.VolOfVol.BandReason},
-		"HYG/SPY":        {"HYG " + value(r.HYGSPYDivergence.HYGPrice, "%.2f") + " · 50-day avg " + value(r.HYGSPYDivergence.HYG50DMA, "%.2f"), r.HYGSPYDivergence.BandReason},
+		"HYG/SPY":        {nonEmpty(rpc.HYGSPYReading(r.HYGSPYDivergence), "unavailable"), r.HYGSPYDivergence.BandReason},
 		"Credit spreads": {"HY " + value(r.CreditSpreads.HYOAS, "%.2f%%") + " · " + value(r.CreditSpreads.HY20DChange, "%+.2f pp / 20d"), r.CreditSpreads.BandReason},
 		"Funding":        {value(r.FundingStress.SpreadBps, "%.0f bp") + "  CP minus T-bills · " + value(r.FundingStress.Change5Bps, "%+.0f bp / 5 obs"), r.FundingStress.BandReason},
 		"USD/JPY":        {value(r.USDJPY.Last, "%.2f") + " · " + value(r.USDJPY.WeeklyChange, "%+.2f%% / week"), r.USDJPY.BandReason},

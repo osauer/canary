@@ -1385,9 +1385,23 @@ type RegimeHYGSPYDivergence struct {
 	HYGDataType    string          `json:"hyg_data_type,omitempty"`
 	HYGRange52W    *RegimeRange52W `json:"hyg_range_52w,omitempty"`
 	HYGAt52WLow    bool            `json:"hyg_at_52w_low,omitempty"` // HYGRange52W.Pos is 0; display context, never banded
-	Notes          string          `json:"notes,omitempty"`
-	ErrorMessage   string          `json:"error_message,omitempty"`
-	FieldsMissing  []string        `json:"fields_missing,omitempty"`
+	// HYGVs50DMAPct is the banding price's distance from HYG50DMA in
+	// percent, (price − average) / average × 100, negative below. The price
+	// is the live tick in regular hours and the latest close outside them.
+	// Display context, never banded.
+	HYGVs50DMAPct *float64 `json:"hyg_vs_50dma_pct,omitempty"`
+	// HYG50DMARun is how long HYG has closed on one side of its 50-day
+	// average, on the same daily closes the average is taken from. Display
+	// context, never banded.
+	HYG50DMARun *RegimeAverageRun `json:"hyg_50dma_run,omitempty"`
+	// RedHeld is set while the row is red only by its exit rule: the red
+	// condition (SPY within 3% of its 52-week high) no longer holds, and
+	// the band stays red until HYG is back at or above its 50-day average.
+	// Streak.Since is the session the red began.
+	RedHeld       bool     `json:"red_held,omitempty"`
+	Notes         string   `json:"notes,omitempty"`
+	ErrorMessage  string   `json:"error_message,omitempty"`
+	FieldsMissing []string `json:"fields_missing,omitempty"`
 	// Per-scalar provenance. SPY52WHigh has two paths (live tick 165 vs
 	HYGQuality        *Quality `json:"hyg_quality,omitempty"`
 	HYG50DMAQuality   *Quality `json:"hyg_50dma_quality,omitempty"`
@@ -1405,6 +1419,21 @@ type RegimeRange52W struct {
 	Low  float64 `json:"low"`
 	High float64 `json:"high"`
 	Pos  float64 `json:"pos"`
+}
+
+// RegimeAverageRun is the current run of daily closes on one side of their
+// moving average, each close compared with the average that includes it.
+type RegimeAverageRun struct {
+	// Side is "above" (the close at or above its average) or "below".
+	Side string `json:"side"`
+	// Since is the session of the run's first close: the close that last
+	// crossed the average.
+	Since string `json:"since"`
+	// Sessions counts the run's closes, Since and Through included.
+	Sessions int `json:"sessions"`
+	// Through is the session of the latest close read, the last close in
+	// the average.
+	Through string `json:"through"`
 }
 
 // RegimeVolOfVol is the VVIX vol-of-vol row. It uses Cboe's official

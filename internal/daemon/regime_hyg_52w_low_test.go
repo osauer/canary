@@ -36,14 +36,14 @@ func TestHYGAtItsYearLowIsSaidWithoutChangingTheBand(t *testing.T) {
 	if low.HYGRange52W == nil || low.HYGRange52W.Pos != 0 || !low.HYGAt52WLow {
 		t.Fatalf("HYG at the year's lowest close: range %+v, at low %v", low.HYGRange52W, low.HYGAt52WLow)
 	}
-	if row := regimerows.HYGSPY(now, low); !strings.Contains(row.Value, "52w low") {
+	if row := regimerows.HYGSPY(now, low); !strings.Contains(row.Value, "at its 52-week low") {
 		t.Errorf("credit row does not say HYG is at its 52-week low: %q", row.Value)
 	}
 	above := read(79)
 	if above.HYGAt52WLow || above.HYGRange52W == nil || above.HYGRange52W.Pos == 0 {
 		t.Fatalf("HYG above its low read as at the low: %+v", above.HYGRange52W)
 	}
-	if row := regimerows.HYGSPY(now, above); strings.Contains(row.Value, "52w low") {
+	if row := regimerows.HYGSPY(now, above); strings.Contains(row.Value, "at its 52-week low") {
 		t.Errorf("credit row claims a 52-week low: %q", row.Value)
 	}
 	unflagged := low
@@ -61,7 +61,7 @@ func TestHYGAtItsYearLowIsSaidWithoutChangingTheBand(t *testing.T) {
 		t.Fatal("no HYG/SPY monitor row")
 		return ""
 	}
-	if !strings.Contains(monitor(low), "52-week low") || strings.Contains(monitor(above), "52-week low") {
+	if !strings.Contains(monitor(low), "at its 52-week low") || strings.Contains(monitor(above), "at its 52-week low") {
 		t.Errorf("monitor reading: at low %q, above %q", monitor(low), monitor(above))
 	}
 }

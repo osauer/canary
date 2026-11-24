@@ -158,6 +158,9 @@ type regimeRowPolicy struct {
 	// for awareness only — it never confirms.
 	heldAt time.Time
 	held   bool
+	// exitHeld is set when the band is red only because the red-exit
+	// hysteresis holds it: the fresh classification left red.
+	exitHeld bool
 }
 
 func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks *StreakStore) map[string]regimeRowPolicy {
@@ -280,7 +283,7 @@ func (s *Server) populateStreaksWithStore(res *rpc.RegimeSnapshotResult, streaks
 			// outage as a calmer market.
 			elig = &rpc.RegimeEligibility{Latched: true, Reasons: []string{rpc.RegimeEligibilityInputUnavailable}}
 		}
-		policies[key] = regimeRowPolicy{band: display, eligibility: elig, freshness: freshness, heldAt: heldAt, held: bandHeld}
+		policies[key] = regimeRowPolicy{band: display, eligibility: elig, freshness: freshness, heldAt: heldAt, held: bandHeld, exitHeld: held}
 	}
 	return policies
 }
@@ -983,7 +986,7 @@ func fetchRegimeVolOfVol(ctx context.Context, deps *regimeDeps) rpc.RegimeVolOfV
 	return out
 }
 
-var hygSpyNotes = "HYG (high-yield corporate bond ETF) vs SPY context. Spec thresholds: green when HYG is above its 50-day SMA; yellow when HYG breaks below its 50-day SMA; red when HYG is below its 50-day SMA while SPY remains within 3% of its 52-week high. Use the row's streak.sessions to distinguish an early one-session divergence from a sustained 5+ session credit downtrend. Observation window 2-4 weeks; single-day moves are noise. Confirmation gate: a red is eligible only when HYG is at least 0.25% below the 50DMA for 2 sessions (or 1.0% below day one); outside regular hours the banding input is the latest official close, never a thin pre/post-market print. When the live HYG spot is unavailable, the latest official close serves as the banding input and the row is marked stale. On official non-trading dates the SPY day-change fields are pinned to the official daily closes of the last two completed sessions (spy_change_basis names them), so a closed-date header shows the last completed session's true change, never a drifted weekend anchor." + regimeRoleNote(rpc.RegimeIndicatorHYGSPY)
+var hygSpyNotes = "HYG (high-yield corporate bond ETF) vs SPY context. Spec thresholds: green when HYG is above its 50-day SMA; yellow when HYG breaks below its 50-day SMA; red when HYG is below its 50-day SMA while SPY remains within 3% of its 52-week high. Use the row's streak.sessions to distinguish an early one-session divergence from a sustained 5+ session credit downtrend. Observation window 2-4 weeks; single-day moves are noise. Confirmation gate: a red is eligible only when HYG is at least 0.25% below the 50DMA for 2 sessions (or 1.0% below day one); outside regular hours the banding input is the latest official close, never a thin pre/post-market print. When the live HYG spot is unavailable, the latest official close serves as the banding input and the row is marked stale. On official non-trading dates the SPY day-change fields are pinned to the official daily closes of the last two completed sessions (spy_change_basis names them), so a closed-date header shows the last completed session's true change, never a drifted weekend anchor. Exit rule: once red, the row stays red until HYG is back at or above its 50-day average, even after SPY falls more than 3% from its high (red_held says so; streak.since is the session the red began). The 50-day average is the mean of the last 50 daily closes of the history read, the same bars and the same mean as the mandate regime gate's credit reading (hyg_50dma_quality.as_of names the last close in it); the row compares the banding price (the live tick in regular hours) with it, while the gate compares each settled close, reads above only when strictly above, and flips only after two closes agree, so its since date can trail hyg_50dma_run.since by a session." + regimeRoleNote(rpc.RegimeIndicatorHYGSPY)
 
 // HYGLookbackDays is the calendar-day window passed to the HMDS
 // history fetch. The 50-day SMA needs only the newest 50 bars; the
@@ -1085,6 +1088,7 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 		if sma > 0 {
 			out.HYG50DMA = new(sma)
 			out.HYG50DMAQuality = derivedQuality(historyBarAsOf(bars[len(bars)-1], now), "HYG 50-bar SMA")
+			out.HYG50DMARun = averageRun(bars, 50)
 		}
 	}
 
@@ -1110,6 +1114,10 @@ func fetchRegimeHYGSPY(ctx context.Context, deps *regimeDeps) rpc.RegimeHYGSPYDi
 		}
 	}
 
+	if out.HYGPrice != nil && out.HYG50DMA != nil {
+		pct := (*out.HYGPrice - *out.HYG50DMA) / *out.HYG50DMA * 100
+		out.HYGVs50DMAPct = &pct
+	}
 	if out.HYGPrice != nil {
 		out.HYGRange52W = range52WFromBars(bars, *out.HYGPrice, now)
 		// The range folds the current price into its low, so a print at or
@@ -1698,6 +1706,36 @@ func averageClose(bars []ibkrlib.HistoricalBar, n int) float64 {
 		sum += b.Close
 	}
 	return sum / float64(n)
+}
+
+// averageRun is the current run of closes on one side of their n-close
+// average, each close against the average that includes it and on the row's
+// own rule (at or above reads above). Nil when the bars do not reach back to
+// the close that started the run, so a since date is never a guess.
+func averageRun(bars []ibkrlib.HistoricalBar, n int) *rpc.RegimeAverageRun {
+	side := func(i int) string {
+		if bars[i].Close >= averageClose(bars[:i+1], n) {
+			return "above"
+		}
+		return "below"
+	}
+	last := len(bars) - 1
+	if last < n {
+		return nil
+	}
+	want := side(last)
+	start := last
+	for start > n-1 && side(start-1) == want {
+		start--
+	}
+	if start == n-1 {
+		return nil
+	}
+	since, through := historyBarSessionDate(bars[start]), historyBarSessionDate(bars[last])
+	if since == "" || through == "" {
+		return nil
+	}
+	return &rpc.RegimeAverageRun{Side: want, Since: since, Sessions: last - start + 1, Through: through}
 }
 
 // maxHigh returns the largest High over the last N daily bars

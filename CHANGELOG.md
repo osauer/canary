@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The project adheres to 
 
 - A later version that adds a detail to the stored market-regime snapshot no longer stops this version from starting. Until now, a newer version saving one more detail there would have made every earlier version refuse to start (`json: unknown field`), and going back to the earlier version would have meant restoring the database. From this version on, Canary skips details it does not know in that snapshot and checks everything it does know as before, the snapshot's checksum of its classified state included. This covers the regime snapshot only, and it does not reach back: v3.46.1 and earlier still refuse such a snapshot.
 
+### Added
+
+- The regime's HYG/SPY credit row states the 50-day average it is judged against: HYG's distance from it (`hyg_vs_50dma_pct`), the run of daily closes on one side of it (`hyg_50dma_run`: side, since, sessions, through) and, while the row's exit rule keeps it red after SPY has left its high, `red_held` (the red holds until HYG is back at or above its average; `streak.since` is the session it began). The monitor reading, `canary regime` and the stress view say it in one line, for example "HYG 76.38, 1.2% below its 50-day average 77.31 (closes to 23 Nov), closing below it since 1 Sep (59 sessions); 5 cents above its 52-week low; SPY 715.78 (-0.90% on the day), 8.4% below its 52-week high; red since 4 Sep, …; held until HYG is back at or above its average". The monitor reading no longer lists HYG's 52-week high and its position in the range (`hyg_range_52w` still carries them). Bands, eligibility and the regime fingerprint are unchanged.
+
 ### Fixed
 
 - `canary market read` could count too few leaders under their prior lows. A leader without an opening price was left unjudged even while it traded under its prior low, so the count could read 4 of 4 with more leaders below. A leader under its prior low is now counted from its last price and that low alone. Its opening gap stays unmeasured until an open is known, which Canary now reads in the background during the session.

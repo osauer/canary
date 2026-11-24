@@ -10,7 +10,8 @@ Indicators
          VIX below VIX3M (contango)
   AMBER  VVIX            100.0 volatility of VIX · +10.0% / 5 sessions
          VVIX up 10% in five sessions · 2026-09-04
-  GREEN  HYG/SPY         HYG 80.00 · 50-day avg 79.00
+  GREEN  HYG/SPY         HYG 80.00, 1.3% above its 50-day average 79.00; SPY
+                         500.00 (+0.50% on the day)
          HYG above its 50-day average
   GREEN  Credit spreads  HY 3.00% · +0.10 pp / 20d
          high-yield spreads stable · 2026-09-03
@@ -38,7 +39,8 @@ Readiness · ready · watch
          \x1b[2mVIX below VIX3M (contango)\x1b[0m
   \x1b[33mAMBER\x1b[0m  VVIX            100.0 volatility of VIX · +10.0% / 5 sessions
          \x1b[2mVVIX up 10% in five sessions · 2026-09-04\x1b[0m
-  \x1b[32mGREEN\x1b[0m  HYG/SPY         HYG 80.00 · 50-day avg 79.00
+  \x1b[32mGREEN\x1b[0m  HYG/SPY         HYG 80.00, 1.3% above its 50-day average 79.00; SPY
+                         500.00 (+0.50% on the day)
          \x1b[2mHYG above its 50-day average\x1b[0m
   \x1b[32mGREEN\x1b[0m  Credit spreads  HY 3.00% · +0.10 pp / 20d
          \x1b[2mhigh-yield spreads stable · 2026-09-03\x1b[0m

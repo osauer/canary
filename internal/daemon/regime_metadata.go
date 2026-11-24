@@ -93,6 +93,16 @@ func annotateRegimeMetadata(r *rpc.RegimeSnapshotResult, policies map[string]reg
 		Eligibility: hygElig,
 		Freshness:   hygFresh,
 	}
+	if policies[StreakKeyHYGSPY].exitHeld {
+		// Said in the row's own terms: what holds the red and what ends it.
+		r.HYGSPYDivergence.RedHeld = true
+		if base, ok := strings.CutSuffix(r.HYGSPYDivergence.BandReason, " · hysteresis holding red"); ok {
+			if hygRaw == "yellow" {
+				base += "; SPY no longer near highs"
+			}
+			r.HYGSPYDivergence.BandReason = base + " · red held until HYG is back at or above its 50-day average"
+		}
+	}
 	oasRaw := bandForCreditSpreads(r.CreditSpreads)
 	oasElig, oasFresh := policy(StreakKeyCredit)
 	r.CreditSpreads.RegimeIndicatorMeta = rpc.RegimeIndicatorMeta{

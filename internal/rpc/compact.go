@@ -285,7 +285,7 @@ func compactRegimeMonitor(r *RegimeSnapshotResult) RegimeMonitorResult {
 		Indicators: []RegimeMonitorIndicator{
 			{Name: "VIX/VIX3M", Status: r.VIXTermStructure.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorVIXTerm), Band: r.VIXTermStructure.Band, AsOf: r.VIXTermStructure.AsOf, Reading: readingJoin(formatPtr("ratio", r.VIXTermStructure.Ratio), formatPtr("VIX", r.VIXTermStructure.VIX), formatPtr("VIX3M", r.VIXTermStructure.VIX3M)), Thresholds: r.VIXTermStructure.Thresholds, Eligibility: r.VIXTermStructure.Eligibility, FreshnessClass: freshnessClass(r.VIXTermStructure.Freshness)},
 			{Name: "VVIX", Status: r.VolOfVol.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorVolOfVol), Band: r.VolOfVol.Band, AsOf: regimeAsOf(r.VolOfVol.AsOf, r.VolOfVol.AsOfDate), Reading: readingJoin(formatPtr("last", r.VolOfVol.Last), formatPtr("5d%", r.VolOfVol.Change5D), formatPtr("20d", r.VolOfVol.Change20D), range52WReading(r.VolOfVol.Range52W)), Thresholds: r.VolOfVol.Thresholds, Eligibility: r.VolOfVol.Eligibility, FreshnessClass: freshnessClass(r.VolOfVol.Freshness)},
-			{Name: "HYG/SPY", Status: r.HYGSPYDivergence.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorHYGSPY), Band: r.HYGSPYDivergence.Band, AsOf: r.HYGSPYDivergence.AsOf, Reading: readingJoin(formatPtr("HYG", r.HYGSPYDivergence.HYGPrice), formatPtr("SPY", r.HYGSPYDivergence.SPYPrice), formatPtr("SPY chg%", r.HYGSPYDivergence.SPYChangePct), range52WReading(r.HYGSPYDivergence.HYGRange52W), hygAt52WLowReading(r.HYGSPYDivergence.HYGAt52WLow)), Thresholds: r.HYGSPYDivergence.Thresholds, Eligibility: r.HYGSPYDivergence.Eligibility, FreshnessClass: freshnessClass(r.HYGSPYDivergence.Freshness)},
+			{Name: "HYG/SPY", Status: r.HYGSPYDivergence.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorHYGSPY), Band: r.HYGSPYDivergence.Band, AsOf: r.HYGSPYDivergence.AsOf, Reading: HYGSPYReading(r.HYGSPYDivergence), Thresholds: r.HYGSPYDivergence.Thresholds, Eligibility: r.HYGSPYDivergence.Eligibility, FreshnessClass: freshnessClass(r.HYGSPYDivergence.Freshness)},
 			{Name: "Credit spreads", Status: r.CreditSpreads.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorCredit), Band: r.CreditSpreads.Band, AsOf: regimeAsOf(r.CreditSpreads.AsOf, r.CreditSpreads.AsOfDate), Reading: readingJoin(formatPtr("HY", r.CreditSpreads.HYOAS), formatPtr("IG", r.CreditSpreads.IGOAS), formatPtr("HY-IG", r.CreditSpreads.HYIGSpread)), Thresholds: r.CreditSpreads.Thresholds, Eligibility: r.CreditSpreads.Eligibility, FreshnessClass: freshnessClass(r.CreditSpreads.Freshness)},
 			{Name: "Funding", Status: r.FundingStress.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorFunding), Band: r.FundingStress.Band, AsOf: regimeAsOf(r.FundingStress.AsOf, r.FundingStress.AsOfDate), Reading: readingJoin(formatPtr("spread bp", r.FundingStress.SpreadBps), formatPtr("5obs bp", r.FundingStress.Change5Bps)), Thresholds: r.FundingStress.Thresholds, Eligibility: r.FundingStress.Eligibility, FreshnessClass: freshnessClass(r.FundingStress.Freshness)},
 			{Name: "USD/JPY", Status: r.USDJPY.Status, Cluster: RegimeIndicatorCluster(RegimeIndicatorUSDJPY), Band: r.USDJPY.Band, AsOf: r.USDJPY.AsOf, Reading: readingJoin(formatPtr("last", r.USDJPY.Last), formatPtr("week%", r.USDJPY.WeeklyChange), range52WReading(r.USDJPY.Range52W)), Thresholds: r.USDJPY.Thresholds, Eligibility: r.USDJPY.Eligibility, FreshnessClass: freshnessClass(r.USDJPY.Freshness)},
@@ -605,11 +605,104 @@ func range52WReading(r *RegimeRange52W) string {
 	return fmt.Sprintf("52w %.2f-%.2f (pos %.0f%%)", r.Low, r.High, r.Pos)
 }
 
-func hygAt52WLowReading(atLow bool) string {
-	if !atLow {
-		return ""
+// HYGSPYReading is the credit-proxy row in a trader's words, on one line:
+// HYG against its 50-day average (the mean of the last 50 daily closes, to
+// the session named) and since when it has closed on that side, HYG against
+// its 52-week low, SPY against its 52-week high and, while the exit rule
+// holds the row red, when the red began and what ends it. Every surface
+// that prints the row reads it from here. Display only: nothing bands on it.
+func HYGSPYReading(r RegimeHYGSPYDivergence) string {
+	var hyg, low, spy, held string
+	if r.HYGPrice != nil {
+		price := *r.HYGPrice
+		hyg = fmt.Sprintf("HYG %.2f", price)
+		if r.HYGDataType == "close" && r.HYGQuality != nil && !r.HYGQuality.AsOf.IsZero() {
+			hyg += " at the " + readingDay(r.HYGQuality.AsOf.UTC().Format("2006-01-02")) + " close"
+		}
+		if r.HYG50DMA != nil && *r.HYG50DMA > 0 {
+			avg := *r.HYG50DMA
+			pct := (price - avg) / avg * 100
+			side := "above"
+			if price < avg {
+				side = "below"
+			}
+			if math.Abs(pct) < 0.005 {
+				hyg += fmt.Sprintf(", at its 50-day average %.2f", avg)
+			} else {
+				hyg += fmt.Sprintf(", %s %s its 50-day average %.2f", readingPct(math.Abs(pct)), side, avg)
+			}
+			// The average's clock, unless the price is that same close.
+			if q := r.HYG50DMAQuality; q != nil && !q.AsOf.IsZero() &&
+				(r.HYGDataType != "close" || r.HYGQuality == nil || !sameUTCDay(q.AsOf, r.HYGQuality.AsOf)) {
+				hyg += " (closes to " + readingDay(q.AsOf.UTC().Format("2006-01-02")) + ")"
+			}
+			if run := r.HYG50DMARun; run != nil && run.Side == side && run.Since != "" {
+				hyg += fmt.Sprintf(", closing %s it since %s (%d %s)", side, readingDay(run.Since), run.Sessions, plural(run.Sessions, "session", "sessions"))
+			}
+		}
+		switch rg := r.HYGRange52W; {
+		case r.HYGAt52WLow:
+			low = "at its 52-week low"
+		case rg != nil && rg.Low > 0:
+			cents := math.Round(price*100) - math.Round(rg.Low*100)
+			switch {
+			case cents < 1:
+				low = "within a cent of its 52-week low"
+			case cents < 100:
+				low = fmt.Sprintf("%.0f %s above its 52-week low", cents, plural(int(cents), "cent", "cents"))
+			default:
+				low = readingPct((price-rg.Low)/rg.Low*100) + " above its 52-week low"
+			}
+		}
 	}
-	return "HYG at its 52-week low"
+	if r.SPYPrice != nil {
+		spy = fmt.Sprintf("SPY %.2f", *r.SPYPrice)
+		if r.SPYChangePct != nil {
+			spy += fmt.Sprintf(" (%+.2f%% on the day)", *r.SPYChangePct)
+		}
+		if h := r.SPY52WHigh; h != nil && *h > 0 {
+			if *r.SPYPrice >= *h {
+				spy += ", at its 52-week high"
+			} else {
+				spy += ", " + readingPct((*h-*r.SPYPrice) / *h * 100) + " below its 52-week high"
+			}
+		}
+	}
+	if r.RedHeld {
+		held = "red held until HYG is back at or above its average"
+		if r.Streak != nil && r.Streak.Band == "red" && r.Streak.Since != "" {
+			held = "red since " + readingDay(r.Streak.Since) + ", when HYG fell below its average with SPY within 3% of its high; held until HYG is back at or above its average"
+		}
+	}
+	return readingJoin(hyg, low, spy, held)
+}
+
+// readingPct is a distance in percent: two decimals under 1%, one above.
+func readingPct(pct float64) string {
+	if pct < 1 {
+		return fmt.Sprintf("%.2f%%", pct)
+	}
+	return fmt.Sprintf("%.1f%%", pct)
+}
+
+func sameUTCDay(a, b time.Time) bool {
+	return a.UTC().Format("2006-01-02") == b.UTC().Format("2006-01-02")
+}
+
+// readingDay writes a session date as "4 Sep".
+func readingDay(date string) string {
+	t, err := time.Parse("2006-01-02", date)
+	if err != nil {
+		return date
+	}
+	return t.Format("2 Jan")
+}
+
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // regimeBreadthCoverageReading names how many members each breadth figure
