@@ -909,7 +909,7 @@ func buildGammaSummary(c *rpc.GammaZeroComputed) *rpc.GammaZeroSummary {
 			statuses[item.ZeroGammaStatus]++
 			regimes[item.Regime]++
 			confidences[item.Confidence]++
-			parts = append(parts, gammaCombinedIndexStatement(key, item))
+			parts = append(parts, gammaIndexStatement(item))
 		}
 		out.ZeroGammaStatus = combineSummaryStatus(statuses)
 		out.Regime = combineSummaryRegime(c.RegimeAgreement, regimes)
@@ -918,16 +918,16 @@ func buildGammaSummary(c *rpc.GammaZeroComputed) *rpc.GammaZeroSummary {
 			out.Confidence = gammaResultConfidence(c)
 		}
 		if len(parts) == 0 {
-			out.PrimaryStatement = "Zero-gamma: unavailable for SPY+SPX."
+			out.PrimaryStatement = "SPY+SPX unavailable"
 		} else {
-			out.PrimaryStatement = "Zero-gamma: " + strings.Join(parts, "; ") + ". Price levels remain per-index because SPY and SPX use different price scales."
+			out.PrimaryStatement = strings.Join(parts, "; ")
 		}
 		return out
 	}
 	item := buildGammaIndexSummary(c, gammaUnderlyingLabel(c))
 	out.ZeroGammaStatus = item.ZeroGammaStatus
 	out.Regime = item.Regime
-	out.PrimaryStatement = "Zero-gamma: " + gammaIndexStatement(item) + "."
+	out.PrimaryStatement = gammaIndexStatement(item)
 	return out
 }
 
@@ -953,50 +953,50 @@ func buildGammaIndexSummary(c *rpc.GammaZeroComputed, label string) rpc.GammaInd
 	}
 }
 
-func gammaCombinedIndexStatement(key string, s rpc.GammaIndexSummary) string {
-	switch key {
-	case "SPX":
-		s.Underlying = "SPX canonical"
-	case "SPY":
-		s.Underlying = "SPY context"
-	}
-	return gammaIndexStatement(s)
-}
-
+// gammaIndexStatement is one index's reading as figures: the zero-gamma level
+// and the regime there, or the one-sided regime and the range it held across.
+// Why an index has no usable profile is its Interpretation, and why SPY and
+// SPX keep separate levels is the regime row's notes; neither is repeated
+// here, so a monitor can print the statement whole.
 func gammaIndexStatement(s rpc.GammaIndexSummary) string {
 	label := s.Underlying
 	if label == "" {
 		label = "underlying"
 	}
+	regime := strings.ReplaceAll(s.Regime, "_", " ")
 	switch s.ZeroGammaStatus {
 	case "crossing":
 		if s.ZeroGamma != nil {
-			regime := strings.ReplaceAll(s.Regime, "_", "-")
 			if regime != "" {
-				return fmt.Sprintf("%s zero-gamma %s (%s)", label, formatGammaSummaryPrice(*s.ZeroGamma), regime)
+				return fmt.Sprintf("%s zero-gamma %s (%s)", label, gammaStatementPrice(*s.ZeroGamma), regime)
 			}
-			return fmt.Sprintf("%s zero-gamma %s", label, formatGammaSummaryPrice(*s.ZeroGamma))
+			return fmt.Sprintf("%s zero-gamma %s", label, gammaStatementPrice(*s.ZeroGamma))
 		}
 	case "none_in_window":
 		if s.Regime == "transition_gamma" {
-			return label + " signed gamma balances at spot"
+			return label + " gamma balanced at spot"
 		}
-		rangeText := gammaSummaryRange(s.SweepLowAbs, s.SweepHighAbs)
-		regime := strings.ReplaceAll(s.Regime, "_", "-")
-		if rangeText != "" && regime != "" {
-			return fmt.Sprintf("%s stayed %s across %s", label, regime, rangeText)
+		if regime == "" {
+			return label + " no crossing"
 		}
-		if regime != "" {
-			return fmt.Sprintf("%s stayed %s across the swept range", label, regime)
+		if s.SweepLowAbs > 0 && s.SweepHighAbs > 0 {
+			return fmt.Sprintf("%s %s %s-%s", label, regime, gammaStatementPrice(s.SweepLowAbs), gammaStatementPrice(s.SweepHighAbs))
 		}
-		return fmt.Sprintf("%s had no crossing in the swept range", label)
+		return fmt.Sprintf("%s %s, no crossing", label, regime)
 	case "unavailable":
-		if s.Interpretation != "" {
-			return fmt.Sprintf("%s unavailable (%s)", label, s.Interpretation)
-		}
-		return fmt.Sprintf("%s unavailable", label)
+		return label + " unavailable"
 	}
-	return fmt.Sprintf("%s indeterminate", label)
+	return label + " indeterminate"
+}
+
+// gammaStatementPrice prints a level the way a reader scans it: grouped whole
+// dollars for an index level in the thousands, cents below that. The exact
+// level stays on the per-index summary.
+func gammaStatementPrice(v float64) string {
+	if math.Abs(v) >= 1000 {
+		return "$" + briefThousands(v, 0)
+	}
+	return "$" + briefThousands(v, 2)
 }
 
 func gammaZeroStatusAndRegime(c *rpc.GammaZeroComputed) (string, string) {
@@ -1506,13 +1506,6 @@ func gammaUnderlyingLabel(c *rpc.GammaZeroComputed) string {
 	default:
 		return "SPY"
 	}
-}
-
-func gammaSummaryRange(lo, hi float64) string {
-	if lo <= 0 || hi <= 0 {
-		return ""
-	}
-	return formatGammaSummaryPrice(lo) + "-" + formatGammaSummaryPrice(hi)
 }
 
 func formatGammaSummaryPrice(v float64) string {

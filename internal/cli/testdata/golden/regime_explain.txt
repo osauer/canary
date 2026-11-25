@@ -42,8 +42,7 @@ Indicators
     Full reading · computing
   GREEN  Breadth         60.0% above 50-day average
          most members above their 50-day average
-    Full reading · 50dma% 60.00; 200dma% 65.00; coverage 50d 500/500; 200d
-      500/500; 52w 500/500
+    Full reading · 50dma% 60.00; 200dma% 65.00; coverage 500/500/500 of 500
 
 Source diagnostics
   gamma_computing · Dealer gamma model is still computing.
@@ -95,8 +94,7 @@ Clusters · 1 red, 1 amber, 5 green of 8 clusters
     Full reading · computing
   \x1b[32mGREEN\x1b[0m  Breadth         60.0% above 50-day average
          \x1b[2mmost members above their 50-day average\x1b[0m
-    Full reading · 50dma% 60.00; 200dma% 65.00; coverage 50d 500/500; 200d
-      500/500; 52w 500/500
+    Full reading · 50dma% 60.00; 200dma% 65.00; coverage 500/500/500 of 500
 
 Source diagnostics
   gamma_computing · Dealer gamma model is still computing.
