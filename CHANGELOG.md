@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
-## v3.46.1 — Unreleased
+## v3.46.1 — 2026-11-25 07:47 CET
 
 ### What's new
 
@@ -14,6 +14,14 @@ All notable changes to this project are documented here. The project adheres to 
 
 - During the session the S&P 500 and SPY lines of `canary market read` could go more than twenty minutes without new bars while VIX stayed current. Canary refreshed the charts it follows one after another in a fixed order, and with dozens followed a round took longer than the bars' five-minute cadence. A chart someone is reading now comes round first. Bars that are late are no longer dropped: they are shown, marked `bars_stale` with when they were read (`bars_as_of`), and draw no tags.
 - Before the open `canary market read` placed the S&P 500 index inside, above or below its prior range from the previous session's last print, whenever that print differed from the official close. Before the open the index now has no position (`position_unavailable: "the session has not opened"`); the position the futures indicate is in `indicated`. A last trade timed before the session's day reads `last_source: prior_close` with its real time, for the index, VIX and the leaders; a trade of the same day, such as VIX's pre-market trade, stays current.
+- The daemon's store could refuse writes for minutes while the machine was busy. After each write it read the new head back through its one connection under a five-second limit; when that read ran late, the store treated its own durable write as unproven and blocked writes while it checked the whole database. The head is now read inside the write's own transaction, so there is no second read to run late. A write that meets a blocked store is refused at once and no longer waits behind the running check, which had held broker order messages waiting with it.
+- On a busy machine the daemon could fail to open its store with `learn the authority's log: context deadline exceeded`. Opening no longer applies the 200 ms limit that belongs to the periodic check.
+- When TWS was restarted under a running daemon and answered the account subscription without position rows, Canary held the positions as incomplete until `canary restart`. The repair now ends the account subscription before it subscribes again, which makes TWS send the whole book. A held book is reported after one minute and every five minutes while it lasts, not once after ten.
+- Recording an alert could hold up the broker's order, error and account messages for many seconds, because the commit kept the broker evidence locked while it waited for the alert and wrote the store. The commit now checks its evidence under the lock and writes outside it; alerts are still recorded only on evidence that was exact at one instant, and in evidence order.
+
+### Changed
+
+- The options-positioning reading in `canary regime` is the figures alone, at most 100 characters (for example `SPX short gamma $6,119-$8,279; SPY zero-gamma $733.73 (transition gamma)`), so a monitor can print it whole. The explanations it used to carry are served where they were: the regime row's notes and the per-index gamma result. The breadth reading names the member count once (`coverage 502/500/500 of 503`).
 
 ## v3.46.0 — 2026-11-24 13:22 CET
 
