@@ -315,6 +315,28 @@ func TestMarketReadLeaderBelowPriorLowNeedsNoOpen(t *testing.T) {
 	}
 }
 
+// The same through the assembled read of an open session: a leader with no
+// opening price under its low is counted, and the read's tags are built.
+func TestMarketReadAssemblesALeaderBelowItsLowWithoutAnOpen(t *testing.T) {
+	m := newReadMarket(t)
+	now := m.at(3)
+	m.index(now, 99, 98, 97)
+	m.leader("AAA", nil, new(97.0))
+	m.leader("BBB", new(99.0), new(97.5))
+	m.leader("CCC", nil, new(99.5))
+	out := m.read(now)
+	states := map[string]string{}
+	for _, row := range out.Leaders.Rows {
+		states[row.Symbol] = row.State + "|" + row.StateUnavailable
+	}
+	if states["AAA"] != rpc.LeaderBelowPriorLow+"|" || states["BBB"] != rpc.LeaderBelowPriorLow+"|" || !strings.HasPrefix(states["CCC"], "|session open") {
+		t.Fatalf("states %v", states)
+	}
+	if out.Leaders.BelowPriorLow != 2 || out.Leaders.GappedDown != 1 {
+		t.Fatalf("below %d, gapped down %d; want 2 and 1", out.Leaders.BelowPriorLow, out.Leaders.GappedDown)
+	}
+}
+
 func TestMarketReadLeadersTagCountsGapsThatHold(t *testing.T) {
 	open, holds, fills := new(102.0), new(101.8), new(99.5)
 	m := newReadMarket(t)
