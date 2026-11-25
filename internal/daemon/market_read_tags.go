@@ -207,6 +207,11 @@ func marketReadLeaderState(row *rpc.MarketReadLeader) {
 	case row.PriorClose == nil || row.PriorLow == nil:
 		row.StateUnavailable = "prior session daily bar unavailable"
 		return
+	case row.Open == nil && row.Last != nil && *row.Last < *row.PriorLow:
+		// Under the prior low is under it whatever the open was: the state
+		// needs no opening price, and the gap stays unmeasured.
+		row.State, row.StateUnavailable = rpc.LeaderBelowPriorLow, ""
+		return
 	case row.Open == nil:
 		if row.StateUnavailable == "" {
 			row.StateUnavailable = "session open unavailable"

@@ -236,7 +236,16 @@ func (s *Server) readMarket(ctx context.Context) (*rpc.MarketReadResult, error) 
 		src.Leaders[i].Symbol = c.Symbol
 		daily(c, false, func(r *rpc.MarketHistoryResult) { src.Leaders[i].Daily = r })
 		wg.Go(func() {
-			r := s.retainedHistory(ctx, rpc.MarketHistoryParams{Contract: c, Range: "1D"})
+			p := rpc.MarketHistoryParams{Contract: c, Range: "1D"}
+			r := s.retainedHistory(ctx, p)
+			// The first bar is the open's fallback where the quote names
+			// none. A leader nothing else charts had no bars at all, so
+			// its gap went unread all session (2026-11-25). In the session
+			// a series without that bar is read once in the background; it
+			// is not followed, the first bar being all the read needs.
+			if state == rpc.MarketReadOpen && marketReadFirstBar(r, c.Symbol, session) == nil {
+				s.requestMarketReadHistory(p, now)
+			}
 			set(func() { src.Leaders[i].Intraday = r })
 		})
 	}

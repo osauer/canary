@@ -288,6 +288,33 @@ func TestMarketReadLeaderStates(t *testing.T) {
 	}
 }
 
+// A company under the prior session's low is under it whatever it opened
+// at: the state needs the last price and that low, never the open. On
+// 2026-11-25 six of ten leaders had no opening price and read as unjudged
+// while they traded under their lows, and the count said "4 of 4".
+func TestMarketReadLeaderBelowPriorLowNeedsNoOpen(t *testing.T) {
+	row := rpc.MarketReadLeader{PriorClose: new(100.0), PriorLow: new(98.0), Last: new(97.0),
+		StateUnavailable: "session open not quoted and no intraday bar retained"}
+	marketReadLeaderState(&row)
+	if row.State != rpc.LeaderBelowPriorLow || row.StateUnavailable != "" || row.GapPct != nil {
+		t.Fatalf("state %q (%s), gap %v; want below the prior low with no gap measured", row.State, row.StateUnavailable, row.GapPct)
+	}
+	// It counts under the low and, with no gap measured, in no gap count.
+	if stated, below := marketReadLeaderBelowPriorLow([]rpc.MarketReadLeader{row}); stated != 1 || below != 1 {
+		t.Fatalf("stated %d below %d", stated, below)
+	}
+	if down, holding, _ := marketReadLeaderDownCounts([]rpc.MarketReadLeader{row}); down != 0 || holding != 0 {
+		t.Fatalf("an unmeasured gap was counted: down %d holding %d", down, holding)
+	}
+	// Above the low the open is still needed, and the reason stays.
+	held := rpc.MarketReadLeader{PriorClose: new(100.0), PriorLow: new(98.0), Last: new(99.0),
+		StateUnavailable: "session open not quoted and no intraday bar retained"}
+	marketReadLeaderState(&held)
+	if held.State != "" || held.StateUnavailable == "" {
+		t.Fatalf("a gap state without an open: %q (%s)", held.State, held.StateUnavailable)
+	}
+}
+
 func TestMarketReadLeadersTagCountsGapsThatHold(t *testing.T) {
 	open, holds, fills := new(102.0), new(101.8), new(99.5)
 	m := newReadMarket(t)
