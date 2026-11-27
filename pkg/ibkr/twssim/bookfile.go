@@ -57,6 +57,9 @@ type BookPosition struct {
 	Strike          float64 `json:"strike,omitempty"`
 	Expiry          string  `json:"expiry,omitempty"`
 	Multiplier      float64 `json:"multiplier,omitempty"`
+	// DailyDrift is the daily bars' trend per session into Last (see
+	// Instrument.Drift): -0.0005 makes the bars fall into Last by about 0.05% a session.
+	DailyDrift float64 `json:"daily_drift,omitempty"`
 	// Defunct marks a dead line (a delisted name on a grey-market venue):
 	// last 0, no quotes.
 	Defunct bool `json:"defunct,omitempty"`
@@ -143,7 +146,7 @@ func ParseBook(raw []byte) (*Book, error) {
 		}
 		in := Instrument{ConID: p.ConID, Symbol: strings.ToUpper(p.Symbol), SecType: strings.ToUpper(p.SecType), Exchange: p.Exchange, PrimaryExch: p.PrimaryExchange,
 			Currency: strings.ToUpper(p.Currency), TradingClass: p.TradingClass, LongName: "SYNTHETIC " + strings.ToUpper(p.Symbol), Price: p.Last, Bid: p.Bid, Ask: p.Ask,
-			UnderConID: p.UnderConID, Right: strings.ToUpper(p.Right), Strike: p.Strike, Expiry: p.Expiry, Multiplier: p.Multiplier, Spread: 0.02}
+			UnderConID: p.UnderConID, Right: strings.ToUpper(p.Right), Strike: p.Strike, Expiry: p.Expiry, Multiplier: p.Multiplier, Spread: 0.02, Drift: p.DailyDrift}
 		switch {
 		case in.ConID <= 0 || in.Symbol == "" || in.Currency == "" || in.Exchange == "" || (in.Price <= 0 && !p.Defunct) || (p.Defunct && (in.Price != 0 || in.SecType != "STK")):
 			return nil, fmt.Errorf("twssim: book: position %d needs con_id, symbol, currency, exchange and last (0 only for a defunct stock)", i)

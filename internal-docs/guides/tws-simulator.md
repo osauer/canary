@@ -131,6 +131,10 @@ The loader is strict and refuses unknown fields. It refuses any account but
     weeks after the first Friday after today (UTC). The committed example
     uses `+Nw` so it never expires.
   - Quantity 0 lists a contract without holding it.
+  - `daily_drift` is the trend of the contract's daily bars per session
+    into `last`: `-0.0005` makes them fall into it by about 0.05% a session,
+    which puts the last close under its averages. Unset, the bars rise
+    gently into `last`.
   - A stock the default catalogue already lists (SPY, SYNB) takes the
     catalogue's `con_id`, and options naming the file's id follow it, so a
     symbol never names two contracts.

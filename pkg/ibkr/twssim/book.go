@@ -26,6 +26,10 @@ type Instrument struct {
 	// Spread is the bid/ask width around Price; zero quotes the last only, as
 	// an index does.
 	Spread float64
+	// Drift is the daily bars' trend per session into Price: positive rises
+	// into it, negative falls into it; zero is the default gentle rise
+	// (0.0003 a session).
+	Drift float64
 	// Bid and Ask, when set, are quoted as they are instead of from Spread.
 	Bid, Ask float64
 	// An option's expiry (YYYYMMDD), strike, right (C or P), multiplier and

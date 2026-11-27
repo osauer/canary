@@ -45,6 +45,11 @@ gates. Before deleting safety tests, run `make regression-spine-check`.
 Live smoke is for affected broker integration, not routine docs/UI work.
 After primary-tree daemon/CLI changes, use `make restart-daemon` and verify
 redacted status plus the changed command.
+Before installing a build that changes what the daemon stores or how it reads
+it, run `make store-compat-check STORE_COMPAT_PREVIOUS=<the running build's commit>`: a
+build that cannot start on the running store, or that the running build
+cannot start after, fails there instead of live (2026-11-24, eleven minutes
+of refused starts and no way back).
 
 A session that creates a worktree removes it in the same session, once its
 branch has landed on local main or its install is verified:

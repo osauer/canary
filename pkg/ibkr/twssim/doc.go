@@ -50,6 +50,8 @@
 //	  PreSubmitted, partial, silent, drop, error 110/103/200/354/10089)
 //	market data type 1 (live) at every hour                 assumed
 //	daily bars on weekdays only, no exchange holidays       assumed
+//	the last daily bar is the last weekday whose New York   assumed
+//	  open (09:30) has passed: the session's forming bar
 //	execution time "yyyyMMdd-HH:mm:ss" in UTC               assumed
 //	error 10354 for attachedOrders (Options, off by default) read from the
 //	                                                        10.50 bytecode

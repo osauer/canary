@@ -91,8 +91,9 @@ MCP_PUBLISHER ?= $(if $(wildcard bin/mcp-publisher),bin/mcp-publisher,mcp-publis
 RELEASE_WORKTREE_ROOT ?= $(abspath $(CURDIR)/..)
 MCP_REGISTRY_AUTO_LOGIN ?= 1
 MCP_REGISTRY_LOGIN_METHOD ?= github
+STORE_COMPAT_PREVIOUS ?=
 
-.PHONY: help test-sim ci-gate-scope-check broker-reach-check opend-sim futu-proto-check futu-proto-regen reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-smoke-read-only release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members refresh-fund-sectors hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build pages-coverage account-data-check hook-behavior-check agent-config-check docs-translations-check
+.PHONY: help test-sim store-compat-check ci-gate-scope-check broker-reach-check opend-sim futu-proto-check futu-proto-regen reduction-metrics reduction-metrics-check regression-spine-check regression-spine-contract-check build install restart-daemon uninstall test test-pkg test-support test-internal test-daemon test-daemon-default test-daemon-trading test-integration test-integration-live trading-package-scope-check clean install-plugin install-plugin-refresh install-skill uninstall-skill all check commit-check product-identity-check go-dependencies-check go-doc-check gofmt-check vet-check staticcheck-check govulncheck-check fmt app-check app-log-contract-check scheduled-monitor-check app-contract-check app-syntax-check app-browser-helper-check app-auth-check app-behavior-check app-service-worker-check app-render-check remote-relay-check release-packaging-check app-refresh app-refresh-smoke app-smoke app-smoke-read-only release _release-run _release-publish release-resume _release-resume-run release-binaries release-mcpb release-checksums release-payload-inventory-check release-registry-server registry-login release-auth-preflight release-origin-check release-ci-wait _release-ci-wait-historical release-main-candidate-check release-source-candidate-check release-controller-source-check release-source-mode-check release-tag-candidate-check release-plugin-tag-candidate-check release-github-candidate-check release-github-assets registry-publish registry-publish-verify-first release-verify release-smoke release-site-check smoke smoke-build smoke-contract-check smoke-only smoke-fast version plugin-check parity-check modernize modernize-check refresh-spx-members refresh-fund-sectors hook-version-check registry-version-check changelog-check changelog-lint changelog-lint-historical docs-html-check pages-build pages-coverage account-data-check hook-behavior-check agent-config-check docs-translations-check
 
 help: ## List available targets
 	@awk 'BEGIN {FS = ":.*##"; print "Available targets (default: help):\n"} \
@@ -304,10 +305,28 @@ build check test test-pkg test-support test-internal test-daemon test-daemon-def
 # waits for, and by hand before deleting a safety test (AGENTS.md).
 test: ## Full gate: check + render + pkg, support, and daemon/integration tests (-race), overlapped
 	@start=$$(date +%s); timing=$$(mktemp "$${TMPDIR:-/tmp}/canary-gate-timing.XXXXXX") || exit 1; \
-	GATE_TIMING_FILE="$$timing" $(MAKE) $(TEST_MAKEFLAGS) test-daemon check app-render-check test-pkg test-support \
+	GATE_TIMING_FILE="$$timing" $(MAKE) $(TEST_MAKEFLAGS) test-daemon check app-render-check test-pkg test-support store-compat-check \
 		CHECK_DEPS='$(filter-out $(CHECK_TEST_LEGS),$(CHECK_DEPS))'; \
 	status=$$?; $(LEG) --summary "$$timing" "$$start"; rm -f "$$timing"; exit $$status
 	$(call gate-stamp,test)
+
+# The store-compatibility gate: the candidate daemon must start on the store
+# the previous build wrote, and the previous build on the store the candidate
+# wrote, so an install can always be rolled back. Three daemons run through
+# canary-sim (the TWS simulator, its own socket and state directory, no
+# gateway, no public site); the candidate runs until it has published a
+# regime snapshot of its own, about five minutes. Added 2026-11-24 after a
+# build refused every start on the live store with a projection content
+# mismatch that no unit test exercised, and its fix could not be rolled back.
+# It runs in `make test` (the tier before an install) and in the release
+# body before the tag; `make check` leaves it out, it builds the previous
+# release and takes about five minutes. The previous build is the nearest
+# v* tag; before installing over a build that is not a release, name the
+# running build's commit: make store-compat-check
+# STORE_COMPAT_PREVIOUS=<commit>. The release body sets it empty: its
+# baseline is the previous release.
+store-compat-check: ## Candidate starts on the previous build's store and the previous build on the candidate's (canary-sim, hermetic; STORE_COMPAT_PREVIOUS=<rev>, default the previous release)
+	$(LEG) store-compat go run ./scripts/store-compat $(if $(STORE_COMPAT_PREVIOUS),-previous $(STORE_COMPAT_PREVIOUS))
 
 # A gate that passes ends with one line naming the tree it proved, for the
 # completion report to quote verbatim: `gate check at <HEAD>[-dirty] exit 0`.
@@ -1697,6 +1716,13 @@ _release-run:
 	@# locally here. Plugin validation remains local because hosted CI
 	@# intentionally has no Claude CLI.
 	$(MAKE) plugin-check
+	@# Hosted CI runs no daemon against a store another build wrote. Prove
+	@# here, before the tag, that this commit starts on the previous
+	@# release's store and that release on this commit's (hermetic, the TWS
+	@# simulator; see store-compat-check). The baseline is set empty here so
+	@# neither the environment nor the command line can name another: it is
+	@# the previous release.
+	$(MAKE) store-compat-check STORE_COMPAT_PREVIOUS=
 	@# No paper-session gate runs here. Both the place/ack/cancel round-trip
 	@# and the read-only WhatIf preflight were removed on 2026-08-06 by
 	@# operator decision: each demanded a paper TWS login and a human dialog

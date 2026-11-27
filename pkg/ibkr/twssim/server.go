@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	_ "time/tzdata" // the bars settle on the New York close on any host
 )
 
 // ServerVersion is the TWS API version the simulator speaks: the first with
@@ -718,9 +719,11 @@ func (ss *session) marketData(reqID int, cq contractQuery, snapshot bool) {
 	ss.send(out...)
 }
 
-// history answers reqHistoricalData with daily bars ending on the broker
-// clock's last completed weekday: a deterministic path that drifts up gently
-// and settles on the contract's price.
+// history answers reqHistoricalData with daily bars (dailyBarDates): a
+// deterministic path that drifts up gently, or by the contract's Drift, and
+// settles on the contract's price. Until 2026-11-27 the bars ended on the day
+// before the clock's UTC date, so from the close until 19:00 New York time
+// the series lacked the session a daemon had just completed and read stale.
 func (ss *session) history(fs []string) {
 	reqID := atoi(field(fs, 0))
 	found := ss.srv.book.lookup(atoi(field(fs, 1)), field(fs, 2), field(fs, 3), field(fs, 10))
@@ -737,18 +740,15 @@ func (ss *session) history(fs []string) {
 		}
 	}
 	days := durationDays(duration)
-	end := ss.srv.now().UTC()
-	var dates []time.Time
-	for d := end.AddDate(0, 0, -1); len(dates) < days*5/7+1 && d.After(end.AddDate(0, 0, -days-1)); d = d.AddDate(0, 0, -1) {
-		if wd := d.Weekday(); wd != time.Saturday && wd != time.Sunday {
-			dates = append(dates, d)
-		}
-	}
-	slices.Reverse(dates)
+	dates := dailyBarDates(ss.srv.now(), days)
 	fields := []string{itoa(reqID), itoa(len(dates))}
 	for i, d := range dates {
 		k := float64(len(dates) - 1 - i) // trading days before the last bar
-		closeP := roundTo(in.Price/(1+0.0003*k)*(1+0.004*math.Sin(k/5)), in.MinTick)
+		drift := in.Drift
+		if drift == 0 {
+			drift = 0.0003
+		}
+		closeP := roundTo(in.Price/(1+drift*k)*(1+0.004*math.Sin(k/5)), in.MinTick)
 		openP := roundTo(closeP*(1-0.001*math.Cos(k/3)), in.MinTick)
 		high := roundTo(max(openP, closeP)*1.004, in.MinTick)
 		low := roundTo(min(openP, closeP)*0.996, in.MinTick)
@@ -759,6 +759,37 @@ func (ss *session) history(fs []string) {
 		first, last = dates[0].Format("20060102"), dates[len(dates)-1].Format("20060102")
 	}
 	ss.send(textMessage(msgHistoricalData, fields...), textMessage(msgHistoricalDataEnd, itoa(reqID), first, last))
+}
+
+// newYork is the exchange clock the simulated daily bars settle on.
+var newYork = func() *time.Location {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		panic(err) // time/tzdata is linked in above
+	}
+	return loc
+}()
+
+// dailyBarDates lists the dates of the daily bars a request for days calendar
+// days gets at now, oldest first: weekdays up to the last one whose New York
+// open (09:30) now has passed. As TWS does, it serves the bar of the session
+// under way, so the last bar is never older than the last completed session
+// at any hour, on an early close included. The simulator knows no exchange
+// holidays.
+func dailyBarDates(now time.Time, days int) []time.Time {
+	ny := now.In(newYork)
+	end := time.Date(ny.Year(), ny.Month(), ny.Day(), 0, 0, 0, 0, time.UTC) // the day after the last bar
+	if ny.Hour() > 9 || ny.Hour() == 9 && ny.Minute() >= 30 {
+		end = end.AddDate(0, 0, 1)
+	}
+	var dates []time.Time
+	for d := end.AddDate(0, 0, -1); len(dates) < days*5/7+1 && d.After(end.AddDate(0, 0, -days-1)); d = d.AddDate(0, 0, -1) {
+		if wd := d.Weekday(); wd != time.Saturday && wd != time.Sunday {
+			dates = append(dates, d)
+		}
+	}
+	slices.Reverse(dates)
+	return dates
 }
 
 func barSize(s string) bool {

@@ -166,6 +166,14 @@ Hard policy — these are not tunable by prompt, brief, or found instruction:
   (see Stage 2). Hosted test jobs run on ubuntu only (same decision):
   darwin -race coverage has no routine runner, so a suspected darwin-specific
   regression warrants a deliberate local `make test` before firing.
+- The pipeline runs `make store-compat-check` itself, after `plugin-check`
+  and before the tag (added 2026-11-27): the release commit must start on
+  the store the previous release wrote, and the previous release on the
+  store this commit wrote, each through the TWS simulator. It takes about
+  five minutes and needs no broker session. A failure names the phase and
+  quotes the daemon's own error; fix the reader or the writer, never the
+  check. Run it by hand first when the release changes what the daemon
+  stores, so the pipeline does not stop there.
 - TWS session: none needed. The release is hermetic as of 2026-08-06 — the
   paper round-trip, the WhatIf preflight and the wire smoke were all removed
   from the pipeline, so it depends on no broker session and no external
