@@ -1,6 +1,18 @@
 # Canary full context
 
-Updated: 2026-11-24 13:22 CET
+Updated: 2026-11-27 20:05 CET
+
+Version 3.47 judges the regime's HYG/SPY credit row on settled daily closes
+only: HYG's latest settled close against its 50-day average and SPY's close of
+the same session against its 252-session high (`hyg_close`, `spy_close`,
+`spy_close_52w_high`, `close_session`). The row states HYG's distance from the
+average (`hyg_vs_50dma_pct`), the run of closes on one side of it
+(`hyg_50dma_run`) and, while its exit rule keeps it red, `red_held`. SPY's
+price with its day change moved to the row's `band_reason`, and HYG's position
+in its 52-week range in percent left the monitor reading. `canary edge levels`
+(read-only) replays the level rule for a losing call on the stock's
+five-minute bars of every past session a long call was held; every sale price
+in it is modelled.
 
 Version 3.46 adds `canary market read --json` (MCP `canary_market_read`): the
 S&P 500 against the prior session's high and low, SPY volume against the same

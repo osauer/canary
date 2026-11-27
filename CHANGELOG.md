@@ -2,6 +2,23 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.47.0 — 2026-11-27 20:05 CET
+
+### What's new
+
+- The regime's HYG/SPY credit row now states the 50-day average it is judged against and, when it is red, why the red holds. It gives HYG's distance from its 50-day average (`hyg_vs_50dma_pct`) and how long HYG's daily closes have been on one side of that average (`hyg_50dma_run`: which side, since when, how many sessions, and the last session counted). The row turns red when HYG closes below its average while SPY is near its 52-week high, and it stays red until HYG closes at or above its average, even if SPY has fallen away from its high in the meantime. While that is the case the row carries `red_held`. The monitor reading, `canary regime` and the stress view lead with this in one short line, and the row's band reason carries the rest: HYG's last close against the average and the length of the run, SPY against its 52-week high with its day change, and why the red began.
+
+- `canary edge levels` is a new read-only review command. For every past session in which you held a long call on a US stock or fund, it replays the level rule for a losing call on the stock's five-minute bars and compares holding the call, selling part of it at once and following the rule. It uses stock prices only, and every sale price in it is modelled.
+
+### Changed
+
+- The regime's HYG/SPY credit row judges its band on settled daily closes only: HYG's latest settled close against its 50-day average, and SPY's close of the same session against its 52-week high, counted as 252 sessions (`hyg_close`, `spy_close`, `spy_close_52w_high`, `close_session`). This applies to turning red and to leaving red. A session that has not settled is never part of the average. Until now the row was judged on the last price, so it could change band during a session. The live quotes stay on the row, the reading shows HYG's current price beside its close, and the row is dated by the session of that close.
+- Going back from this version is possible to v3.46.3 only. Earlier versions refuse to start on the regime state this version saves.
+
+### Removed
+
+- The monitor reading of the HYG/SPY row no longer lists SPY's price and day change, which are now in `band_reason`, or HYG's position in its 52-week range in percent (`hyg_range_52w.pos`).
+
 ## v3.46.3 — 2026-11-27 18:10 CET
 
 ### What's new
