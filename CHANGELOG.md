@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.46.2 — 2026-11-27 11:10 CET
+
+### What's new
+
+- A later version that adds a detail to the stored market-regime snapshot no longer stops this version from starting. Until now, a newer version saving one more detail there would have made every earlier version refuse to start (`json: unknown field`), and going back to the earlier version would have meant restoring the database. From this version on, Canary skips details it does not know in that snapshot and checks everything it does know as before, the snapshot's checksum of its classified state included. This covers the regime snapshot only, and it does not reach back: v3.46.1 and earlier still refuse such a snapshot.
+
+### Fixed
+
+- `canary market read` could count too few leaders under their prior lows. A leader without an opening price was left unjudged even while it traded under its prior low, so the count could read 4 of 4 with more leaders below. A leader under its prior low is now counted from its last price and that low alone. Its opening gap stays unmeasured until an open is known, which Canary now reads in the background during the session.
+
+### Changed
+
+- Before a release is published, it must start on data written by the previous release, and the previous release must start on data the new one wrote, both against a simulated broker. A release that fails either start is not published.
+
 ## v3.46.1 — 2026-11-25 07:47 CET
 
 ### What's new
