@@ -40,8 +40,10 @@ const regimeDecisionHeartbeat = time.Hour
 // version is compared byte-for-byte, which is what lets a rendered field be
 // added or removed, or a row be measured on another input, without leaving
 // this build or the one before it unable to start. A change to what a line
-// renders from the same snapshot advances the version.
-const regimeDecisionLineVersion = 5
+// renders from the same snapshot advances the version. Version 6 measures
+// the HYG/SPY row's value and depth on HYG's settled close where the snapshot
+// carries one (owner decision 2026-11-24 18:26 CET).
+const regimeDecisionLineVersion = 6
 
 // regimeDecisionLine is the v1 event payload: enough raw measurement,
 // gate evidence, and decision output to measure false-alarm and recall
