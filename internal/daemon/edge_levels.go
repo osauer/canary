@@ -193,7 +193,7 @@ func (s *Server) handleEdgeLevels(ctx context.Context, req *rpc.Request) (*rpc.E
 			last = yesterday
 		}
 		read := s.replayHistoryHeld(ctx, edgecore.ExitReplayUnderlying{Symbol: symbol, Currency: "USD", First: first, Last: last}, historyRange)
-		return read, read.note.Reason != "" || edgecore.ExitReplayHistoryCovers(read.merged, first, last)
+		return read, read.note.Reason != "" || edgecore.ExitReplayHistoryCovers(levelRanged(read.merged), first, last)
 	}
 	var dailyMissing []*replayRead
 	for _, symbol := range symbols {
@@ -350,6 +350,19 @@ func levelSessions(p rpc.EdgeLevelsParams, now time.Time) []edgecore.LevelSessio
 				out = append(out, edgecore.LevelSession{Date: sess.Date, Open: sess.Open, Close: sess.Close, Short: sess.State == marketcal.StateEarlyClose, Prior: prior})
 			}
 			prior = sess.Date
+		}
+	}
+	return out
+}
+
+// levelRanged keeps the daily bars that carry a high and a low: the rule
+// reads the prior session's range and the average true range, which a
+// close-only bar (the mandate's retained closes) cannot give.
+func levelRanged(bars []edgecore.UnderlyingBar) []edgecore.UnderlyingBar {
+	var out []edgecore.UnderlyingBar
+	for _, b := range bars {
+		if b.High > 0 && b.Low > 0 {
+			out = append(out, b)
 		}
 	}
 	return out

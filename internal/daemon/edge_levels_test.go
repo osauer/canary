@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v3/internal/broker"
+	edgecore "github.com/osauer/canary/v3/internal/edge"
 	"github.com/osauer/canary/v3/internal/rpc"
 )
 
@@ -113,5 +114,20 @@ func TestEdgeLevelsANameTheBrokerCannotReadIsLeftOutNotWaitedOn(t *testing.T) {
 	// SPY, read after SYNX failed, is kept; SYNX's days are left out.
 	if result.Pending != 0 || result.Looks[1].Sample.Excluded["five_minute_bars_unavailable"] != 3 || len(fake.symbolReads("SPY")) == 0 {
 		t.Fatalf("pending %d excluded %v spy reads %d", result.Pending, result.Looks[1].Sample.Excluded, len(fake.symbolReads("SPY")))
+	}
+}
+
+func TestLevelRangedCoverageIgnoresCloseOnlyBars(t *testing.T) {
+	day := func(d string, high float64) edgecore.UnderlyingBar {
+		at, _ := time.Parse(time.DateOnly, d)
+		return edgecore.UnderlyingBar{Day: at, Close: 95, High: high, Low: high - 2}
+	}
+	// Close-only bars from January on, ranged bars only from June: the
+	// history spans January by its closes but not by its ranges.
+	bars := []edgecore.UnderlyingBar{day("2026-01-02", 0), day("2026-03-02", 0), day("2026-06-01", 96), day("2026-09-01", 96)}
+	first, _ := time.Parse(time.DateOnly, "2026-01-02")
+	last, _ := time.Parse(time.DateOnly, "2026-09-01")
+	if !edgecore.ExitReplayHistoryCovers(bars, first, last) || edgecore.ExitReplayHistoryCovers(levelRanged(bars), first, last) {
+		t.Fatal("close-only bars must not count as the ranged history the rule reads")
 	}
 }
