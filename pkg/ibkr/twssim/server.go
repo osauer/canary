@@ -740,7 +740,17 @@ func (ss *session) history(fs []string) {
 		}
 	}
 	days := durationDays(duration)
-	dates := dailyBarDates(ss.srv.now(), days)
+	now := ss.srv.now()
+	dates := dailyBarDates(now, days)
+	// With a prior close the settled bars end on it, and the bar of a
+	// session under way (today's, before the 16:00 New York close) ends on
+	// the price.
+	anchor, forming := in.Price, false
+	if in.PriorClose > 0 && len(dates) > 0 {
+		anchor = in.PriorClose
+		ny := now.In(newYork)
+		forming = dates[len(dates)-1].Format("20060102") == ny.Format("20060102") && ny.Hour() < 16
+	}
 	fields := []string{itoa(reqID), itoa(len(dates))}
 	for i, d := range dates {
 		k := float64(len(dates) - 1 - i) // trading days before the last bar
@@ -748,7 +758,15 @@ func (ss *session) history(fs []string) {
 		if drift == 0 {
 			drift = 0.0003
 		}
-		closeP := roundTo(in.Price/(1+drift*k)*(1+0.004*math.Sin(k/5)), in.MinTick)
+		var closeP float64
+		switch {
+		case forming && k == 0:
+			closeP = roundTo(in.Price, in.MinTick)
+		case forming:
+			closeP = roundTo(anchor/(1+drift*(k-1))*(1+0.004*math.Sin((k-1)/5)), in.MinTick)
+		default:
+			closeP = roundTo(anchor/(1+drift*k)*(1+0.004*math.Sin(k/5)), in.MinTick)
+		}
 		openP := roundTo(closeP*(1-0.001*math.Cos(k/3)), in.MinTick)
 		high := roundTo(max(openP, closeP)*1.004, in.MinTick)
 		low := roundTo(min(openP, closeP)*0.996, in.MinTick)
