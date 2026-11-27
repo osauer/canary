@@ -18,14 +18,6 @@ All notable changes to this project are documented here. The project adheres to 
 
 - A later version that adds a detail to the stored market-regime snapshot no longer stops this version from starting. Until now, a newer version saving one more detail there would have made every earlier version refuse to start (`json: unknown field`), and going back to the earlier version would have meant restoring the database. From this version on, Canary skips details it does not know in that snapshot and checks everything it does know as before, the snapshot's checksum of its classified state included. This covers the regime snapshot only, and it does not reach back: v3.46.1 and earlier still refuse such a snapshot.
 
-### Added
-
-- The regime's HYG/SPY credit row states the 50-day average it is judged against: HYG's distance from it (`hyg_vs_50dma_pct`), the run of daily closes on one side of it (`hyg_50dma_run`: side, since, sessions, through) and, while the row's exit rule keeps it red after SPY has left its high, `red_held` (the red holds until HYG closes at or above its average; `streak.since` is the session it began). The monitor reading, `canary regime` and the stress view lead with it in one short line, for example "HYG 76.38 · close 76.52, 1.0% below 50-day avg 77.31 since 1 Sep · 19¢ above 52w low (76.33–81.18) · red held since 4 Sep until a close ≥ avg"; the row's band reason carries the rest: the average's last close and run length, SPY against its 52-week high with its day change, and why the red began. The monitor reading no longer lists SPY's price and day change (now in `band_reason`) or HYG's position in its 52-week range in percent (`hyg_range_52w.pos`). Bands, eligibility and the regime fingerprint are unchanged.
-
-### Changed
-
-- The regime's HYG/SPY credit row judges its band on settled daily closes only (owner decision 2026-11-24 18:26 CET): HYG's latest settled close against its 50-day average and SPY's close of the same session against its 252-session high (`hyg_close`, `spy_close`, `spy_close_52w_high`, `close_session`), for entry, the red condition and the release. A bar of a session that has not settled is never part of the average. The live quotes stay on the row, the reading shows HYG now beside its close, and the row's clock is the close's session.
-
 ### Fixed
 
 - `canary market read` could count too few leaders under their prior lows. A leader without an opening price was left unjudged even while it traded under its prior low, so the count could read 4 of 4 with more leaders below. A leader under its prior low is now counted from its last price and that low alone. Its opening gap stays unmeasured until an open is known, which Canary now reads in the background during the session.
