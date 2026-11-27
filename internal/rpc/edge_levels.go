@@ -215,13 +215,16 @@ type EdgeLevelsDay struct {
 	DownOnDay bool            `json:"down_on_day"`
 	Prior     MarketReadPrior `json:"prior"`
 	ATR14     float64         `json:"atr_14"`
-	// Close is the session's daily close; Close5 the close five sessions
-	// later, absent when that session has not closed.
-	Close     float64          `json:"close"`
-	Close5    *float64         `json:"close_5,omitempty"`
-	Close5Day string           `json:"close_5_day,omitempty"`
-	Look      EdgeLevelsDraft  `json:"look"`
-	Later     *EdgeLevelsDraft `json:"later,omitempty"`
+	// SessionHigh and SessionLow are the session's daily bar, the whole
+	// day's range. Close is the session's daily close; Close5 the close five
+	// sessions later, absent when that session has not closed.
+	SessionHigh float64          `json:"session_high"`
+	SessionLow  float64          `json:"session_low"`
+	Close       float64          `json:"close"`
+	Close5      *float64         `json:"close_5,omitempty"`
+	Close5Day   string           `json:"close_5_day,omitempty"`
+	Look        EdgeLevelsDraft  `json:"look"`
+	Later       *EdgeLevelsDraft `json:"later,omitempty"`
 }
 
 // EdgeLevelsDraft is a row's levels frozen at its moment and the results

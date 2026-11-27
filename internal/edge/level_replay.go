@@ -228,7 +228,7 @@ func LevelReplay(in LevelReplayInput) LevelReplayOutput {
 
 func levelReplayDay(d LevelDayInput, index []LevelBar, lookAfter time.Duration) (rpc.EdgeLevelsDay, *levelPath, string) {
 	s := d.Day.Session
-	row := rpc.EdgeLevelsDay{Symbol: d.Day.Symbol, Session: s.Date, Contracts: d.Day.Contracts, Short: s.Short, Prior: d.Prior, ATR14: d.ATR14, Close: d.Close}
+	row := rpc.EdgeLevelsDay{Symbol: d.Day.Symbol, Session: s.Date, Contracts: d.Day.Contracts, Short: s.Short, Prior: d.Prior, ATR14: d.ATR14, SessionHigh: d.DayHigh, SessionLow: d.DayLow, Close: d.Close}
 	switch {
 	case d.Unavailable != "":
 		return row, nil, d.Unavailable

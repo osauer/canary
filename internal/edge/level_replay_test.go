@@ -69,7 +69,7 @@ var cutAndBack = map[int][4]float64{12: {96.5, 96.7, 95.4, 95.5}, 13: {95.5, 95.
 
 func TestLevelReplayDraftsALosingRowAtTheLookWithFrozenLevels(t *testing.T) {
 	d := levelOne(t, levelTestDay(levelTestBars(cutAndBack, flatAfterLook), levelTestPrior, 98), nil)
-	if d.Row != rpc.EdgeLevelsRowLosing || !d.DownOnDay || d.Later != nil {
+	if d.Row != rpc.EdgeLevelsRowLosing || !d.DownOnDay || d.Later != nil || d.SessionLow != 94.9 || d.SessionHigh != 99 {
 		t.Fatalf("row %s down %v later %v", d.Row, d.DownOnDay, d.Later)
 	}
 	look := d.Look
