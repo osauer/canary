@@ -46,7 +46,7 @@ func TestSimulatedTWSAddDiscoverySpeed(t *testing.T) {
 	}{{"open", true}, {"closed", false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			setSessions(t, tc.open)
-			opts := twssim.Options{Book: twssim.OptionsBook(time.Now()), DefinitionDelay: addSpeedDefinitionDelay}
+			opts := twssim.Options{Book: simOptionsBook(t), DefinitionDelay: addSpeedDefinitionDelay}
 			if !tc.open {
 				opts.ClosedMarkets = []string{twssim.MarketUSOptions}
 			}

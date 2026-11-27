@@ -22,7 +22,7 @@ func startSimDeskSkewed(t *testing.T, opts twssim.Options) (*simDesk, *atomic.In
 	t.Helper()
 	requireSimTier(t)
 	skew := &atomic.Int64{}
-	sim := twssim.Start(t, opts)
+	sim := startSim(t, opts)
 	dir := shortTempDir(t)
 	for key, sub := range map[string]string{"XDG_STATE_HOME": "state", "XDG_CONFIG_HOME": "config", "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data", "HOME": "home"} {
 		t.Setenv(key, filepath.Join(dir, sub))

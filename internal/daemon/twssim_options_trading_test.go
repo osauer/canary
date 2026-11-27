@@ -34,7 +34,7 @@ func optionDesk(t *testing.T, book *twssim.Book, optionsOpen bool) (*simDesk, []
 	t.Helper()
 	now := time.Now()
 	if book == nil {
-		book = twssim.OptionsBook(now)
+		book = simOptionsBook(t)
 	}
 	setSessions(t, optionsOpen)
 	opts := twssim.Options{Book: book}
@@ -206,7 +206,7 @@ func TestSimulatedTWSOptionPutEntry(t *testing.T) {
 		}
 	})
 	t.Run("uncovered", func(t *testing.T) {
-		book := twssim.OptionsBook(time.Now())
+		book := simOptionsBook(t)
 		book.SetPosition(900001, 0, 0)
 		d, exps := optionDesk(t, book, true)
 		_, rerr := d.callPlan(d.optionContract(exps[2], 45, "P"), 1.5, 1500)
@@ -228,7 +228,7 @@ func TestSimulatedTWSOptionPutEntry(t *testing.T) {
 // at preview and place, and the frame is a plain opening LMT DAY put.
 func TestSimulatedTWSOptionIndexPutEntry(t *testing.T) {
 	now := time.Now()
-	book := twssim.OptionsBook(now)
+	book := simOptionsBook(t)
 	book.SetPosition(900001, 1000, 48)
 	exps := twssim.OptionExpiries(now)
 	if err := book.ListOptions(900601, exps, []float64{540, 560, 570, 580, 590, 600}); err != nil {

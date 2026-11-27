@@ -1,6 +1,7 @@
 package twssim
 
 import (
+	"math"
 	"slices"
 	"testing"
 	"time"
@@ -62,5 +63,34 @@ func TestDefaultStrikesAndHeldTwin(t *testing.T) {
 	}
 	if got := b.lookupContract(contractQuery{symbol: "SYNA", secType: "OPT", expiry: expiry, strike: 50, right: "C"}); len(got) != 1 || got[0].ConID != 960001 {
 		t.Fatalf("SYNA 50 calls at %s: %+v", expiry, got)
+	}
+}
+
+// An option's bid and ask sit the same distance either side of its price on
+// the tick grid, whatever the date and the stock's price: the midpoint a
+// client computes from the two sides is the price, a price an order can
+// carry. A spread of an odd number of ticks put the midpoint between two
+// ticks on some days (the fourth SYNA 50 call every Friday, at 2.66 with
+// bid 2.61 and ask 2.72), so a sale priced at the midpoint on the grid sat
+// one tick above it and never filled (2026-11-27).
+func TestOptionQuotesStraddleThePriceOnEveryDay(t *testing.T) {
+	start := time.Date(2026, 11, 23, 0, 30, 0, 0, time.UTC) // a Monday
+	for h := range 24 * 14 {
+		now := start.Add(time.Duration(h) * time.Hour)
+		b := OptionsBook(now)
+		b.now = func() time.Time { return now }
+		for _, stock := range []float64{44, 48.5, 50, 52, 53, 57.25} {
+			b.SetPrice(900001, stock)
+			for _, in := range b.instr {
+				if in.SecType != "OPT" || in.UnderConID != 900001 {
+					continue
+				}
+				q := quoteOf(*in)
+				ticks := math.Round(in.Spread / in.MinTick)
+				if math.Abs(q.bid+q.ask-2*in.Price) > 1e-9 || math.Abs(q.ask-q.bid-in.Spread) > 1e-9 || math.Mod(ticks, 2) != 0 || q.bid <= 0 && in.Price > in.MinTick {
+					t.Fatalf("%s, SYNA at %v: %s %v%s priced %v quotes %v/%v on a spread of %v", now.Format("Mon 2006-01-02 15:04"), stock, in.Expiry, in.Strike, in.Right, in.Price, q.bid, q.ask, in.Spread)
+				}
+			}
+		}
 	}
 }

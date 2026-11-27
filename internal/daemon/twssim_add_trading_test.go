@@ -37,6 +37,51 @@ func requireSimTier(t *testing.T) {
 	t.Skip("simulator scenario: run it with make test-sim")
 }
 
+// simDateEnv names a day (YYYY-MM-DD) to price the simulator's options as
+// of, so a scenario is proven on a weekday other than today's: option prices
+// follow the days to expiry, and a fixture that held on a Tuesday failed
+// every Friday (2026-11-27). The day must list the same expiries as today
+// (from a Friday to the next Thursday, UTC), because the daemon reads
+// expiries by the wall clock; the broker's own time stays the wall clock.
+// Unset, options are priced at the wall clock.
+const simDateEnv = "CANARY_TEST_SIM_DATE"
+
+// simNow is now on the day simDateEnv names, or now.
+func simNow(t testing.TB) time.Time {
+	t.Helper()
+	now := time.Now()
+	text := os.Getenv(simDateEnv)
+	if text == "" {
+		return now
+	}
+	day, err := time.ParseInLocation("2006-01-02", text, time.UTC)
+	if err != nil {
+		t.Fatalf("%s=%q: want YYYY-MM-DD", simDateEnv, text)
+	}
+	at := day.Add(now.UTC().Sub(now.UTC().Truncate(24 * time.Hour)))
+	if got, want := twssim.OptionExpiries(at)[0], twssim.OptionExpiries(now)[0]; got != want {
+		t.Fatalf("%s=%s lists the expiry %s, today lists %s: name a day up to the day before %s", simDateEnv, text, got, want, want)
+	}
+	return at
+}
+
+// simOptionsBook is the option book priced as of simNow.
+func simOptionsBook(t testing.TB) *twssim.Book {
+	t.Helper()
+	return twssim.OptionsBook(simNow(t))
+}
+
+// startSim starts a simulator whose book, on a day named by simDateEnv,
+// stays priced as of that day.
+func startSim(t testing.TB, opts twssim.Options) *twssim.Server {
+	t.Helper()
+	if opts.Book != nil && os.Getenv(simDateEnv) != "" {
+		shift := time.Until(simNow(t))
+		opts.Book.SetClock(func() time.Time { return time.Now().Add(shift) })
+	}
+	return twssim.Start(t, opts)
+}
+
 // simDesk is the real daemon in simulator mode (live, the placeholder
 // account) against a TWS simulator, with its own XDG roots, socket and state
 // database and the synthetic owner's reviewed policies.
@@ -61,7 +106,7 @@ func startSimDesk(t *testing.T, opts twssim.Options, ready bool) *simDesk {
 func startSimDeskPolicies(t *testing.T, opts twssim.Options, ready bool, edit func(dir string)) *simDesk {
 	t.Helper()
 	requireSimTier(t)
-	sim := twssim.Start(t, opts)
+	sim := startSim(t, opts)
 	dir := shortTempDir(t)
 	for key, sub := range map[string]string{"XDG_STATE_HOME": "state", "XDG_CONFIG_HOME": "config", "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data", "HOME": "home"} {
 		t.Setenv(key, filepath.Join(dir, sub))

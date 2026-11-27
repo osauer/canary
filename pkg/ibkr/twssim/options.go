@@ -11,7 +11,7 @@ import (
 // Listed equity options. Each option's price is a Black-Scholes value at a
 // flat 30 percent volatility and 4 percent rate, computed from its
 // underlying's price when it is listed and again whenever that price moves;
-// the bid and ask straddle it by Spread. The model and its greeks are the
+// the bid and ask straddle it by Spread, an even number of ticks. The model and its greeks are the
 // simulator's (assumed), not a market's.
 const (
 	optionVolatility = 0.30
@@ -125,7 +125,26 @@ func (b *Book) repriceLocked(underConID int) {
 		}
 		m := optionModelAt(in, under.Price, now)
 		in.Price = math.Max(roundTo(m.price, in.MinTick), in.MinTick)
-		in.Spread = math.Max(0.02, roundTo(in.Price*0.04, in.MinTick))
+		// About 4 percent of the price, in whole ticks either side of it: the
+		// bid and ask are then on the grid the same distance from the price,
+		// and their midpoint is the price. An odd number of ticks would put
+		// the midpoint between two ticks.
+		in.Spread = math.Max(2*in.MinTick, roundTo(in.Price*0.04, 2*in.MinTick))
+	}
+}
+
+// SetClock sets the clock options are priced at and prices every listed
+// option at it. A server leaves a clock set here in place, so a scenario can
+// price its book as of another day while the broker's own time ([Options.Now])
+// stays the wall clock its client shares.
+func (b *Book) SetClock(now func() time.Time) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.now = now
+	for id, in := range b.instr {
+		if in.SecType != "OPT" {
+			b.repriceLocked(id)
+		}
 	}
 }
 

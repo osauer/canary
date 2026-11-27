@@ -174,7 +174,7 @@ func TestSimulatedTWSStrategyAddRefusals(t *testing.T) {
 func spreadDesk(t *testing.T, conID int, strikes []float64, held ...func(*twssim.Book, []string)) (*simDesk, []string) {
 	t.Helper()
 	now := time.Now()
-	book := twssim.OptionsBook(now)
+	book := simOptionsBook(t)
 	if conID == 900003 {
 		book.AddInstrument(twssim.Instrument{ConID: 900003, Symbol: "SYNC", SecType: "STK", Exchange: "SMART", PrimaryExch: "NASDAQ", Currency: "USD", TradingClass: "NMS", LongName: "SYNTHETIC C INC", MinTick: 0.01, Price: 100, Spread: 0.02})
 	}

@@ -64,7 +64,7 @@ func planDeskOn(t *testing.T, expiry int, strike float64, qty float64) (*simDesk
 	t.Helper()
 	now := time.Now()
 	setSessions(t, true)
-	book := twssim.OptionsBook(now)
+	book := simOptionsBook(t)
 	exps := twssim.OptionExpiries(now)
 	id, ok := book.OptionConIDFor(planSYNA, exps[expiry], strike, "C")
 	if !ok {
@@ -565,12 +565,12 @@ func restartablePlanDesk(t *testing.T) (*simDesk, func(), string, rpc.ContractPa
 	requireSimTier(t)
 	planStartIn(t, -10*time.Minute, 0)
 	now := time.Now()
-	book := twssim.OptionsBook(now)
+	book := simOptionsBook(t)
 	exps := twssim.OptionExpiries(now)
 	id, _ := book.OptionConIDFor(planSYNA, exps[3], 50, "C")
 	book.SetPosition(id, 20, 250)
 	book.SetPosition(planSYNA, 2000, 48)
-	sim := twssim.Start(t, twssim.Options{Book: book})
+	sim := startSim(t, twssim.Options{Book: book})
 	dir := shortTempDir(t)
 	for key, sub := range map[string]string{"XDG_STATE_HOME": "state", "XDG_CONFIG_HOME": "config", "XDG_CACHE_HOME": "cache", "XDG_DATA_HOME": "data", "HOME": "home"} {
 		t.Setenv(key, filepath.Join(dir, sub))

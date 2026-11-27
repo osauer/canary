@@ -59,7 +59,7 @@ func saleDeskWithSpread(t *testing.T, qty float64, sendIn time.Duration, pick fu
 func saleDeskBook(t *testing.T, qty float64, sendIn time.Duration, pick func(b *twssim.Book, exps []string) int, edit func(b *twssim.Book)) (*simDesk, rpc.ContractParams, time.Time) {
 	t.Helper()
 	now := time.Now()
-	book := twssim.OptionsBook(now)
+	book := simOptionsBook(t)
 	exps := twssim.OptionExpiries(now)
 	id := pick(book, exps)
 	in, ok := book.Contract(id)
@@ -84,19 +84,20 @@ func saleCall(exp int, strike float64) func(*twssim.Book, []string) int {
 	}
 }
 
-// saleCheapCall is the SYNA call more than seven days out whose model price
-// is closest to target.
-func saleCheapCall(target float64) func(*twssim.Book, []string) int {
+// saleCheapCall is the cheapest SYNA call more than seven days out whose
+// model price is at or above floor: on any day the premium a scenario needs
+// at least, where the call nearest a price was some days a cheaper one.
+func saleCheapCall(floor float64) func(*twssim.Book, []string) int {
 	return func(b *twssim.Book, exps []string) int {
-		best, gap := 0, math.Inf(1)
+		best, price := 0, math.Inf(1)
 		for _, exp := range exps[1:] {
 			for _, k := range []float64{40, 45, 50, 55, 60} {
 				id, ok := b.OptionConIDFor(900001, exp, k, "C")
 				if !ok {
 					continue
 				}
-				if in, _ := b.Contract(id); math.Abs(in.Price-target) < gap {
-					best, gap = id, math.Abs(in.Price-target)
+				if in, _ := b.Contract(id); in.Price >= floor && in.Price < price {
+					best, price = id, in.Price
 				}
 			}
 		}
@@ -234,9 +235,12 @@ func TestSimulatedTWSQueuedOptionSaleRaisesBookDelta(t *testing.T) {
 // S2. 400 long calls of a cheap option, 200 queued for sale: above the
 // contract cap and the money cap at once (the simulator's money cap is above
 // 100 contracts of this premium, so the sale is sized to bind it), passing
-// both as a delta-reducing exit.
+// both as a delta-reducing exit. The call is the cheapest at 0.70 or more:
+// the cap is a tenth of a net liquidation that holds the 400 calls, so at
+// any premium above 0.66 the 200 sold are worth more than it (14,000 USD
+// against 13,321.50 USD at 0.70, and the gap widens with the premium).
 func TestSimulatedTWSQueuedOptionSaleAboveBothCaps(t *testing.T) {
-	d, c, open := saleDesk(t, 400, 40*time.Second, saleCheapCall(0.60), nil)
+	d, c, open := saleDesk(t, 400, 40*time.Second, saleCheapCall(0.70), nil)
 	mid := d.saleMid(c.ConID)
 	limits := d.srv.orderLimitsInForce("USD")
 	notional := 200 * mid * 100
