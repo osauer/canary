@@ -267,7 +267,6 @@ type reading struct {
 // set, so the store holds a projection for the next build to reconcile) and
 // stops it.
 func phase(bin, stack, book, name string, publish, streak bool) (reading, error) {
-	started := time.Now().UTC()
 	var stderr bytes.Buffer
 	cmd := exec.Command(bin, "-dir", stack, "-book", book)
 	cmd.Stdout, cmd.Stderr = new(bytes.Buffer), &stderr
@@ -280,9 +279,18 @@ func phase(bin, stack, book, name string, publish, streak bool) (reading, error)
 	exited := make(chan struct{})
 	var waitErr error
 	go func() { waitErr = cmd.Wait(); close(exited) }()
+	// The US session is open in every phase, whatever the hour: outside it
+	// the daemon reads HYG's price as its last close, and a build that
+	// measures the row on the close and one that measures it on the price
+	// would store the same streak and hide their difference.
+	if err := openSession(bin, stack, exited); err != nil {
+		_ = cmd.Process.Kill()
+		<-exited
+		return reading{}, fmt.Errorf("open the simulated US session: %w: %s", err, lastLine(stderr.String()))
+	}
 	since := time.Time{}
 	if publish {
-		since = started
+		since = time.Now().UTC()
 	}
 	got, err := awaitRegime(filepath.Join(stack, "ibkr.sock"), since, streak, exited, func() error { return waitErr }, &stderr)
 	_ = cmd.Process.Signal(syscall.SIGTERM)
@@ -298,6 +306,27 @@ func phase(bin, stack, book, name string, publish, streak bool) (reading, error)
 	fmt.Printf("store-compat: %s: serving; regime as of %s, HYG/SPY %s since %s (%d sessions)\n",
 		name, got.at.Format(time.RFC3339), got.band, got.since, got.sessions)
 	return got, nil
+}
+
+// openSession opens the simulated US equity session through the stack's
+// control channel, as soon as the daemon's process listens on it.
+func openSession(bin, stack string, exited <-chan struct{}) error {
+	deadline := time.Now().Add(time.Minute)
+	for {
+		out, err := exec.Command(bin, "ctl", "-dir", stack, "session", "us_equity", "open").CombinedOutput()
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-exited:
+			return nil // awaitRegime reports the exit with the daemon's own line
+		default:
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func awaitRegime(socket string, started time.Time, streak bool, exited <-chan struct{}, exitErr func() error, stderr *bytes.Buffer) (reading, error) {
@@ -351,16 +380,19 @@ func regime(socket string) (reading, error) {
 }
 
 // fixtureBook is the simulated account (the placeholder U1234567, invented
-// figures): HYG's daily bars fall into its price, so it sits more than 1%
-// under its 50-day average while SPY sits at its high and the HYG/SPY row is
-// red, the state whose streak and latch the store keeps.
+// figures): HYG's daily bars fall into its last close, so it sits more than
+// 1% under its 50-day average while SPY sits at its high and the HYG/SPY row
+// is red, the state whose streak and latch the store keeps. Its price stands
+// off that close, as on any trading day: a build that measures the row on the
+// close and one that measures it on the price then store different streaks,
+// which a fixture with both equal would hide.
 const fixtureBook = `{
   "account": "U1234567",
   "base_currency": "USD",
   "cash": {"USD": 250000},
   "positions": [
     {"con_id": 43652089, "symbol": "HYG", "sec_type": "STK", "currency": "USD", "exchange": "SMART",
-     "primary_exchange": "ARCA", "quantity": 0, "avg_cost": 0, "last": 80, "daily_drift": -0.0005}
+     "primary_exchange": "ARCA", "quantity": 0, "avg_cost": 0, "last": 79.7, "prior_close": 80, "daily_drift": -0.0005}
   ]
 }`
 

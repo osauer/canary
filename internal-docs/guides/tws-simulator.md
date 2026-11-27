@@ -135,6 +135,9 @@ The loader is strict and refuses unknown fields. It refuses any account but
     into `last`: `-0.0005` makes them fall into it by about 0.05% a session,
     which puts the last close under its averages. Unset, the bars rise
     gently into `last`.
+  - `prior_close` is the close of the last settled session: the settled
+    daily bars end on it and the quote reports it, so `last` stands off the
+    last close as on any trading day. Unset, the bars end on `last`.
   - A stock the default catalogue already lists (SPY, SYNB) takes the
     catalogue's `con_id`, and options naming the file's id follow it, so a
     symbol never names two contracts.

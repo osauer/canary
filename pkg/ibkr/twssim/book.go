@@ -30,6 +30,11 @@ type Instrument struct {
 	// into it, negative falls into it; zero is the default gentle rise
 	// (0.0003 a session).
 	Drift float64
+	// PriorClose, when set, is the close of the last settled session: the
+	// settled daily bars end on it and the quote reports it, so the price
+	// stands off its last close as it does on any trading day. Unset, the
+	// bars end on Price and the quote's close is a little under it.
+	PriorClose float64
 	// Bid and Ask, when set, are quoted as they are instead of from Spread.
 	Bid, Ask float64
 	// An option's expiry (YYYYMMDD), strike, right (C or P), multiplier and
@@ -487,6 +492,9 @@ type quote struct{ bid, ask, last, close float64 }
 
 func quoteOf(in Instrument) quote {
 	q := quote{last: in.Price, close: roundTo(in.Price*0.995, in.MinTick)}
+	if in.PriorClose > 0 {
+		q.close = in.PriorClose
+	}
 	if in.Spread > 0 {
 		q.bid = roundTo(in.Price-in.Spread/2, in.MinTick)
 		q.ask = roundTo(in.Price+in.Spread/2, in.MinTick)
