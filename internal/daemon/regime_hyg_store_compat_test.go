@@ -25,12 +25,10 @@ func TestRegimeStartsOnAStoreWrittenBeforeClosesOnly(t *testing.T) {
 	snapshot.HYGSPYDivergence = rpc.RegimeHYGSPYDivergence{
 		Status: rpc.RegimeStatusOK, HYGPrice: new(price), HYG50DMA: new(average), HYGDataType: "live",
 		SPYPrice: new(470.0), SPY52WHigh: new(520.0),
-		Streak: &rpc.StreakInfo{Band: "red", Sessions: 9, Since: "2026-03-06"},
-		RegimeIndicatorMeta: rpc.RegimeIndicatorMeta{
-			Band:        "red",
-			Freshness:   &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
-			Eligibility: &rpc.RegimeEligibility{Eligible: true, Latched: true},
-		},
+		Streak:      &rpc.StreakInfo{Band: "red", Sessions: 9, Since: "2026-03-06"},
+		Band:        "red",
+		Freshness:   &rpc.RegimeFreshness{Class: rpc.RegimeFreshnessFresh},
+		Eligibility: &rpc.RegimeEligibility{Eligible: true, Latched: true},
 	}
 	snapshot.Fingerprint = rpc.BuildRegimeFingerprint(snapshot)
 	publication := regimeSnapshotPublication{Revision: 7, PublishedAt: asOf.UTC(), Fingerprint: snapshot.Fingerprint}
