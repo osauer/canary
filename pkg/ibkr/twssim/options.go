@@ -136,7 +136,8 @@ func (b *Book) repriceLocked(underConID int) {
 // SetClock sets the clock options are priced at and prices every listed
 // option at it. A server leaves a clock set here in place, so a scenario can
 // price its book as of another day while the broker's own time ([Options.Now])
-// stays the wall clock its client shares.
+// stays the wall clock its client shares; only a combination's leg fills are
+// stamped by this clock.
 func (b *Book) SetClock(now func() time.Time) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

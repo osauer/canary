@@ -42,7 +42,8 @@ func requireSimTier(t *testing.T) {
 // follow the days to expiry, and a fixture that held on a Tuesday failed
 // every Friday (2026-11-27). The day must list the same expiries as today
 // (from a Friday to the next Thursday, UTC), because the daemon reads
-// expiries by the wall clock; the broker's own time stays the wall clock.
+// expiries by the wall clock; the broker's own time stays the wall clock,
+// except that a combination's leg fills are stamped with the named day.
 // Unset, options are priced at the wall clock.
 const simDateEnv = "CANARY_TEST_SIM_DATE"
 

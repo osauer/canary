@@ -237,8 +237,8 @@ func TestSimulatedTWSQueuedOptionSaleRaisesBookDelta(t *testing.T) {
 // 100 contracts of this premium, so the sale is sized to bind it), passing
 // both as a delta-reducing exit. The call is the cheapest at 0.70 or more:
 // the cap is a tenth of a net liquidation that holds the 400 calls, so at
-// any premium above 0.66 the 200 sold are worth more than it (14,000 USD
-// against 13,321.50 USD at 0.70, and the gap widens with the premium).
+// any premium above about 0.66 the 200 sold are worth more than it, and the
+// gap widens with the premium.
 func TestSimulatedTWSQueuedOptionSaleAboveBothCaps(t *testing.T) {
 	d, c, open := saleDesk(t, 400, 40*time.Second, saleCheapCall(0.70), nil)
 	mid := d.saleMid(c.ConID)
