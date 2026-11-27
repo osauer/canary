@@ -707,9 +707,15 @@ func encodeRegimeSnapshotDocument(snapshot *rpc.RegimeSnapshotResult) ([]byte, r
 	return raw, detached.Fingerprint, nil
 }
 
+// decodeRegimeSnapshotDocument reads a stored snapshot. A field this build
+// does not know is skipped, not refused: a later build adds fields, and the
+// build before it must still start on that store or an install cannot be
+// rolled back (2026-11-24: `json: unknown field "hyg_close"` refused every
+// start of the previous build). What it knows is still held to the full
+// check below, and the classified state must reproduce the stored
+// fingerprint.
 func decodeRegimeSnapshotDocument(raw []byte) (*rpc.RegimeSnapshotResult, error) {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
 	var snapshot rpc.RegimeSnapshotResult
 	if err := decoder.Decode(&snapshot); err != nil {
 		return nil, fmt.Errorf("decode regime snapshot state document: %w", err)
