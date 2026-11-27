@@ -541,9 +541,18 @@ func TestRegimeStreakProjectionSurvivesNotDueFreezeAcrossRestart(t *testing.T) {
 	freshPublication := regimeSnapshotPublication{Revision: 2, PublishedAt: asOf.UTC(), Fingerprint: fresh.Fingerprint}
 	stale := projectionRecoverySeedStreakStore(t, openRegimeSnapshotTestStore(t), freshPublication,
 		map[string]StreakEntry{StreakKeyVIXTerm: prior})
-	err := stale.reconcileRegimeProjection(t.Context(), fresh, regimeProjectionPlan{publication: freshPublication})
-	if err == nil || !strings.Contains(err.Error(), "content mismatch at snapshot revision 2") {
-		t.Fatalf("fresh row with a stale stored value err=%v, want a content mismatch", err)
+	// A fresh row never keeps the frozen value: start replaces a stored
+	// value it measures differently and leaves the rest of the streak alone.
+	if err := stale.reconcileRegimeProjection(t.Context(), fresh, regimeProjectionPlan{publication: freshPublication}); err != nil {
+		t.Fatalf("fresh row with a stale stored value: %v", err)
+	}
+	stale.mu.Lock()
+	replaced := stale.entries[StreakKeyVIXTerm]
+	stale.mu.Unlock()
+	want := prior
+	want.LastValue = movedRatio
+	if !reflect.DeepEqual(replaced, want) {
+		t.Fatalf("fresh row entry=%+v, want %+v (the measured value, nothing else changed)", replaced, want)
 	}
 }
 

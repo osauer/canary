@@ -36,9 +36,11 @@ const regimeDecisionHeartbeat = time.Hour
 // and later label/replay additions. Versions 3 and 4 carried a shadow scoring
 // block, which was removed: 4 is the last version that renders one, so lines
 // written under it cannot be reproduced by this renderer. Startup binds every
-// older version by publication identity; only the current version is compared
-// byte-for-byte, which is what lets a rendered field be added or removed
-// without leaving the daemon unable to start.
+// other version, older or later, by publication identity; only the current
+// version is compared byte-for-byte, which is what lets a rendered field be
+// added or removed, or a row be measured on another input, without leaving
+// this build or the one before it unable to start. A change to what a line
+// renders from the same snapshot advances the version.
 const regimeDecisionLineVersion = 5
 
 // regimeDecisionLine is the v1 event payload: enough raw measurement,

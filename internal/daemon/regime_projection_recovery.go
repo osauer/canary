@@ -379,10 +379,16 @@ func (s *StreakStore) reconcileRegimeProjection(ctx context.Context, snapshot *r
 		return err
 	}
 	if position == regimeProjectionCurrent {
-		if !maps.Equal(s.entries, next) {
+		if maps.Equal(s.entries, next) {
+			return nil
+		}
+		if !streakEntriesDifferOnlyInLastValue(s.entries, next) {
 			return fmt.Errorf("regime streak projection content mismatch at snapshot revision %d", publication.Revision)
 		}
-		return nil
+		// Only the value a row was last measured on differs: a build that
+		// measures a row on another input (a settled close, not the live
+		// price) wrote this store. The value is replaced below with this
+		// build's own measure of the checked snapshot.
 	}
 	s.entries = next
 	s.loaded = true
@@ -394,6 +400,27 @@ func (s *StreakStore) reconcileRegimeProjection(ctx context.Context, snapshot *r
 		return fmt.Errorf("repair regime streak projection: %w", err)
 	}
 	return nil
+}
+
+// streakEntriesDifferOnlyInLastValue reports whether stored and derived hold
+// the same rows with the same band, since date, session count, last session,
+// latch and band time. Start-up reconcile replaces a stored last value it
+// would measure differently and refuses every other difference.
+func streakEntriesDifferOnlyInLastValue(stored, derived map[string]StreakEntry) bool {
+	if len(stored) != len(derived) {
+		return false
+	}
+	for key, want := range derived {
+		got, ok := stored[key]
+		if !ok {
+			return false
+		}
+		got.LastValue = want.LastValue
+		if got != want {
+			return false
+		}
+	}
+	return true
 }
 
 func projectedRegimeStreakEntries(current map[string]StreakEntry, snapshot *rpc.RegimeSnapshotResult, publication regimeSnapshotPublication) (map[string]StreakEntry, error) {
@@ -814,9 +841,11 @@ func validateRegimeDecisionProjectionEvent(event corestore.EventRecord, line reg
 		// legitimately different content, so byte equality is only demanded
 		return nil
 	}
-	if line.V > 0 && line.V < regimeDecisionLineVersion {
+	if line.V > 0 && line.V != regimeDecisionLineVersion {
 		// The event key, publication time, and typed fingerprint above bind an
-		// immutable older payload to this exact snapshot. Its rendered fields
+		// immutable payload of another version to this exact snapshot, whether
+		// an older build rendered it or a later one this build was started
+		// after (a rollback). This renderer cannot reproduce its fields.
 		// Current-version lines remain byte-exact below.
 		return nil
 	}
