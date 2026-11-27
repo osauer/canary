@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.46.3 — 2026-11-27 18:10 CET
+
+### What's new
+
+- Going back to this version after running a later one is possible in one more case: when the later version reads a market-regime indicator from different market data, for example a settled close where this version uses the last price. At start, Canary compares the indicator streaks and regime decision records it finds saved with what it works out itself from the saved regime snapshot, and until now any difference made it refuse to start. It now replaces a streak's saved last value with its own reading, and it accepts a decision record that a later version wrote in a newer record format when that record belongs to the same snapshot. Every other difference still stops the start, and a decision record in this version's own format is still compared exactly. Saved decision records are left as they are. v3.46.2 and earlier are unchanged and still refuse to start in this case.
+
+### Changed
+
+- Release testing only, with no change to how Canary runs: the start check before a release now runs with the simulated US market open and a last price that differs from the prior close, and the simulated broker's option quotes keep their midpoint on a valid price on every weekday.
+
 ## v3.46.2 — 2026-11-27 11:10 CET
 
 ### What's new
