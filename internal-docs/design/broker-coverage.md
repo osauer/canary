@@ -106,7 +106,7 @@ Tests run without a live broker; the wire smoke reads a live IBKR gateway (`scri
 | macro |   |   | `macro.snapshot` |
 | market calendar and events |   |   | `market.calendar`, `market_events.snapshot` |
 | brief |   | `TestBriefCoverageNamesTheGapOnlyUnderOpenD`; `TestBriefNamesAHoldingItDoesNotAnalyse` | `brief.snapshot`, `nudges.snapshot` |
-| Edge |   | `TestIBKROnlyMethodsAnswerNotApplicable` | `edge.replay`, `edge.snapshot` |
+| Edge |   | `TestIBKROnlyMethodsAnswerNotApplicable` | `edge.levels`, `edge.replay`, `edge.snapshot` |
 | reconciliation |   | `TestIBKROnlyMethodsAnswerNotApplicable` | `recon.backtest`, `recon.check`, `recon.dismiss`, `recon.equity`, `recon.snapshot`, `recon.status` |
 | statement reporting |   | `TestIBKROnlyMethodsAnswerNotApplicable` | `reporting.costs`, `reporting.performance`, `reporting.status`, `reporting.validate` |
 | FX attribution |   |   | `reporting.fx`, `reporting.fx.backfill` |

@@ -149,6 +149,7 @@ var methodTimings = []MethodTiming{
 	// The replay reads retained statements, recorded chains and the cached
 	// daily history of each underlying; an uncached history is fetched once.
 	{Method: MethodEdgeReplay, Lifetime: MethodLifetimeUnary, DaemonTimeout: 60 * time.Second},
+	{Method: MethodEdgeLevels, Lifetime: MethodLifetimeUnary, DaemonTimeout: 60 * time.Second},
 	// A read of the saved scorecard publication; the worker evaluates it.
 	{Method: MethodScorecardRead, Lifetime: MethodLifetimeUnary, DaemonTimeout: 10 * time.Second},
 	{Method: MethodLendingMarket, Lifetime: MethodLifetimeUnary, DaemonTimeout: 20 * time.Second},

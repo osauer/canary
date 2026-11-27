@@ -153,6 +153,24 @@ func replayHistoryBudget(ctx context.Context) time.Duration {
 // they do not span the days it needs, starts the broker read (or joins the
 // one in flight). Nothing here waits on the broker.
 func (s *Server) replayHistoryRetained(ctx context.Context, underlying edgecore.ExitReplayUnderlying, historyRange string) *replayRead {
+	read := s.replayHistoryHeld(ctx, underlying, historyRange)
+	first := underlying.First.AddDate(0, 0, -replayHistoryLeadDays)
+	switch {
+	case edgecore.ExitReplayHistoryCovers(read.merged, first, underlying.Last):
+	case read.note.Reason != "":
+	case s.brokerReads() == nil && s.replayHistoryFetchForTest == nil:
+		read.note = edgecore.ExitReplayHistoryNote{Reason: rpc.EdgeReplayHistoryGatewayOffline, Detail: replayHeldText(read.merged)}
+	default:
+		read.fetch = s.startReplayFetch(ctx, read)
+	}
+	return read
+}
+
+// replayHistoryHeld reads one underlying's daily bars from what Canary
+// retains, without the broker: the replay's own history, the mandate's
+// closes and the market-history cache, merged. A contract the market history
+// cannot key is noted as unavailable.
+func (s *Server) replayHistoryHeld(ctx context.Context, underlying edgecore.ExitReplayUnderlying, historyRange string) *replayRead {
 	contract := replayHistoryContract(underlying, rpc.IndexUnderlyingContract)
 	read := &replayRead{underlying: underlying, contract: contract, params: rpc.MarketHistoryParams{Contract: contract, Range: historyRange}}
 	read.retained, read.revision = s.loadReplayHistory(ctx, contract)
@@ -171,18 +189,10 @@ func (s *Server) replayHistoryRetained(ctx context.Context, underlying edgecore.
 		if saved, _, err := s.loadMarketHistory(ctx, key); err == nil && saved != nil {
 			read.sources = append(read.sources, replayHistorySourceOf(saved.Result))
 		}
+	} else {
+		read.note = edgecore.ExitReplayHistoryNote{Reason: rpc.EdgeReplayHistoryInstrumentUnavailable, Detail: identityErr.Error()}
 	}
 	read.merged = mergeReplaySources(read.sources)
-	first := underlying.First.AddDate(0, 0, -replayHistoryLeadDays)
-	switch {
-	case edgecore.ExitReplayHistoryCovers(read.merged, first, underlying.Last):
-	case identityErr != nil:
-		read.note = edgecore.ExitReplayHistoryNote{Reason: rpc.EdgeReplayHistoryInstrumentUnavailable, Detail: identityErr.Error()}
-	case s.gatewayConnector() == nil && s.replayHistoryFetchForTest == nil:
-		read.note = edgecore.ExitReplayHistoryNote{Reason: rpc.EdgeReplayHistoryGatewayOffline, Detail: replayHeldText(read.merged)}
-	default:
-		read.fetch = s.startReplayFetch(ctx, read)
-	}
 	return read
 }
 

@@ -21,6 +21,9 @@ func runEdge(ctx context.Context, env *Env, args []string) int {
 	if n := len(args); n > 0 && args[n-1] == "replay" && (n == 1 || !isValueFlag(args[n-2]) || strings.Contains(args[n-2], "=")) {
 		return runEdgeReplay(ctx, env, args[:n-1])
 	}
+	if rest, ok := edgeSubaction(args, "levels"); ok {
+		return runEdgeLevels(ctx, env, rest)
+	}
 	if rest, ok := edgeSubaction(args, "tests"); ok {
 		return runEdgeTests(ctx, env, rest)
 	}

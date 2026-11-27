@@ -156,6 +156,30 @@ type MarketReadPrior struct {
 	Close float64 `json:"close"`
 }
 
+// A held stock's price against the prior session's range, as the market
+// read's held rows and the level replay (edge.levels) both read it.
+const (
+	MarketReadAbovePriorHigh = "above_prior_high"
+	MarketReadInsidePrior    = "inside"
+	MarketReadBelowPriorLow  = "below_prior_low"
+)
+
+// MarketReadHeldPosition places last against the prior session's range: above
+// its high, under its low, else inside (the boundaries count as inside).
+func MarketReadHeldPosition(last float64, prior MarketReadPrior) string {
+	switch {
+	case last > prior.High:
+		return MarketReadAbovePriorHigh
+	case last < prior.Low:
+		return MarketReadBelowPriorLow
+	}
+	return MarketReadInsidePrior
+}
+
+// MarketReadDayMid is the midpoint of a session's range so far, the held
+// row's day_mid and the level rule's first trim level.
+func MarketReadDayMid(high, low float64) float64 { return (high + low) / 2 }
+
 // MarketReadIndex is the S&P 500 index against its prior session.
 type MarketReadIndex struct {
 	Symbol           string           `json:"symbol"`

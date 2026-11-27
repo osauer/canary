@@ -544,6 +544,9 @@ type Server struct {
 	replayHistoryFetchForTest func(context.Context, rpc.MarketHistoryParams) (*rpc.MarketHistoryResult, error)
 	// replayFetches holds the replay's broker history reads in flight.
 	replayFetches replayFetchStore
+	// levelFill holds the level replay's background read of five-minute
+	// bars in flight.
+	levelFill levelFillStore
 	// orderLimitsNLV is the latest current account reading the order cap
 	// in force scales with ([order_limits], order_limits.go).
 	orderLimitsNLV orderLimitsNLVState

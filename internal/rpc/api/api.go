@@ -69,6 +69,7 @@ var (
 	ReportingValidate                    = rpc.Define[rpc.ReportingValidateParams, rpc.ReportingValidationResult](rpc.MethodReportingValidate)
 	EdgeSnapshot                         = rpc.Define[rpc.EdgeSnapshotParams, rpc.EdgeResult](rpc.MethodEdgeSnapshot)
 	EdgeReplay                           = rpc.Define[rpc.EdgeReplayParams, rpc.EdgeReplayResult](rpc.MethodEdgeReplay)
+	EdgeLevels                           = rpc.Define[rpc.EdgeLevelsParams, rpc.EdgeLevelsResult](rpc.MethodEdgeLevels)
 	ShortInterestScreen                  = rpc.Define[rpc.ShortInterestScreenParams, rpc.ShortInterestScreenResult](rpc.MethodShortInterestScreen)
 	LendingMarket                        = rpc.Define[rpc.LendingMarketParams, rpc.LendingMarketResult](rpc.MethodLendingMarket)
 	LendingScreen                        = rpc.Define[rpc.LendingScreenParams, rpc.LendingScreenResult](rpc.MethodLendingScreen)

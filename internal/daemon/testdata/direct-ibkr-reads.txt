@@ -125,7 +125,6 @@ trading.status
 (*Server).readReconFXQuote
 (*Server).reconcileOrderJournalWithBroker
 (*Server).rememberMarketHistoryDefinitionMiss
-(*Server).replayHistoryRetained
 (*Server).resolveContractMinTick
 (*Server).setupQuoteAuthority
 (*Server).statusHealthSnapshot

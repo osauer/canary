@@ -289,12 +289,8 @@ func marketReadHeldRow(h marketReadHeldSource, base rpc.MarketReadLeader, now ti
 		row.PositionUnavailable = "prior session range unavailable"
 	case row.Last == nil:
 		row.PositionUnavailable = "current price unavailable"
-	case *row.Last > row.Prior.High:
-		row.Position = "above_prior_high"
-	case *row.Last < row.Prior.Low:
-		row.Position = "below_prior_low"
 	default:
-		row.Position = "inside"
+		row.Position = rpc.MarketReadHeldPosition(*row.Last, *row.Prior)
 	}
 	return row
 }
@@ -347,5 +343,5 @@ func marketReadHeldDay(row *rpc.MarketReadHeldRow, h marketReadHeldSource, now t
 	if state == rpc.MarketReadOpen && row.Last != nil {
 		high, low = max(high, *row.Last), min(low, *row.Last)
 	}
-	row.DayHigh, row.DayLow, row.DayMid = new(high), new(low), new((high+low)/2)
+	row.DayHigh, row.DayLow, row.DayMid = new(high), new(low), new(rpc.MarketReadDayMid(high, low))
 }

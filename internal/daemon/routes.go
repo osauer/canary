@@ -123,6 +123,7 @@ func (s *Server) routeTable() map[string]route {
 		api.ReportingValidate.Name:    serve(api.ReportingValidate, "statement reporting", s.handleReportingValidate),
 		api.EdgeSnapshot.Name:         serve(api.EdgeSnapshot, "Edge", s.handleEdgeSnapshot),
 		api.EdgeReplay.Name:           serve(api.EdgeReplay, "Edge", s.handleEdgeReplay),
+		api.EdgeLevels.Name:           serve(api.EdgeLevels, "Edge", s.handleEdgeLevels),
 		api.ShortInterestScreen.Name:  serve(api.ShortInterestScreen, "borrow availability", s.handleShortInterestScreen),
 		api.LendingMarket.Name:        serve(api.LendingMarket, "borrow availability", s.handleLendingMarket),
 		api.LendingScreen.Name:        serve(api.LendingScreen, "borrow availability", s.handleLendingScreen),
