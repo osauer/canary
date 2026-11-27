@@ -141,10 +141,24 @@ func TestMarketReadHeldBeforeTheOpen(t *testing.T) {
 	if row.DayHigh != nil || row.DayMid != nil || row.DayUnavailable == "" || row.Position != "" || row.PositionUnavailable == "" || row.State != "" || row.StateUnavailable == "" || row.Open != nil {
 		t.Fatalf("today's values drawn before the open: %+v", row)
 	}
-	// A price that is the prior close is that close.
+	// A pre-market trade of 101 inside the prior range of 95 to 105 is
+	// indicated inside; one of 94 under its low.
+	if row.IndicatedPosition != rpc.MarketReadInsidePrior {
+		t.Fatalf("indicated position of a pre-market trade inside the range: %q", row.IndicatedPosition)
+	}
+	h.Quote.Last = 94
+	if row := heldRow(t, m.read(m.session.Open.Add(-30*time.Minute)), "HLDA"); row.IndicatedPosition != rpc.MarketReadBelowPriorLow || row.Position != "" {
+		t.Fatalf("indicated position under the prior low: %+v", row)
+	}
+	// A price that is the prior close is that close, and indicates nothing.
 	h.Quote.Last = 100
-	if row := heldRow(t, m.read(m.session.Open.Add(-30*time.Minute)), "HLDA"); row.LastSource != "prior_close" || !row.LastAt.Equal(m.prior.Close.UTC()) {
+	if row := heldRow(t, m.read(m.session.Open.Add(-30*time.Minute)), "HLDA"); row.LastSource != "prior_close" || !row.LastAt.Equal(m.prior.Close.UTC()) || row.IndicatedPosition != "" {
 		t.Fatalf("prior close before the open: %+v", row)
+	}
+	// Once the session is open only position is drawn.
+	h.Quote.TradeAt = m.session.Open.Add(time.Hour)
+	if row := heldRow(t, m.read(m.session.Open.Add(90*time.Minute)), "HLDA"); row.IndicatedPosition != "" {
+		t.Fatalf("indicated position in the session: %+v", row)
 	}
 }
 

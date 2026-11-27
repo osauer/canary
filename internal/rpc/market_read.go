@@ -372,6 +372,11 @@ type MarketReadHeldRow struct {
 	// below_prior_low; absent before the open.
 	Position            string `json:"position,omitempty"`
 	PositionUnavailable string `json:"position_unavailable,omitempty"`
+	// IndicatedPosition is, before the open, a pre-market trade against the
+	// prior range, in position's three words. It is an indication read from
+	// thin pre-market prints, not where the session stands; absent without
+	// a pre-market trade and once the session has opened.
+	IndicatedPosition string `json:"indicated_position,omitempty"`
 	// State is one of the leader states.
 	State            string `json:"state,omitempty"`
 	StateUnavailable string `json:"state_unavailable,omitempty"`

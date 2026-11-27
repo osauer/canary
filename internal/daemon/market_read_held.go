@@ -285,6 +285,9 @@ func marketReadHeldRow(h marketReadHeldSource, base rpc.MarketReadLeader, now ti
 	switch {
 	case state == rpc.MarketReadPre:
 		row.PositionUnavailable = "the session has not opened"
+		if row.Prior != nil && row.Last != nil && row.LastSource == "trade" {
+			row.IndicatedPosition = rpc.MarketReadHeldPosition(*row.Last, *row.Prior)
+		}
 	case row.Prior == nil:
 		row.PositionUnavailable = "prior session range unavailable"
 	case row.Last == nil:
