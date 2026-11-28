@@ -117,10 +117,8 @@ func (s *Server) gatewayDialPending() bool {
 // incident. It reads the connector without gatewayConnector's reconnect side
 // effect.
 func (s *Server) gatewaySessionEnded() bool {
-	s.mu.Lock()
-	c := s.connector
-	s.mu.Unlock()
-	return c != nil && s.postConnectSetupDone.Load() && !c.IsReady()
+	health, held := s.sessionHealth()
+	return held && s.postConnectSetupDone.Load() && !health.Ready
 }
 
 // gatewaySessionReady reports a published connector with a live API session,
@@ -138,27 +136,24 @@ func (s *Server) historicalBarFarmOutage() bool {
 	if s.historicalFarmOutage != nil {
 		return s.historicalFarmOutage()
 	}
-	s.mu.Lock()
-	c := s.connector
-	s.mu.Unlock()
-	return c.HistoricalBarFarmOutageAnnounced()
+	health, _ := s.sessionHealth()
+	return health.HistoryOutage
 }
 
 // backendLinkUnsettled reads the current connector's backend-link latch
 // without the reconnect side effect of gatewayConnector: down, or restored
 // less than ibkrlib.BackendRestoreSettle ago.
 func (s *Server) backendLinkUnsettled() bool {
-	var link ibkrlib.BackendLinkReport
+	down, changedAt := false, time.Time{}
 	if s.backendLink != nil {
-		link = s.backendLink()
+		link := s.backendLink()
+		down, changedAt = link.Down, link.ChangedAt
 	} else {
-		s.mu.Lock()
-		c := s.connector
-		s.mu.Unlock()
-		link = c.BackendLink()
+		health, _ := s.sessionHealth()
+		down, changedAt = health.BackendDown, health.BackendChangedAt
 	}
-	if link.Down {
+	if down {
 		return true
 	}
-	return !link.ChangedAt.IsZero() && s.gatewayLogClock().Sub(link.ChangedAt) < ibkrlib.BackendRestoreSettle
+	return !changedAt.IsZero() && s.gatewayLogClock().Sub(changedAt) < ibkrlib.BackendRestoreSettle
 }

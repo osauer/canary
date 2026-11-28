@@ -153,7 +153,9 @@ func (a *Adapter) Health() broker.SessionHealth {
 	}
 	h.Connected = a.conn.IsConnected()
 	h.Ready = a.conn.IsReady()
-	h.BackendDown = a.conn.BackendLink().Down
+	link := a.conn.BackendLink()
+	h.BackendDown, h.BackendChangedAt = link.Down, link.ChangedAt
+	h.HistoryOutage = a.conn.HistoricalBarFarmOutageAnnounced()
 	h.Account = a.conn.AccountID()
 	h.ServerVersion = a.conn.ServerVersion()
 	h.LastError = a.conn.LastError()

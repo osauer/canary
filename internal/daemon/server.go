@@ -3041,6 +3041,31 @@ func (s *Server) brokerReads() broker.Reads {
 	return s.adapterFor(c)
 }
 
+// brokerSession returns the session seam of the broker this daemon serves,
+// ready or not, and never arms a reconnect: for a caller that only asks how
+// the session stands. It is nil while no IBKR connector is published.
+func (s *Server) brokerSession() broker.Session {
+	if s.opend != nil {
+		return s.opend
+	}
+	s.mu.Lock()
+	c := s.connector
+	s.mu.Unlock()
+	if c == nil {
+		return nil
+	}
+	return s.adapterFor(c)
+}
+
+// sessionHealth is brokerSession's health, and whether a session is held.
+func (s *Server) sessionHealth() (broker.SessionHealth, bool) {
+	session := s.brokerSession()
+	if session == nil {
+		return broker.SessionHealth{}, false
+	}
+	return session.Health(), true
+}
+
 // adapterFor returns the adapter over c, building it when c is not the
 // connector the current adapter wraps.
 func (s *Server) adapterFor(c *ibkrlib.Connector) *brokerIBKR.Adapter {

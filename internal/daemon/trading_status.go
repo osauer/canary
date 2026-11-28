@@ -217,7 +217,13 @@ func (s *Server) tradingGatewayReady() bool {
 	if s != nil && s.gatewayReadyForTrading != nil {
 		return s.gatewayReadyForTrading()
 	}
-	return s != nil && s.gatewayConnector() != nil
+	if s == nil {
+		return false
+	}
+	// Orders leave through IBKR only: a ready OpenD session reads and does
+	// not send, so it is not ready for trading.
+	reads := s.brokerReads()
+	return reads != nil && reads.Kind() == broker.KindIBKR
 }
 
 type brokerWriteAuthorization struct {
@@ -394,16 +400,13 @@ func (s *Server) connectedGatewayAccount() string {
 	if s.gatewayAccountForTrading != nil {
 		return s.gatewayAccountForTrading()
 	}
-	if s.opend != nil {
-		return s.opend.Health().Account
-	}
-	s.mu.Lock()
-	c := s.connector
-	s.mu.Unlock()
-	if c == nil || !c.IsReady() {
+	health, held := s.sessionHealth()
+	// IBKR names the account before the session can serve; OpenD's account
+	// is the one its login bound, known while the session is down too.
+	if !held || health.Kind == broker.KindIBKR && !health.Ready {
 		return ""
 	}
-	return strings.TrimSpace(c.AccountID())
+	return strings.TrimSpace(health.Account)
 }
 
 func accountMismatchesConnected(configured, connected string) bool {

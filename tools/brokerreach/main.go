@@ -60,6 +60,7 @@ const (
 var seamFuncs = []string{
 	"(*Server).gatewayConnector",
 	"(*Server).brokerReads",
+	"(*Server).brokerSession", // the session seam, ready or not, for both brokers
 	"(*Server).adapterFor",
 	"(*Server).triggerReconnect",
 	"(ibkrScope).Scope", // scopeSource's IBKR side; OpenD answers its own scope

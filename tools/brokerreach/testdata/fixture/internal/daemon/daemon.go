@@ -67,8 +67,10 @@ func (s *Server) handleCallback() (int, error) {
 	return xs[0], nil
 }
 
+// handleSeamed reads through the seam: the reads, and the session seam that
+// answers ready or not without arming a reconnect.
 func (s *Server) handleSeamed() (int, error) {
-	if s.brokerReads() == nil {
+	if s.brokerReads() == nil || s.brokerSession() == nil {
 		return 0, nil
 	}
 	return 1, nil
@@ -107,6 +109,8 @@ func (s *Server) gatewayConnector() *conn {
 }
 
 func (s *Server) brokerReads() *conn { return s.adapterFor(s.gatewayConnector()) }
+
+func (s *Server) brokerSession() *conn { return s.adapterFor(s.connector) }
 
 func (s *Server) adapterFor(c *conn) *conn { return c }
 

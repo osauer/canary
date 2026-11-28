@@ -128,6 +128,12 @@ type SessionHealth struct {
 	Connected   bool
 	Ready       bool
 	BackendDown bool
+	// BackendChangedAt is when BackendDown last changed, zero when the broker
+	// reports no such moment: a link restored a moment ago is not yet settled.
+	BackendChangedAt time.Time
+	// HistoryOutage means the broker has announced that its price-history
+	// service is down, so a late history answer is the broker's, not a fault.
+	HistoryOutage bool
 	// Account is the account the broker confirmed for the session, as the
 	// broker spells it (for IBKR the managed-accounts answer, possibly a
 	// comma-separated list for a multi-account login).
