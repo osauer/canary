@@ -340,11 +340,7 @@ func (s *Server) refreshLendingMarketOnce(ctx context.Context, read lendingMarke
 	cancel()
 	var verdict *marketHistoryDefinitionMiss
 	if lendingContractVerdict(historyErr) {
-		s.mu.Lock()
-		connector := s.connector
-		s.mu.Unlock()
-		session, _ := connector.CaptureSession()
-		verdict = &marketHistoryDefinitionMiss{At: s.now().UTC(), Connector: connector, Session: session}
+		verdict = new(s.newMarketHistoryDefinitionMiss(s.now().UTC()))
 		if row.Price == nil {
 			row = lendingContractUnknown(selected.contract, verdict.At, verdict.At.Add(marketHistoryDefinitionMissFloor))
 		}

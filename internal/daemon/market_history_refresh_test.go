@@ -196,7 +196,7 @@ func TestMarketHistoryRefreshRemembersTheBrokersDefinitionVerdict(t *testing.T) 
 	}
 	// Past the floor the verdict holds while the broker session lasts.
 	clock = clock.Add(31 * time.Minute)
-	s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return true }
+	s.marketHistorySessionCurrentForTest = func(broker.SessionBinding) bool { return true }
 	s.refreshMarketHistoryInterest(t.Context(), key, request)
 	if reads != 1 {
 		t.Fatalf("the verdict lapsed while its broker session was still current: reads=%d", reads)
@@ -204,7 +204,7 @@ func TestMarketHistoryRefreshRemembersTheBrokersDefinitionVerdict(t *testing.T) 
 	// A new session earns one probe. Nothing is recorded for the intraday
 	// series, so its verdict returns as an error and the worker remembers it
 	// itself; the daily series is then skipped again.
-	s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return false }
+	s.marketHistorySessionCurrentForTest = func(broker.SessionBinding) bool { return false }
 	s.refreshMarketHistoryInterest(t.Context(), intradayKey, request)
 	s.refreshMarketHistoryInterest(t.Context(), key, request)
 	if reads != 2 || verdicts() != 2 || strings.Contains(log.String(), "next attempt after") {

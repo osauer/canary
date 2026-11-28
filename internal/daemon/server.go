@@ -264,7 +264,7 @@ type Server struct {
 	orderLifecycleSessionCurrentForTest func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool
 	// marketHistorySessionCurrentForTest lets daemon tests end or continue
 	// the broker session a remembered definition verdict is bound to.
-	marketHistorySessionCurrentForTest func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool
+	marketHistorySessionCurrentForTest func(broker.SessionBinding) bool
 	// orderLifecyclePersistenceFailures advances whenever a broker lifecycle
 	// callback could not be committed to daemon authority. While uncertain is
 	// set, journal-derived Protection and Order Integrity negatives fail

@@ -49,10 +49,9 @@ func (s *Server) observedDataHealth(id string, now time.Time) (rpc.DataSourceHea
 func (s *Server) collectDataHealth(now time.Time) ([]rpc.DataSourceHealth, string) {
 	rows := make([]rpc.DataSourceHealth, 0, 40)
 	scope := "unknown"
-	c := s.gatewayConnector()
-	connected := c != nil && c.IsReady() && !c.BackendLink().Down
-	if s.opend != nil {
-		health := s.opend.Health()
+	connected := false
+	if reads := s.brokerReads(); reads != nil {
+		health := reads.Health()
 		connected = health.Ready && !health.BackendDown
 	}
 	if connected {

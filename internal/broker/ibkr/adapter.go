@@ -157,7 +157,11 @@ func (a *Adapter) Health() broker.SessionHealth {
 	h.BackendDown, h.BackendChangedAt = link.Down, link.ChangedAt
 	h.HistoryOutage = a.conn.HistoricalBarFarmOutageAnnounced()
 	h.Account = a.conn.AccountID()
-	h.ServerVersion = a.conn.ServerVersion()
+	// The version is the handshake's to write until the session is ready: a
+	// health read of a session still connecting must not read it.
+	if h.Ready {
+		h.ServerVersion = a.conn.ServerVersion()
+	}
 	h.LastError = a.conn.LastError()
 	return h
 }

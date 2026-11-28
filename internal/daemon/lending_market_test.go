@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/osauer/canary/v3/internal/rpc"
-	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/rpc"
+	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
 
 func lendingMarketFixture(t *testing.T) (rpc.ContractParams, *rpc.MarketHistoryResult, time.Time) {
@@ -144,7 +146,7 @@ func TestLendingMarketParksAContractTheBrokerDoesNotKnow(t *testing.T) {
 	sessionCurrent := true
 	newServer := func() *Server {
 		s := &Server{coreStore: store, now: func() time.Time { return clock }}
-		s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return sessionCurrent }
+		s.marketHistorySessionCurrentForTest = func(broker.SessionBinding) bool { return sessionCurrent }
 		s.lendingMarket.entries = map[string]lendingMarketEntry{"AAA": {contract: c, family: "lending", until: clock.Add(24 * time.Hour)}}
 		return s
 	}
@@ -196,7 +198,7 @@ func TestLendingMarketVerdictWithoutConIDHoldsForTheSession(t *testing.T) {
 	clock := now
 	s := &Server{now: func() time.Time { return clock }}
 	sessionCurrent := true
-	s.marketHistorySessionCurrentForTest = func(*ibkrlib.Connector, ibkrlib.ConnectorSessionBinding) bool { return sessionCurrent }
+	s.marketHistorySessionCurrentForTest = func(broker.SessionBinding) bool { return sessionCurrent }
 	s.lendingMarket.entries = map[string]lendingMarketEntry{"AAA": {contract: c, family: "lending", until: now.Add(24 * time.Hour), focusFamily: "lending", focusUntil: now.Add(2 * time.Hour)}}
 	reads := 0
 	read := func(ctx context.Context, _ lendingMarketEntry) (rpc.LendingMarketRow, rpc.LendingMarketRow, error) {

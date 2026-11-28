@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/osauer/canary/v3/internal/broker"
 	"github.com/osauer/canary/v3/internal/rpc"
 	ibkrlib "github.com/osauer/canary/v3/pkg/ibkr"
 )
@@ -253,12 +254,23 @@ func marketHistoryVerdict(err error) bool {
 // marketHistoryDefinitionMiss is the broker's "no security definition"
 // verdict for one history contract. The answer does not change within a
 // broker session, so the refresh worker stops asking until that session ends,
-// and for at least marketHistoryDefinitionMissFloor either way. Connector and
-// Session name the session that answered; both are zero when none was ready.
+// and for at least marketHistoryDefinitionMissFloor either way. Session and
+// Binding name the broker session that answered; Session is nil when the
+// daemon held none and Binding zero when none was ready.
 type marketHistoryDefinitionMiss struct {
-	At        time.Time
-	Connector *ibkrlib.Connector
-	Session   ibkrlib.ConnectorSessionBinding
+	At      time.Time
+	Session broker.Session
+	Binding broker.SessionBinding
+}
+
+// newMarketHistoryDefinitionMiss is a verdict given at now by the broker
+// session the daemon holds.
+func (s *Server) newMarketHistoryDefinitionMiss(now time.Time) marketHistoryDefinitionMiss {
+	miss := marketHistoryDefinitionMiss{At: now, Session: s.brokerSession()}
+	if miss.Session != nil {
+		miss.Binding, _ = miss.Session.Capture()
+	}
+	return miss
 }
 
 // marketHistoryDefinitionMissFloor is how long a definition verdict pauses a
@@ -272,21 +284,18 @@ const marketHistoryDefinitionMissFloor = 30 * time.Minute
 // re-recorded nor repeated. Any recorded history keeps being served. Lapsed
 // verdicts are dropped on the way, and the memory is bounded like interest.
 func (s *Server) rememberMarketHistoryDefinitionMiss(contract rpc.ContractParams, now time.Time, cause error) {
-	s.mu.Lock()
-	connector := s.connector
-	s.mu.Unlock()
-	session, _ := connector.CaptureSession()
+	miss := s.newMarketHistoryDefinitionMiss(now)
 	s.marketData.mu.Lock()
 	if s.marketData.definitionMisses == nil {
 		s.marketData.definitionMisses = make(map[rpc.ContractParams]marketHistoryDefinitionMiss)
 	}
 	misses := s.marketData.definitionMisses
-	if miss, ok := misses[contract]; ok && s.marketHistoryDefinitionMissHolds(miss, now) {
+	if held, ok := misses[contract]; ok && s.marketHistoryDefinitionMissHolds(held, now) {
 		s.marketData.mu.Unlock()
 		return
 	}
-	for other, miss := range misses {
-		if !s.marketHistoryDefinitionMissHolds(miss, now) {
+	for other, held := range misses {
+		if !s.marketHistoryDefinitionMissHolds(held, now) {
 			delete(misses, other)
 		}
 	}
@@ -294,7 +303,7 @@ func (s *Server) rememberMarketHistoryDefinitionMiss(contract rpc.ContractParams
 		s.marketData.mu.Unlock()
 		return
 	}
-	misses[contract] = marketHistoryDefinitionMiss{At: now, Connector: connector, Session: session}
+	misses[contract] = miss
 	s.marketData.mu.Unlock()
 	if s.logger != nil {
 		s.logger.Warnf("market history refresh %s: %v; paused for the rest of this broker session and until at least %s (recorded history is still served)", contract.Symbol, cause, now.Add(marketHistoryDefinitionMissFloor).Format(time.TimeOnly))
@@ -317,7 +326,7 @@ func (s *Server) marketHistoryDefinitionMissHolds(miss marketHistoryDefinitionMi
 		return true
 	}
 	if s.marketHistorySessionCurrentForTest != nil {
-		return s.marketHistorySessionCurrentForTest(miss.Connector, miss.Session)
+		return s.marketHistorySessionCurrentForTest(miss.Binding)
 	}
-	return miss.Connector.SessionCurrent(miss.Session)
+	return miss.Session != nil && miss.Session.Current(miss.Binding)
 }

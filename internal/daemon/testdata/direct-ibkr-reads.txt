@@ -18,21 +18,17 @@ chain.expiries
 chain.fetch
 core.resolve
 core.target
-data.health
 desk.authority.confirm
 desk.authority.control
 desk.authority.prepare
 desk.authority.status
-edge.replay
 gamma.zero_spx
 holding_locks.list
 holding_locks.replace
 mandate.risk
 market.bond
-market.history
 market.read
 market.snapshot
-market.tape
 market_events.snapshot
 opportunities.reconcile_exercise
 opportunities.refresh
@@ -78,7 +74,6 @@ trade_proposals.veto_window
 (*Server).capturePreviewOrderPositionAuthority
 (*Server).cashSweepCommonReadSession
 (*Server).cashSweepReadSession
-(*Server).collectDataHealth
 (*Server).coreListings
 (*Server).currentProtectionOrderSnapshotBinding
 (*Server).currentRulebookBinding
@@ -112,7 +107,6 @@ trade_proposals.veto_window
 (*Server).readOrderIntegrityCachedPositions
 (*Server).readReconFXQuote
 (*Server).reconcileOrderJournalWithBroker
-(*Server).rememberMarketHistoryDefinitionMiss
 (*Server).resolveContractMinTick
 (*Server).setupQuoteAuthority
 (*Server).statusHealthSnapshot
