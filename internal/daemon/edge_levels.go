@@ -266,6 +266,12 @@ func (s *Server) handleEdgeLevels(ctx context.Context, req *rpc.Request) (*rpc.E
 	result.PendingReason = s.levelFill.state()
 
 	in := edgecore.LevelReplayInput{Index: map[string][]edgecore.LevelBar{}}
+	if !params.EverySession {
+		// The calls he held, their recorded prices and his own trades: the
+		// replay in money. An every-session run has no held calls to price.
+		first, last := parseLevelDay(sample[0].Session.Prior), parseLevelDay(sample[len(sample)-1].Session.Date).AddDate(0, 0, 3*levelHorizonSessions)
+		in.Book = edgecore.NewLevelOptionBook(statements, s.replayChainMarks(ctx, symbols, first, last))
+	}
 	for _, session := range need[levelIndexSymbol] {
 		if bars, ok := held[levelIndexSymbol][session.Date]; ok {
 			in.Index[session.Date] = bars
@@ -295,6 +301,10 @@ func (s *Server) handleEdgeLevels(ctx context.Context, req *rpc.Request) (*rpc.E
 		}
 		look.Summary, look.Counts, look.Split = edgecore.LevelReplaySummary(out)
 		look.Days = out.Days
+		look.Insurance, look.Entries, look.Option = edgecore.LevelReplayInsurance(out.Days), edgecore.LevelReplayEntries(out.Days), edgecore.LevelReplayOptionShare(out.Days)
+		if look.Insurance == nil {
+			look.Insurance = []rpc.EdgeLevelsInsurance{}
+		}
 		if look.Days == nil {
 			look.Days = []rpc.EdgeLevelsDay{}
 		}
@@ -345,12 +355,19 @@ func levelMethod() rpc.EdgeLevelsMethod {
 			"The buy back: after the cut or the stop sold, two consecutive closes above the cut level buy back what they sold, at the second close, once per day; after it no trim and no last-hour sale, and a later cut or stop sale is final.",
 			"The cut with the index agreeing: the rule, its cut sold only at a close where SPY's bar closed under SPY's own low through the look; no buy back.",
 			"Reduced at once: the first trim's size sold at the moment's price.",
+			"The rule with the nearer trim: the rule, its first trim a quarter of the way up the day's range at the moment (low plus a quarter of high less low) in place of the midpoint; the prior low stays the second trim level, the nearer one first.",
 			"Each result is the position's value against its value at the moment, in percent, at the session's daily close and at the daily close five sessions on. These versions were fixed before the first run on the owner's sessions; nothing is tuned to the sample.",
 		},
 		Prices:  "The moment's price and every valuation are recorded prices (a five-minute close, a daily close). Every sale and buy back price is modelled: the level, or the bar's open or close the rule names. Stock prices only; no option value, no spread or fee.",
 		Sample:  "Every regular session in Canary's exchange calendar (from its first covered day) on which the Open Positions statement of the prior session held a long call on a US stock or fund; a stock with a short option against it is left alone, as the day plan leaves it, and so is a cash index. The two halves are the sample's sessions in order, cut where half its stock-days lie before.",
 		Index:   "SPY five-minute bars: the dated five-minute read serves US stocks and funds only, so the index is read through the S&P 500 fund.",
 		History: levelMethodHistory,
+		Money:   "Each result is also valued on the long calls held on the stock at the prior session's close, in percent of their value at the moment. A recorded option price is the statement's mark, a trade's closing price or the recorder's mid of that contract on that session, in that order; an end value is recorded when every held contract has one. The price at the moment is always modelled: Black-Scholes at the moment's stock price with the volatility backed out of the contract's recorded price at the prior close, rate zero. A price during the session, and an end value that is not recorded, is the price at the moment plus that model's delta at the moment times the stock's move since, never below zero; a contract expired by the valuation day without a recorded price is valued at intrinsic value. A day whose held calls have no recorded price at the prior close has no option result. Actual is the position after the owner's trades in the stock's calls that session (the statement's trades, hand trades among them, whenever in the session they were made) at the trades' own prices, against the same modelled value at the moment.",
+		Test: []string{
+			"A cut is a fall that turned when the stock closed that session above the cut level, and a fall that kept going when it closed at or under it. The cost in the first and the saving in the second are the version's result less held's on those days, per cut, at the close and five sessions on. The worst loss is the lowest result over every drafted day of the group, held and with the plan.",
+			"The buy back on a later session: after the rule's cut (in halves), the first daily close above the cut level within the five sessions after the cut's session, which itself does not count. Bought once, at that close, and judged five sessions after the buy against staying out. A cut with no such close is counted as never; one whose sessions have not all closed as pending.",
+			"The adds, read on every stock-day and each once per session: two consecutive completed five-minute closes above the prior session's high after the look; and the reclaim, on a session that opened under the prior session's low, two consecutive closes above that low after the look. Bought at the second close, only at a close where SPY's bar has closed at or above SPY's own low through the look. A third of the position, so each is judged on what was bought: the close five sessions on against the buy, against not adding. The owner's own adds are the calls he bought on the stock that session, each judged on its recorded price five sessions on against what he paid.",
+		},
 	}
 }
 
@@ -491,6 +508,9 @@ func levelDayInput(d edgecore.LevelStockDay, daily []edgecore.UnderlyingBar, bar
 	in.DayHigh, in.DayLow, in.Close = daily[idx].High, daily[idx].Low, daily[idx].Close
 	if h := idx + levelHorizonSessions; h < len(daily) {
 		in.Close5, in.Close5Day = daily[h].Close, daily[h].Day.Format(time.DateOnly)
+	}
+	for _, b := range daily[idx+1 : min(len(daily), idx+1+2*levelHorizonSessions)] {
+		in.Next = append(in.Next, edgecore.LevelClose{Day: b.Day.Format(time.DateOnly), Close: b.Close})
 	}
 	return in
 }
