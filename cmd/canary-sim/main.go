@@ -134,14 +134,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("canary-sim", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() {
-		fmt.Fprintln(stderr, "canary-sim [-dir DIR] [-listen 127.0.0.1:0]: run the real daemon (live mode, placeholder account U1234567) against the TWS simulator in DIR")
+		fmt.Fprintln(stderr, "canary-sim [-dir DIR] [-listen 127.0.0.1:0] [-session \"MARKET HOURS\"]: run the real daemon (live mode, placeholder account U1234567) against the TWS simulator in DIR")
 		flags.PrintDefaults()
-		fmt.Fprintln(stderr, "\nThe exchange sessions start as the official calendar has them now; the control channel changes them.")
+		fmt.Fprintln(stderr, "\nThe exchange sessions start as the official calendar has them now, but for -session; the control channel changes them.")
 		fmt.Fprintln(stderr, ctlUsage)
 	}
 	dirFlag := flags.String("dir", "", "the stack's directory (created; default a new one under /tmp); keep it short, a Unix socket path is limited to about 100 bytes")
 	listen := flags.String("listen", "127.0.0.1:0", "the simulator's loopback address; port 0 picks a free one")
 	bookPath := flags.String("book", "", "a book file (JSON, see internal-docs/guides/tws-simulator.md); empty is the default synthetic book")
+	session := flags.String("session", "", "a session the stack starts with, as the control channel's session command takes it (\"us_equity open\"); set before the daemon starts, so a daemon restarted on its own store reads the calendar it wrote under")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
@@ -190,6 +191,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 	for name, cal := range ctlMarkets {
 		session, err := marketcal.New().SessionAt(cal, time.Now())
 		sim.SetSession(name, err == nil && session.IsOpen)
+	}
+	if spec := strings.Fields(*session); len(spec) > 0 {
+		if len(spec) < 2 {
+			fmt.Fprintln(stderr, "canary-sim: -session needs a market and its hours, as in \"us_equity open\"")
+			return 2
+		}
+		if err := setSession(sim, spec[0], spec[1:], time.Now()); err != nil {
+			fmt.Fprintln(stderr, "canary-sim: -session:", err)
+			return 2
+		}
 	}
 	ctl, err := net.Listen("unix", filepath.Join(dir, "ctl.sock"))
 	if err != nil {

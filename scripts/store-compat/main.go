@@ -70,6 +70,9 @@ const (
 	// simulatedCalendar is the calendar's simulated sessions, which only
 	// canary-sim installs; laid over a revision's tree with the simulator.
 	simulatedCalendar = "internal/marketcal/simulated.go"
+	// stackProgram is canary-sim itself, laid over a revision's tree too:
+	// only the daemon it runs is the revision's own.
+	stackProgram = "cmd/canary-sim"
 )
 
 func main() {
@@ -251,12 +254,20 @@ func build(rev, dir string) (string, error) {
 		if out, err := calendar.CombinedOutput(); err != nil {
 			return "", fmt.Errorf("overlay the simulated calendar: %v: %s", err, out)
 		}
+		// So is the stack's own program, which takes the session it starts with.
+		program := filepath.Join(src, filepath.FromSlash(stackProgram))
+		if err := os.RemoveAll(program); err != nil {
+			return "", err
+		}
+		if out, err := exec.Command("cp", "-R", filepath.FromSlash(stackProgram), program).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("overlay canary-sim: %v: %s", err, out)
+		}
 	}
 	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "./cmd/canary-sim")
 	cmd.Dir = src
 	if out, err := cmd.CombinedOutput(); err != nil {
 		if rev != "" {
-			return "", fmt.Errorf("go build (this tree's pkg/ibkr/twssim laid over %s; a simulator API that %s's daemon does not compile against fails here): %v: %s", rev, rev, err, out)
+			return "", fmt.Errorf("go build (this tree's pkg/ibkr/twssim, simulated calendar and cmd/canary-sim laid over %s; an API that %s's daemon does not compile against fails here): %v: %s", rev, rev, err, out)
 		}
 		return "", fmt.Errorf("go build: %v: %s", err, out)
 	}
@@ -279,7 +290,14 @@ type reading struct {
 // stops it.
 func phase(bin, stack, book, name string, publish, streak bool) (reading, error) {
 	var stderr bytes.Buffer
-	cmd := exec.Command(bin, "-dir", stack, "-book", book)
+	// The US session is open in every phase, whatever the hour: outside it
+	// the daemon reads HYG's price as its last close, and a build that
+	// measures the row on the close and one that measures it on the price
+	// would store the same streak and hide their difference. It is open
+	// from the start: a decision line names its session from the calendar,
+	// and a daemon that reconciled its store before the session opened read
+	// another session than it wrote under on a day the exchange is shut.
+	cmd := exec.Command(bin, "-dir", stack, "-book", book, "-session", "us_equity open")
 	cmd.Stdout, cmd.Stderr = new(bytes.Buffer), &stderr
 	if err := cmd.Start(); err != nil {
 		return reading{}, err
@@ -290,15 +308,6 @@ func phase(bin, stack, book, name string, publish, streak bool) (reading, error)
 	exited := make(chan struct{})
 	var waitErr error
 	go func() { waitErr = cmd.Wait(); close(exited) }()
-	// The US session is open in every phase, whatever the hour: outside it
-	// the daemon reads HYG's price as its last close, and a build that
-	// measures the row on the close and one that measures it on the price
-	// would store the same streak and hide their difference.
-	if err := openSession(bin, stack, exited); err != nil {
-		_ = cmd.Process.Kill()
-		<-exited
-		return reading{}, fmt.Errorf("open the simulated US session: %w: %s", err, lastLine(stderr.String()))
-	}
 	since := time.Time{}
 	if publish {
 		since = time.Now().UTC()
@@ -317,27 +326,6 @@ func phase(bin, stack, book, name string, publish, streak bool) (reading, error)
 	fmt.Printf("store-compat: %s: serving; regime as of %s, HYG/SPY %s since %s (%d sessions)\n",
 		name, got.at.Format(time.RFC3339), got.band, got.since, got.sessions)
 	return got, nil
-}
-
-// openSession opens the simulated US equity session through the stack's
-// control channel, as soon as the daemon's process listens on it.
-func openSession(bin, stack string, exited <-chan struct{}) error {
-	deadline := time.Now().Add(time.Minute)
-	for {
-		out, err := exec.Command(bin, "ctl", "-dir", stack, "session", "us_equity", "open").CombinedOutput()
-		if err == nil {
-			return nil
-		}
-		select {
-		case <-exited:
-			return nil // awaitRegime reports the exit with the daemon's own line
-		default:
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
-		}
-		time.Sleep(500 * time.Millisecond)
-	}
 }
 
 func awaitRegime(socket string, started time.Time, streak bool, exited <-chan struct{}, exitErr func() error, stderr *bytes.Buffer) (reading, error) {
