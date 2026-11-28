@@ -114,7 +114,7 @@ func TestLevelMoneyActualIsThePositionAfterHisTradesAtTheirOwnPrices(t *testing.
 		b.held("2026-03-17", position(1, 3, 6, 2700))
 	})
 	d := levelMoneyOne(t, day, book, nil)
-	if d.Actual == nil || d.Actual.Sales != 1 || d.Actual.Buys != 1 || d.Actual.Result == nil {
+	if d.Actual == nil || d.Actual.Sales != 1 || d.Actual.Buys != 1 || d.Actual.Result == nil || !d.Actual.Reconciled {
 		t.Fatalf("actual = %+v", d.Actual)
 	}
 	near(t, "actual at the close", d.Actual.Result.ClosePct, ((4-4.5+3*5)/(3*p0)-1)*100)
@@ -263,9 +263,61 @@ func TestLevelInsuranceWeightsTheOptionFiguresByTheCallsValueAtTheMoment(t *test
 		if r.Money == nil {
 			t.Fatal("no money-weighted figures")
 		}
-		near(t, "money", r.Money.TurnedCostClose, -100-20)
-		near(t, "weighted by money", r.Money.TurnedCostClosePct, -120.0/1010*100)
+		near(t, "money", r.Money.TurnedClose.Money, -100-20)
+		near(t, "weighted by money", r.Money.TurnedClose.Pct, -120.0/1010*100)
+		near(t, "the larger day's share of the weight", r.Money.TurnedClose.LargestDayShare, 1000.0/1010)
+		if r.Money.AllClose.Days != 2 || r.Money.KeptClose.Days != 0 {
+			t.Fatalf("cells = %+v", r.Money)
+		}
 		return
 	}
 	t.Fatal("no option row")
+}
+
+func TestLevelMoneyActualCountsOrdersAndReconcilesWithTheStatement(t *testing.T) {
+	day := levelTestDay(levelTestBars(cutAndBack, flatAfterLook), levelTestPrior, 98)
+	day.Close5, day.Close5Day = 99, "2026-03-17"
+	// One order to buy two more, executed in two parts at 4.40 and 4.60;
+	// the session's statement holds five.
+	build := func(stated float64) *LevelOptionBook {
+		return levelMoneyBook(t, func(b *replayBook) {
+			b.trade(1, "2026-03-10", 1, 4.4, 0, "O", 1, 0)
+			b.trade(1, "2026-03-10", 1, 4.6, 0, "O", 1, 0)
+			for i := range b.main.Trades {
+				b.main.Trades[i].BrokerOrderID = "order-1"
+			}
+			b.held("2026-03-10", position(1, stated, 5, 2700))
+			b.held("2026-03-17", position(1, stated, 6, 2700))
+		})
+	}
+	d := levelMoneyOne(t, day, build(5), nil)
+	if d.Actual == nil || d.Actual.Buys != 1 || d.Actual.Sales != 0 || !d.Actual.Reconciled {
+		t.Fatalf("actual = %+v", d.Actual)
+	}
+	var owner []rpc.EdgeLevelsEntry
+	for _, e := range d.Adds {
+		if e.Kind == rpc.EdgeLevelsEntryOwnerAdd {
+			owner = append(owner, e)
+		}
+	}
+	if len(owner) != 1 || owner[0].OptionH5Pct == nil {
+		t.Fatalf("one order is one add: %+v", owner)
+	}
+	near(t, "his add at the order's average price", *owner[0].OptionH5Pct, (6/4.5-1)*100)
+	d.Half = rpc.EdgeLevelsHalfFirst
+	if sums := LevelReplayActual([]rpc.EdgeLevelsDay{d}); sums[0].Traded != 1 || sums[0].Days != 1 || sums[0].VsHeldClose.Days != 1 {
+		t.Fatalf("aggregate = %+v", sums[0])
+	}
+	// A statement that holds four: a row is missing or read twice, and the
+	// day stays out of the aggregate.
+	d = levelMoneyOne(t, day, build(4), nil)
+	if d.Actual == nil || d.Actual.Reconciled {
+		t.Fatalf("actual against a statement of four = %+v", d.Actual)
+	}
+	if sums := LevelReplayActual([]rpc.EdgeLevelsDay{d}); sums[0].Traded != 1 || sums[0].Days != 0 {
+		t.Fatalf("aggregate = %+v", sums[0])
+	}
+	if share := LevelReplayOptionShare([]rpc.EdgeLevelsDay{d}); share.ActualDays != 1 || share.ActualUnreconciled != 1 {
+		t.Fatalf("share = %+v", share)
+	}
 }

@@ -3,6 +3,7 @@ package edge
 import (
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +58,11 @@ type levelOptFill struct {
 	qty    float64 // signed: a buy is positive
 	price  float64
 	weight float64 // qty times multiplier, signed
+	// order is the broker's order the execution belongs to; opening marks
+	// a buy that opens; lifecycle an expiry, exercise or assignment.
+	order     string
+	opening   bool
+	lifecycle bool
 }
 
 // LevelOptionBook is the option evidence the replay prices from: the long
@@ -67,11 +73,14 @@ type LevelOptionBook struct {
 	marks map[int64]map[string]float64
 	fills map[string]map[string][]levelOptFill
 	meta  map[int64]levelOptContract
+	// stated is each statement day's option quantities times multiplier by
+	// contract, short ones too: what a day's trades are reconciled against.
+	stated map[string]map[int64]float64
 }
 
 // NewLevelOptionBook reads the statements and the recorder's quotes.
 func NewLevelOptionBook(statements []flexstmt.Statement, chain []RecordedOptionMark) *LevelOptionBook {
-	b := &LevelOptionBook{held: map[string]map[string][]levelOptContract{}, marks: map[int64]map[string]float64{}, fills: map[string]map[string][]levelOptFill{}, meta: map[int64]levelOptContract{}}
+	b := &LevelOptionBook{held: map[string]map[string][]levelOptContract{}, marks: map[int64]map[string]float64{}, fills: map[string]map[string][]levelOptFill{}, meta: map[int64]levelOptContract{}, stated: map[string]map[int64]float64{}}
 	ev, err := collectEvidence(statements)
 	if err != nil {
 		return b
@@ -107,9 +116,17 @@ func NewLevelOptionBook(statements []flexstmt.Statement, chain []RecordedOptionM
 		}
 	}
 	for day, rows := range replaySnapshots(statements) {
+		b.stated[day] = map[int64]float64{}
 		for _, row := range rows {
 			if !strings.EqualFold(row.AssetClass, "OPT") {
 				continue
+			}
+			if row.Quantity != nil {
+				m := 100.0
+				if row.Multiplier != nil && *row.Multiplier > 0 {
+					m = *row.Multiplier
+				}
+				b.stated[day][row.ConID] += *row.Quantity * m
 			}
 			if row.MarkPrice != nil {
 				set(row.ConID, day, *row.MarkPrice)
@@ -126,8 +143,25 @@ func NewLevelOptionBook(statements []flexstmt.Statement, chain []RecordedOptionM
 			b.held[day][symbol] = append(b.held[day][symbol], c)
 		}
 	}
+	// The statement's execution rows only, as the exit replay reads them; a
+	// trade that an option event names is the contract's expiry, exercise or
+	// assignment, not an order of his.
+	executed, lifecycle := map[string]bool{}, map[string]bool{}
+	for _, trade := range ev.trades {
+		if trade.TradeID != "" {
+			executed[lifecycleTradeKey(trade.ConID, trade.TradeID)] = true
+		}
+	}
+	for _, event := range ev.optionEvents {
+		if key := lifecycleTradeKey(event.ConID, event.TradeID); event.TradeID != "" && executed[key] && optionCycleCloser(event.TransactionType) != "" {
+			lifecycle[key] = true
+		}
+	}
 	for _, trade := range ev.trades {
 		if !strings.EqualFold(trade.AssetClass, "OPT") || trade.Quantity == nil || trade.Price == nil || *trade.Price < 0 {
+			continue
+		}
+		if trade.LevelOfDetail != "" && trade.LevelOfDetail != "EXECUTION" && trade.LevelOfDetail != "EXECUTIONS" {
 			continue
 		}
 		c, symbol, ok := call(trade.ConID, trade.UnderlyingSymbol, trade.Multiplier)
@@ -146,9 +180,15 @@ func NewLevelOptionBook(statements []flexstmt.Statement, chain []RecordedOptionM
 		if b.fills[symbol] == nil {
 			b.fills[symbol] = map[string][]levelOptFill{}
 		}
-		b.fills[symbol][day] = append(b.fills[symbol][day], levelOptFill{conid: c.conid, at: trade.ExecutedAt, qty: qty, price: *trade.Price, weight: qty * c.weight})
+		b.fills[symbol][day] = append(b.fills[symbol][day], levelOptFill{conid: c.conid, at: trade.ExecutedAt, qty: qty, price: *trade.Price, weight: qty * c.weight,
+			order:     firstNonEmpty(trade.BrokerOrderID, trade.OrderID, trade.TradeID, trade.RecordID),
+			opening:   strings.Contains(strings.ToUpper(trade.OpenClose), "O"),
+			lifecycle: trade.TradeID != "" && lifecycle[lifecycleTradeKey(trade.ConID, trade.TradeID)]})
 	}
 	for _, trade := range ev.trades {
+		if trade.TradeID != "" && lifecycle[lifecycleTradeKey(trade.ConID, trade.TradeID)] {
+			continue
+		}
 		if _, ok := b.meta[trade.ConID]; ok && trade.ClosePrice != nil && *trade.ClosePrice > 0 {
 			set(trade.ConID, dayKey(tradeStatementDay(trade)), *trade.ClosePrice)
 		}
@@ -316,11 +356,20 @@ func (m *levelOptModel) levelActual(fills []levelOptFill, day string, close floa
 		weights[leg.conid] = leg.weight
 		order = append(order, leg.conid)
 	}
+	orders, ended := map[string]bool{}, false
 	for _, f := range fills {
+		ended = ended || f.lifecycle
+		side := "sell"
 		if f.qty > 0 {
-			out.Buys++
-		} else {
-			out.Sales++
+			side = "buy"
+		}
+		if key := f.order + "|" + side; !f.lifecycle && !orders[key] {
+			orders[key] = true
+			if f.qty > 0 {
+				out.Buys++
+			} else {
+				out.Sales++
+			}
 		}
 		cash -= f.weight * f.price
 		if _, ok := weights[f.conid]; !ok {
@@ -349,8 +398,20 @@ func (m *levelOptModel) levelActual(fills []levelOptFill, day string, close floa
 		}
 		return v, source, true
 	}
+	// The position after his trades is the session statement's, contract by
+	// contract; without that statement nothing says so.
+	if stated, ok := m.book.stated[day]; ok {
+		out.Reconciled = true
+		for conid, w := range weights {
+			if math.Abs(w-stated[conid]) > 1e-6 {
+				out.Reconciled = false
+			}
+		}
+	}
 	end, source, ok := value(day, close)
-	if !ok {
+	if !ok || ended {
+		// An expiry, exercise or assignment that session is not a trade at
+		// a price: the day is counted and not valued.
 		return out
 	}
 	out.Result = &rpc.EdgeLevelsOptionPct{MomentValue: m.v0, ClosePct: (cash+end)/m.v0*100 - 100, CloseSource: source}
@@ -451,18 +512,36 @@ func levelAdds(bars []LevelBar, lookIdx int, prior rpc.MarketReadPrior, notUnder
 	return out
 }
 
-// levelOwnerAdds are the calls the owner bought on the stock that session,
+// levelOwnerAdds are the calls the owner bought to open on the stock that
+// session, one add per order and contract at the order's average price,
 // each judged on its own contract: the recorded price five sessions on
 // against the price he paid. Without that recorded price the add is pending.
 func (b *LevelOptionBook) levelOwnerAdds(fills []levelOptFill, day5 string) []rpc.EdgeLevelsEntry {
-	var out []rpc.EdgeLevelsEntry
+	type add struct {
+		conid        int64
+		at           time.Time
+		qty, premium float64
+	}
+	var keys []string
+	adds := map[string]*add{}
 	for _, f := range fills {
-		if f.qty <= 0 || f.price <= 0 {
+		if f.qty <= 0 || f.price <= 0 || !f.opening || f.lifecycle {
 			continue
 		}
-		e := rpc.EdgeLevelsEntry{Kind: rpc.EdgeLevelsEntryOwnerAdd, State: rpc.EdgeLevelsEntryPending, At: f.at}
-		if price, ok := b.mark(f.conid, day5); ok && day5 != "" {
-			e.State, e.OptionH5Pct, e.OptionSource = rpc.EdgeLevelsEntryBought, new((price/f.price-1)*100), rpc.EdgeLevelsRecorded
+		key := f.order + "|" + strconv.FormatInt(f.conid, 10)
+		a := adds[key]
+		if a == nil {
+			a = &add{conid: f.conid, at: f.at}
+			adds[key], keys = a, append(keys, key)
+		}
+		a.qty, a.premium = a.qty+f.qty, a.premium+f.qty*f.price
+	}
+	var out []rpc.EdgeLevelsEntry
+	for _, key := range keys {
+		a := adds[key]
+		e := rpc.EdgeLevelsEntry{Kind: rpc.EdgeLevelsEntryOwnerAdd, State: rpc.EdgeLevelsEntryPending, At: a.at}
+		if price, ok := b.mark(a.conid, day5); ok && day5 != "" {
+			e.State, e.OptionH5Pct, e.OptionSource = rpc.EdgeLevelsEntryBought, new((price/(a.premium/a.qty)-1)*100), rpc.EdgeLevelsRecorded
 		}
 		out = append(out, e)
 	}
@@ -548,8 +627,11 @@ func LevelReplayOptionShare(days []rpc.EdgeLevelsDay) rpc.EdgeLevelsOptionShare 
 		d := &days[i]
 		if d.Actual != nil {
 			s.ActualDays++
-			if d.Actual.Result == nil {
+			switch {
+			case d.Actual.Result == nil:
 				s.ActualUnpriced++
+			case !d.Actual.Reconciled:
+				s.ActualUnreconciled++
 			}
 		}
 		held, ok := levelResult(&d.Look, rpc.EdgeLevelsVersionHeld, "")

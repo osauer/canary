@@ -237,6 +237,27 @@ func renderEdgeLevelsTest(env *Env, r rpc.EdgeLevelsLook) {
 			fmt.Fprintf(out, "  %-20s %-6s %-6s %d cuts on %d days. Turned %d: cost %+.2f%% (median %+.2f%%) / %s. Kept going %d: saved %+.2f%% (median %+.2f%%) / %s. Worst held %+.1f%% / %+.1f%%, with the plan %+.1f%% / %+.1f%%. Cut within 1%% of the low %d, median %.2f%% above.\n",
 				edgeLevelsVersionLabels[row.Version], row.Basis, row.Half, row.Cuts, row.Days, row.Turned, row.TurnedCostClosePct, row.TurnedCostCloseMedianPct, pct(row.TurnedCostH5Pct), row.KeptGoing, row.KeptSavingClosePct, row.KeptSavingCloseMedianPct, pct(row.KeptSavingH5Pct),
 				row.WorstHeldClosePct, row.WorstHeldH5Pct, row.WorstPlanClosePct, row.WorstPlanH5Pct, row.CutsWithin1PctOfLow, row.CutAboveLowMedianPct)
+			if m := row.Money; m != nil {
+				cell := func(c rpc.EdgeLevelsMoneyCell) string {
+					return fmt.Sprintf("%+.1f%% (%d, largest day %.0f%% of it)", c.Pct, c.Days, c.LargestDayShare*100)
+				}
+				fmt.Fprintf(out, "  %-20s %-6s %-6s weighted by money. Turned %s / %s. Kept going %s / %s. All cuts %s / %s.\n", "", "", "",
+					cell(m.TurnedClose), cell(m.TurnedH5), cell(m.KeptClose), cell(m.KeptH5), cell(m.AllClose), cell(m.AllH5))
+			}
+		}
+	}
+	if len(r.Actual) > 0 && r.Option.ActualDays > 0 {
+		fmt.Fprintf(out, "\nHis own trades in the calls, weighted by money, at the close / five sessions on. %d days valued without reconciling with the statement are left out.\n", r.Option.ActualUnreconciled)
+		for _, a := range r.Actual {
+			group := "every day"
+			if a.Reading != "" {
+				group = strings.ToLower(strings.SplitN(edgeLevelsGroupTitles[a.Reading+"/"+rpc.EdgeLevelsRowLosing], " (", 2)[0])
+			}
+			line := fmt.Sprintf("  %-34s %-6s traded on %d days, %d counted. Against holding %+.1f%% / %+.1f%% (better at the close on %d).", group, a.Half, a.Traded, a.Days, a.VsHeldClose.Pct, a.VsHeldH5.Pct, a.BeatsHeldClose)
+			if a.Reading != "" {
+				line += fmt.Sprintf(" Against the rule %+.1f%% / %+.1f%%.", a.VsRuleClose.Pct, a.VsRuleH5.Pct)
+			}
+			fmt.Fprintln(out, line)
 		}
 	}
 	if len(r.Entries) > 0 {
