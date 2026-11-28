@@ -234,8 +234,8 @@ func renderEdgeLevelsTest(env *Env, r rpc.EdgeLevelsLook) {
 			if row.Reading != reading || row.Size != rpc.EdgeLevelsSizeHalves {
 				continue
 			}
-			fmt.Fprintf(out, "  %-20s %-6s %-6s %d cuts on %d days. Turned %d: cost %+.2f%% / %s. Kept going %d: saved %+.2f%% / %s. Worst held %+.1f%% / %+.1f%%, with the plan %+.1f%% / %+.1f%%. Cut within 1%% of the low %d, median %.2f%% above.\n",
-				edgeLevelsVersionLabels[row.Version], row.Basis, row.Half, row.Cuts, row.Days, row.Turned, row.TurnedCostClosePct, pct(row.TurnedCostH5Pct), row.KeptGoing, row.KeptSavingClosePct, pct(row.KeptSavingH5Pct),
+			fmt.Fprintf(out, "  %-20s %-6s %-6s %d cuts on %d days. Turned %d: cost %+.2f%% (median %+.2f%%) / %s. Kept going %d: saved %+.2f%% (median %+.2f%%) / %s. Worst held %+.1f%% / %+.1f%%, with the plan %+.1f%% / %+.1f%%. Cut within 1%% of the low %d, median %.2f%% above.\n",
+				edgeLevelsVersionLabels[row.Version], row.Basis, row.Half, row.Cuts, row.Days, row.Turned, row.TurnedCostClosePct, row.TurnedCostCloseMedianPct, pct(row.TurnedCostH5Pct), row.KeptGoing, row.KeptSavingClosePct, row.KeptSavingCloseMedianPct, pct(row.KeptSavingH5Pct),
 				row.WorstHeldClosePct, row.WorstHeldH5Pct, row.WorstPlanClosePct, row.WorstPlanH5Pct, row.CutsWithin1PctOfLow, row.CutAboveLowMedianPct)
 		}
 	}

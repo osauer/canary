@@ -86,6 +86,19 @@ func TestLevelMoneyValuesEachResultOnTheCallsHeldAndSaysWhatIsRecorded(t *testin
 	if share := LevelReplayOptionShare([]rpc.EdgeLevelsDay{d}); share.Unavailable != 1 || share.Days != 0 {
 		t.Fatalf("share = %+v", share)
 	}
+
+	// A call marked 4.00 under its intrinsic value of 5: no volatility
+	// explains the price, so the day is not priced from it.
+	under := NewLevelOptionBook(func() *replayBook {
+		b := newReplayBook(t, "USD")
+		b.option(1, "TESTA", "C", 100, "2026-06-19")
+		b.held("2026-03-09", position(1, 3, 4, 1200))
+		return b
+	}().statements(), nil)
+	d = levelMoneyOne(t, day, under, nil)
+	if held, _ = levelResult(&d.Look, rpc.EdgeLevelsVersionHeld, ""); held.Option != nil {
+		t.Fatalf("a price no volatility explains was priced: %+v", held.Option)
+	}
 }
 
 func TestLevelMoneyActualIsThePositionAfterHisTradesAtTheirOwnPrices(t *testing.T) {

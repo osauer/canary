@@ -20,15 +20,18 @@ import (
 //     order. An end value is recorded when every held contract has one.
 //   - The option's price at the moment is always modelled: Black-Scholes at
 //     the moment's stock price with the volatility backed out of the
-//     contract's recorded price at the prior session's close (rate zero). A
-//     volatility that cannot be backed out prices at intrinsic value.
+//     contract's recorded price at the prior session's close (rate zero).
 //   - A price during the session, and an end value that is not recorded, is
 //     the price at the moment plus the option's delta at the moment times
 //     the stock's move since, never below zero. The delta is that model's.
 //   - A contract that has expired by the valuation day and has no recorded
 //     price is valued at intrinsic value on that day's stock close.
-//   - A day whose held calls have no recorded price at the prior close has
-//     no option result and is counted.
+//   - A day whose held calls have no recorded price at the prior close, or
+//     a price no volatility explains, has no option result and is counted.
+//     (Until the first run on the owner's sessions such a contract was
+//     priced at intrinsic value at the moment; on five days of one name that
+//     put the moment's value at a sixteenth of the recorded close, so the
+//     day is now left out. No version changed.)
 //
 // Nothing here changes a version: the option figure is the version's own
 // sales and buys put through the option's price.
@@ -210,7 +213,7 @@ func levelYears(day, expiry string) float64 {
 
 // levelOptVols backs each held contract's volatility out of its recorded
 // price on day at the stock's close then; false when a contract has no
-// recorded price that day.
+// recorded price that day or no volatility prices it.
 func (b *LevelOptionBook) levelOptVols(contracts []levelOptContract, day string, spot float64) ([]levelOptLeg, bool) {
 	legs := make([]levelOptLeg, 0, len(contracts))
 	for _, c := range contracts {
@@ -220,7 +223,7 @@ func (b *LevelOptionBook) levelOptVols(contracts []levelOptContract, day string,
 		}
 		vol, ok := mandate.ImpliedVolatility(true, price, spot, c.strike, levelYears(day, c.expiry))
 		if !ok {
-			vol = 0
+			return nil, false
 		}
 		legs = append(legs, levelOptLeg{levelOptContract: c, vol: vol})
 	}

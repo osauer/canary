@@ -103,15 +103,23 @@ func levelInsuranceRow(days []rpc.EdgeLevelsDay, reading, size, half, version, b
 	}
 	row.Turned, row.TurnedCostClosePct, row.TurnedH5 = len(turned), levelAvg(turned), len(turned5)
 	row.KeptGoing, row.KeptSavingClosePct, row.KeptH5 = len(kept), levelAvg(kept), len(kept5)
+	row.TurnedCostCloseMedianPct, row.KeptSavingCloseMedianPct = levelMedian(turned), levelMedian(kept)
 	if len(turned5) > 0 {
-		row.TurnedCostH5Pct = new(levelAvg(turned5))
+		row.TurnedCostH5Pct, row.TurnedCostH5MedianPct = new(levelAvg(turned5)), new(levelMedian(turned5))
 	}
 	if len(kept5) > 0 {
-		row.KeptSavingH5Pct = new(levelAvg(kept5))
+		row.KeptSavingH5Pct, row.KeptSavingH5MedianPct = new(levelAvg(kept5)), new(levelMedian(kept5))
 	}
-	if n := len(nearLow); n > 0 {
-		slices.Sort(nearLow)
-		row.CutAboveLowMedianPct = (nearLow[(n-1)/2] + nearLow[n/2]) / 2
-	}
+	row.CutAboveLowMedianPct = levelMedian(nearLow)
 	return row, true
+}
+
+// levelMedian is the median, zero for none; it sorts v.
+func levelMedian(v []float64) float64 {
+	n := len(v)
+	if n == 0 {
+		return 0
+	}
+	slices.Sort(v)
+	return (v[(n-1)/2] + v[n/2]) / 2
 }

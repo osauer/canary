@@ -189,11 +189,18 @@ type EdgeLevelsInsurance struct {
 	TurnedCostClosePct float64  `json:"turned_cost_close_pct"`
 	TurnedH5           int      `json:"turned_h5"`
 	TurnedCostH5Pct    *float64 `json:"turned_cost_h5_pct,omitempty"`
+	// The medians beside the means: an option result is a percentage of a
+	// small premium, and one day can carry a mean.
+	TurnedCostCloseMedianPct float64  `json:"turned_cost_close_median_pct"`
+	TurnedCostH5MedianPct    *float64 `json:"turned_cost_h5_median_pct,omitempty"`
 
 	KeptGoing          int      `json:"kept_going"`
 	KeptSavingClosePct float64  `json:"kept_saving_close_pct"`
 	KeptH5             int      `json:"kept_h5"`
 	KeptSavingH5Pct    *float64 `json:"kept_saving_h5_pct,omitempty"`
+
+	KeptSavingCloseMedianPct float64  `json:"kept_saving_close_median_pct"`
+	KeptSavingH5MedianPct    *float64 `json:"kept_saving_h5_median_pct,omitempty"`
 
 	WorstHeldClosePct float64 `json:"worst_held_close_pct"`
 	WorstPlanClosePct float64 `json:"worst_plan_close_pct"`
@@ -258,7 +265,8 @@ type EdgeLevelsEntrySum struct {
 
 // EdgeLevelsOptionShare says how much of a look's option figures rests on
 // recorded prices: the days with an option result, the days without one (no
-// recorded price of a held call at the prior close), and the end values that
+// recorded price of a held call at the prior close, or one no volatility
+// explains), and the end values that
 // were recorded, at the close and five sessions on. ActualDays is the days
 // the owner traded the stock's options, ActualUnpriced those of them whose
 // result could not be valued.
