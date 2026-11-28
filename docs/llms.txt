@@ -1,6 +1,6 @@
 # Canary
 
-Updated: 2026-11-27 20:05 CET. Current release: v3.47.0.
+Updated: 2026-11-28 14:07 CET. Current release: v3.48.0.
 
 Canary is a local risk desk for an Interactive Brokers account. One daemon
 on the user's machine reads a running IB Gateway or TWS session and serves
@@ -15,6 +15,9 @@ https://osauer.dev/canary/docs/zh-hant/) and Simplified Chinese
 (https://osauer.dev/canary/zh-hans/ and https://osauer.dev/canary/docs/zh-hans/);
 English is the master.
 
+Version 3.48 has the read tools pass on every field the daemon serves, also
+fields newer than the client, and builds the compact regime view in the daemon.
+`canary edge levels` values results on the calls held, weighted by money.
 Version 3.47 judges the regime's HYG/SPY credit row on settled daily closes
 and has the row state the 50-day average it is judged against and why a red
 holds. `canary edge levels` replays the level rule for a losing call on the

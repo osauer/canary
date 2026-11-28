@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here. The project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and release entries follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) categories (Added / Changed / Deprecated / Removed / Fixed / Security).
 
+## v3.48.0 — 2026-11-28 14:07 CET
+
+### What's new
+
+- Tools read through `canary mcp` and the Go client now pass on every field the daemon serves, including fields added after the client was built. Until now a client older than the daemon dropped such fields without saying so. Order tools are the exception for assistants: they still return only the fields the client's own version knows, and broker free text stays withheld.
+- `canary edge levels` values each result on the long calls held, sets your own trades beside holding and beside the rule, and weights the figures by money. `--every-session` replays the rule on every session of a period, including sessions before Canary's calendar starts.
+- Before the US open, the market read places a held stock's pre-market trade against the prior session's range (`indicated_position`). It is read from thin prints and disappears once the session opens.
+
+### Changed
+
+- The compact regime view is now built by the daemon (`regime.monitor`). A client talking to an older daemon builds it itself, as before.
+- In the Go client, open orders may carry fields newer than the client. Decode the fields you use and ignore the rest.
+- Release testing only, with no change to how Canary runs: the start check before a release now passes on days without a US session.
+
+### Fixed
+
+- A health read during the broker handshake could read the server version while it was being written.
+
 ## v3.47.0 — 2026-11-27 20:05 CET
 
 ### What's new

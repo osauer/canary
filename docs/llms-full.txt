@@ -1,6 +1,16 @@
 # Canary full context
 
-Updated: 2026-11-27 20:05 CET
+Updated: 2026-11-28 14:07 CET
+
+Version 3.48 has the tools read through `canary mcp` and the Go client pass on
+every field the daemon serves, including fields added after the client was
+built; order tools still return to an assistant only the fields the client's
+own version knows, with broker free text withheld. The daemon builds the
+compact regime view itself (`regime.monitor`). `canary edge levels` values each
+result on the long calls held and weights the figures by money, and
+`--every-session` replays the rule on every session of a period. Before the US
+open the market read places a held stock's pre-market trade against the prior
+session's range (`indicated_position`).
 
 Version 3.47 judges the regime's HYG/SPY credit row on settled daily closes
 only: HYG's latest settled close against its 50-day average and SPY's close of
