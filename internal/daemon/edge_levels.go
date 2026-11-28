@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -50,6 +51,8 @@ const (
 	// daily history must reach: the 14-session average true range.
 	levelDailyLeadDays = 30
 )
+
+const levelMethodEverySession = "Every session in the bounds for each name of the held sample (the US stocks and funds a long call was held on in any session the statements and the calendar cover), one contract each, as if a call had been held throughout. These are the names held since, so in an earlier period they are its survivors, and a name not listed then is left out. Before Canary's calendar a session is a day SPY has a recorded daily bar, at the regular hours, shortened where SPY's five-minute bars end early. The two halves are the sample's sessions in order, cut where half its stock-days lie before."
 
 const levelMethodHistory = "Five-minute regular-session TRADES bars from the broker, kept by Canary once read (one document per name and month); the prior session's range, the average true range and the closes come from the daily history the exit replay keeps."
 
@@ -171,29 +174,62 @@ func (s *Server) handleEdgeLevels(ctx context.Context, req *rpc.Request) (*rpc.E
 	now := s.edgeNow()
 	sessions := levelSessions(params, now)
 	isIndex := func(symbol string) bool { _, ok := rpc.IndexUnderlyingContract(symbol); return ok }
-	sample, excluded := edgecore.LevelReplaySample(statements, sessions, isIndex)
-	common := maps.Clone(excluded)
-	if len(sample) == 0 {
-		return stateOnly(rpc.EdgeStateInsufficient, "no_call_held_in_the_sessions"), nil
-	}
-
 	// The daily history: what the exit replay retains, read without the
 	// broker; a name it does not span is read in the background fill.
-	bySymbol := map[string][]edgecore.LevelStockDay{}
-	for _, d := range sample {
-		bySymbol[d.Symbol] = append(bySymbol[d.Symbol], d)
-	}
-	symbols := slices.Sorted(maps.Keys(bySymbol))
-	historyRange := replayHistoryRange(nil, parseLevelDay(sample[0].Session.Date), now)
-	dailyRead := func(symbol string) (*replayRead, bool) {
-		days := bySymbol[symbol]
-		first := parseLevelDay(days[0].Session.Date).AddDate(0, 0, -levelDailyLeadDays)
-		last := parseLevelDay(days[len(days)-1].Session.Date).AddDate(0, 0, 10)
+	historyRange := ""
+	dailySpan := func(symbol, firstSession, lastSession string) (*replayRead, bool) {
+		first := parseLevelDay(firstSession).AddDate(0, 0, -levelDailyLeadDays)
+		last := parseLevelDay(lastSession).AddDate(0, 0, 10)
 		if yesterday := now.AddDate(0, 0, -1); last.After(yesterday) {
 			last = yesterday
 		}
 		read := s.replayHistoryHeld(ctx, edgecore.ExitReplayUnderlying{Symbol: symbol, Currency: "USD", First: first, Last: last}, historyRange)
 		return read, read.note.Reason != "" || edgecore.ExitReplayHistoryCovers(levelRanged(read.merged), first, last)
+	}
+	sample, excluded := edgecore.LevelReplaySample(statements, sessions, isIndex)
+	recorded := false
+	if params.EverySession {
+		// The names are the ones of the whole held sample; the sessions are
+		// the calendar's, or before it the days the index has a daily bar.
+		result.EverySession, result.Method.Sample = true, levelMethodEverySession
+		held, _ := edgecore.LevelReplaySample(statements, levelSessions(rpc.EdgeLevelsParams{}, now), isIndex)
+		names := map[string]bool{}
+		for _, d := range held {
+			names[d.Symbol] = true
+		}
+		if to := cmp.Or(params.To, now.Format(time.DateOnly)); levelBeforeCalendar(params.From, now) {
+			recorded = true
+			historyRange = replayHistoryRange(nil, parseLevelDay(params.From), now)
+			read, ok := dailySpan(levelIndexSymbol, params.From, to)
+			if !ok {
+				wait, cancelWait := context.WithTimeout(ctx, replayHistoryBudget(ctx))
+				select {
+				case <-s.startLevelFill(ctx, []*replayRead{read}, nil):
+				case <-wait.Done():
+				}
+				cancelWait()
+				if read, ok = dailySpan(levelIndexSymbol, params.From, to); !ok {
+					return stateOnly(rpc.EdgeStateBackfilling, "index_history_pending"), nil
+				}
+			}
+			sessions = levelRecordedSessions(levelRanged(read.merged), params.From, to, now)
+		}
+		sample, excluded = edgecore.LevelEverySession(slices.Sorted(maps.Keys(names)), sessions), map[string]int{}
+	}
+	common := maps.Clone(excluded)
+	if len(sample) == 0 {
+		return stateOnly(rpc.EdgeStateInsufficient, "no_call_held_in_the_sessions"), nil
+	}
+
+	bySymbol := map[string][]edgecore.LevelStockDay{}
+	for _, d := range sample {
+		bySymbol[d.Symbol] = append(bySymbol[d.Symbol], d)
+	}
+	symbols := slices.Sorted(maps.Keys(bySymbol))
+	historyRange = replayHistoryRange(nil, parseLevelDay(sample[0].Session.Date), now)
+	dailyRead := func(symbol string) (*replayRead, bool) {
+		days := bySymbol[symbol]
+		return dailySpan(symbol, days[0].Session.Date, days[len(days)-1].Session.Date)
 	}
 	var dailyMissing []*replayRead
 	for _, symbol := range symbols {
@@ -236,6 +272,9 @@ func (s *Server) handleEdgeLevels(ctx context.Context, req *rpc.Request) (*rpc.E
 		}
 	}
 	for _, d := range sample {
+		if recorded {
+			d.Session = levelRecordedClose(d.Session, in.Index[d.Session.Date])
+		}
 		bars, ok := held[d.Symbol][d.Session.Date]
 		if !ok && s.levelFill.barsFailed(d.Symbol) {
 			common[edgecore.LevelExcludedNoBars]++
@@ -353,6 +392,60 @@ func levelSessions(p rpc.EdgeLevelsParams, now time.Time) []edgecore.LevelSessio
 		}
 	}
 	return out
+}
+
+// levelBeforeCalendar reports a first session that lies before the calendar's
+// first covered day.
+func levelBeforeCalendar(from string, now time.Time) bool {
+	probe, err := marketcal.New().Query(marketcal.Query{Market: marketcal.MarketUSEquity, At: now, Days: 1})
+	return err == nil && from != "" && probe.CoverageStart != "" && from < probe.CoverageStart
+}
+
+// levelRecordedSessions lists the sessions of a period the calendar does not
+// cover from what was recorded: a session is a day the index has a daily bar,
+// its prior the bar before it, its hours the regular 09:30 to 16:00 in New
+// York. levelRecordedClose shortens a session the index stopped trading
+// early.
+func levelRecordedSessions(index []edgecore.UnderlyingBar, from, to string, now time.Time) []edgecore.LevelSession {
+	loc, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		return nil
+	}
+	index = slices.Clone(index)
+	slices.SortFunc(index, func(a, b edgecore.UnderlyingBar) int { return a.Day.Compare(b.Day) })
+	var out []edgecore.LevelSession
+	for i, bar := range index {
+		date := bar.Day.Format(time.DateOnly)
+		if i == 0 || date < from || date > to {
+			continue
+		}
+		y, m, d := bar.Day.Date()
+		session := edgecore.LevelSession{Date: date, Open: time.Date(y, m, d, 9, 30, 0, 0, loc), Close: time.Date(y, m, d, 16, 0, 0, 0, loc), Prior: index[i-1].Day.Format(time.DateOnly)}
+		if session.Close.After(now) {
+			break
+		}
+		out = append(out, session)
+	}
+	return out
+}
+
+// levelRecordedClose ends a recorded session where the index's last
+// five-minute bar ended, when that is before the regular close: an early
+// close the calendar would have named.
+func levelRecordedClose(session edgecore.LevelSession, index []edgecore.LevelBar) edgecore.LevelSession {
+	if len(index) == 0 {
+		return session
+	}
+	last := index[0].Start
+	for _, b := range index {
+		if b.Start.After(last) {
+			last = b.Start
+		}
+	}
+	if end := last.Add(5 * time.Minute); end.Before(session.Close) {
+		session.Close, session.Short = end, true
+	}
+	return session
 }
 
 // levelRanged keeps the daily bars that carry a high and a low: the rule
@@ -515,6 +608,12 @@ func (s *Server) startLevelFill(ctx context.Context, daily []*replayRead, missin
 				return
 			}
 			e := s.levelFillSymbol(fillCtx, symbol, missing[symbol])
+			if fillCtx.Err() != nil {
+				// The fill's own window ran out mid-name: the name did not
+				// fail, and the next run reads on from what is kept.
+				note("five-minute bars", symbol, fmt.Errorf("the fill's %s window ran out", levelFillWindow))
+				return
+			}
 			if e != nil {
 				note("five-minute bars", symbol, e)
 			}

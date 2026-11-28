@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/osauer/canary/v3/internal/broker"
+	"github.com/osauer/canary/v3/internal/daemon/corestore"
 	edgecore "github.com/osauer/canary/v3/internal/edge"
 	"github.com/osauer/canary/v3/internal/rpc"
 )
@@ -129,5 +130,114 @@ func TestLevelRangedCoverageIgnoresCloseOnlyBars(t *testing.T) {
 	last, _ := time.Parse(time.DateOnly, "2026-09-01")
 	if !edgecore.ExitReplayHistoryCovers(bars, first, last) || edgecore.ExitReplayHistoryCovers(levelRanged(bars), first, last) {
 		t.Fatal("close-only bars must not count as the ranged history the rule reads")
+	}
+}
+
+// seedLevelDaily keeps a synthetic daily history of one name (95, ranged 94
+// to 96, every weekday) in the market-history cache under the given range.
+func seedLevelDaily(t *testing.T, store *corestore.Store, now time.Time, symbol, historyRange string, from, to time.Time) {
+	t.Helper()
+	p := rpc.MarketHistoryParams{Contract: rpc.ContractParams{Symbol: symbol, SecType: "STK", Exchange: "SMART", Currency: "USD"}, Range: historyRange}
+	key, normalized, err := marketHistoryIdentity(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := rpc.MarketHistoryResult{TimestampKind: "session_date", PriceBasis: "TRADES", RegularHoursOnly: true, Contract: normalized.Contract, Range: historyRange, Interval: "1 day", Source: "hmds", AsOf: now, CoverageStatus: "complete"}
+	result.Contract.ConID = 4242
+	for day := from; day.Before(to); day = day.AddDate(0, 0, 1) {
+		if day.Weekday() != time.Saturday && day.Weekday() != time.Sunday {
+			result.Points = append(result.Points, rpc.MarketHistoryPoint{At: day, Value: 95, Open: new(95.0), High: new(96.0), Low: new(94.0)})
+		}
+	}
+	result.RequestedStart, result.Start, result.End = result.Points[0].At, result.Points[0].At, result.Points[len(result.Points)-1].At
+	payload, err := json.Marshal(storedMarketHistory{Version: 1, Identity: key, FullReadAt: now, Result: result})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveChartCache(t.Context(), key, payload); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestEdgeLevelsEverySessionReplaysTheHeldNamesOnSessionsNoCallWasHeld(t *testing.T) {
+	now := time.Date(2026, time.September, 30, 12, 0, 0, 0, time.UTC)
+	srv, store := replayTestServer(t, now)
+	seedReplayHistory(t, srv, store, now)
+	srv.setupSourceForTest = scaledSetupSource{newFakeSetupSource()}
+	// The SYNX call is in the statements of 2 to 4 September only; the week
+	// of the 14th is replayed all the same, one contract a session.
+	params := json.RawMessage(`{"from":"2026-09-14","to":"2026-09-18","every_session":true}`)
+	if _, err := srv.handleEdgeLevels(t.Context(), &rpc.Request{Params: params}); err != nil {
+		t.Fatal(err)
+	}
+	<-srv.startLevelFill(t.Context(), nil, nil)
+	result, err := srv.handleEdgeLevels(t.Context(), &rpc.Request{Params: params})
+	if err != nil {
+		t.Fatal(err)
+	}
+	look := result.Looks[1]
+	if !result.EverySession || result.Pending != 0 || len(look.Days) != 5 || look.Sample.Names != 1 || look.Days[0].Session != "2026-09-14" || look.Days[0].Contracts != 1 {
+		t.Fatalf("every-session run = pending %d days %d: %+v", result.Pending, len(look.Days), look.Sample)
+	}
+}
+
+func TestEdgeLevelsEverySessionBeforeTheCalendarTakesItsSessionsFromTheIndexBars(t *testing.T) {
+	now := time.Date(2026, time.September, 30, 12, 0, 0, 0, time.UTC)
+	srv, store := replayTestServer(t, now)
+	seedReplayHistory(t, srv, store, now)
+	srv.setupSourceForTest = scaledSetupSource{newFakeSetupSource()}
+	params := json.RawMessage(`{"from":"2025-06-02","to":"2025-06-06","every_session":true}`)
+
+	// Without the index's daily history of the period there are no sessions
+	// to name, and the run says it is waiting for it.
+	first, err := srv.handleEdgeLevels(t.Context(), &rpc.Request{Params: params})
+	if err != nil || first.State != rpc.EdgeStateBackfilling || first.Reason != "index_history_pending" {
+		t.Fatalf("first run = %+v, %v", first, err)
+	}
+	from, to := time.Date(2025, time.April, 1, 0, 0, 0, 0, time.UTC), time.Date(2025, time.July, 1, 0, 0, 0, 0, time.UTC)
+	seedLevelDaily(t, store, now, "SPY", "5Y", from, to)
+	seedLevelDaily(t, store, now, "SYNX", "5Y", from, to)
+	if _, err := srv.handleEdgeLevels(t.Context(), &rpc.Request{Params: params}); err != nil {
+		t.Fatal(err)
+	}
+	<-srv.startLevelFill(t.Context(), nil, nil)
+	result, err := srv.handleEdgeLevels(t.Context(), &rpc.Request{Params: params})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Looks) != 2 {
+		t.Fatalf("run before the calendar = state %s reason %s", result.State, result.Reason)
+	}
+	look := result.Looks[1]
+	if result.State != rpc.EdgeStateCurrent || result.Pending != 0 || len(look.Days) != 5 || look.Days[0].Session != "2025-06-02" || look.Days[0].Prior.Date != "2025-05-30" {
+		t.Fatalf("run before the calendar = state %s pending %d days %d excluded %v", result.State, result.Pending, len(look.Days), look.Sample.Excluded)
+	}
+}
+
+func TestLevelRecordedSessionsAreTheIndexBarsAndEndWhereItStoppedTrading(t *testing.T) {
+	bar := func(d string) edgecore.UnderlyingBar {
+		at, _ := time.Parse(time.DateOnly, d)
+		return edgecore.UnderlyingBar{Day: at, Close: 95, High: 96, Low: 94}
+	}
+	now := time.Date(2026, time.September, 30, 12, 0, 0, 0, time.UTC)
+	// No bar on the 24th (a holiday): the 25th follows the 23rd.
+	sessions := levelRecordedSessions([]edgecore.UnderlyingBar{bar("2022-11-22"), bar("2022-11-23"), bar("2022-11-25"), bar("2022-11-28")}, "2022-11-23", "2022-11-25", now)
+	if len(sessions) != 2 || sessions[1].Date != "2022-11-25" || sessions[1].Prior != "2022-11-23" || sessions[0].Prior != "2022-11-22" {
+		t.Fatalf("sessions = %+v", sessions)
+	}
+	if got := sessions[1].Close.Sub(sessions[1].Open); got != 6*time.Hour+30*time.Minute || sessions[1].Open.UTC().Hour() != 14 {
+		t.Fatalf("regular hours = %s from %s", got, sessions[1].Open.UTC())
+	}
+	// The index's last bar started at 12:55 New York: the session closed at 13:00.
+	var index []edgecore.LevelBar
+	for at := sessions[1].Open; at.Before(sessions[1].Open.Add(3*time.Hour + 30*time.Minute)); at = at.Add(5 * time.Minute) {
+		index = append(index, edgecore.LevelBar{Start: at, Open: 95, High: 95, Low: 95, Close: 95})
+	}
+	short := levelRecordedClose(sessions[1], index)
+	if !short.Short || short.Close.Sub(short.Open) != 3*time.Hour+30*time.Minute {
+		t.Fatalf("early close = %+v", short)
+	}
+	if full := levelRecordedClose(sessions[0], nil); full.Short || !full.Close.Equal(sessions[0].Close) {
+		t.Fatalf("a session without index bars changed: %+v", full)
 	}
 }

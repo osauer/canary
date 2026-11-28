@@ -76,6 +76,18 @@ type LevelStockDay struct {
 	Contracts float64
 }
 
+// LevelEverySession is the sample of an every-session run: each name on each
+// session, one contract, as if a call had been held throughout.
+func LevelEverySession(names []string, sessions []LevelSession) []LevelStockDay {
+	out := make([]LevelStockDay, 0, len(names)*len(sessions))
+	for _, session := range sessions {
+		for _, name := range names {
+			out = append(out, LevelStockDay{Symbol: name, Currency: "USD", Session: session, Contracts: 1})
+		}
+	}
+	return out
+}
+
 // Reasons a stock-day leaves the sample.
 const (
 	LevelExcludedNoPriorStatement = "no_statement_of_prior_session"

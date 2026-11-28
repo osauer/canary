@@ -19,6 +19,7 @@ func runEdgeLevels(ctx context.Context, env *Env, args []string) int {
 	fs := flagSet(env, "edge")
 	from := fs.String("from", "", "first session YYYY-MM-DD (default: the first the calendar and statements cover)")
 	to := fs.String("to", "", "last session YYYY-MM-DD (default: the last closed session)")
+	every := fs.Bool("every-session", false, "replay the held names on every session in the bounds, as if held throughout; --from may then lie before Canary's calendar")
 	days := fs.Bool("days", false, "also print one line per stock-day")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON")
 	if err := fs.Parse(args); err != nil {
@@ -27,7 +28,7 @@ func runEdgeLevels(ctx context.Context, env *Env, args []string) int {
 	if fs.NArg() != 0 {
 		return failUnexpectedArgs(env, fs)
 	}
-	params, err := rpc.NormalizeEdgeLevelsParams(rpc.EdgeLevelsParams{From: *from, To: *to})
+	params, err := rpc.NormalizeEdgeLevelsParams(rpc.EdgeLevelsParams{From: *from, To: *to, EverySession: *every})
 	if err != nil {
 		return fail(env, "edge levels: %v", err)
 	}
@@ -76,6 +77,9 @@ func renderEdgeLevels(env *Env, r rpc.EdgeLevelsResult, days bool) {
 		fmt.Fprintln(out, env.yellow(fmt.Sprintf("%d stock-days are still being read from the broker; run again for them.", r.Pending)))
 	}
 	fmt.Fprintln(out, "Stock prices only. The moment's price and the closes are recorded; every sale and buy back is modelled.")
+	if r.EverySession {
+		fmt.Fprintln(out, "Every session in the period for the names held since, as if a call had been held throughout: not the days one was held.")
+	}
 	for _, look := range r.Looks {
 		fmt.Fprintf(out, "\n%s\n", env.bold(fmt.Sprintf("Look %d minutes after the open", look.LookMinutes)))
 		renderEdgeLevelsLook(env, look, days)

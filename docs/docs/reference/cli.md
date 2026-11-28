@@ -651,7 +651,7 @@ Guard `read-only`. Also available as an MCP tool.
 ```text
 canary edge [--details] [--window 90d|365d] [--horizon 1|5|20] [--limit N] [--change ID] [--option ID] [--option-offset N] [--option-limit N] [--all-options] [--json]
 canary edge replay [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--rules A,B,C,D,loss_exit,...] [--json]
-canary edge levels [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--days] [--json]
+canary edge levels [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--every-session] [--days] [--json]
 canary edge tests [RULE] [--all] [--json]
 ```
 

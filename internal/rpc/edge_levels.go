@@ -58,6 +58,13 @@ var EdgeLevelsVersions = []string{EdgeLevelsVersionHeld, EdgeLevelsVersionAtOnce
 type EdgeLevelsParams struct {
 	From string `json:"from,omitempty"`
 	To   string `json:"to,omitempty"`
+	// EverySession replays the names of the held sample on every session in
+	// the bounds, as if a call had been held on each throughout: the way to
+	// read the rule in a period the statements do not reach. The names are
+	// the ones held since, so they are the survivors of that period. With it,
+	// From may lie before Canary's calendar; the sessions are then the days
+	// the index has a recorded daily bar.
+	EverySession bool `json:"every_session,omitempty"`
 }
 
 // NormalizeEdgeLevelsParams checks the optional session dates.
@@ -94,6 +101,9 @@ type EdgeLevelsResult struct {
 	// From and To are the first and last session in the sample.
 	From string `json:"from,omitempty"`
 	To   string `json:"to,omitempty"`
+	// EverySession marks a run on every session in the bounds for the names
+	// of the held sample, not on the days a call was held.
+	EverySession bool `json:"every_session,omitempty"`
 	// Pending counts the stock-days whose five-minute bars Canary is still
 	// reading from the broker; Incomplete is true while any is pending. The
 	// read goes on after the answer, and a later run includes those days.
