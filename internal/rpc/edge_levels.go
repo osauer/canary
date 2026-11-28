@@ -152,6 +152,7 @@ type EdgeLevelsLook struct {
 	// judges the buys; Option says how much of the option figures is recorded.
 	Insurance []EdgeLevelsInsurance `json:"insurance"`
 	Entries   []EdgeLevelsEntrySum  `json:"entries"`
+	Actual    []EdgeLevelsActualSum `json:"actual"`
 	Option    EdgeLevelsOptionShare `json:"option"`
 	Days      []EdgeLevelsDay       `json:"days"`
 }
@@ -220,17 +221,46 @@ type EdgeLevelsInsurance struct {
 	CutsWithin1PctOfLow  int     `json:"cuts_within_1pct_of_low"`
 }
 
-// EdgeLevelsInsuranceMoney is an insurance row's cost and saving weighted by
-// the calls' value at the moment, with the money itself.
+// EdgeLevelsMoneyCell is one money-weighted figure: over Days, the summed
+// difference (Money) over the summed value of the calls at the moment
+// (Weight), in percent. LargestDayShare is the largest single day's share of
+// the weight, so a figure one position carries can be seen as such.
+type EdgeLevelsMoneyCell struct {
+	Days            int     `json:"days"`
+	Pct             float64 `json:"pct"`
+	Money           float64 `json:"money"`
+	Weight          float64 `json:"weight"`
+	LargestDayShare float64 `json:"largest_day_share"`
+}
+
+// EdgeLevelsInsuranceMoney is an insurance row on the calls weighted by
+// money: the falls that turned, the falls that kept going and all cuts
+// together, each against holding, at the close and five sessions on.
 type EdgeLevelsInsuranceMoney struct {
-	TurnedCostClosePct float64 `json:"turned_cost_close_pct"`
-	TurnedCostClose    float64 `json:"turned_cost_close"`
-	TurnedCostH5Pct    float64 `json:"turned_cost_h5_pct"`
-	TurnedCostH5       float64 `json:"turned_cost_h5"`
-	KeptSavingClosePct float64 `json:"kept_saving_close_pct"`
-	KeptSavingClose    float64 `json:"kept_saving_close"`
-	KeptSavingH5Pct    float64 `json:"kept_saving_h5_pct"`
-	KeptSavingH5       float64 `json:"kept_saving_h5"`
+	TurnedClose EdgeLevelsMoneyCell `json:"turned_close"`
+	TurnedH5    EdgeLevelsMoneyCell `json:"turned_h5"`
+	KeptClose   EdgeLevelsMoneyCell `json:"kept_close"`
+	KeptH5      EdgeLevelsMoneyCell `json:"kept_h5"`
+	AllClose    EdgeLevelsMoneyCell `json:"all_close"`
+	AllH5       EdgeLevelsMoneyCell `json:"all_h5"`
+}
+
+// EdgeLevelsActualSum sets what the owner did beside the versions, over the
+// days he traded the stock's calls whose result is valued and whose trades
+// reconcile with the statements: his result less held's, and on drafted
+// days less the rule's (in halves), weighted by money. Reading is empty for
+// every day of the sample.
+type EdgeLevelsActualSum struct {
+	Reading string `json:"reading,omitempty"`
+	Half    string `json:"half"`
+	// Traded is the days he traded in the group; Days those that count.
+	Traded         int                 `json:"traded"`
+	Days           int                 `json:"days"`
+	VsHeldClose    EdgeLevelsMoneyCell `json:"vs_held_close"`
+	VsHeldH5       EdgeLevelsMoneyCell `json:"vs_held_h5"`
+	VsRuleClose    EdgeLevelsMoneyCell `json:"vs_rule_close"`
+	VsRuleH5       EdgeLevelsMoneyCell `json:"vs_rule_h5"`
+	BeatsHeldClose int                 `json:"beats_held_close"`
 }
 
 // EdgeLevelsOptionPct is a result on the calls held: the position's value
@@ -302,6 +332,10 @@ type EdgeLevelsOptionShare struct {
 	H5Recorded     int `json:"h5_recorded"`
 	ActualDays     int `json:"actual_days"`
 	ActualUnpriced int `json:"actual_unpriced"`
+	// ActualUnreconciled is the valued days whose position after his trades
+	// is not the session statement's: a row missing or read twice. They are
+	// kept per day and left out of the aggregate.
+	ActualUnreconciled int `json:"actual_unreconciled"`
 }
 
 // EdgeLevelsActual is what the owner did that session in the stock's
@@ -309,9 +343,13 @@ type EdgeLevelsOptionShare struct {
 // them): the number of sales and buys and the position's value after them
 // against its modelled value at the moment, with the trades' own prices.
 type EdgeLevelsActual struct {
-	Sales  int                  `json:"sales"`
-	Buys   int                  `json:"buys"`
-	Result *EdgeLevelsOptionPct `json:"result,omitempty"`
+	// Sales and Buys count his orders, not their partial executions.
+	Sales int `json:"sales"`
+	Buys  int `json:"buys"`
+	// Reconciled: the calls held at the prior close plus the session's
+	// trades are the calls the session's statement holds.
+	Reconciled bool                 `json:"reconciled"`
+	Result     *EdgeLevelsOptionPct `json:"result,omitempty"`
 }
 
 // EdgeLevelsSample counts the sample and what was left out, by reason.

@@ -51,12 +51,13 @@ func levelInsuranceRow(days []rpc.EdgeLevelsDay, reading, size, half, version, b
 	row := rpc.EdgeLevelsInsurance{Reading: reading, Size: size, Half: half, Version: version, Basis: basis}
 	var turned, turned5, kept, kept5, nearLow []float64
 	var planRes0 rpc.EdgeLevelsOptionPct
-	// Money-weighted sums: the difference to held and the value at the
-	// moment, for the turned and kept-going cuts at the close and at five.
-	var money, weight [4]float64
-	add := func(i int, diffPct float64) {
-		money[i] += diffPct / 100 * planRes0.MomentValue
-		weight[i] += planRes0.MomentValue
+	// Money-weighted: the turned and kept-going cuts and all cuts, at the
+	// close and at five.
+	var cells [6]levelMoneyCell
+	add := func(diffPct float64, at ...int) {
+		for _, i := range at {
+			cells[i].add(diffPct, planRes0.MomentValue)
+		}
 	}
 	for i := range days {
 		d := &days[i]
@@ -93,17 +94,17 @@ func levelInsuranceRow(days []rpc.EdgeLevelsDay, reading, size, half, version, b
 		}
 		if d.Close > d.Look.Cut {
 			turned = append(turned, plan-held)
-			add(0, plan-held)
+			add(plan-held, 0, 4)
 			if both5 {
 				turned5 = append(turned5, *plan5-*held5)
-				add(1, *plan5-*held5)
+				add(*plan5-*held5, 1, 5)
 			}
 		} else {
 			kept = append(kept, plan-held)
-			add(2, plan-held)
+			add(plan-held, 2, 4)
 			if both5 {
 				kept5 = append(kept5, *plan5-*held5)
-				add(3, *plan5-*held5)
+				add(*plan5-*held5, 3, 5)
 			}
 		}
 		if d.SessionLow > 0 {
@@ -128,14 +129,7 @@ func levelInsuranceRow(days []rpc.EdgeLevelsDay, reading, size, half, version, b
 	}
 	row.CutAboveLowMedianPct = levelMedian(nearLow)
 	if basis == rpc.EdgeLevelsBasisOption {
-		pct := func(i int) float64 {
-			if weight[i] <= 0 {
-				return 0
-			}
-			return money[i] / weight[i] * 100
-		}
-		row.Money = &rpc.EdgeLevelsInsuranceMoney{TurnedCostClosePct: pct(0), TurnedCostClose: money[0], TurnedCostH5Pct: pct(1), TurnedCostH5: money[1],
-			KeptSavingClosePct: pct(2), KeptSavingClose: money[2], KeptSavingH5Pct: pct(3), KeptSavingH5: money[3]}
+		row.Money = &rpc.EdgeLevelsInsuranceMoney{TurnedClose: cells[0].cell(), TurnedH5: cells[1].cell(), KeptClose: cells[2].cell(), KeptH5: cells[3].cell(), AllClose: cells[4].cell(), AllH5: cells[5].cell()}
 	}
 	return row, true
 }
@@ -148,4 +142,76 @@ func levelMedian(v []float64) float64 {
 	}
 	slices.Sort(v)
 	return (v[(n-1)/2] + v[n/2]) / 2
+}
+
+// levelMoneyCell sums a difference in percent of a day's value over days,
+// in money.
+type levelMoneyCell struct {
+	days                   int
+	money, weight, largest float64
+}
+
+func (c *levelMoneyCell) add(diffPct, value float64) {
+	if value <= 0 {
+		return
+	}
+	c.days++
+	c.money += diffPct / 100 * value
+	c.weight += value
+	c.largest = max(c.largest, value)
+}
+
+func (c levelMoneyCell) cell() rpc.EdgeLevelsMoneyCell {
+	out := rpc.EdgeLevelsMoneyCell{Days: c.days, Money: c.money, Weight: c.weight}
+	if c.weight > 0 {
+		out.Pct, out.LargestDayShare = c.money/c.weight*100, c.largest/c.weight
+	}
+	return out
+}
+
+// LevelReplayActual sets the owner's own trades beside holding and beside
+// the rule in halves, weighted by money, over the days he traded the stock's
+// calls whose result is valued and reconciles with the statements: every
+// day of the sample, then the drafted days of each reading. The days must
+// carry their half.
+func LevelReplayActual(days []rpc.EdgeLevelsDay) []rpc.EdgeLevelsActualSum {
+	var out []rpc.EdgeLevelsActualSum
+	for _, reading := range []string{"", rpc.EdgeLevelsReadingPriorLow, rpc.EdgeLevelsReadingDownOnDay} {
+		for _, half := range []string{rpc.EdgeLevelsHalfAll, rpc.EdgeLevelsHalfFirst, rpc.EdgeLevelsHalfSecond} {
+			sum := rpc.EdgeLevelsActualSum{Reading: reading, Half: half}
+			var cells [4]levelMoneyCell
+			for i := range days {
+				d := &days[i]
+				if half != rpc.EdgeLevelsHalfAll && d.Half != half || d.Actual == nil {
+					continue
+				}
+				if reading == rpc.EdgeLevelsReadingPriorLow && d.Row != rpc.EdgeLevelsRowLosing || reading == rpc.EdgeLevelsReadingDownOnDay && !d.DownOnDay {
+					continue
+				}
+				sum.Traded++
+				held, _ := levelResult(&d.Look, rpc.EdgeLevelsVersionHeld, "")
+				if d.Actual.Result == nil || !d.Actual.Reconciled || held.Option == nil {
+					continue
+				}
+				sum.Days++
+				a, value := d.Actual.Result, d.Actual.Result.MomentValue
+				cells[0].add(a.ClosePct-held.Option.ClosePct, value)
+				if a.ClosePct > held.Option.ClosePct+1e-9 {
+					sum.BeatsHeldClose++
+				}
+				if a.H5Pct != nil && held.Option.H5Pct != nil {
+					cells[1].add(*a.H5Pct-*held.Option.H5Pct, value)
+				}
+				if rule, ok := levelResult(&d.Look, rpc.EdgeLevelsVersionRule, rpc.EdgeLevelsSizeHalves); ok && reading != "" && rule.Option != nil {
+					cells[2].add(a.ClosePct-rule.Option.ClosePct, value)
+					if a.H5Pct != nil && rule.Option.H5Pct != nil {
+						cells[3].add(*a.H5Pct-*rule.Option.H5Pct, value)
+					}
+				}
+			}
+			sum.VsHeldClose, sum.VsHeldH5, sum.VsRuleClose, sum.VsRuleH5 = cells[0].cell(), cells[1].cell(), cells[2].cell(), cells[3].cell()
+			out = append(out, sum)
+		}
+	}
+	return out
 }
