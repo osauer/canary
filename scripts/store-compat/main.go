@@ -67,6 +67,9 @@ const (
 	storePath = "state/ibkr/daemon.db"
 	// simulatorPkg is the simulator's package, laid over a revision's tree.
 	simulatorPkg = "pkg/ibkr/twssim"
+	// simulatedCalendar is the calendar's simulated sessions, which only
+	// canary-sim installs; laid over a revision's tree with the simulator.
+	simulatedCalendar = "internal/marketcal/simulated.go"
 )
 
 func main() {
@@ -239,6 +242,14 @@ func build(rev, dir string) (string, error) {
 		overlay := exec.Command("cp", "-R", filepath.FromSlash(simulatorPkg), sim)
 		if out, err := overlay.CombinedOutput(); err != nil {
 			return "", fmt.Errorf("overlay the simulator: %v: %s", err, out)
+		}
+		// The simulated calendar is the gate's instrument too. v3.47.0's
+		// answered every earlier day with the open session's window, so the
+		// last real close never read as settled and a build that judges the
+		// HYG/SPY row on settled closes stored no streak, at any hour.
+		calendar := exec.Command("cp", filepath.FromSlash(simulatedCalendar), filepath.Join(src, filepath.FromSlash(simulatedCalendar)))
+		if out, err := calendar.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("overlay the simulated calendar: %v: %s", err, out)
 		}
 	}
 	cmd := exec.Command("go", "build", "-buildvcs=false", "-o", bin, "./cmd/canary-sim")

@@ -43,13 +43,21 @@ func ClearSimulatedSessions() {
 }
 
 // simulatedSession is the synthetic session of a market at an instant, if
-// one is installed.
+// one is installed and answers for that instant's day in the market's zone.
 func simulatedSession(spec calendarSpec, at time.Time) (Session, bool) {
 	simulatedSessions.RLock()
 	ws, ok := simulatedSessions.windows[spec.market]
 	simulatedSessions.RUnlock()
 	if !ok || len(ws) == 0 {
 		return Session{}, false
+	}
+	// One session stands for the day it opens on. A day before it keeps its
+	// official session: answered with this window, the last real close would
+	// read as not yet settled for as long as the simulated session is open.
+	if len(ws) == 1 && !ws[0].Open.IsZero() {
+		if loc, err := time.LoadLocation(spec.timezone); err == nil && at.In(loc).Format(time.DateOnly) < ws[0].Open.In(loc).Format(time.DateOnly) {
+			return Session{}, false
+		}
 	}
 	// The session at hand is the window at or after at, else the last.
 	k := len(ws) - 1

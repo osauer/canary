@@ -82,3 +82,28 @@ func run(t *testing.T, name string, args ...string) string {
 	}
 	return string(out)
 }
+
+// One simulated session stands for the day it opens on. A day before it
+// keeps its official session, so the last real close stays settled while the
+// simulated session is open.
+func TestASimulatedSessionLeavesEarlierDaysToTheCalendar(t *testing.T) {
+	t.Cleanup(ClearSimulatedSessions)
+	ny, err := time.LoadLocation("America/New_York")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saturday := time.Date(2026, 11, 28, 5, 56, 0, 0, ny)
+	SimulateSession(MarketUSEquity, Window{Open: saturday.Add(-time.Hour), Close: saturday.Add(6*time.Hour + 30*time.Minute)})
+	cal := NewWithClock(func() time.Time { return saturday })
+	today, err := cal.Query(Query{Market: MarketUSEquity, Date: "2026-11-28", Days: 1})
+	if err != nil || today.Session.Source != "twssim" || !today.Session.Close.After(saturday) {
+		t.Fatalf("the simulated day: %+v %v", today.Session, err)
+	}
+	friday, err := cal.Query(Query{Market: MarketUSEquity, Date: "2026-11-27", Days: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if friday.Session.Source == "twssim" || friday.Session.Close.IsZero() || !friday.Session.Close.Before(saturday) {
+		t.Fatalf("Friday's session took the simulated window: %+v", friday.Session)
+	}
+}
