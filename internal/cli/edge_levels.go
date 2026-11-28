@@ -48,7 +48,7 @@ func runEdgeLevels(ctx context.Context, env *Env, args []string) int {
 
 var edgeLevelsVersionLabels = map[string]string{
 	rpc.EdgeLevelsVersionHeld: "Held", rpc.EdgeLevelsVersionAtOnce: "Reduced at once", rpc.EdgeLevelsVersionRule: "The rule",
-	rpc.EdgeLevelsVersionBuyBack: "With its buy back", rpc.EdgeLevelsVersionIndex: "Cut with the index",
+	rpc.EdgeLevelsVersionBuyBack: "With its buy back", rpc.EdgeLevelsVersionIndex: "Cut with the index", rpc.EdgeLevelsVersionNearTrim: "With the nearer trim",
 }
 
 var edgeLevelsGroupTitles = map[string]string{
@@ -181,6 +181,7 @@ func renderEdgeLevelsLook(env *Env, r rpc.EdgeLevelsLook, days bool) {
 			}
 		}
 	}
+	renderEdgeLevelsTest(env, r)
 	if days {
 		fmt.Fprintln(out, "\nSession     Name   Calls  Row        Down  Moment  Price     Cut      Stop     Held    Rule    Buy back  Index   (halves, at the close)")
 		for _, d := range r.Days {
@@ -204,5 +205,53 @@ func renderEdgeLevelsLook(env *Env, r rpc.EdgeLevelsLook, days bool) {
 				fmt.Fprintf(out, "%-11s %-6s %5g  %-10s %-5s %-7s %-9.2f %-8.2f %-8.2f %s\n", d.Session, sanitizeRunText(d.Symbol), d.Contracts, row, down, edgeLevelsClock(draft.Moment), draft.MomentPrice, draft.Cut, draft.Stop, strings.Join(cells, "  "))
 			}
 		}
+	}
+}
+
+var edgeLevelsEntryLabels = map[string]string{
+	rpc.EdgeLevelsEntryLaterBuyBack: "Buy back on a later session", rpc.EdgeLevelsEntryAddAboveHigh: "Add above the prior high",
+	rpc.EdgeLevelsEntryAddReclaim: "Add on the reclaim", rpc.EdgeLevelsEntryOwnerAdd: "His own adds",
+}
+
+// renderEdgeLevelsTest prints the review's test: the sales as insurance, on
+// the stock and on the calls, and the buys as entries.
+func renderEdgeLevelsTest(env *Env, r rpc.EdgeLevelsLook) {
+	out := env.Stdout
+	pct := func(v *float64) string {
+		if v == nil {
+			return "none"
+		}
+		return fmt.Sprintf("%+.2f%%", *v)
+	}
+	if o := r.Option; o.Days > 0 {
+		fmt.Fprintf(out, "\nOn the calls  %d days priced, %d without a recorded price at the prior close. End value recorded on %d of %d at the close and %d of %d five sessions on; the rest and every price inside the session are modelled.\n",
+			o.Days, o.Unavailable, o.CloseRecorded, o.Days, o.H5Recorded, o.H5Days)
+		fmt.Fprintf(out, "His own trades  on %d days, %d of them not valued.\n", o.ActualDays, o.ActualUnpriced)
+	}
+	for _, reading := range []string{rpc.EdgeLevelsReadingPriorLow, rpc.EdgeLevelsReadingDownOnDay} {
+		fmt.Fprintf(out, "\nThe sales as insurance, %s, halves. Per cut against holding, at the close / five sessions on.\n", strings.ToLower(strings.SplitN(edgeLevelsGroupTitles[reading+"/"+rpc.EdgeLevelsRowLosing], " (", 2)[0]))
+		for _, row := range r.Insurance {
+			if row.Reading != reading || row.Size != rpc.EdgeLevelsSizeHalves {
+				continue
+			}
+			fmt.Fprintf(out, "  %-20s %-6s %-6s %d cuts on %d days. Turned %d: cost %+.2f%% (median %+.2f%%) / %s. Kept going %d: saved %+.2f%% (median %+.2f%%) / %s. Worst held %+.1f%% / %+.1f%%, with the plan %+.1f%% / %+.1f%%. Cut within 1%% of the low %d, median %.2f%% above.\n",
+				edgeLevelsVersionLabels[row.Version], row.Basis, row.Half, row.Cuts, row.Days, row.Turned, row.TurnedCostClosePct, row.TurnedCostCloseMedianPct, pct(row.TurnedCostH5Pct), row.KeptGoing, row.KeptSavingClosePct, row.KeptSavingCloseMedianPct, pct(row.KeptSavingH5Pct),
+				row.WorstHeldClosePct, row.WorstHeldH5Pct, row.WorstPlanClosePct, row.WorstPlanH5Pct, row.CutsWithin1PctOfLow, row.CutAboveLowMedianPct)
+		}
+	}
+	if len(r.Entries) > 0 {
+		fmt.Fprintln(out, "\nThe buys as entries, five sessions after the buy, against not buying.")
+	}
+	for _, e := range r.Entries {
+		label := edgeLevelsEntryLabels[e.Kind]
+		if e.Reading == rpc.EdgeLevelsReadingDownOnDay {
+			label += " (down on the day)"
+		}
+		after := ""
+		if e.Kind == rpc.EdgeLevelsEntryLaterBuyBack {
+			after = fmt.Sprintf(" after %d cuts", e.Cuts)
+		}
+		fmt.Fprintf(out, "  %-46s %-6s bought %d%s, never %d, pending %d. Stock %s on %d (%d up). Calls %s on %d (%d up, %d recorded).\n",
+			label, e.Half, e.Bought, after, e.Never, e.Pending, pct(e.H5MeanPct), e.Judged, e.H5Wins, pct(e.OptionH5MeanPct), e.OptionJudged, e.OptionH5Wins, e.OptionRecorded)
 	}
 }

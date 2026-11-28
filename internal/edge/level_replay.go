@@ -191,7 +191,10 @@ type LevelDayInput struct {
 	DayHigh, DayLow, Close float64
 	Close5                 float64
 	Close5Day              string
-	Bars                   []LevelBar
+	// Next is the daily closes of the sessions after this one, in order, as
+	// far as they have closed (ten at most are read).
+	Next []LevelClose
+	Bars []LevelBar
 	// Unavailable, when set, leaves the day out with that reason.
 	Unavailable string
 }
@@ -202,6 +205,8 @@ type LevelReplayInput struct {
 	Days        []LevelDayInput
 	Index       map[string][]LevelBar
 	LookMinutes int
+	// Book is the option evidence; nil replays on the stock only.
+	Book *LevelOptionBook
 }
 
 // levelBasisPct is how far the session's five-minute range may sit from its
@@ -225,7 +230,7 @@ func LevelReplay(in LevelReplayInput) LevelReplayOutput {
 		look = time.Hour
 	}
 	for _, d := range in.Days {
-		row, path, reason := levelReplayDay(d, in.Index[d.Day.Session.Date], look)
+		row, path, reason := levelReplayDay(d, in.Index[d.Day.Session.Date], look, in.Book)
 		if reason != "" {
 			out.Excluded[reason]++
 			continue
@@ -238,7 +243,7 @@ func LevelReplay(in LevelReplayInput) LevelReplayOutput {
 	return out
 }
 
-func levelReplayDay(d LevelDayInput, index []LevelBar, lookAfter time.Duration) (rpc.EdgeLevelsDay, *levelPath, string) {
+func levelReplayDay(d LevelDayInput, index []LevelBar, lookAfter time.Duration, book *LevelOptionBook) (rpc.EdgeLevelsDay, *levelPath, string) {
 	s := d.Day.Session
 	row := rpc.EdgeLevelsDay{Symbol: d.Day.Symbol, Session: s.Date, Contracts: d.Day.Contracts, Short: s.Short, Prior: d.Prior, ATR14: d.ATR14, SessionHigh: d.DayHigh, SessionLow: d.DayLow, Close: d.Close}
 	switch {
@@ -283,13 +288,30 @@ func levelReplayDay(d LevelDayInput, index []LevelBar, lookAfter time.Duration) 
 		bar, ok := indexAt[at.Unix()]
 		return ok && indexLow > 0 && bar.Close < indexLow
 	}
+	contracts, fills := book.day(d.Day.Symbol, s.Prior, s.Date)
+	money := levelMoney{book: book}
+	if legs, ok := book.levelOptVols(contracts, s.Prior, d.Prior.Close); ok {
+		money.legs = legs
+	}
 	var path *levelPath
-	row.Look, path = levelDraft(bars, lookIdx, d, row.Close5, gate, row.Row == rpc.EdgeLevelsRowLosing || row.DownOnDay)
+	row.Look, path = levelDraft(bars, lookIdx, d, row.Close5, gate, row.Row == rpc.EdgeLevelsRowLosing || row.DownOnDay, money)
+	var atLook *levelOptModel
+	if money.legs != nil {
+		atLook, _ = book.levelOptModelAt(money.legs, s.Date, lookPrice, false)
+	}
+	notUnder := func(at time.Time) bool {
+		bar, ok := indexAt[at.Unix()]
+		return ok && indexLow > 0 && bar.Close >= indexLow
+	}
+	row.Adds = append(levelAdds(bars, lookIdx, d.Prior, notUnder, row.Close5, d.Close5Day, atLook), book.levelOwnerAdds(fills, d.Close5Day)...)
+	if atLook != nil {
+		row.Actual = atLook.levelActual(fills, s.Date, d.Close, d.Close5Day, row.Close5)
+	}
 	if row.Row == rpc.EdgeLevelsRowWatched {
 		lastHour := s.Close.Add(-time.Hour)
 		for i := lookIdx + 1; i < len(bars) && bars[i].Start.Add(5*time.Minute).Before(lastHour); i++ {
 			if bars[i].Close < d.Prior.Low {
-				later, _ := levelDraft(bars, i, d, row.Close5, gate, true)
+				later, _ := levelDraft(bars, i, d, row.Close5, gate, true, money)
 				row.Later = &later
 				break
 			}
@@ -300,18 +322,34 @@ func levelReplayDay(d LevelDayInput, index []LevelBar, lookAfter time.Duration) 
 
 // levelDraft freezes the levels at bars[moment] and values the versions
 // from there; a row the rule does not draft gets the held result only.
-func levelDraft(bars []LevelBar, moment int, d LevelDayInput, close5 *float64, gate func(time.Time) bool, drafted bool) (rpc.EdgeLevelsDraft, *levelPath) {
+func levelDraft(bars []LevelBar, moment int, d LevelDayInput, close5 *float64, gate func(time.Time) bool, drafted bool, money levelMoney) (rpc.EdgeLevelsDraft, *levelPath) {
 	s := d.Day.Session
 	lv := levelsAt(bars[:moment+1], d.Prior, d.ATR14)
+	near := lv
+	near.trims = nil
+	quarter := lv.low + (lv.high-lv.low)/4
+	for _, t := range []float64{quarter, d.Prior.Low} {
+		if t > lv.price && !slices.Contains(near.trims, t) {
+			near.trims = append(near.trims, t)
+		}
+	}
+	slices.Sort(near.trims)
 	at := bars[moment].Start.Add(5 * time.Minute)
-	draft := rpc.EdgeLevelsDraft{Moment: at, MomentPrice: lv.price, DayHigh: lv.high, DayLow: lv.low, DayMid: lv.mid, Cut: lv.cut, Stop: lv.stop, Trims: slices.Clone(lv.trims), Results: []rpc.EdgeLevelsDayResult{}}
+	draft := rpc.EdgeLevelsDraft{Moment: at, MomentPrice: lv.price, DayHigh: lv.high, DayLow: lv.low, DayMid: lv.mid, Cut: lv.cut, Stop: lv.stop, Trims: slices.Clone(lv.trims), NearTrim: quarter, Results: []rpc.EdgeLevelsDayResult{}}
 	if draft.Trims == nil {
 		draft.Trims = []float64{}
+	}
+	var model *levelOptModel
+	if money.legs != nil {
+		model, _ = money.book.levelOptModelAt(money.legs, s.Date, lv.price, false)
 	}
 	value := func(sim levelSim, size, version string) rpc.EdgeLevelsDayResult {
 		res := rpc.EdgeLevelsDayResult{Version: version, Size: size, ClosePct: sim.valuePct(d.Close, lv.price), Events: sim.events}
 		if close5 != nil {
 			res.H5Pct = new(sim.valuePct(*close5, lv.price))
+		}
+		if model != nil {
+			res.Option = model.result(sim, s.Date, d.Close, d.Close5Day, close5)
 		}
 		return res
 	}
@@ -327,13 +365,24 @@ func levelDraft(bars []LevelBar, moment int, d LevelDayInput, close5 *float64, g
 			value(atOnce, size, rpc.EdgeLevelsVersionAtOnce),
 			value(runLevelRule(after, lv, size, false, nil, s), size, rpc.EdgeLevelsVersionRule),
 			value(runLevelRule(after, lv, size, true, nil, s), size, rpc.EdgeLevelsVersionBuyBack),
-			value(runLevelRule(after, lv, size, false, gate, s), size, rpc.EdgeLevelsVersionIndex))
+			value(runLevelRule(after, lv, size, false, gate, s), size, rpc.EdgeLevelsVersionIndex),
+			value(runLevelRule(after, near, size, false, nil, s), size, rpc.EdgeLevelsVersionNearTrim))
 	}
 	path := levelPathOf(after, lv, d.Close)
 	halves := runLevelRule(after, lv, rpc.EdgeLevelsSizeHalves, false, nil, s)
+	if halves.cuts > 0 {
+		draft.LaterBuyBack = levelLaterBuyBack(lv.cut, d.Next, money.legs, money.book)
+	}
 	path.cuts, path.cutSale, path.trims, path.timeSales = halves.cuts, halves.cutPrice, halves.trims, halves.timeSales
 	path.roundTrips = runLevelRule(after, lv, rpc.EdgeLevelsSizeHalves, true, nil, s).roundTrips
 	return draft, &path
+}
+
+// levelMoney is what a draft prices the calls from: the option evidence and
+// the held contracts with their volatilities; no legs, no option result.
+type levelMoney struct {
+	book *LevelOptionBook
+	legs []levelOptLeg
 }
 
 // levelShare is the first trim's size: half, or a third.
@@ -719,12 +768,18 @@ func levelResult(d *rpc.EdgeLevelsDraft, version, size string) (rpc.EdgeLevelsDa
 
 func levelMean(drafts []*rpc.EdgeLevelsDraft, version, size string) rpc.EdgeLevelsResultMean {
 	m := rpc.EdgeLevelsResultMean{Version: version}
-	var closes, h5 []float64
+	var closes, h5, optCloses, optH5 []float64
 	for _, d := range drafts {
 		r, ok := levelResult(d, version, size)
 		held, _ := levelResult(d, rpc.EdgeLevelsVersionHeld, "")
 		if !ok {
 			continue
+		}
+		if r.Option != nil {
+			optCloses = append(optCloses, r.Option.ClosePct)
+			if r.Option.H5Pct != nil {
+				optH5 = append(optH5, *r.Option.H5Pct)
+			}
 		}
 		closes = append(closes, r.ClosePct)
 		if r.ClosePct > held.ClosePct+1e-9 {
@@ -741,6 +796,13 @@ func levelMean(drafts []*rpc.EdgeLevelsDraft, version, size string) rpc.EdgeLeve
 	m.CloseMeanPct = levelAvg(closes)
 	if len(h5) > 0 {
 		m.H5MeanPct = new(levelAvg(h5))
+	}
+	m.OptionCloseDays, m.OptionH5Days = len(optCloses), len(optH5)
+	if len(optCloses) > 0 {
+		m.OptionCloseMeanPct = new(levelAvg(optCloses))
+	}
+	if len(optH5) > 0 {
+		m.OptionH5MeanPct = new(levelAvg(optH5))
 	}
 	return m
 }

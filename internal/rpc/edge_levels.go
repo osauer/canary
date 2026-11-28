@@ -43,6 +43,32 @@ const (
 	EdgeLevelsVersionRule    = "rule"
 	EdgeLevelsVersionBuyBack = "rule_buy_back"
 	EdgeLevelsVersionIndex   = "rule_index_cut"
+	// EdgeLevelsVersionNearTrim is the rule with its first trim a quarter of
+	// the way up the day's range at the moment, in place of the midpoint.
+	EdgeLevelsVersionNearTrim = "rule_near_trim"
+
+	// EdgeLevelsBasisStock and EdgeLevelsBasisOption say what a figure is a
+	// percentage of: the stock position, or the calls held on it.
+	EdgeLevelsBasisStock  = "stock"
+	EdgeLevelsBasisOption = "option"
+
+	// EdgeLevelsRecorded and EdgeLevelsModelled mark an option figure's end
+	// value: every held contract had a recorded price that day (the
+	// statement's mark, a trade's closing price or the recorder's mid), or
+	// at least one was modelled.
+	EdgeLevelsRecorded = "recorded"
+	EdgeLevelsModelled = "modelled"
+
+	// EdgeLevelsEntryLaterBuyBack and the three after it are the kinds of
+	// entry the replay judges as buys; EdgeLevelsEntryBought, Never and
+	// Pending are an entry's states.
+	EdgeLevelsEntryLaterBuyBack = "later_buy_back"
+	EdgeLevelsEntryAddAboveHigh = "add_above_prior_high"
+	EdgeLevelsEntryAddReclaim   = "add_reclaim"
+	EdgeLevelsEntryOwnerAdd     = "owner_add"
+	EdgeLevelsEntryBought       = "bought"
+	EdgeLevelsEntryNever        = "never"
+	EdgeLevelsEntryPending      = "pending"
 
 	// EdgeLevelsHalfAll and the two after it name the sample's halves.
 	EdgeLevelsHalfAll    = "all"
@@ -51,7 +77,7 @@ const (
 )
 
 // EdgeLevelsVersions lists the versions in the order they are reported.
-var EdgeLevelsVersions = []string{EdgeLevelsVersionHeld, EdgeLevelsVersionAtOnce, EdgeLevelsVersionRule, EdgeLevelsVersionBuyBack, EdgeLevelsVersionIndex}
+var EdgeLevelsVersions = []string{EdgeLevelsVersionHeld, EdgeLevelsVersionAtOnce, EdgeLevelsVersionRule, EdgeLevelsVersionBuyBack, EdgeLevelsVersionIndex, EdgeLevelsVersionNearTrim}
 
 // EdgeLevelsParams bounds the sessions replayed; empty means every session
 // the retained statements and Canary's calendar cover.
@@ -122,7 +148,12 @@ type EdgeLevelsLook struct {
 	Sample      EdgeLevelsSample  `json:"sample"`
 	Summary     []EdgeLevelsSum   `json:"summary"`
 	Counts      []EdgeLevelsTally `json:"counts"`
-	Days        []EdgeLevelsDay   `json:"days"`
+	// Insurance reads the selling versions by the review's test; Entries
+	// judges the buys; Option says how much of the option figures is recorded.
+	Insurance []EdgeLevelsInsurance `json:"insurance"`
+	Entries   []EdgeLevelsEntrySum  `json:"entries"`
+	Option    EdgeLevelsOptionShare `json:"option"`
+	Days      []EdgeLevelsDay       `json:"days"`
 }
 
 // EdgeLevelsMethod says how the replay runs, in words a reader can check.
@@ -132,6 +163,155 @@ type EdgeLevelsMethod struct {
 	Sample  string   `json:"sample"`
 	Index   string   `json:"index"`
 	History string   `json:"history"`
+	// Money says how a result is valued on the calls held; Test how the
+	// sales are read as insurance and the buys as entries.
+	Money string   `json:"money"`
+	Test  []string `json:"test"`
+}
+
+// EdgeLevelsInsurance is one selling version read as insurance, for one
+// reading, size, half and basis. A cut is a fall that turned when the stock
+// closed that session above the cut level and a fall that kept going when it
+// closed at or under it. Cost and saving are the version's result less
+// held's on those days, per cut, in percent of the position at the moment;
+// the worst figures are the lowest result over the group's days, never above
+// zero. Days counts every drafted day of the group.
+type EdgeLevelsInsurance struct {
+	Reading string `json:"reading"`
+	Size    string `json:"size"`
+	Half    string `json:"half"`
+	Version string `json:"version"`
+	Basis   string `json:"basis"`
+	Days    int    `json:"days"`
+	Cuts    int    `json:"cuts"`
+
+	Turned             int      `json:"turned"`
+	TurnedCostClosePct float64  `json:"turned_cost_close_pct"`
+	TurnedH5           int      `json:"turned_h5"`
+	TurnedCostH5Pct    *float64 `json:"turned_cost_h5_pct,omitempty"`
+	// The medians beside the means: an option result is a percentage of a
+	// small premium, and one day can carry a mean.
+	TurnedCostCloseMedianPct float64  `json:"turned_cost_close_median_pct"`
+	TurnedCostH5MedianPct    *float64 `json:"turned_cost_h5_median_pct,omitempty"`
+
+	KeptGoing          int      `json:"kept_going"`
+	KeptSavingClosePct float64  `json:"kept_saving_close_pct"`
+	KeptH5             int      `json:"kept_h5"`
+	KeptSavingH5Pct    *float64 `json:"kept_saving_h5_pct,omitempty"`
+
+	KeptSavingCloseMedianPct float64  `json:"kept_saving_close_median_pct"`
+	KeptSavingH5MedianPct    *float64 `json:"kept_saving_h5_median_pct,omitempty"`
+
+	// On the option basis, the same four figures weighted by money: the
+	// summed difference to held over the summed value at the moment, in
+	// percent, and that summed difference itself. A mean of percentages
+	// gives a day with a few cents of premium the weight of the largest
+	// position; these do not.
+	Money *EdgeLevelsInsuranceMoney `json:"money,omitempty"`
+
+	WorstHeldClosePct float64 `json:"worst_held_close_pct"`
+	WorstPlanClosePct float64 `json:"worst_plan_close_pct"`
+	WorstHeldH5Pct    float64 `json:"worst_held_h5_pct"`
+	WorstPlanH5Pct    float64 `json:"worst_plan_h5_pct"`
+
+	// How near the day's low the first cut sold: the sale above the
+	// session's daily low in percent, its median and the cuts within 1%.
+	CutAboveLowMedianPct float64 `json:"cut_above_low_median_pct"`
+	CutsWithin1PctOfLow  int     `json:"cuts_within_1pct_of_low"`
+}
+
+// EdgeLevelsInsuranceMoney is an insurance row's cost and saving weighted by
+// the calls' value at the moment, with the money itself.
+type EdgeLevelsInsuranceMoney struct {
+	TurnedCostClosePct float64 `json:"turned_cost_close_pct"`
+	TurnedCostClose    float64 `json:"turned_cost_close"`
+	TurnedCostH5Pct    float64 `json:"turned_cost_h5_pct"`
+	TurnedCostH5       float64 `json:"turned_cost_h5"`
+	KeptSavingClosePct float64 `json:"kept_saving_close_pct"`
+	KeptSavingClose    float64 `json:"kept_saving_close"`
+	KeptSavingH5Pct    float64 `json:"kept_saving_h5_pct"`
+	KeptSavingH5       float64 `json:"kept_saving_h5"`
+}
+
+// EdgeLevelsOptionPct is a result on the calls held: the position's value
+// against its modelled value at the moment, in percent, with what the end
+// value is (recorded or modelled).
+type EdgeLevelsOptionPct struct {
+	// MomentValue is the calls' modelled value at the moment, in the
+	// contract's currency: what the percentages are of, and the weight of
+	// the day in a money-weighted figure.
+	MomentValue float64  `json:"moment_value"`
+	ClosePct    float64  `json:"close_pct"`
+	CloseSource string   `json:"close_source"`
+	H5Pct       *float64 `json:"h5_pct,omitempty"`
+	H5Source    string   `json:"h5_source,omitempty"`
+}
+
+// EdgeLevelsEntry is one buy judged as an entry: a later-session buy back
+// after a cut, an add the replay's rules made, or an add the owner made. H5Pct
+// is the stock's close five sessions after the buy against the buy price;
+// OptionH5Pct the same on the calls. A buy back that never came, or whose
+// five sessions have not all closed, is kept with its state.
+type EdgeLevelsEntry struct {
+	Kind         string    `json:"kind"`
+	State        string    `json:"state"`
+	Day          string    `json:"day,omitempty"`
+	At           time.Time `json:"at,omitzero"`
+	Price        float64   `json:"price,omitempty"`
+	H5Pct        *float64  `json:"h5_pct,omitempty"`
+	OptionH5Pct  *float64  `json:"option_h5_pct,omitempty"`
+	OptionSource string    `json:"option_source,omitempty"`
+}
+
+// EdgeLevelsEntrySum counts one kind of entry and what it earned against
+// its baseline (staying out after the cut; not adding): the mean result five
+// sessions after the buy, on the stock and on the calls. Reading is set for
+// buy backs (whose cuts the reading drafts); adds are read on every day.
+type EdgeLevelsEntrySum struct {
+	Kind    string `json:"kind"`
+	Reading string `json:"reading,omitempty"`
+	Half    string `json:"half"`
+	// Cuts is the cuts a buy back could follow; zero for adds.
+	Cuts    int `json:"cuts,omitempty"`
+	Bought  int `json:"bought"`
+	Never   int `json:"never"`
+	Pending int `json:"pending"`
+
+	Judged    int      `json:"judged"`
+	H5MeanPct *float64 `json:"h5_mean_pct,omitempty"`
+	H5Wins    int      `json:"h5_wins"`
+
+	OptionJudged    int      `json:"option_judged"`
+	OptionRecorded  int      `json:"option_recorded"`
+	OptionH5MeanPct *float64 `json:"option_h5_mean_pct,omitempty"`
+	OptionH5Wins    int      `json:"option_h5_wins"`
+}
+
+// EdgeLevelsOptionShare says how much of a look's option figures rests on
+// recorded prices: the days with an option result, the days without one (no
+// recorded price of a held call at the prior close, or one no volatility
+// explains), and the end values that
+// were recorded, at the close and five sessions on. ActualDays is the days
+// the owner traded the stock's options, ActualUnpriced those of them whose
+// result could not be valued.
+type EdgeLevelsOptionShare struct {
+	Days           int `json:"days"`
+	Unavailable    int `json:"unavailable"`
+	CloseRecorded  int `json:"close_recorded"`
+	H5Days         int `json:"h5_days"`
+	H5Recorded     int `json:"h5_recorded"`
+	ActualDays     int `json:"actual_days"`
+	ActualUnpriced int `json:"actual_unpriced"`
+}
+
+// EdgeLevelsActual is what the owner did that session in the stock's
+// options, from the statement's trades (a trade made by hand in TWS is among
+// them): the number of sales and buys and the position's value after them
+// against its modelled value at the moment, with the trades' own prices.
+type EdgeLevelsActual struct {
+	Sales  int                  `json:"sales"`
+	Buys   int                  `json:"buys"`
+	Result *EdgeLevelsOptionPct `json:"result,omitempty"`
 }
 
 // EdgeLevelsSample counts the sample and what was left out, by reason.
@@ -166,6 +346,11 @@ type EdgeLevelsResultMean struct {
 	H5MeanPct      *float64 `json:"h5_mean_pct,omitempty"`
 	H5BeatsHeld    int      `json:"h5_beats_held"`
 	H5Days         int      `json:"h5_days"`
+	// The same means on the calls held, over the days with an option result.
+	OptionCloseMeanPct *float64 `json:"option_close_mean_pct,omitempty"`
+	OptionCloseDays    int      `json:"option_close_days"`
+	OptionH5MeanPct    *float64 `json:"option_h5_mean_pct,omitempty"`
+	OptionH5Days       int      `json:"option_h5_days"`
 }
 
 // EdgeLevelsTally is what the review counts beside the money, for one
@@ -235,21 +420,31 @@ type EdgeLevelsDay struct {
 	Close5Day   string           `json:"close_5_day,omitempty"`
 	Look        EdgeLevelsDraft  `json:"look"`
 	Later       *EdgeLevelsDraft `json:"later,omitempty"`
+	// Adds are the adds the replay's two rules made after the look and the
+	// ones the owner made that session; Actual is what he did in the stock's
+	// options, set on the days he traded them.
+	Adds   []EdgeLevelsEntry `json:"adds,omitempty"`
+	Actual *EdgeLevelsActual `json:"actual,omitempty"`
 }
 
 // EdgeLevelsDraft is a row's levels frozen at its moment and the results
 // valued from that moment. A row the rule does not draft carries the held
 // result only.
 type EdgeLevelsDraft struct {
-	Moment      time.Time             `json:"moment"`
-	MomentPrice float64               `json:"moment_price"`
-	DayHigh     float64               `json:"day_high"`
-	DayLow      float64               `json:"day_low"`
-	DayMid      float64               `json:"day_mid"`
-	Cut         float64               `json:"cut"`
-	Stop        float64               `json:"stop"`
-	Trims       []float64             `json:"trims"`
-	Results     []EdgeLevelsDayResult `json:"results"`
+	Moment      time.Time `json:"moment"`
+	MomentPrice float64   `json:"moment_price"`
+	DayHigh     float64   `json:"day_high"`
+	DayLow      float64   `json:"day_low"`
+	DayMid      float64   `json:"day_mid"`
+	Cut         float64   `json:"cut"`
+	Stop        float64   `json:"stop"`
+	Trims       []float64 `json:"trims"`
+	// NearTrim is the quarter-range trim level the near-trim version uses.
+	NearTrim float64               `json:"near_trim"`
+	Results  []EdgeLevelsDayResult `json:"results"`
+	// LaterBuyBack is set when the rule's cut fired: the first daily close
+	// back above the cut level within the five sessions after the cut's.
+	LaterBuyBack *EdgeLevelsEntry `json:"later_buy_back,omitempty"`
 }
 
 // EdgeLevelsDayResult is one version and size on one day.
@@ -259,6 +454,8 @@ type EdgeLevelsDayResult struct {
 	ClosePct float64           `json:"close_pct"`
 	H5Pct    *float64          `json:"h5_pct,omitempty"`
 	Events   []EdgeLevelsEvent `json:"events"`
+	// Option is the same result on the calls held, when they could be priced.
+	Option *EdgeLevelsOptionPct `json:"option,omitempty"`
 }
 
 // EdgeLevelsEvent is one sale or buy the version made, a fraction of the
