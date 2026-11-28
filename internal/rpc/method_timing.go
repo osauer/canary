@@ -109,6 +109,8 @@ var methodTimings = []MethodTiming{
 	{Method: MethodGammaZeroSPX, Lifetime: MethodLifetimeUnary, DaemonTimeout: 55 * time.Second},
 	{Method: MethodMacroSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 2 * time.Second},
 	{Method: MethodRegimeSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 50 * time.Second},
+	// The regime snapshot's own read; compacting it adds no wait.
+	{Method: MethodRegimeMonitor, Lifetime: MethodLifetimeUnary, DaemonTimeout: 50 * time.Second},
 	// The sum of its sequential reads: account, positions, regime, market
 	// events, rules and the account P&L retry.
 	{Method: MethodStressSnapshot, Lifetime: MethodLifetimeUnary, DaemonTimeout: 135 * time.Second},

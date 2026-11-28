@@ -17,10 +17,6 @@ func accountIntradayTool() Tool {
 			if err := rpc.ValidateAccountIntradayParams(args); err != nil {
 				return nil, err
 			}
-			var out rpc.AccountIntradayResult
-			if err := rpc.Call(ctx, conn, api.AccountIntraday, rpc.NoParams{}, &out); err != nil {
-				return nil, err
-			}
-			return json.Marshal(out)
+			return relay(ctx, conn, api.AccountIntraday, rpc.NoParams{}, nil)
 		}}
 }

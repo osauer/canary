@@ -17,10 +17,6 @@ func portfolioPlanTool() Tool {
 			if err := rpc.ValidatePortfolioPlanParams(args); err != nil {
 				return nil, err
 			}
-			var out rpc.PortfolioPlanResult
-			if err := rpc.Call(ctx, conn, api.PortfolioPlan, rpc.NoParams{}, &out); err != nil {
-				return nil, err
-			}
-			return json.Marshal(out)
+			return relay(ctx, conn, api.PortfolioPlan, rpc.NoParams{}, nil)
 		}}
 }

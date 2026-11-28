@@ -36,6 +36,7 @@ const (
 	MethodBreadthSPX              = "breadth.spx"
 	MethodGammaZeroSPX            = "gamma.zero_spx"
 	MethodRegimeSnapshot          = "regime.snapshot"
+	MethodRegimeMonitor           = "regime.monitor"
 	MethodStressSnapshot          = "stress.snapshot"
 	MethodOrderPlace              = "order.place"
 	MethodOrderModify             = "order.modify"

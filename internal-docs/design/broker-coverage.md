@@ -101,7 +101,7 @@ Tests run without a live broker; the wire smoke reads a live IBKR gateway (`scri
 | gamma | live smoke `gamma`; live smoke `gamma-spx` | `TestMethodsOnTheIBKRConnectorAreNotServedWhileOpenDIsUp` | `gamma.zero_spx` |
 | bond lookup |   | `TestOpenDUpNeverAnswersGatewayUnavailable` | `market.bond` |
 | breadth |   |   | `breadth.spx` |
-| regime | live smoke `regime` | `TestOpenDRegimeReadsListedInputsAndRefusesIndicesAndFX`; `TestOpenDRegimeAndStressAnswerEndToEnd`; `TestOpenDRegimeNamesAMissingQuoteRight` | `regime.snapshot` |
+| regime | live smoke `regime` | `TestOpenDRegimeReadsListedInputsAndRefusesIndicesAndFX`; `TestOpenDRegimeAndStressAnswerEndToEnd`; `TestOpenDRegimeNamesAMissingQuoteRight` | `regime.monitor`, `regime.snapshot` |
 | portfolio stress |   | `TestOpenDRegimeAndStressAnswerEndToEnd` | `stress.snapshot` |
 | macro |   |   | `macro.snapshot` |
 | market calendar and events |   |   | `market.calendar`, `market_events.snapshot` |

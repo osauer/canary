@@ -33,6 +33,28 @@ func (s *Server) handleStressSnapshot(ctx context.Context, req *rpc.Request) (*r
 	return out, nil
 }
 
+// handleRegimeMonitor serves the compact monitor view of regime.snapshot. The
+// daemon builds it, so a reader passes on the rows the installed daemon
+// serves rather than the ones its own build knows. Compacting edits its
+// input and the snapshot may be the cache's own, so it works on what a
+// remote reader would have decoded.
+func (s *Server) handleRegimeMonitor(ctx context.Context, req *rpc.Request) (*rpc.RegimeMonitorResult, error) {
+	served, err := s.handleRegimeSnapshot(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	buf, err := json.Marshal(served)
+	if err != nil {
+		return nil, err
+	}
+	var regime rpc.RegimeSnapshotResult
+	if err := json.Unmarshal(buf, &regime); err != nil {
+		return nil, err
+	}
+	out := rpc.CompactRegimeMonitor(&regime)
+	return &out, nil
+}
+
 // handlePositionsRisk serves the compact portfolio-risk view of
 // positions.list. The daemon flags the option legs, so readers show the
 // installed daemon's thresholds rather than the ones compiled into them.

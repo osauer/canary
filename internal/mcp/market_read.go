@@ -17,10 +17,6 @@ func marketReadTool() Tool {
 			if err := rpc.ValidateMarketReadParams(args); err != nil {
 				return nil, err
 			}
-			var out rpc.MarketReadResult
-			if err := rpc.Call(ctx, conn, api.MarketRead, rpc.NoParams{}, &out); err != nil {
-				return nil, err
-			}
-			return json.Marshal(out)
+			return relay(ctx, conn, api.MarketRead, rpc.NoParams{}, nil)
 		}}
 }

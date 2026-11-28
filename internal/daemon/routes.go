@@ -102,6 +102,7 @@ func (s *Server) routeTable() map[string]route {
 		api.BreadthSPX.Name:           serve(api.BreadthSPX, "breadth", s.handleBreadthSPX),
 		api.GammaZeroSPX.Name:         serve(api.GammaZeroSPX, "gamma", s.handleGammaZeroSPX),
 		api.RegimeSnapshot.Name:       serve(api.RegimeSnapshot, "regime", s.handleRegimeSnapshot),
+		api.RegimeMonitor.Name:        serve(api.RegimeMonitor, "regime", s.handleRegimeMonitor),
 		api.StressSnapshot.Name:       serve(api.StressSnapshot, "portfolio stress", s.handleStressSnapshot),
 		api.ScorecardRead.Name:        serve(api.ScorecardRead, "rules, mandate and risk policy", s.handleScorecardRead),
 		api.MandateRisk.Name:          serve(api.MandateRisk, "rules, mandate and risk policy", s.handleMandateRisk),

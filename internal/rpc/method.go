@@ -76,6 +76,26 @@ func Call[P, R any](ctx context.Context, c Caller, m Method[P, R], p P, out *R) 
 	return c.Call(ctx, m.Name, params, out)
 }
 
+// CallRaw sends method m with request p through c and returns the result as
+// the daemon sent it, so a caller built before the daemon added a field
+// passes that field on instead of dropping it. A daemon that answers no
+// result, or null, yields R's zero value encoded, as decoding into R and
+// encoding it again would.
+func CallRaw[P, R any](ctx context.Context, c Caller, m Method[P, R], p P) (json.RawMessage, error) {
+	var params any = p
+	if _, none := any(p).(NoParams); none {
+		params = nil
+	}
+	var raw json.RawMessage
+	if err := c.Call(ctx, m.Name, params, &raw); err != nil {
+		return nil, err
+	}
+	if sent := bytes.TrimSpace(raw); len(sent) == 0 || bytes.Equal(sent, []byte("null")) {
+		return json.Marshal(*new(R))
+	}
+	return raw, nil
+}
+
 // CheckParams refuses params that are not one JSON value of the request type
 // declared for method name, or that carry a field that type does not have.
 // Empty and null params pass: the method then reads its zero request. A name

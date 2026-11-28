@@ -1,8 +1,10 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"slices"
@@ -12,8 +14,6 @@ import (
 	"github.com/osauer/canary/v3/internal/feedback"
 	"github.com/osauer/canary/v3/internal/rpc"
 	"github.com/osauer/canary/v3/internal/rpc/api"
-	"github.com/osauer/canary/v3/internal/scorecard"
-	"github.com/osauer/canary/v3/internal/stress"
 )
 
 // Tool is the registered shape of an MCP tool exposed by `canary mcp`.
@@ -36,6 +36,10 @@ type Tool struct {
 	// call, and never starts a daemon for it.
 	DaemonOptional bool
 	Handler        func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error)
+	// Program, when set, answers the exported Go client in place of Handler.
+	// Its reader is a program, never a model, so it relays the daemon's
+	// bytes where Handler keeps to this build's types.
+	Program func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error)
 }
 
 // Tools is the canonical inventory exposed over MCP. Order is the same as
@@ -87,18 +91,10 @@ var Tools = []Tool{
 			return json.Marshal(feedback.Compose(report))
 		}},
 	{Name: "canary_data_check", Title: "Canary Required Data Check", RPCMethods: []string{rpc.MethodDataCheck}, ReadOnlyHint: new(true), Description: "Request or inspect a coalesced bounded check of required data sources using reference quote probes, not a holdings inventory. Counts describe sources, not instruments. Reuses Canary subscriptions and existing retry windows; history, options and public sources keep their producer schedules. Returns queued/running or completed coverage; it cannot purchase subscriptions or repair access. Use canary_data_health for the passive canonical report. Does not place orders, change settings or restart the gateway.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
-		var r rpc.DataCheckResult
-		if err := rpc.Call(ctx, conn, api.DataCheck, rpc.NoParams{}, &r); err != nil {
-			return nil, err
-		}
-		return json.Marshal(r)
+		return relay(ctx, conn, api.DataCheck, rpc.NoParams{}, nil)
 	}},
 	{Name: "canary_portfolio", Title: "Canary Portfolio Composition", RPCMethods: []string{rpc.MethodPortfolioSnapshot}, Description: "Read current portfolio composition in account base currency: signed market value by asset class and by GICS sector as a share of net liquidation. Options count at premium value under their underlying; the embedded index funds (SPY, QQQ, IWM) spread over published sector weights with their as-of dates; other funds pool without look-through. Holdings the broker no longer quotes or marks at zero are excluded and counted. Cost basis uses broker average cost including the option multiplier. This is allocation, not directional risk, a return percentage, or statement performance.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
-		var res rpc.PortfolioSnapshotResult
-		if err := rpc.Call(ctx, conn, api.PortfolioSnapshot, rpc.NoParams{}, &res); err != nil {
-			return nil, err
-		}
-		return json.Marshal(res)
+		return relay(ctx, conn, api.PortfolioSnapshot, rpc.NoParams{}, nil)
 	}},
 	{Name: "canary_recon_status", Title: "Canary Reconciliation Status", RPCMethods: []string{rpc.MethodReconStatus}, Description: "Read redacted automatic statement acquisition and capital-flow/equity reconciliation status. Acquisition health is separate from evaluation. This does not prove complete broker order or fill visibility and performs no refresh, reconciliation acknowledgement, or broker action. IBKR only; on OpenD the result reports `not_applicable`.", JSONSchema: schemaObject(nil, nil), Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 		var res rpc.ReconStatusResult
@@ -124,17 +120,9 @@ var Tools = []Tool{
 				return nil, err
 			}
 			if strings.TrimSpace(in.BondIdentifier) != "" {
-				var res rpc.MarketBondResult
-				if err := rpc.Call(ctx, conn, api.MarketBond, rpc.MarketBondParams{Identifier: in.BondIdentifier, Currency: in.BondCurrency}, &res); err != nil {
-					return nil, err
-				}
-				return json.Marshal(res)
+				return relay(ctx, conn, api.MarketBond, rpc.MarketBondParams{Identifier: in.BondIdentifier, Currency: in.BondCurrency}, nil)
 			}
-			var res rpc.MarketSnapshotResult
-			if err := rpc.Call(ctx, conn, api.MarketSnapshot, rpc.NoParams{}, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.MarketSnapshot, rpc.NoParams{}, nil)
 		},
 	},
 	{
@@ -146,11 +134,7 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &p); err != nil {
 				return nil, err
 			}
-			var res rpc.MarketHistoryResult
-			if err := rpc.Call(ctx, conn, api.MarketHistory, p, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.MarketHistory, p, nil)
 		},
 	},
 	{
@@ -170,11 +154,7 @@ var Tools = []Tool{
 			if err != nil {
 				return nil, err
 			}
-			var res rpc.MarketTapeResult
-			if err := rpc.Call(ctx, conn, api.MarketTape, p, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.MarketTape, p, nil)
 		},
 	},
 	marketReadTool(),
@@ -186,11 +166,7 @@ var Tools = []Tool{
 		MonitorDescription: "Use only to diagnose why canary_brief is unavailable or degraded. Read-only.",
 		JSONSchema:         schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
-			var res rpc.HealthResult
-			if err := rpc.Call(ctx, conn, api.StatusHealth, rpc.HealthParams{}, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.StatusHealth, rpc.HealthParams{}, nil)
 		},
 	},
 	{
@@ -200,11 +176,7 @@ var Tools = []Tool{
 		Description: "Read local broker-write readiness, pinned context, freeze state, the order cap in force (`order_limits`), and blockers. `broker_permissions` reports the account's trading permission per product class as IBKR's own previews showed it: futures always, unknown with the reason until a check could run (the daemon checks them at each start and then daily, once a preview is possible, with a preview of one Micro E-mini S&P 500 contract that sends no order), options, stocks and bonds once a preview has shown them; each row's `state` is enabled, not_enabled or unknown, with `checked_at`, `source` and the broker's `detail`. An opening or increasing order in a not_enabled class is refused with `broker_permission_not_enabled`; closing orders are not. Use it for 'can Canary trade', 'why was my order refused for permission' or 'is the index hedge allowed'; use canary_status for daemon and gateway health. It only reports readiness and does not place, modify, or cancel orders.",
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
-			var res rpc.TradingStatus
-			if err := rpc.Call(ctx, conn, api.TradingStatus, rpc.NoParams{}, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.TradingStatus, rpc.NoParams{}, nil)
 		},
 	},
 	{
@@ -214,11 +186,7 @@ var Tools = []Tool{
 		Description: "Read platform settings and observed data quality. This tool cannot change settings or authorize a broker action.",
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
-			var res rpc.PlatformSettings
-			if err := rpc.Call(ctx, conn, api.SettingsGet, rpc.NoParams{}, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.SettingsGet, rpc.NoParams{}, nil)
 		},
 	},
 	{
@@ -238,6 +206,17 @@ var Tools = []Tool{
 			}
 			sanitizeOrdersOpenForMCP(&res)
 			return json.Marshal(res)
+		},
+		Program: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
+			var in rpc.OrdersOpenParams
+			if err := unmarshalArgs(args, &in); err != nil {
+				return nil, err
+			}
+			raw, err := relay(ctx, conn, api.OrdersOpen, in, nil)
+			if err != nil {
+				return nil, err
+			}
+			return withholdOrderProse(raw, "orders", "untracked")
 		},
 	},
 	{
@@ -292,11 +271,7 @@ var Tools = []Tool{
 		Description: "Read account financials. The `authority` block identifies one concrete account and mode with availability, freshness, typed reason, and field presence; missing is never zero. Each `currency_exposure` row and the `base_currency_ledger` carry `interest`: the broker's own credit and debit rate on that currency's cash from the Flex statement's Interest Details (Tiers) section (`source` flex_interest_tiers, `read_at`), each side `available` with the annual decimal `rate` on the tier the current balance's top unit falls in, that `tier`, every `tiers` row, the broker's `value_date` and `generated_at`, or `unavailable` with the `reason` and `last_value_date` (no row for the side, no statement with the section, or a value date older than two business days); never zero for unknown.",
 		JSONSchema:  schemaObject(nil, nil),
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
-			var res rpc.AccountResult
-			if err := rpc.Call(ctx, conn, api.AccountSummary, rpc.AccountSummaryParams{}, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.AccountSummary, rpc.AccountSummaryParams{}, nil)
 		},
 	},
 	{
@@ -326,17 +301,9 @@ var Tools = []Tool{
 			}
 			params := rpc.PositionsListParams{Symbol: in.Symbol, Type: in.Type}
 			if in.View == rpc.ViewRisk {
-				var risk rpc.PositionsRiskResult
-				if err := rpc.Call(ctx, conn, api.PositionsRisk, params, &risk); err != nil {
-					return nil, err
-				}
-				return json.Marshal(risk)
+				return relay(ctx, conn, api.PositionsRisk, params, nil)
 			}
-			var res rpc.PositionsResult
-			if err := rpc.Call(ctx, conn, api.PositionsList, params, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.PositionsList, params, nil)
 		},
 	},
 	{
@@ -375,11 +342,7 @@ var Tools = []Tool{
 			if len(in.Symbols) == 0 {
 				return nil, fmt.Errorf("symbols is required and must be non-empty")
 			}
-			var res rpc.TechnicalResult
-			if err := rpc.Call(ctx, conn, api.Technical, in, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.Technical, in, nil)
 		},
 	},
 
@@ -400,11 +363,7 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			var res rpc.MarketCalendarResult
-			if err := rpc.Call(ctx, conn, api.MarketCalendar, in, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.MarketCalendar, in, nil)
 		},
 	},
 	{
@@ -419,18 +378,14 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			var out rpc.MacroSnapshotResult
-			if err := rpc.Call(ctx, conn, api.MacroSnapshot, in, &out); err != nil {
-				return nil, err
-			}
-			return json.Marshal(out)
+			return relay(ctx, conn, api.MacroSnapshot, in, nil)
 		},
 	},
 	{
 		Name: "canary_regime", Title: "Canary Market Regime",
 		Description:  "Read the detailed broad-market regime: all eight indicators, independent clusters, confirmation eligibility, gamma horizons and skew, source health, and stale or unavailable evidence. Choose view=monitor for a compact dashboard projection or view=full (default) for detailed evidence. Use after canary_brief or for an explicit market-regime question; use canary_stress for how that market state affects the held portfolio. Gamma is a conditional amplification/damping model; open interest does not identify dealer inventory or market direction. The HYG/SPY credit row is judged on settled daily closes only (`hyg_close`, `spy_close`, `spy_close_52w_high`, `close_session`; `hyg_price` and `spy_price` are the live quotes, never banded) and carries its 50-day average of those closes (`hyg_50dma`), HYG's distance from it in percent (`hyg_vs_50dma_pct`), the run of closes on one side of it (`hyg_50dma_run`: side, since, sessions, through) and `red_held` while its exit rule keeps it red after SPY left its high, until HYG closes at or above the average (`streak.since` is the session the red began); the monitor reading says these in words. Read-only; no history or refresh controls.",
 		JSONSchema:   schemaObject(map[string]json.RawMessage{"view": json.RawMessage(`{"type":"string","enum":["full","monitor"],"description":"full (default) retains detailed evidence; monitor uses the shared compact dashboard projection. monitor cannot include gamma profile arrays."}`), "include_profiles": json.RawMessage(`{"type":"boolean","description":"Include large gamma profile arrays; false by default. Scalar measurements, thresholds, warnings and freshness are always retained."}`)}, nil),
-		ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodRegimeSnapshot},
+		ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodRegimeSnapshot, rpc.MethodRegimeMonitor},
 		Handler: func(ctx context.Context, conn *dial.Conn, args json.RawMessage) (json.RawMessage, error) {
 			var in struct {
 				IncludeProfiles bool   `json:"include_profiles"`
@@ -445,6 +400,16 @@ var Tools = []Tool{
 			if in.View == "monitor" && in.IncludeProfiles {
 				return nil, fmt.Errorf("monitor view cannot include profiles")
 			}
+			if in.View == "monitor" {
+				// The daemon builds the monitor view. One that predates the
+				// method answers unknown_method; its snapshot is compacted here.
+				raw, err := relay(ctx, conn, api.RegimeMonitor, rpc.RegimeSnapshotParams{}, nil)
+				if refused, ok := errors.AsType[*rpc.Error](err); !ok || refused.Code != rpc.CodeUnknownMethod {
+					return raw, err
+				}
+			} else if in.IncludeProfiles {
+				return relay(ctx, conn, api.RegimeSnapshot, rpc.RegimeSnapshotParams{}, nil)
+			}
 			var res rpc.RegimeSnapshotResult
 			if err := rpc.Call(ctx, conn, api.RegimeSnapshot, rpc.RegimeSnapshotParams{}, &res); err != nil {
 				return nil, err
@@ -452,9 +417,7 @@ var Tools = []Tool{
 			if in.View == "monitor" {
 				return json.Marshal(rpc.CompactRegimeMonitor(&res))
 			}
-			if !in.IncludeProfiles {
-				rpc.StripRegimeGammaProfiles(&res)
-			}
+			rpc.StripRegimeGammaProfiles(&res)
 			return json.Marshal(res)
 		},
 	},
@@ -467,11 +430,20 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			res, err := stress.FetchStress(ctx, conn)
+			raw, err := relay(ctx, conn, api.StressSnapshot, rpc.StressSnapshotParams{}, nil)
 			if err != nil {
 				return nil, err
 			}
-			return json.Marshal(res)
+			var sent struct {
+				Stress json.RawMessage `json:"stress"`
+			}
+			if err := json.Unmarshal(raw, &sent); err != nil {
+				return nil, err
+			}
+			if len(sent.Stress) == 0 {
+				return json.Marshal(rpc.StressResult{})
+			}
+			return sent.Stress, nil
 		},
 	},
 	{
@@ -487,11 +459,7 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			res, err := rpc.FetchMandateRisk(ctx, conn, in.Refresh)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.MandateRisk, rpc.MandateRiskParams{Refresh: in.Refresh}, nil)
 		},
 	},
 	{
@@ -507,11 +475,7 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			res, err := rpc.FetchCoreTarget(ctx, conn, in.Refresh)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.CoreTarget, rpc.CoreTargetParams{Refresh: in.Refresh}, nil)
 		},
 	},
 	{
@@ -529,11 +493,7 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			res, err := rpc.FetchStrategyTarget(ctx, conn, in.ID, in.Refresh)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.StrategyTarget, rpc.StrategyTargetParams{ID: in.ID, Refresh: in.Refresh}, nil)
 		},
 	},
 	{
@@ -541,11 +501,7 @@ var Tools = []Tool{
 		Description: "Read strategy one's screen (rule `strong-names-v1`, lab spec `s7_strong_names`; owner decisions 2026-11-03): strong US names on short dips, judged on the latest settled US close over the S&P 500 constituents the breadth engine keeps. `numbers` are the rule's: eligible at a price of at least 10, 20-session average dollar volume of at least 20 million and 20-session volatility of at most 70% a year; a rising trend is the close above its 50- and 200-session averages with the 50 above the 200; `strength` is the 126-session return less SPY's in percent, `rank` its place among the eligible names. `watch` is the watch list: a name joins in the top 20 with its trend, leaves after 10 sessions outside the top 20 or on a trend break (`departures`, walked over the last 50 sessions, so a restart changes nothing); `leading` marks the top 8. `entries` are the trade plans: a leading name 3% to 12% under its 10-session high (`dip_pct`), bought the next session at the mid while the regime gate is on or half (`gate_state`, `gate_scale_pct`), stopped 2.5 average true ranges under the entry (`atr`, `stop`), sized to lose 0.5% of the risk base at the stop and at most 5% of it in value, times the gate's scale (`rule_units`), and `units` what the strategy's risk allocation lets through: zero while no register entry names the rule, so every plan is recorded and nothing is bought (`allocation_pct`, `notes`). `held` gives an open name's add at a new 20-session high (gate on, at most two lots) and exit after two closes under its 50-session average. `undated` counts constituents whose closes could not be checked against their dated bars and were left out; `status` hold with `reason` when the screen could not run. Read-only: it proposes, previews and sends nothing.",
 		JSONSchema:  schemaObject(nil, nil), ReadOnlyHint: new(true), RPCMethods: []string{rpc.MethodStrategyOne},
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
-			res, err := rpc.FetchStrategyOne(ctx, conn)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.StrategyOne, rpc.NoParams{}, nil)
 		},
 	},
 	{
@@ -556,11 +512,7 @@ var Tools = []Tool{
 		ReadOnlyHint: new(true),
 		RPCMethods:   []string{rpc.MethodBriefSnapshot},
 		Handler: func(ctx context.Context, conn *dial.Conn, _ json.RawMessage) (json.RawMessage, error) {
-			var res rpc.BriefResult
-			if err := rpc.Call(ctx, conn, api.BriefSnapshot, rpc.BriefSnapshotParams{}, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.BriefSnapshot, rpc.BriefSnapshotParams{}, nil)
 		},
 	},
 	{
@@ -671,14 +623,12 @@ var Tools = []Tool{
 			if err != nil {
 				return nil, err
 			}
-			var res rpc.EdgeResult
-			if err := rpc.Call(ctx, conn, api.EdgeSnapshot, in, &res); err != nil {
-				return nil, err
-			}
-			if err := rpc.ValidateEdgeResult(res); err != nil {
-				return nil, fmt.Errorf("invalid Edge result: %w", err)
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.EdgeSnapshot, in, func(res rpc.EdgeResult) error {
+				if err := rpc.ValidateEdgeResult(res); err != nil {
+					return fmt.Errorf("invalid Edge result: %w", err)
+				}
+				return nil
+			})
 		},
 	},
 	{
@@ -696,11 +646,11 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			res, err := scorecard.Fetch(ctx, conn, in)
+			in, err := rpc.NormalizeScorecardReadParams(in)
 			if err != nil {
 				return nil, err
 			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.ScorecardRead, in, nil)
 		},
 	},
 
@@ -834,11 +784,7 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			var res rpc.RulesResult
-			if err := rpc.Call(ctx, conn, api.RulesSnapshot, rpc.RulesSnapshotParams{Symbol: in.Symbol}, &res); err != nil {
-				return nil, err
-			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.RulesSnapshot, rpc.RulesSnapshotParams{Symbol: in.Symbol}, nil)
 		},
 	},
 	{
@@ -876,15 +822,10 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			var res rpc.TradeProposalSnapshot
 			if in.Refresh {
-				if err := rpc.Call(ctx, conn, api.TradeProposalsRefresh, rpc.TradeProposalRefreshParams{Show: in.Show}, &res); err != nil {
-					return nil, err
-				}
-			} else if err := rpc.Call(ctx, conn, api.TradeProposalsSnapshot, rpc.TradeProposalSnapshotParams{Show: in.Show}, &res); err != nil {
-				return nil, err
+				return relay(ctx, conn, api.TradeProposalsRefresh, rpc.TradeProposalRefreshParams{Show: in.Show}, nil)
 			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.TradeProposalsSnapshot, rpc.TradeProposalSnapshotParams{Show: in.Show}, nil)
 		},
 	},
 	{
@@ -905,15 +846,10 @@ var Tools = []Tool{
 			if err := unmarshalArgs(args, &in); err != nil {
 				return nil, err
 			}
-			var res rpc.OpportunitySnapshot
 			if in.Refresh {
-				if err := rpc.Call(ctx, conn, api.OpportunitiesRefresh, rpc.OpportunityRefreshParams{Show: in.Show}, &res); err != nil {
-					return nil, err
-				}
-			} else if err := rpc.Call(ctx, conn, api.OpportunitiesSnapshot, rpc.OpportunitySnapshotParams{Show: in.Show}, &res); err != nil {
-				return nil, err
+				return relay(ctx, conn, api.OpportunitiesRefresh, rpc.OpportunityRefreshParams{Show: in.Show}, nil)
 			}
-			return json.Marshal(res)
+			return relay(ctx, conn, api.OpportunitiesSnapshot, rpc.OpportunitySnapshotParams{Show: in.Show}, nil)
 		},
 	},
 }
@@ -933,6 +869,49 @@ func sanitizeOrderViewForMCP(v *rpc.OrderView) {
 	if v.LastMessage != "" {
 		v.LastMessage = orderJournalProseWithheld
 	}
+}
+
+// withholdOrderProse is sanitizeOrderViewForMCP for a relayed result: in the
+// order rows under each named list it removes why_held and replaces a
+// non-empty last_message, and keeps every other key as the daemon sent it.
+// A list or a row that is not what its name promises fails the read, so
+// prose is never passed on because it could not be found.
+func withholdOrderProse(raw json.RawMessage, lists ...string) (json.RawMessage, error) {
+	var result map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, fmt.Errorf("order rows: %w", err)
+	}
+	withheld, err := json.Marshal(orderJournalProseWithheld)
+	if err != nil {
+		return nil, err
+	}
+	for _, list := range lists {
+		sent, ok := result[list]
+		if !ok || string(bytes.TrimSpace(sent)) == "null" {
+			continue
+		}
+		var rows []map[string]json.RawMessage
+		if err := json.Unmarshal(sent, &rows); err != nil {
+			return nil, fmt.Errorf("order rows: %s: %w", list, err)
+		}
+		for i, row := range rows {
+			if row == nil {
+				return nil, fmt.Errorf("order rows: %s[%d] is not an order", list, i)
+			}
+			delete(row, "why_held")
+			if message, ok := row["last_message"]; ok {
+				if string(bytes.TrimSpace(message)) == `""` {
+					delete(row, "last_message")
+				} else {
+					row["last_message"] = withheld
+				}
+			}
+		}
+		if result[list], err = json.Marshal(rows); err != nil {
+			return nil, err
+		}
+	}
+	return json.Marshal(result)
 }
 
 func sanitizeOrderEventsForMCP(events []rpc.OrderEvent) {

@@ -43,6 +43,7 @@ portfolio.snapshot
 positions.list
 positions.risk
 quote.snapshot
+regime.monitor
 regime.snapshot
 rules.snapshot
 settings.get

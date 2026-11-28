@@ -38,10 +38,6 @@ func stockAddTool() Tool {
 			if err != nil {
 				return nil, err
 			}
-			var out rpc.AddPlanResult
-			if err := rpc.Call(ctx, conn, api.AddPlan, p, &out); err != nil {
-				return nil, err
-			}
-			return json.Marshal(out)
+			return relay(ctx, conn, api.AddPlan, p, nil)
 		}}
 }

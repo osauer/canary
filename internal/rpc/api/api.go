@@ -48,6 +48,7 @@ var (
 	BreadthSPX                           = rpc.Define[rpc.BreadthSPXParams, rpc.BreadthSPXResult](rpc.MethodBreadthSPX)
 	GammaZeroSPX                         = rpc.Define[rpc.GammaZeroSPXParams, rpc.GammaZeroSPXResult](rpc.MethodGammaZeroSPX)
 	RegimeSnapshot                       = rpc.Define[rpc.RegimeSnapshotParams, rpc.RegimeSnapshotResult](rpc.MethodRegimeSnapshot)
+	RegimeMonitor                        = rpc.Define[rpc.RegimeSnapshotParams, rpc.RegimeMonitorResult](rpc.MethodRegimeMonitor)
 	StressSnapshot                       = rpc.Define[rpc.StressSnapshotParams, rpc.StressSnapshotResult](rpc.MethodStressSnapshot)
 	ScorecardRead                        = rpc.Define[rpc.ScorecardReadParams, rpc.ScorecardResult](rpc.MethodScorecardRead)
 	MandateRisk                          = rpc.Define[rpc.MandateRiskParams, rpc.MandateRiskResult](rpc.MethodMandateRisk)

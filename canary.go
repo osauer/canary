@@ -63,7 +63,10 @@ func New(o Options) *Client {
 func (c *Client) SocketPath() string { return c.socket }
 
 // Call executes the catalogue tool name with JSON args and returns the tool's
-// JSON result, the same bytes canary mcp places in its text content block.
+// JSON result. A read tool passes on what the daemon sent, so the result may
+// carry fields newer than this build: decode the fields you use and ignore
+// the rest. Open orders reach a program with those fields too, where canary
+// mcp keeps to this build's types; broker free text is withheld from both.
 // Empty args mean an empty object. The call ends at ctx's deadline or at the
 // tool's catalogue budget, whichever comes first, and such an end reports
 // context.DeadlineExceeded. A failure the daemon reported is an *Error.
@@ -85,7 +88,11 @@ func (c *Client) Call(ctx context.Context, name string, args json.RawMessage) (j
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	defer conn.Close()
-	out, err := tool.Handler(ctx, conn, args)
+	handler := tool.Handler
+	if tool.Program != nil {
+		handler = tool.Program
+	}
+	out, err := handler(ctx, conn, args)
 	if err != nil {
 		return nil, failure(ctx, name, err)
 	}

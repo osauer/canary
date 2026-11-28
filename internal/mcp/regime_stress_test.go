@@ -136,7 +136,9 @@ func TestRegimeMonitorProjectionRetainsUnavailableEligibility(t *testing.T) {
 	expectedRaw, _ := json.Marshal(rpc.CompactRegimeMonitor(&want))
 	var expected rpc.RegimeMonitorResult
 	_ = json.Unmarshal(expectedRaw, &expected)
-	if !reflect.DeepEqual(got, expected) || !reflect.DeepEqual(<-calls, []string{rpc.MethodRegimeSnapshot}) {
+	// This daemon predates regime.monitor: it refuses the method, and the
+	// tool compacts its snapshot as before.
+	if !reflect.DeepEqual(got, expected) || !reflect.DeepEqual(<-calls, []string{rpc.MethodRegimeMonitor, rpc.MethodRegimeSnapshot}) {
 		t.Fatal("compact MCP adapter changed authority or dispatched invalid inputs")
 	}
 }
