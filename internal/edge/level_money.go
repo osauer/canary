@@ -28,10 +28,10 @@ import (
 //     price is valued at intrinsic value on that day's stock close.
 //   - A day whose held calls have no recorded price at the prior close, or
 //     a price no volatility explains, has no option result and is counted.
-//     (Until the first run on the owner's sessions such a contract was
-//     priced at intrinsic value at the moment; on five days of one name that
-//     put the moment's value at a sixteenth of the recorded close, so the
-//     day is now left out. No version changed.)
+//   - A percentage of a small premium is fragile, and a mean of such
+//     percentages gives a few cents of premium the weight of the largest
+//     position. The insurance rows therefore also carry the figures
+//     weighted by the calls' value at the moment, and medians.
 //
 // Nothing here changes a version: the option figure is the version's own
 // sales and buys put through the option's price.
@@ -293,7 +293,7 @@ func (m *levelOptModel) result(sim levelSim, day string, close float64, day5 str
 		}
 	}
 	end, source := m.end(day, close)
-	out := &rpc.EdgeLevelsOptionPct{ClosePct: (cash+sim.units*end)/m.v0*100 - 100, CloseSource: source}
+	out := &rpc.EdgeLevelsOptionPct{MomentValue: m.v0, ClosePct: (cash+sim.units*end)/m.v0*100 - 100, CloseSource: source}
 	if close5 != nil && day5 != "" {
 		end5, source5 := m.end(day5, *close5)
 		out.H5Pct, out.H5Source = new((cash+sim.units*end5)/m.v0*100-100), source5
@@ -353,7 +353,7 @@ func (m *levelOptModel) levelActual(fills []levelOptFill, day string, close floa
 	if !ok {
 		return out
 	}
-	out.Result = &rpc.EdgeLevelsOptionPct{ClosePct: (cash+end)/m.v0*100 - 100, CloseSource: source}
+	out.Result = &rpc.EdgeLevelsOptionPct{MomentValue: m.v0, ClosePct: (cash+end)/m.v0*100 - 100, CloseSource: source}
 	if close5 != nil && day5 != "" {
 		if end5, source5, ok := value(day5, *close5); ok {
 			out.Result.H5Pct, out.Result.H5Source = new((cash+end5)/m.v0*100-100), source5

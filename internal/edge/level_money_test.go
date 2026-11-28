@@ -240,3 +240,32 @@ func TestLevelInsuranceSplitsTheCutsIntoFallsThatTurnedAndFallsThatKeptGoing(t *
 	near(t, "worst held", row.WorstHeldClosePct, (94.0/97-1)*100)
 	near(t, "worst with the plan", row.WorstPlanClosePct, (95.0/97-1)*100)
 }
+
+func TestLevelInsuranceWeightsTheOptionFiguresByTheCallsValueAtTheMoment(t *testing.T) {
+	// Two cuts that turned: a position worth 1,000 that the cut cost 10%,
+	// and one worth 10 that it cost 200% of.
+	day := func(session string, value, heldPct, planPct float64) rpc.EdgeLevelsDay {
+		opt := func(pct float64) *rpc.EdgeLevelsOptionPct {
+			return &rpc.EdgeLevelsOptionPct{MomentValue: value, ClosePct: pct, CloseSource: rpc.EdgeLevelsRecorded}
+		}
+		return rpc.EdgeLevelsDay{Symbol: "TESTA", Session: session, Row: rpc.EdgeLevelsRowLosing, Close: 98, SessionLow: 94, Look: rpc.EdgeLevelsDraft{Cut: 96, Results: []rpc.EdgeLevelsDayResult{
+			{Version: rpc.EdgeLevelsVersionHeld, Option: opt(heldPct)},
+			{Version: rpc.EdgeLevelsVersionRule, Size: rpc.EdgeLevelsSizeHalves, Option: opt(planPct), Events: []rpc.EdgeLevelsEvent{{Kind: "cut", Fraction: 1, Price: 95}}},
+		}}}
+	}
+	days := []rpc.EdgeLevelsDay{day("2026-03-10", 1000, 5, -5), day("2026-03-11", 10, 150, -50)}
+	for _, r := range LevelReplayInsurance(days) {
+		if r.Reading != rpc.EdgeLevelsReadingPriorLow || r.Size != rpc.EdgeLevelsSizeHalves || r.Half != rpc.EdgeLevelsHalfAll || r.Version != rpc.EdgeLevelsVersionRule || r.Basis != rpc.EdgeLevelsBasisOption {
+			continue
+		}
+		near(t, "mean of percentages", r.TurnedCostClosePct, -105)
+		near(t, "median", r.TurnedCostCloseMedianPct, -105)
+		if r.Money == nil {
+			t.Fatal("no money-weighted figures")
+		}
+		near(t, "money", r.Money.TurnedCostClose, -100-20)
+		near(t, "weighted by money", r.Money.TurnedCostClosePct, -120.0/1010*100)
+		return
+	}
+	t.Fatal("no option row")
+}

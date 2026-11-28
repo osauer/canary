@@ -202,6 +202,13 @@ type EdgeLevelsInsurance struct {
 	KeptSavingCloseMedianPct float64  `json:"kept_saving_close_median_pct"`
 	KeptSavingH5MedianPct    *float64 `json:"kept_saving_h5_median_pct,omitempty"`
 
+	// On the option basis, the same four figures weighted by money: the
+	// summed difference to held over the summed value at the moment, in
+	// percent, and that summed difference itself. A mean of percentages
+	// gives a day with a few cents of premium the weight of the largest
+	// position; these do not.
+	Money *EdgeLevelsInsuranceMoney `json:"money,omitempty"`
+
 	WorstHeldClosePct float64 `json:"worst_held_close_pct"`
 	WorstPlanClosePct float64 `json:"worst_plan_close_pct"`
 	WorstHeldH5Pct    float64 `json:"worst_held_h5_pct"`
@@ -213,10 +220,27 @@ type EdgeLevelsInsurance struct {
 	CutsWithin1PctOfLow  int     `json:"cuts_within_1pct_of_low"`
 }
 
+// EdgeLevelsInsuranceMoney is an insurance row's cost and saving weighted by
+// the calls' value at the moment, with the money itself.
+type EdgeLevelsInsuranceMoney struct {
+	TurnedCostClosePct float64 `json:"turned_cost_close_pct"`
+	TurnedCostClose    float64 `json:"turned_cost_close"`
+	TurnedCostH5Pct    float64 `json:"turned_cost_h5_pct"`
+	TurnedCostH5       float64 `json:"turned_cost_h5"`
+	KeptSavingClosePct float64 `json:"kept_saving_close_pct"`
+	KeptSavingClose    float64 `json:"kept_saving_close"`
+	KeptSavingH5Pct    float64 `json:"kept_saving_h5_pct"`
+	KeptSavingH5       float64 `json:"kept_saving_h5"`
+}
+
 // EdgeLevelsOptionPct is a result on the calls held: the position's value
 // against its modelled value at the moment, in percent, with what the end
 // value is (recorded or modelled).
 type EdgeLevelsOptionPct struct {
+	// MomentValue is the calls' modelled value at the moment, in the
+	// contract's currency: what the percentages are of, and the weight of
+	// the day in a money-weighted figure.
+	MomentValue float64  `json:"moment_value"`
 	ClosePct    float64  `json:"close_pct"`
 	CloseSource string   `json:"close_source"`
 	H5Pct       *float64 `json:"h5_pct,omitempty"`

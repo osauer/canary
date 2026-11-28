@@ -50,6 +50,14 @@ func levelOnBasis(r rpc.EdgeLevelsDayResult, basis string) (closePct float64, h5
 func levelInsuranceRow(days []rpc.EdgeLevelsDay, reading, size, half, version, basis string) (rpc.EdgeLevelsInsurance, bool) {
 	row := rpc.EdgeLevelsInsurance{Reading: reading, Size: size, Half: half, Version: version, Basis: basis}
 	var turned, turned5, kept, kept5, nearLow []float64
+	var planRes0 rpc.EdgeLevelsOptionPct
+	// Money-weighted sums: the difference to held and the value at the
+	// moment, for the turned and kept-going cuts at the close and at five.
+	var money, weight [4]float64
+	add := func(i int, diffPct float64) {
+		money[i] += diffPct / 100 * planRes0.MomentValue
+		weight[i] += planRes0.MomentValue
+	}
 	for i := range days {
 		d := &days[i]
 		if half != rpc.EdgeLevelsHalfAll && d.Half != half {
@@ -79,15 +87,23 @@ func levelInsuranceRow(days []rpc.EdgeLevelsDay, reading, size, half, version, b
 			continue
 		}
 		row.Cuts++
+		planRes0 = rpc.EdgeLevelsOptionPct{}
+		if basis == rpc.EdgeLevelsBasisOption {
+			planRes0 = *planRes.Option
+		}
 		if d.Close > d.Look.Cut {
 			turned = append(turned, plan-held)
+			add(0, plan-held)
 			if both5 {
 				turned5 = append(turned5, *plan5-*held5)
+				add(1, *plan5-*held5)
 			}
 		} else {
 			kept = append(kept, plan-held)
+			add(2, plan-held)
 			if both5 {
 				kept5 = append(kept5, *plan5-*held5)
+				add(3, *plan5-*held5)
 			}
 		}
 		if d.SessionLow > 0 {
@@ -111,6 +127,16 @@ func levelInsuranceRow(days []rpc.EdgeLevelsDay, reading, size, half, version, b
 		row.KeptSavingH5Pct, row.KeptSavingH5MedianPct = new(levelAvg(kept5)), new(levelMedian(kept5))
 	}
 	row.CutAboveLowMedianPct = levelMedian(nearLow)
+	if basis == rpc.EdgeLevelsBasisOption {
+		pct := func(i int) float64 {
+			if weight[i] <= 0 {
+				return 0
+			}
+			return money[i] / weight[i] * 100
+		}
+		row.Money = &rpc.EdgeLevelsInsuranceMoney{TurnedCostClosePct: pct(0), TurnedCostClose: money[0], TurnedCostH5Pct: pct(1), TurnedCostH5: money[1],
+			KeptSavingClosePct: pct(2), KeptSavingClose: money[2], KeptSavingH5Pct: pct(3), KeptSavingH5: money[3]}
+	}
 	return row, true
 }
 
